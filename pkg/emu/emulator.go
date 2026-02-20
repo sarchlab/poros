@@ -131,6 +131,11 @@ func (em *Emulator) StepDetailed() (arm64asm.Inst, bool, error) {
 		em.Regs.PC += 4
 	}
 
+	// Check halt after execution so the pipeline can see Halted immediately.
+	if em.Regs.PC == em.haltPC && em.InstCount > 0 {
+		em.Halted = true
+	}
+
 	branched := em.Regs.PC != pcBefore+4
 	return inst, branched, nil
 }

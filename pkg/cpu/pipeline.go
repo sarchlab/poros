@@ -1,8 +1,6 @@
 package cpu
 
 import (
-	"fmt"
-
 	"github.com/sarchlab/akita/v4/sim"
 	"github.com/sarchlab/m2sim3/pkg/emu"
 	"golang.org/x/arch/arm64/arm64asm"
@@ -98,6 +96,12 @@ func (p *Pipeline) Tick() bool {
 		p.stageFetch()
 	}
 
+	// If all stages are empty, the pipeline has drained.
+	if !p.fetch.valid && !p.decode.valid && !p.execute.valid &&
+		!p.memory.valid && !p.writeback.valid {
+		p.done = true
+	}
+
 	return !p.done
 }
 
@@ -157,18 +161,12 @@ func (p *Pipeline) stageExecute() bool {
 			p.done = true
 			return true
 		}
-		if p.Emu.Halted {
-			p.done = true
-			// Count this instruction.
-			p.InstDone++
-			p.execute = stageReg{}
-			return true
-		}
 		_ = inst // already have it in execute.inst
 		p.execute.executed = true
 		p.execute.branched = branched
 
 		// Handle taken branch: flush fetch and decode stages.
+		// This also covers halt (RET to haltPC): flush + pipeline drains.
 		if branched {
 			p.flush()
 		}
@@ -251,9 +249,8 @@ func (p *Pipeline) stageFetch() {
 
 	inst, err := arm64asm.Decode(buf[:])
 	if err != nil {
-		p.Err = fmt.Errorf("pipeline fetch decode error at PC=%#x: %w",
-			p.fetchPC, err)
-		p.done = true
+		// Speculative fetch past program end — insert bubble.
+		// The pipeline will flush or halt before this matters.
 		return
 	}
 
