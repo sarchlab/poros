@@ -1,0 +1,292 @@
+package cpu
+
+import (
+	"fmt"
+
+	"github.com/sarchlab/akita/v4/sim"
+	"github.com/sarchlab/m2sim3/pkg/emu"
+	"golang.org/x/arch/arm64/arm64asm"
+)
+
+// stageReg holds one instruction flowing through the pipeline.
+type stageReg struct {
+	valid      bool
+	pc         uint64
+	inst       arm64asm.Inst
+	cyclesLeft int  // remaining cycles in current stage
+	executed   bool // emulator has executed this instruction
+	branched   bool // taken branch detected at Execute
+}
+
+// Pipeline is a 5-stage in-order pipeline TickingComponent.
+//
+// Stages: Fetch → Decode → Execute → Memory → Writeback
+// Each Tick advances the pipeline by one cycle.
+type Pipeline struct {
+	*sim.TickingComponent
+
+	Emu *emu.Emulator
+
+	// Pipeline stage registers.
+	fetch     stageReg
+	decode    stageReg
+	execute   stageReg
+	memory    stageReg
+	writeback stageReg
+
+	// Fetch PC maintained by the pipeline (may differ from emu.PC
+	// while instructions are in-flight).
+	fetchPC uint64
+
+	// Scoreboard: count of pending writes per register.
+	gprPending [32]int
+	fpPending  [32]int
+
+	// Statistics.
+	Cycles   uint64
+	InstDone uint64
+
+	// Configuration.
+	LoadLatency int // memory stage latency for loads (default 4)
+
+	// Internal state.
+	done bool
+	Err  error
+}
+
+// NewPipeline creates a 5-stage pipeline wrapping the given emulator.
+func NewPipeline(
+	name string,
+	engine sim.Engine,
+	freq sim.Freq,
+	emulator *emu.Emulator,
+) *Pipeline {
+	p := &Pipeline{
+		Emu:         emulator,
+		fetchPC:     emulator.Regs.PC,
+		LoadLatency: 4,
+	}
+	p.TickingComponent = sim.NewTickingComponent(name, engine, freq, p)
+	return p
+}
+
+// CPI returns cycles per instruction.
+func (p *Pipeline) CPI() float64 {
+	if p.InstDone == 0 {
+		return 0
+	}
+	return float64(p.Cycles) / float64(p.InstDone)
+}
+
+// Tick advances the pipeline by one cycle.
+// Returns true if the pipeline should continue ticking.
+func (p *Pipeline) Tick() bool {
+	if p.done {
+		return false
+	}
+
+	p.Cycles++
+
+	// Process stages in reverse order to avoid overwriting.
+	p.stageWriteback()
+	p.stageMemory()
+	stall := p.stageExecute()
+	if !stall {
+		stall = p.stageDecode()
+	}
+	if !stall {
+		p.stageFetch()
+	}
+
+	return !p.done
+}
+
+// --- Stage implementations ---
+
+func (p *Pipeline) stageWriteback() {
+	if !p.writeback.valid {
+		return
+	}
+
+	// Clear scoreboard for destination registers.
+	gpr, fp := destRegs(p.writeback.inst)
+	if gpr >= 0 {
+		p.gprPending[gpr]--
+	}
+	if fp >= 0 {
+		p.fpPending[fp]--
+	}
+	if gpr2 := destRegs2(p.writeback.inst); gpr2 >= 0 {
+		p.gprPending[gpr2]--
+	}
+
+	p.InstDone++
+	p.writeback = stageReg{}
+}
+
+func (p *Pipeline) stageMemory() {
+	if !p.memory.valid {
+		return
+	}
+
+	if p.memory.cyclesLeft > 0 {
+		p.memory.cyclesLeft--
+		return
+	}
+
+	// Move to writeback if writeback is empty.
+	if p.writeback.valid {
+		return // structural hazard — stall
+	}
+
+	p.writeback = p.memory
+	p.memory = stageReg{}
+}
+
+// stageExecute returns true if downstream is stalled (memory stage busy).
+func (p *Pipeline) stageExecute() bool {
+	if !p.execute.valid {
+		return false
+	}
+
+	// First cycle: call the emulator for functional execution.
+	if !p.execute.executed {
+		inst, branched, err := p.Emu.StepDetailed()
+		if err != nil {
+			p.Err = err
+			p.done = true
+			return true
+		}
+		if p.Emu.Halted {
+			p.done = true
+			// Count this instruction.
+			p.InstDone++
+			p.execute = stageReg{}
+			return true
+		}
+		_ = inst // already have it in execute.inst
+		p.execute.executed = true
+		p.execute.branched = branched
+
+		// Handle taken branch: flush fetch and decode stages.
+		if branched {
+			p.flush()
+		}
+	}
+
+	if p.execute.cyclesLeft > 0 {
+		p.execute.cyclesLeft--
+		return false
+	}
+
+	// Move to memory if memory is empty.
+	if p.memory.valid {
+		return true // stall
+	}
+
+	p.memory = p.execute
+	// Set memory stage latency.
+	if IsLoad(p.execute.inst.Op) {
+		p.memory.cyclesLeft = p.LoadLatency - 1
+	} else {
+		p.memory.cyclesLeft = 0 // stores and non-memory: 1 cycle
+	}
+	p.execute = stageReg{}
+	return false
+}
+
+// stageDecode returns true if decode is stalled (data hazard).
+func (p *Pipeline) stageDecode() bool {
+	if !p.decode.valid {
+		return false
+	}
+
+	// Check scoreboard for source register hazards.
+	for _, idx := range sourceGPRs(p.decode.inst) {
+		if p.gprPending[idx] > 0 {
+			return true // stall: data hazard
+		}
+	}
+	for _, idx := range sourceFPs(p.decode.inst) {
+		if p.fpPending[idx] > 0 {
+			return true // stall: data hazard
+		}
+	}
+
+	// Move to execute if execute is empty.
+	if p.execute.valid {
+		return true // structural hazard
+	}
+
+	// Set execute latency.
+	p.decode.cyclesLeft = ExecuteLatency(p.decode.inst.Op) - 1
+
+	// Mark destination registers as pending in scoreboard.
+	gpr, fp := destRegs(p.decode.inst)
+	if gpr >= 0 {
+		p.gprPending[gpr]++
+	}
+	if fp >= 0 {
+		p.fpPending[fp]++
+	}
+	if gpr2 := destRegs2(p.decode.inst); gpr2 >= 0 {
+		p.gprPending[gpr2]++
+	}
+
+	p.execute = p.decode
+	p.decode = stageReg{}
+	return false
+}
+
+func (p *Pipeline) stageFetch() {
+	if p.decode.valid {
+		return // decode occupied — stall fetch
+	}
+
+	// Read 4 bytes at fetchPC from emulator memory.
+	var buf [4]byte
+	for i := range buf {
+		buf[i] = p.Emu.Mem.ReadU8(p.fetchPC + uint64(i))
+	}
+
+	inst, err := arm64asm.Decode(buf[:])
+	if err != nil {
+		p.Err = fmt.Errorf("pipeline fetch decode error at PC=%#x: %w",
+			p.fetchPC, err)
+		p.done = true
+		return
+	}
+
+	p.decode = stageReg{
+		valid: true,
+		pc:    p.fetchPC,
+		inst:  inst,
+	}
+	p.fetchPC += 4 // predict not-taken
+}
+
+// flush clears fetch and decode stages after a taken branch.
+func (p *Pipeline) flush() {
+	// Clear scoreboard entries for flushed instructions.
+	if p.decode.valid {
+		p.clearScoreboard(p.decode.inst)
+	}
+	p.fetch = stageReg{}
+	p.decode = stageReg{}
+
+	// Update fetch PC to the branch target (emulator's current PC).
+	p.fetchPC = p.Emu.Regs.PC
+}
+
+func (p *Pipeline) clearScoreboard(inst arm64asm.Inst) {
+	gpr, fp := destRegs(inst)
+	if gpr >= 0 {
+		p.gprPending[gpr]--
+	}
+	if fp >= 0 {
+		p.fpPending[fp]--
+	}
+	if gpr2 := destRegs2(inst); gpr2 >= 0 {
+		p.gprPending[gpr2]--
+	}
+}
