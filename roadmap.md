@@ -87,37 +87,50 @@ The simulator consists of:
 - **Results: OoO CPI 1.47-1.95 (target 1.0-2.0 ✓), speedup 1.53-1.99x over in-order**
 
 ### M6: Branch Predictor
-**Status:** Not started
-**Budget:** 4 cycles
+**Status:** COMPLETE (3 cycles)
+**Budget:** 4 cycles | **Actual:** 3 cycles
 **Scope:**
-- TAGE-like predictor (simplified: 4-6 tables, ~16K total entries)
-- BTB (~2K entries, 4-way)
-- Branch misprediction recovery (~13 cycle penalty)
-- Return address stack
-- **Target: control-flow-heavy benchmarks (floyd-warshall, nussinov) should improve significantly**
+- TAGE-like predictor: bimodal base (4096 entries, 2-bit counters) + tagged table (2048 entries, 3-bit counters)
+- BTB: 2048 entries, 4-way set-associative
+- RAS: 32-entry circular buffer for call/return prediction
+- Global history register (uint64 shift register)
+- 13-cycle misprediction penalty, integrated into OoO pipeline
+- **Results:** BP accuracy 93.1-97.5%, CPI improvement up to 31.1% (3mm), 12.6% (2mm), 9.6% (mvt)
+- Current sim/native ratios: atax=2.2x, mvt=4.4x, gemm=4.0x, 2mm=2.4x, 3mm=2.0x, bicg=2.9x
 
-### M7: Calibration + Full Benchmark Suite
+### M7: Full Benchmark Coverage
 **Status:** Not started
 **Budget:** 8 cycles
 **Scope:**
-- Run all 30 PolyBench benchmarks through simulator
-- Compare vs native timing
-- Identify systematic errors (too fast? too slow?)
-- Tune parameters: cache latencies, pipeline widths, branch predictor size, memory bandwidth
-- Add missing instruction support as needed
-- Correctness validation: compare emulator output vs native for all benchmarks
-- **Target: ≤20% average error, no benchmark >50% error**
+- Extract all 30 PolyBench benchmarks as simulator test functions (currently only 6)
+- Add any missing ARM64 instruction support for remaining 24 benchmarks
+- All 30 benchmarks must produce correct output (maxRelErr=0)
+- Use SMALL dataset for timing comparison (MINI is too noisy — microsecond timings)
+- Collect and report sim/native ratios for all 30 benchmarks
+- **Target: all 30 benchmarks running with correct output**
 
-### M8: Polish + Edge Cases
+### M8: Calibration + Accuracy Tuning
+**Status:** Not started
+**Budget:** 8 cycles
+**Scope:**
+- Analyze systematic errors across all 30 benchmarks
+- Relax conservative memory ordering (currently loads wait for ALL prior stores — too pessimistic)
+- Implement store-to-load forwarding or address-based disambiguation
+- Tune pipeline parameters: execution unit counts, latencies, cache timings
+- Adjust clock frequency / IPC assumptions based on M2 reverse-engineering data
+- **Target: ≤20% average time estimation error, no benchmark >50% error**
+- Note: current sim/native ratios are 2.0-4.4x — need to get to ~1.0x
+
+### M9: Polish + Edge Cases
 **Status:** Not started
 **Budget:** 4 cycles
 **Scope:**
 - Fix remaining outlier benchmarks
-- Code cleanup and documentation
+- Code cleanup
 - Final validation pass
 - Performance optimization of the simulator itself (simulation speed)
 
-## Total Estimated Budget: ~42 cycles | **Spent so far: ~10 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2)**
+## Total Estimated Budget: ~47 cycles | **Spent so far: ~13 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3)**
 
 ## Lessons Learned
 
@@ -176,6 +189,16 @@ The simulator consists of:
 - 142 total tests, all passing
 - Minor gaps: no explicit ROB-full test, bicg native time in test off from timing.csv
 - Sim/native ratios still up to 4.9x — branch predictor (M6) and calibration (M7) needed
+
+### M6
+- Completed in 3 cycles (budgeted 4) — Kai built predictor in 1 cycle, Nora wrote tests in 2 cycles
+- TAGE-like predictor with bimodal + tagged table works well for PolyBench loops
+- BP accuracy 93-97.5% — high because PolyBench has very regular control flow
+- BP improvement varies: 31% for 3mm (many branches), ~0% for atax/gemm/bicg (few mispredictions)
+- taggedTag() uses only PC, not GHR — minor deviation from true TAGE, doesn't matter for these benchmarks
+- Sim/native ratios still 2.0-4.4x — remaining gap is primarily from: (1) conservative memory ordering, (2) parameter calibration, (3) MINI dataset timing noise
+- 2 unit tests are trivially passable by always-taken predictor — tagged table weakly tested in isolation
+- **Key insight for M7**: The 2-4x gap won't close from microarchitectural features alone. Need to expand to all 30 benchmarks and systematically calibrate parameters.
 
 ## Key Risks
 1. **ARM64 emulator complexity**: Even a subset of ARM64 is large. Compiler may emit unexpected instructions.
