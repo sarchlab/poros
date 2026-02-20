@@ -2528,6 +2528,395 @@ func TestOoO_PolyBenchLU(t *testing.T) {
 		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
 }
 
+func TestOoO_PolyBenchFloydWarshall(t *testing.T) {
+	// End-to-end PolyBench kernel_floyd_warshall through the OoO pipeline.
+	// All-pairs shortest paths using triple-nested loop with min comparison.
+	n := 20
+
+	path := make([]float64, n*n)
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			path[i*n+j] = float64(i*j%7 + 1)
+			if (i+j)%13 == 0 || (i+j)%7 == 0 || (i+j)%11 == 0 {
+				path[i*n+j] = 999
+			}
+		}
+	}
+
+	// Golden reference.
+	expected := make([]float64, n*n)
+	copy(expected, path)
+	for k := 0; k < n; k++ {
+		for i := 0; i < n; i++ {
+			for j := 0; j < n; j++ {
+				s := expected[i*n+k] + expected[k*n+j]
+				if s < expected[i*n+j] {
+					expected[i*n+j] = s
+				}
+			}
+		}
+	}
+
+	code := []uint32{
+		0x7100041f, 0x5400046b, 0xd2800008, 0xd37d7c09,
+		0xaa0103ea, 0x2a0003eb, 0x14000005, 0x91000508,
+		0x8b09014a, 0xeb0b011f, 0x54000340, 0xd280000c,
+		0x8b080c2d, 0xaa0103ee, 0x14000005, 0x9100058c,
+		0x8b0901ce, 0xeb0b019f, 0x54fffea0, 0x9b0b7d8f,
+		0xaa0b03f0, 0xaa0a03f1, 0xaa0e03e0, 0x14000005,
+		0x91002000, 0x91002231, 0xf1000610, 0x54fffe80,
+		0xfc6f79a0, 0xfd400221, 0x1e612800, 0xfd400001,
+		0x1e612000, 0x54fffee5, 0xfd000000, 0x17fffff5,
+		0xd65f03c0,
+	}
+
+	codeBase := uint64(0x10000)
+	pathBase := uint64(0x100000)
+	stackBase := uint64(0x200000)
+	haltPC := uint64(0xFFFF0000)
+
+	em := emu.NewEmulator()
+	em.MaxInst = 10_000_000
+	em.LoadProgram(codeBase, encodeInsts(code))
+
+	pathBuf := make([]byte, n*n*8)
+	for i, v := range path {
+		binary.LittleEndian.PutUint64(pathBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(pathBase, pathBuf)
+
+	em.LoadProgram(stackBase, make([]byte, 8192))
+
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(0, uint64(n))
+	em.Regs.WriteX(1, pathBase)
+	em.Regs.WriteX(30, haltPC)
+	em.Regs.SP = stackBase + 8192
+	em.SetHaltPC(haltPC)
+
+	p := runOoOPipeline(t, em)
+
+	if !em.Halted {
+		t.Fatal("emulator should have halted")
+	}
+
+	maxRelErr := 0.0
+	for i := 0; i < n*n; i++ {
+		bits := em.Mem.ReadU64(pathBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := expected[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-10 {
+			row, col := i/n, i%n
+			t.Errorf("path[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+
+	t.Logf("kernel_floyd_warshall: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+}
+
+func TestOoO_PolyBenchCovariance(t *testing.T) {
+	// End-to-end PolyBench kernel_covariance through the OoO pipeline.
+	// Compute covariance matrix from data matrix.
+	m, n := 15, 20
+	floatN := float64(n)
+
+	data := make([]float64, n*m)
+	for i := 0; i < n; i++ {
+		for j := 0; j < m; j++ {
+			data[i*m+j] = float64(i*j) / float64(m)
+		}
+	}
+
+	// Golden reference.
+	dataCopy := make([]float64, n*m)
+	copy(dataCopy, data)
+	mean := make([]float64, m)
+	for j := 0; j < m; j++ {
+		for i := 0; i < n; i++ {
+			mean[j] += dataCopy[i*m+j]
+		}
+		mean[j] /= floatN
+	}
+	for i := 0; i < n; i++ {
+		for j := 0; j < m; j++ {
+			dataCopy[i*m+j] -= mean[j]
+		}
+	}
+	expectedCov := make([]float64, m*m)
+	for i := 0; i < m; i++ {
+		for j := i; j < m; j++ {
+			for k := 0; k < n; k++ {
+				expectedCov[i*m+j] += dataCopy[k*m+i] * dataCopy[k*m+j]
+			}
+			expectedCov[i*m+j] /= (floatN - 1.0)
+			expectedCov[j*m+i] = expectedCov[i*m+j]
+		}
+	}
+
+	code := []uint32{
+		0x7100041f, 0x54000ccb, 0x2a0003e8, 0x2a0103ea,
+		0xd37df109, 0x7100003f, 0x5400028d, 0xd280000b,
+		0xaa0203ec, 0xf82b789f, 0x2f00e401, 0xaa0a03ed,
+		0xaa0c03ee, 0xfd4001c2, 0x1e612841, 0xfc2b7881,
+		0x8b0901ce, 0xf10005ad, 0x54ffff61, 0x1e601821,
+		0xfc2b7881, 0x9100056b, 0x9100218c, 0xeb08017f,
+		0x54fffe21, 0x14000008, 0x2f00e401, 0xaa0803eb,
+		0xaa0403ec, 0x1e601821, 0xfc008581, 0xf100056b,
+		0x54ffffc1, 0x7100043f, 0x5400020b, 0xd280000b,
+		0xaa0203ec, 0xaa0803ed, 0xaa0403ee, 0xaa0c03ef,
+		0xfc4085c1, 0xfd4001e2, 0x1e613841, 0xfc0085e1,
+		0xf10005ad, 0x54ffff61, 0x9100056b, 0x8b09018c,
+		0xeb0a017f, 0x54fffe81, 0x1e7e1001, 0x1e612800,
+		0x7100003f, 0x5400040d, 0xd280000b, 0xd280000c,
+		0x9b087d8d, 0x8b0d0c6d, 0x8b0c0c6e, 0xaa0b03ef,
+		0xaa0c03f0, 0xf83079bf, 0x2f00e401, 0xaa0a03f1,
+		0xaa0203e0, 0xfc6b6802, 0xfc6f6803, 0x1f430441,
+		0xfc3079a1, 0x8b090000, 0xf1000631, 0x54ffff41,
+		0x1e601821, 0xfc3079a1, 0x9b087e11, 0xfc3179c1,
+		0x91000610, 0x910021ef, 0xeb08021f, 0x54fffdc1,
+		0x9100058c, 0x9100216b, 0xeb08019f, 0x54fffca1,
+		0x14000013, 0xd280000a, 0x2f00e401, 0x9100212b,
+		0xaa0803ec, 0x1e601820, 0xaa0c03ed, 0xaa0303ee,
+		0xaa0303ef, 0xfc0085e0, 0xfd0001c0, 0x8b0901ce,
+		0xf10005ad, 0x54ffff81, 0x9100054a, 0x8b0b0063,
+		0xd100058c, 0xeb08015f, 0x54fffe81, 0xd65f03c0,
+	}
+
+	codeBase := uint64(0x10000)
+	dataBase := uint64(0x100000)
+	covBase := uint64(0x200000)
+	meanBase := uint64(0x300000)
+	stackBase := uint64(0x400000)
+	haltPC := uint64(0xFFFF0000)
+
+	em := emu.NewEmulator()
+	em.MaxInst = 10_000_000
+	em.LoadProgram(codeBase, encodeInsts(code))
+
+	dataBuf := make([]byte, n*m*8)
+	for i, v := range data {
+		binary.LittleEndian.PutUint64(dataBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(dataBase, dataBuf)
+
+	em.LoadProgram(covBase, make([]byte, m*m*8))
+	em.LoadProgram(meanBase, make([]byte, m*8))
+
+	em.LoadProgram(stackBase, make([]byte, 8192))
+
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(0, uint64(m))
+	em.Regs.WriteX(1, uint64(n))
+	em.Regs.WriteD(0, floatN)
+	em.Regs.WriteX(2, dataBase)
+	em.Regs.WriteX(3, covBase)
+	em.Regs.WriteX(4, meanBase)
+	em.Regs.WriteX(30, haltPC)
+	em.Regs.SP = stackBase + 8192
+	em.SetHaltPC(haltPC)
+
+	p := runOoOPipeline(t, em)
+
+	if !em.Halted {
+		t.Fatal("emulator should have halted")
+	}
+
+	maxRelErr := 0.0
+	for i := 0; i < m*m; i++ {
+		bits := em.Mem.ReadU64(covBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := expectedCov[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-10 {
+			row, col := i/m, i%m
+			t.Errorf("cov[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+
+	t.Logf("kernel_covariance: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+}
+
+func TestOoO_PolyBenchCorrelation(t *testing.T) {
+	// End-to-end PolyBench kernel_correlation through the OoO pipeline.
+	// Compute correlation matrix from data matrix.
+	m, n := 15, 20
+	floatN := float64(n)
+
+	data := make([]float64, n*m)
+	for i := 0; i < n; i++ {
+		for j := 0; j < m; j++ {
+			data[i*m+j] = float64(i*j)/float64(m) + float64(i)
+		}
+	}
+
+	// Golden reference.
+	dataCopy := make([]float64, n*m)
+	copy(dataCopy, data)
+	mean := make([]float64, m)
+	stddev := make([]float64, m)
+	eps := 0.1
+
+	for j := 0; j < m; j++ {
+		for i := 0; i < n; i++ {
+			mean[j] += dataCopy[i*m+j]
+		}
+		mean[j] /= floatN
+	}
+	for j := 0; j < m; j++ {
+		for i := 0; i < n; i++ {
+			d := dataCopy[i*m+j] - mean[j]
+			stddev[j] += d * d
+		}
+		stddev[j] /= floatN
+		stddev[j] = math.Sqrt(stddev[j])
+		if stddev[j] <= eps {
+			stddev[j] = 1.0
+		}
+	}
+	sqrtN := math.Sqrt(floatN)
+	for i := 0; i < n; i++ {
+		for j := 0; j < m; j++ {
+			dataCopy[i*m+j] -= mean[j]
+			dataCopy[i*m+j] /= (sqrtN * stddev[j])
+		}
+	}
+	expectedCorr := make([]float64, m*m)
+	for i := 0; i < m-1; i++ {
+		expectedCorr[i*m+i] = 1.0
+		for j := i + 1; j < m; j++ {
+			for k := 0; k < n; k++ {
+				expectedCorr[i*m+j] += dataCopy[k*m+i] * dataCopy[k*m+j]
+			}
+			expectedCorr[j*m+i] = expectedCorr[i*m+j]
+		}
+	}
+	expectedCorr[(m-1)*m+(m-1)] = 1.0
+
+	code := []uint32{
+		0x71000408, 0x540009cb, 0x2a0003e9, 0xd37df12a,
+		0x7100003f, 0x540002ad, 0xd280000b, 0x2a0103ec,
+		0xaa0203ed, 0xf82b789f, 0x2f00e401, 0xaa0c03ee,
+		0xaa0d03ef, 0xfd4001e2, 0x1e612841, 0xfc2b7881,
+		0x8b0a01ef, 0xf10005ce, 0x54ffff61, 0x1e601821,
+		0xfc2b7881, 0x9100056b, 0x910021ad, 0xeb09017f,
+		0x54fffe21, 0x14000008, 0x2f00e401, 0xaa0903eb,
+		0xaa0403ec, 0x1e601821, 0xfc008581, 0xf100056b,
+		0x54ffffc1, 0x7100003f, 0x540003ed, 0xd280000b,
+		0x2a0103ec, 0xb201e7ed, 0xf293334d, 0xf2e7f72d,
+		0x9e6701a1, 0x1e6e1002, 0xaa0203ed, 0xf82b78bf,
+		0x2f00e403, 0xaa0c03ee, 0xaa0d03ef, 0xfd4001e4,
+		0xfc6b7885, 0x1e653884, 0x1f440c83, 0xfc2b78a3,
+		0x8b0a01ef, 0xf10005ce, 0x54ffff21, 0x1e601863,
+		0x1e61c063, 0x1e612060, 0x1e628c63, 0xfc2b78a3,
+		0x9100056b, 0x910021ad, 0xeb09017f, 0x54fffd81,
+		0x1400000f, 0x2f00e401, 0x1e601821, 0x1e61c021,
+		0xb201e7ea, 0xf293334a, 0xf2e7f72a, 0x9e670142,
+		0x1e622020, 0x1e6e1002, 0x1e628c21, 0xaa0503ea,
+		0xfc008541, 0xf1000529, 0x54ffffc1, 0x7100043f,
+		0x540008cb, 0x7100001f, 0x54000bed, 0xd280000a,
+		0xd37d7c0b, 0xaa0203ec, 0x2a0003e8, 0x2a0103e9,
+		0x1e61c000, 0xaa0803ed, 0xaa0503ee, 0xaa0403ef,
+		0xaa0c03f0, 0xfc4085e1, 0xfd400202, 0x1e613841,
+		0xfd000201, 0xfc4085c2, 0x1e620802, 0x1e621821,
+		0xfc008601, 0xf10005ad, 0x54fffee1, 0x9100054a,
+		0x8b0b018c, 0xeb09015f, 0x54fffde1, 0x7100040a,
+		0x540004a0, 0xd280000b, 0xd280000c, 0xd37df10d,
+		0x5280002e, 0x5280010f, 0xd2e7fe10, 0x9b087d81,
+		0x1b007d84, 0x8b0c0c71, 0xf8245a30, 0x9100058c,
+		0x8b010c61, 0xaa0f03e4, 0xaa0e03e5, 0xf825783f,
+		0x2f00e400, 0xaa0903e6, 0xaa0203e7, 0xfc6b68e1,
+		0xfc6468e2, 0x1f420020, 0xfc257820, 0x8b0d00e7,
+		0xf10004c6, 0x54ffff41, 0x9b087ca6, 0xfc267a20,
+		0x910004a5, 0x91002084, 0xeb0800bf, 0x54fffe01,
+		0x910005ce, 0x910021ef, 0x9100216b, 0xeb0a019f,
+		0x54fffc61, 0xaa0a03e8, 0x1b002108, 0xd2e7fe09,
+		0xf828d869, 0xd65f03c0, 0x7100041f, 0x5400034d,
+		0xd2800009, 0x2a0003ee, 0x9100206a, 0xd37d7c0b,
+		0x9100216c, 0x8b0b006d, 0xd10005ce, 0xd2e7fe0f,
+		0x1b007d10, 0x8b090c71, 0xf8305a2f, 0x91000529,
+		0xaa0e03f0, 0xaa0d03f1, 0xaa0a03e1, 0xf800843f,
+		0xf900023f, 0x8b0b0231, 0xf1000610, 0x54ffff81,
+		0x8b0c014a, 0x8b0c01ad, 0xd10005ce, 0xeb08013f,
+		0x54fffe01, 0x1b002108, 0xd2e7fe09, 0xf828d869,
+		0xd65f03c0,
+	}
+
+	codeBase := uint64(0x10000)
+	dataBase := uint64(0x100000)
+	corrBase := uint64(0x200000)
+	meanBase := uint64(0x300000)
+	stddevBase := uint64(0x400000)
+	stackBase := uint64(0x500000)
+	haltPC := uint64(0xFFFF0000)
+
+	em := emu.NewEmulator()
+	em.MaxInst = 10_000_000
+	em.LoadProgram(codeBase, encodeInsts(code))
+
+	dataBuf := make([]byte, n*m*8)
+	for i, v := range data {
+		binary.LittleEndian.PutUint64(dataBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(dataBase, dataBuf)
+
+	em.LoadProgram(corrBase, make([]byte, m*m*8))
+	em.LoadProgram(meanBase, make([]byte, m*8))
+	em.LoadProgram(stddevBase, make([]byte, m*8))
+
+	em.LoadProgram(stackBase, make([]byte, 8192))
+
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(0, uint64(m))
+	em.Regs.WriteX(1, uint64(n))
+	em.Regs.WriteD(0, floatN)
+	em.Regs.WriteX(2, dataBase)
+	em.Regs.WriteX(3, corrBase)
+	em.Regs.WriteX(4, meanBase)
+	em.Regs.WriteX(5, stddevBase)
+	em.Regs.WriteX(30, haltPC)
+	em.Regs.SP = stackBase + 8192
+	em.SetHaltPC(haltPC)
+
+	p := runOoOPipeline(t, em)
+
+	if !em.Halted {
+		t.Fatal("emulator should have halted")
+	}
+
+	maxRelErr := 0.0
+	for i := 0; i < m*m; i++ {
+		bits := em.Mem.ReadU64(corrBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := expectedCorr[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-10 {
+			row, col := i/m, i%m
+			t.Errorf("corr[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+
+	t.Logf("kernel_correlation: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+}
+
 func TestOoO_ComparisonTable(t *testing.T) {
 	const freq = 3.49e9 // M2 Avalanche core frequency
 
@@ -4023,6 +4412,231 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		return em
 	}
 
+	setupFloydWarshallEmu := func() *emu.Emulator {
+		n := 20
+
+		path := make([]float64, n*n)
+		for i := 0; i < n; i++ {
+			for j := 0; j < n; j++ {
+				path[i*n+j] = float64(i*j%7 + 1)
+				if (i+j)%13 == 0 || (i+j)%7 == 0 || (i+j)%11 == 0 {
+					path[i*n+j] = 999
+				}
+			}
+		}
+
+		code := []uint32{
+			0x7100041f, 0x5400046b, 0xd2800008, 0xd37d7c09,
+			0xaa0103ea, 0x2a0003eb, 0x14000005, 0x91000508,
+			0x8b09014a, 0xeb0b011f, 0x54000340, 0xd280000c,
+			0x8b080c2d, 0xaa0103ee, 0x14000005, 0x9100058c,
+			0x8b0901ce, 0xeb0b019f, 0x54fffea0, 0x9b0b7d8f,
+			0xaa0b03f0, 0xaa0a03f1, 0xaa0e03e0, 0x14000005,
+			0x91002000, 0x91002231, 0xf1000610, 0x54fffe80,
+			0xfc6f79a0, 0xfd400221, 0x1e612800, 0xfd400001,
+			0x1e612000, 0x54fffee5, 0xfd000000, 0x17fffff5,
+			0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		pathBase := uint64(0x100000)
+		stackBase := uint64(0x200000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+		em.LoadProgram(codeBase, encodeInsts(code))
+
+		pathBuf := make([]byte, n*n*8)
+		for i, v := range path {
+			binary.LittleEndian.PutUint64(pathBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(pathBase, pathBuf)
+
+		em.LoadProgram(stackBase, make([]byte, 8192))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, uint64(n))
+		em.Regs.WriteX(1, pathBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 8192
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
+	setupCovarianceEmu := func() *emu.Emulator {
+		m, n := 15, 20
+		floatN := float64(n)
+
+		data := make([]float64, n*m)
+		for i := 0; i < n; i++ {
+			for j := 0; j < m; j++ {
+				data[i*m+j] = float64(i*j) / float64(m)
+			}
+		}
+
+		code := []uint32{
+			0x7100041f, 0x54000ccb, 0x2a0003e8, 0x2a0103ea,
+			0xd37df109, 0x7100003f, 0x5400028d, 0xd280000b,
+			0xaa0203ec, 0xf82b789f, 0x2f00e401, 0xaa0a03ed,
+			0xaa0c03ee, 0xfd4001c2, 0x1e612841, 0xfc2b7881,
+			0x8b0901ce, 0xf10005ad, 0x54ffff61, 0x1e601821,
+			0xfc2b7881, 0x9100056b, 0x9100218c, 0xeb08017f,
+			0x54fffe21, 0x14000008, 0x2f00e401, 0xaa0803eb,
+			0xaa0403ec, 0x1e601821, 0xfc008581, 0xf100056b,
+			0x54ffffc1, 0x7100043f, 0x5400020b, 0xd280000b,
+			0xaa0203ec, 0xaa0803ed, 0xaa0403ee, 0xaa0c03ef,
+			0xfc4085c1, 0xfd4001e2, 0x1e613841, 0xfc0085e1,
+			0xf10005ad, 0x54ffff61, 0x9100056b, 0x8b09018c,
+			0xeb0a017f, 0x54fffe81, 0x1e7e1001, 0x1e612800,
+			0x7100003f, 0x5400040d, 0xd280000b, 0xd280000c,
+			0x9b087d8d, 0x8b0d0c6d, 0x8b0c0c6e, 0xaa0b03ef,
+			0xaa0c03f0, 0xf83079bf, 0x2f00e401, 0xaa0a03f1,
+			0xaa0203e0, 0xfc6b6802, 0xfc6f6803, 0x1f430441,
+			0xfc3079a1, 0x8b090000, 0xf1000631, 0x54ffff41,
+			0x1e601821, 0xfc3079a1, 0x9b087e11, 0xfc3179c1,
+			0x91000610, 0x910021ef, 0xeb08021f, 0x54fffdc1,
+			0x9100058c, 0x9100216b, 0xeb08019f, 0x54fffca1,
+			0x14000013, 0xd280000a, 0x2f00e401, 0x9100212b,
+			0xaa0803ec, 0x1e601820, 0xaa0c03ed, 0xaa0303ee,
+			0xaa0303ef, 0xfc0085e0, 0xfd0001c0, 0x8b0901ce,
+			0xf10005ad, 0x54ffff81, 0x9100054a, 0x8b0b0063,
+			0xd100058c, 0xeb08015f, 0x54fffe81, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		dataBase := uint64(0x100000)
+		covBase := uint64(0x200000)
+		meanBase := uint64(0x300000)
+		stackBase := uint64(0x400000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+		em.LoadProgram(codeBase, encodeInsts(code))
+
+		dataBuf := make([]byte, n*m*8)
+		for i, v := range data {
+			binary.LittleEndian.PutUint64(dataBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(dataBase, dataBuf)
+
+		em.LoadProgram(covBase, make([]byte, m*m*8))
+		em.LoadProgram(meanBase, make([]byte, m*8))
+
+		em.LoadProgram(stackBase, make([]byte, 8192))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, uint64(m))
+		em.Regs.WriteX(1, uint64(n))
+		em.Regs.WriteD(0, floatN)
+		em.Regs.WriteX(2, dataBase)
+		em.Regs.WriteX(3, covBase)
+		em.Regs.WriteX(4, meanBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 8192
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
+	setupCorrelationEmu := func() *emu.Emulator {
+		m, n := 15, 20
+		floatN := float64(n)
+
+		data := make([]float64, n*m)
+		for i := 0; i < n; i++ {
+			for j := 0; j < m; j++ {
+				data[i*m+j] = float64(i*j)/float64(m) + float64(i)
+			}
+		}
+
+		code := []uint32{
+			0x71000408, 0x540009cb, 0x2a0003e9, 0xd37df12a,
+			0x7100003f, 0x540002ad, 0xd280000b, 0x2a0103ec,
+			0xaa0203ed, 0xf82b789f, 0x2f00e401, 0xaa0c03ee,
+			0xaa0d03ef, 0xfd4001e2, 0x1e612841, 0xfc2b7881,
+			0x8b0a01ef, 0xf10005ce, 0x54ffff61, 0x1e601821,
+			0xfc2b7881, 0x9100056b, 0x910021ad, 0xeb09017f,
+			0x54fffe21, 0x14000008, 0x2f00e401, 0xaa0903eb,
+			0xaa0403ec, 0x1e601821, 0xfc008581, 0xf100056b,
+			0x54ffffc1, 0x7100003f, 0x540003ed, 0xd280000b,
+			0x2a0103ec, 0xb201e7ed, 0xf293334d, 0xf2e7f72d,
+			0x9e6701a1, 0x1e6e1002, 0xaa0203ed, 0xf82b78bf,
+			0x2f00e403, 0xaa0c03ee, 0xaa0d03ef, 0xfd4001e4,
+			0xfc6b7885, 0x1e653884, 0x1f440c83, 0xfc2b78a3,
+			0x8b0a01ef, 0xf10005ce, 0x54ffff21, 0x1e601863,
+			0x1e61c063, 0x1e612060, 0x1e628c63, 0xfc2b78a3,
+			0x9100056b, 0x910021ad, 0xeb09017f, 0x54fffd81,
+			0x1400000f, 0x2f00e401, 0x1e601821, 0x1e61c021,
+			0xb201e7ea, 0xf293334a, 0xf2e7f72a, 0x9e670142,
+			0x1e622020, 0x1e6e1002, 0x1e628c21, 0xaa0503ea,
+			0xfc008541, 0xf1000529, 0x54ffffc1, 0x7100043f,
+			0x540008cb, 0x7100001f, 0x54000bed, 0xd280000a,
+			0xd37d7c0b, 0xaa0203ec, 0x2a0003e8, 0x2a0103e9,
+			0x1e61c000, 0xaa0803ed, 0xaa0503ee, 0xaa0403ef,
+			0xaa0c03f0, 0xfc4085e1, 0xfd400202, 0x1e613841,
+			0xfd000201, 0xfc4085c2, 0x1e620802, 0x1e621821,
+			0xfc008601, 0xf10005ad, 0x54fffee1, 0x9100054a,
+			0x8b0b018c, 0xeb09015f, 0x54fffde1, 0x7100040a,
+			0x540004a0, 0xd280000b, 0xd280000c, 0xd37df10d,
+			0x5280002e, 0x5280010f, 0xd2e7fe10, 0x9b087d81,
+			0x1b007d84, 0x8b0c0c71, 0xf8245a30, 0x9100058c,
+			0x8b010c61, 0xaa0f03e4, 0xaa0e03e5, 0xf825783f,
+			0x2f00e400, 0xaa0903e6, 0xaa0203e7, 0xfc6b68e1,
+			0xfc6468e2, 0x1f420020, 0xfc257820, 0x8b0d00e7,
+			0xf10004c6, 0x54ffff41, 0x9b087ca6, 0xfc267a20,
+			0x910004a5, 0x91002084, 0xeb0800bf, 0x54fffe01,
+			0x910005ce, 0x910021ef, 0x9100216b, 0xeb0a019f,
+			0x54fffc61, 0xaa0a03e8, 0x1b002108, 0xd2e7fe09,
+			0xf828d869, 0xd65f03c0, 0x7100041f, 0x5400034d,
+			0xd2800009, 0x2a0003ee, 0x9100206a, 0xd37d7c0b,
+			0x9100216c, 0x8b0b006d, 0xd10005ce, 0xd2e7fe0f,
+			0x1b007d10, 0x8b090c71, 0xf8305a2f, 0x91000529,
+			0xaa0e03f0, 0xaa0d03f1, 0xaa0a03e1, 0xf800843f,
+			0xf900023f, 0x8b0b0231, 0xf1000610, 0x54ffff81,
+			0x8b0c014a, 0x8b0c01ad, 0xd10005ce, 0xeb08013f,
+			0x54fffe01, 0x1b002108, 0xd2e7fe09, 0xf828d869,
+			0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		dataBase := uint64(0x100000)
+		corrBase := uint64(0x200000)
+		meanBase := uint64(0x300000)
+		stddevBase := uint64(0x400000)
+		stackBase := uint64(0x500000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+		em.LoadProgram(codeBase, encodeInsts(code))
+
+		dataBuf := make([]byte, n*m*8)
+		for i, v := range data {
+			binary.LittleEndian.PutUint64(dataBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(dataBase, dataBuf)
+
+		em.LoadProgram(corrBase, make([]byte, m*m*8))
+		em.LoadProgram(meanBase, make([]byte, m*8))
+		em.LoadProgram(stddevBase, make([]byte, m*8))
+
+		em.LoadProgram(stackBase, make([]byte, 8192))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, uint64(m))
+		em.Regs.WriteX(1, uint64(n))
+		em.Regs.WriteD(0, floatN)
+		em.Regs.WriteX(2, dataBase)
+		em.Regs.WriteX(3, corrBase)
+		em.Regs.WriteX(4, meanBase)
+		em.Regs.WriteX(5, stddevBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 8192
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
 	type setupFunc struct {
 		name   string
 		setup  func() *emu.Emulator
@@ -4048,6 +4662,9 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		{"symm", setupSymmEmu, 0.000015},
 		{"cholesky", setupCholeskyEmu, 0.000008},
 		{"lu", setupLUEmu, 0.000006},
+		{"floydwarshall", setupFloydWarshallEmu, 0.000008},
+		{"covariance", setupCovarianceEmu, 0.000010},
+		{"correlation", setupCorrelationEmu, 0.000012},
 	}
 
 	results := make([]kernelResult, 0, len(kernels))
