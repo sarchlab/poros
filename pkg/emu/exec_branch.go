@@ -100,7 +100,8 @@ func (e *executor) execCBNZ(inst arm64asm.Inst) (branched bool, err error) {
 }
 
 func (e *executor) execTBZ(inst arm64asm.Inst) (branched bool, err error) {
-	val := e.readOperandVal(inst.Args[0], false) // Always read full 64-bit for bit test
+	w := is32bit(inst.Args[0])
+	val := e.readOperandVal(inst.Args[0], w)
 	bitNum := resolveImm(inst.Args[1])
 	offset := int64(inst.Args[2].(arm64asm.PCRel))
 
@@ -112,7 +113,8 @@ func (e *executor) execTBZ(inst arm64asm.Inst) (branched bool, err error) {
 }
 
 func (e *executor) execTBNZ(inst arm64asm.Inst) (branched bool, err error) {
-	val := e.readOperandVal(inst.Args[0], false)
+	w := is32bit(inst.Args[0])
+	val := e.readOperandVal(inst.Args[0], w)
 	bitNum := resolveImm(inst.Args[1])
 	offset := int64(inst.Args[2].(arm64asm.PCRel))
 
