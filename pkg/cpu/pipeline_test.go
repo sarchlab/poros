@@ -8,6 +8,7 @@ import (
 
 	"github.com/sarchlab/akita/v4/sim"
 	"github.com/sarchlab/m2sim3/pkg/emu"
+	"github.com/sarchlab/m2sim3/pkg/mem"
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
@@ -36,6 +37,22 @@ func runPipeline(t *testing.T, em *emu.Emulator) *Pipeline {
 	t.Helper()
 	engine := sim.NewSerialEngine()
 	p := NewPipeline("TestPipeline", engine, 3490*sim.MHz, em)
+	p.TickLater()
+	if err := engine.Run(); err != nil {
+		t.Fatalf("engine.Run() failed: %v", err)
+	}
+	if p.Err != nil {
+		t.Fatalf("pipeline error: %v", p.Err)
+	}
+	return p
+}
+
+// helper: run pipeline with a cache model.
+func runPipelineWithCache(t *testing.T, em *emu.Emulator, cache *mem.Cache) *Pipeline {
+	t.Helper()
+	engine := sim.NewSerialEngine()
+	p := NewPipeline("TestPipeline", engine, 3490*sim.MHz, em)
+	p.Cache = cache
 	p.TickLater()
 	if err := engine.Run(); err != nil {
 		t.Fatalf("engine.Run() failed: %v", err)
@@ -533,14 +550,16 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 	const freq = 3.49e9 // M2 Avalanche core frequency
 
 	type kernelResult struct {
-		name   string
-		insts  uint64
-		cycles uint64
-		cpi    float64
-		native float64 // native time in seconds
+		name      string
+		insts     uint64
+		cycles    uint64
+		cpi       float64
+		native    float64 // native time in seconds
+		l1HitRate float64
+		l2HitRate float64
 	}
 
-	results := make([]kernelResult, 0, 3)
+	results := make([]kernelResult, 0, 6)
 
 	// --- kernel_atax ---
 	{
@@ -605,11 +624,15 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 		em.Regs.SP = 0x500000 + 8192
 		em.SetHaltPC(haltPC)
 
-		p := runPipeline(t, em)
+		cache := mem.NewCache(mem.DefaultCacheConfig())
+		p := runPipelineWithCache(t, em, cache)
 		if !em.Halted {
 			t.Fatal("atax: emulator should have halted")
 		}
-		results = append(results, kernelResult{"atax", p.InstDone, p.Cycles, p.CPI(), 0.000008})
+		stats := cache.Stats()
+		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
+		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
+		results = append(results, kernelResult{"atax", p.InstDone, p.Cycles, p.CPI(), 0.000008, l1Hit, l2Hit})
 	}
 
 	// --- kernel_mvt ---
@@ -697,11 +720,15 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 		em.Regs.SP = 0x600000 + 8192
 		em.SetHaltPC(haltPC)
 
-		p := runPipeline(t, em)
+		cache := mem.NewCache(mem.DefaultCacheConfig())
+		p := runPipelineWithCache(t, em, cache)
 		if !em.Halted {
 			t.Fatal("mvt: emulator should have halted")
 		}
-		results = append(results, kernelResult{"mvt", p.InstDone, p.Cycles, p.CPI(), 0.000004})
+		stats := cache.Stats()
+		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
+		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
+		results = append(results, kernelResult{"mvt", p.InstDone, p.Cycles, p.CPI(), 0.000004, l1Hit, l2Hit})
 	}
 
 	// --- kernel_gemm ---
@@ -790,36 +817,424 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 		em.Regs.SP = stackBase + 8192
 		em.SetHaltPC(haltPC)
 
-		p := runPipeline(t, em)
+		cache := mem.NewCache(mem.DefaultCacheConfig())
+		p := runPipelineWithCache(t, em, cache)
 		if !em.Halted {
 			t.Fatal("gemm: emulator should have halted")
 		}
-		results = append(results, kernelResult{"gemm", p.InstDone, p.Cycles, p.CPI(), 0.000016})
+		stats := cache.Stats()
+		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
+		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
+		results = append(results, kernelResult{"gemm", p.InstDone, p.Cycles, p.CPI(), 0.000016, l1Hit, l2Hit})
+	}
+
+	// --- kernel_2mm ---
+	{
+		ni, nj, nk, nl := 16, 18, 22, 24
+		alpha, beta := 1.5, 1.2
+
+		tmp := make([]float64, ni*nj)
+		A := make([]float64, ni*nk)
+		B := make([]float64, nk*nj)
+		C := make([]float64, nj*nl)
+		D := make([]float64, ni*nl)
+
+		for i := 0; i < ni; i++ {
+			for j := 0; j < nk; j++ {
+				A[i*nk+j] = float64((i*j+1)%ni) / float64(ni)
+			}
+		}
+		for i := 0; i < nk; i++ {
+			for j := 0; j < nj; j++ {
+				B[i*nj+j] = float64(i*(j+1)%nj) / float64(nj)
+			}
+		}
+		for i := 0; i < nj; i++ {
+			for j := 0; j < nl; j++ {
+				C[i*nl+j] = float64((i*(j+3)+1)%nl) / float64(nl)
+			}
+		}
+		for i := 0; i < ni; i++ {
+			for j := 0; j < nl; j++ {
+				D[i*nl+j] = float64(i*(j+2)%nk) / float64(nk)
+			}
+		}
+
+		code := []uint32{
+			0x7100041f, 0x54000a8b, 0xa9be57f6, 0xa9014ff4,
+			0x5280000b, 0xd280000c, 0x2a0103e8, 0xf94013e9,
+			0x2a0003ea, 0xd37d7c2d, 0x2a0203ee, 0x14000005,
+			0x9100058c, 0x0b02016b, 0xeb0a019f, 0x540003a0,
+			0x7100043f, 0x54ffff6b, 0xd280000f, 0x8b2b4cb0,
+			0x9b087d91, 0x8b110c91, 0xaa0603f3, 0x14000005,
+			0x910005ef, 0x91002273, 0xeb0801ff, 0x54fffe20,
+			0xf82f7a3f, 0x7100045f, 0x54ffff4b, 0x2f00e402,
+			0xaa0e03f4, 0xaa1303f5, 0xaa1003f6, 0xfc4086c3,
+			0x1e600863, 0xfd4002a4, 0x1f440862, 0xfc2f7a22,
+			0x8b0d02b5, 0xf1000694, 0x54ffff21, 0x17ffffed,
+			0x7100041f, 0x540004cb, 0x5280000b, 0xd280000c,
+			0xd37d7c6d, 0x2a0303ee, 0x14000005, 0x9100058c,
+			0x0b01016b, 0xeb0a019f, 0x540003a0, 0x7100047f,
+			0x54ffff6b, 0xd280000f, 0x8b2b4c90, 0x9b0e7d91,
+			0x8b110d31, 0xaa0703e0, 0x14000005, 0x910005ef,
+			0x91002000, 0xeb0e01ff, 0x54fffe20, 0xfc6f7a20,
+			0x1e610800, 0xfc2f7a20, 0xaa0803e2, 0xaa0003e5,
+			0xaa1003e6, 0x7100043f, 0x54fffeab, 0xfc4084c2,
+			0xfd4000a3, 0x1f430040, 0xfc2f7a20, 0x8b0d00a5,
+			0xf1000442, 0x54ffff41, 0x17ffffed, 0xa9414ff4,
+			0xa8c257f6, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		tmpBase := uint64(0x100000)
+		aBase := uint64(0x200000)
+		bBase := uint64(0x300000)
+		cBase := uint64(0x400000)
+		dBase := uint64(0x500000)
+		stackBase := uint64(0x600000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+		em.LoadProgram(codeBase, encodeInsts(code))
+
+		tmpBuf := make([]byte, ni*nj*8)
+		for i, v := range tmp {
+			binary.LittleEndian.PutUint64(tmpBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(tmpBase, tmpBuf)
+
+		aBuf := make([]byte, ni*nk*8)
+		for i, v := range A {
+			binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(aBase, aBuf)
+
+		bBuf := make([]byte, nk*nj*8)
+		for i, v := range B {
+			binary.LittleEndian.PutUint64(bBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(bBase, bBuf)
+
+		cBuf := make([]byte, nj*nl*8)
+		for i, v := range C {
+			binary.LittleEndian.PutUint64(cBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(cBase, cBuf)
+
+		dBuf := make([]byte, ni*nl*8)
+		for i, v := range D {
+			binary.LittleEndian.PutUint64(dBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(dBase, dBuf)
+
+		stackBuf := make([]byte, 8192)
+		binary.LittleEndian.PutUint64(stackBuf[4096:], dBase)
+		em.LoadProgram(stackBase, stackBuf)
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, uint64(ni))
+		em.Regs.WriteX(1, uint64(nj))
+		em.Regs.WriteX(2, uint64(nk))
+		em.Regs.WriteX(3, uint64(nl))
+		em.Regs.WriteD(0, alpha)
+		em.Regs.WriteD(1, beta)
+		em.Regs.WriteX(4, tmpBase)
+		em.Regs.WriteX(5, aBase)
+		em.Regs.WriteX(6, bBase)
+		em.Regs.WriteX(7, cBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 4096
+		em.SetHaltPC(haltPC)
+
+		cache := mem.NewCache(mem.DefaultCacheConfig())
+		p := runPipelineWithCache(t, em, cache)
+		if !em.Halted {
+			t.Fatal("2mm: emulator should have halted")
+		}
+		stats := cache.Stats()
+		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
+		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
+		results = append(results, kernelResult{"2mm", p.InstDone, p.Cycles, p.CPI(), 0.000020, l1Hit, l2Hit})
+	}
+
+	// --- kernel_3mm ---
+	{
+		ni, nj, nk, nl, nm := 16, 18, 20, 22, 24
+
+		A := make([]float64, ni*nk)
+		B := make([]float64, nk*nj)
+		C := make([]float64, nj*nm)
+		D := make([]float64, nm*nl)
+		E := make([]float64, ni*nj)
+		F := make([]float64, nj*nl)
+		G := make([]float64, ni*nl)
+
+		for i := 0; i < ni; i++ {
+			for j := 0; j < nk; j++ {
+				A[i*nk+j] = float64((i*j+1)%ni) / float64(5*ni)
+			}
+		}
+		for i := 0; i < nk; i++ {
+			for j := 0; j < nj; j++ {
+				B[i*nj+j] = float64((i*(j+1)+2)%nj) / float64(5*nj)
+			}
+		}
+		for i := 0; i < nj; i++ {
+			for j := 0; j < nm; j++ {
+				C[i*nm+j] = float64(i*(j+3)%nl) / float64(5*nl)
+			}
+		}
+		for i := 0; i < nm; i++ {
+			for j := 0; j < nl; j++ {
+				D[i*nl+j] = float64((i*(j+2)+2)%nk) / float64(5*nk)
+			}
+		}
+
+		code := []uint32{
+			0xa9be57f6, 0xa9014ff4, 0x2a0103e8, 0x2a0003e9,
+			0x7100041f, 0x540004ab, 0x5280000a, 0xd280000b,
+			0xd37d7c2c, 0x2a0203ed, 0x14000005, 0x9100056b,
+			0x0b02014a, 0xeb09017f, 0x54000380, 0x7100043f,
+			0x54ffff6b, 0xd280000e, 0x8b2a4ccf, 0x9b087d70,
+			0x8b100cb0, 0xaa0703f1, 0x14000005, 0x910005ce,
+			0x91002231, 0xeb0801df, 0x54fffe20, 0xf82e7a1f,
+			0x7100045f, 0x54ffff4b, 0x2f00e400, 0xaa0d03f3,
+			0xaa1103f4, 0xaa0f03f5, 0xfc4086a1, 0xfd400282,
+			0x1f420020, 0xfc2e7a00, 0x8b0c0294, 0xf1000673,
+			0x54ffff41, 0x17ffffee, 0xf94013ea, 0x2a0303eb,
+			0x7100043f, 0x540004cb, 0x5280000c, 0xd280000d,
+			0xa942bbef, 0xd37d7c70, 0x2a0403f1, 0x14000005,
+			0x910005ad, 0x0b04018c, 0xeb0801bf, 0x54000380,
+			0x7100047f, 0x54ffff6b, 0xd2800002, 0x8b2c4de6,
+			0x9b0b7da7, 0x8b070d47, 0xaa0e03f3, 0x14000005,
+			0x91000442, 0x91002273, 0xeb0b005f, 0x54fffe20,
+			0xf82278ff, 0x7100049f, 0x54ffff4b, 0x2f00e400,
+			0xaa1103f4, 0xaa1303f5, 0xaa0603f6, 0xfc4086c1,
+			0xfd4002a2, 0x1f420020, 0xfc2278e0, 0x8b1002b5,
+			0xf1000694, 0x54ffff41, 0x17ffffee, 0x7100041f,
+			0x540004cb, 0x5280000c, 0xd280000d, 0xf9401fee,
+			0xaa0303ef, 0xd37d7def, 0x14000005, 0x910005ad,
+			0x0b01018c, 0xeb0901bf, 0x54000380, 0x7100047f,
+			0x54ffff6b, 0xd2800010, 0x8b2c4cb1, 0x9b0b7da0,
+			0x8b000dc0, 0xaa0a03e2, 0x14000005, 0x91000610,
+			0x91002042, 0xeb0b021f, 0x54fffe20, 0xf830781f,
+			0x7100043f, 0x54ffff4b, 0x2f00e400, 0xaa0803e4,
+			0xaa0203e6, 0xaa1103e7, 0xfc4084e1, 0xfd4000c2,
+			0x1f420020, 0xfc307800, 0x8b0f00c6, 0xf1000484,
+			0x54ffff41, 0x17ffffee, 0xa9414ff4, 0xa8c257f6,
+			0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		eBase := uint64(0x100000)
+		aBase := uint64(0x200000)
+		bBase := uint64(0x300000)
+		fBase := uint64(0x400000)
+		cBase := uint64(0x500000)
+		dBase := uint64(0x600000)
+		gBase := uint64(0x700000)
+		stackBase := uint64(0x800000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+		em.LoadProgram(codeBase, encodeInsts(code))
+
+		eBuf := make([]byte, ni*nj*8)
+		for i, v := range E {
+			binary.LittleEndian.PutUint64(eBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(eBase, eBuf)
+
+		aBuf := make([]byte, ni*nk*8)
+		for i, v := range A {
+			binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(aBase, aBuf)
+
+		bBuf := make([]byte, nk*nj*8)
+		for i, v := range B {
+			binary.LittleEndian.PutUint64(bBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(bBase, bBuf)
+
+		fBuf := make([]byte, nj*nl*8)
+		for i, v := range F {
+			binary.LittleEndian.PutUint64(fBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(fBase, fBuf)
+
+		cBufData := make([]byte, nj*nm*8)
+		for i, v := range C {
+			binary.LittleEndian.PutUint64(cBufData[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(cBase, cBufData)
+
+		dBufData := make([]byte, nm*nl*8)
+		for i, v := range D {
+			binary.LittleEndian.PutUint64(dBufData[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(dBase, dBufData)
+
+		gBuf := make([]byte, ni*nl*8)
+		for i, v := range G {
+			binary.LittleEndian.PutUint64(gBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(gBase, gBuf)
+
+		stackBuf := make([]byte, 8192)
+		binary.LittleEndian.PutUint64(stackBuf[4096:], fBase)
+		binary.LittleEndian.PutUint64(stackBuf[4096+8:], cBase)
+		binary.LittleEndian.PutUint64(stackBuf[4096+16:], dBase)
+		binary.LittleEndian.PutUint64(stackBuf[4096+24:], gBase)
+		em.LoadProgram(stackBase, stackBuf)
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, uint64(ni))
+		em.Regs.WriteX(1, uint64(nj))
+		em.Regs.WriteX(2, uint64(nk))
+		em.Regs.WriteX(3, uint64(nl))
+		em.Regs.WriteX(4, uint64(nm))
+		em.Regs.WriteX(5, eBase)
+		em.Regs.WriteX(6, aBase)
+		em.Regs.WriteX(7, bBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 4096
+		em.SetHaltPC(haltPC)
+
+		cache := mem.NewCache(mem.DefaultCacheConfig())
+		p := runPipelineWithCache(t, em, cache)
+		if !em.Halted {
+			t.Fatal("3mm: emulator should have halted")
+		}
+		stats := cache.Stats()
+		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
+		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
+		results = append(results, kernelResult{"3mm", p.InstDone, p.Cycles, p.CPI(), 0.000030, l1Hit, l2Hit})
+	}
+
+	// --- kernel_bicg ---
+	{
+		m, n := 38, 42
+
+		A := make([]float64, m*n)
+		s := make([]float64, n)
+		q := make([]float64, m)
+		p := make([]float64, n)
+		r := make([]float64, m)
+
+		for i := 0; i < m; i++ {
+			r[i] = float64(i%m) / float64(m)
+			for j := 0; j < n; j++ {
+				A[i*n+j] = float64(i*(j+1)%n) / float64(n)
+			}
+		}
+		for i := 0; i < n; i++ {
+			p[i] = float64(i%n) / float64(n)
+		}
+
+		code := []uint32{
+			0x7100041f, 0x540003cb, 0xd2800008, 0x2a0103e9,
+			0xd37d7c2a, 0x2a0003eb, 0x14000005, 0x91000508,
+			0x8b0a0042, 0xeb0b011f, 0x540002a0, 0xf828789f,
+			0xaa0903ec, 0xaa0303ed, 0xaa0503ee, 0xaa0203ef,
+			0x7100043f, 0x54fffecb, 0xfd4001a0, 0xfc6878c1,
+			0xfd4001e2, 0x1f420020, 0xfc0085a0, 0xfc687880,
+			0xfc4085e1, 0xfc4085c2, 0x1f420020, 0xfc287880,
+			0xf100058c, 0x54fffea1, 0x17ffffe9, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		aBase := uint64(0x100000)
+		sBase := uint64(0x200000)
+		qBase := uint64(0x300000)
+		pBase := uint64(0x400000)
+		rBase := uint64(0x500000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+		em.LoadProgram(codeBase, encodeInsts(code))
+
+		aBuf := make([]byte, m*n*8)
+		for i, v := range A {
+			binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(aBase, aBuf)
+
+		sBuf := make([]byte, n*8)
+		for i, v := range s {
+			binary.LittleEndian.PutUint64(sBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(sBase, sBuf)
+
+		qBuf := make([]byte, m*8)
+		for i, v := range q {
+			binary.LittleEndian.PutUint64(qBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(qBase, qBuf)
+
+		pBuf := make([]byte, n*8)
+		for i, v := range p {
+			binary.LittleEndian.PutUint64(pBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(pBase, pBuf)
+
+		rBuf := make([]byte, m*8)
+		for i, v := range r {
+			binary.LittleEndian.PutUint64(rBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(rBase, rBuf)
+
+		em.LoadProgram(uint64(0x600000), make([]byte, 8192))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, uint64(m))
+		em.Regs.WriteX(1, uint64(n))
+		em.Regs.WriteX(2, aBase)
+		em.Regs.WriteX(3, sBase)
+		em.Regs.WriteX(4, qBase)
+		em.Regs.WriteX(5, pBase)
+		em.Regs.WriteX(6, rBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = 0x600000 + 8192
+		em.SetHaltPC(haltPC)
+
+		cache := mem.NewCache(mem.DefaultCacheConfig())
+		pip := runPipelineWithCache(t, em, cache)
+		if !em.Halted {
+			t.Fatal("bicg: emulator should have halted")
+		}
+		stats := cache.Stats()
+		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
+		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
+		results = append(results, kernelResult{"bicg", pip.InstDone, pip.Cycles, pip.CPI(), 0.000006, l1Hit, l2Hit})
 	}
 
 	// Print comparison table.
-	t.Logf("\n%-8s | %12s | %10s | %5s | %14s | %12s | %8s",
-		"Kernel", "Instructions", "Cycles", "CPI", "Sim Time (s)", "Native (s)", "Ratio")
-	t.Logf("%-8s-+-%12s-+-%10s-+-%5s-+-%14s-+-%12s-+-%8s",
-		"--------", "------------", "----------", "-----", "--------------", "------------", "--------")
+	t.Logf("\n%-8s | %12s | %10s | %5s | %14s | %12s | %8s | %8s | %8s",
+		"Kernel", "Instructions", "Cycles", "CPI", "Sim Time (s)", "Native (s)", "Ratio", "L1 Hit%", "L2 Hit%")
+	t.Logf("%-8s-+-%12s-+-%10s-+-%5s-+-%14s-+-%12s-+-%8s-+-%8s-+-%8s",
+		"--------", "------------", "----------", "-----", "--------------", "------------", "--------", "--------", "--------")
 	for _, r := range results {
 		simTime := float64(r.cycles) / freq
 		ratio := simTime / r.native
-		t.Logf("%-8s | %12d | %10d | %5.2f | %14e | %12e | %8.1f",
-			r.name, r.insts, r.cycles, r.cpi, simTime, r.native, ratio)
+		t.Logf("%-8s | %12d | %10d | %5.2f | %14e | %12e | %8.1f | %7.1f%% | %7.1f%%",
+			r.name, r.insts, r.cycles, r.cpi, simTime, r.native, ratio, r.l1HitRate*100, r.l2HitRate*100)
 	}
 
 	// Also print as a clean formatted string for easy copy-paste.
 	fmt.Println()
-	fmt.Printf("%-8s | %12s | %10s | %5s | %14s | %12s | %8s\n",
-		"Kernel", "Instructions", "Cycles", "CPI", "Sim Time (s)", "Native (s)", "Ratio")
-	fmt.Printf("%-8s-+-%12s-+-%10s-+-%5s-+-%14s-+-%12s-+-%8s\n",
-		"--------", "------------", "----------", "-----", "--------------", "------------", "--------")
+	fmt.Printf("%-8s | %12s | %10s | %5s | %14s | %12s | %8s | %8s | %8s\n",
+		"Kernel", "Instructions", "Cycles", "CPI", "Sim Time (s)", "Native (s)", "Ratio", "L1 Hit%", "L2 Hit%")
+	fmt.Printf("%-8s-+-%12s-+-%10s-+-%5s-+-%14s-+-%12s-+-%8s-+-%8s-+-%8s\n",
+		"--------", "------------", "----------", "-----", "--------------", "------------", "--------", "--------", "--------")
 	for _, r := range results {
 		simTime := float64(r.cycles) / freq
 		ratio := simTime / r.native
-		fmt.Printf("%-8s | %12d | %10d | %5.2f | %14e | %12e | %8.1f\n",
-			r.name, r.insts, r.cycles, r.cpi, simTime, r.native, ratio)
+		fmt.Printf("%-8s | %12d | %10d | %5.2f | %14e | %12e | %8.1f | %7.1f%% | %7.1f%%\n",
+			r.name, r.insts, r.cycles, r.cpi, simTime, r.native, ratio, r.l1HitRate*100, r.l2HitRate*100)
 	}
 }
 

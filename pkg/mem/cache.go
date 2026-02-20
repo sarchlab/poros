@@ -156,6 +156,11 @@ func (c *Cache) Lookup(addr uint64, size int, isWrite bool) HitLevel {
 	return HitDRAM
 }
 
+// Config returns the cache configuration.
+func (c *Cache) Config() CacheConfig {
+	return c.cfg
+}
+
 // Stats returns the current hit/miss counters.
 func (c *Cache) Stats() CacheStats {
 	return c.stats
