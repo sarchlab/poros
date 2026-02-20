@@ -823,6 +823,61 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 	}
 }
 
+func TestPipeline_ScoreboardFlushNoNegative(t *testing.T) {
+	// Verify that flush() after a taken branch doesn't produce negative
+	// scoreboard counts. The decode-stage instruction was never issued to
+	// execute, so its scoreboard entries were never incremented.
+	//
+	// Sequence:
+	//   B #8       (taken branch — flushes the next-fetched instruction)
+	//   ADD X1, X0, #1  (fetched speculatively, should be flushed)
+	//   MOV X0, #42     (branch target)
+	//   RET
+	code := []uint32{
+		0x14000002, // B #8
+		0x91000401, // ADD X1, X0, #1
+		0xd2800540, // MOV X0, #42
+		0xd65f03c0, // RET
+	}
+	codeBase := uint64(0x10000)
+	haltPC := uint64(0xFFFF0000)
+	em := setupEmu(code, codeBase, haltPC)
+	em.Regs.SP = 0x500000 + 8192
+
+	p := runPipeline(t, em)
+
+	// After pipeline drains, all scoreboard counters must be >= 0.
+	for i, cnt := range p.gprPending {
+		if cnt < 0 {
+			t.Errorf("gprPending[%d] = %d, want >= 0", i, cnt)
+		}
+	}
+	for i, cnt := range p.fpPending {
+		if cnt < 0 {
+			t.Errorf("fpPending[%d] = %d, want >= 0", i, cnt)
+		}
+	}
+
+	// All counters should be exactly 0 after full drain.
+	for i, cnt := range p.gprPending {
+		if cnt != 0 {
+			t.Errorf("gprPending[%d] = %d, want 0 after drain", i, cnt)
+		}
+	}
+	for i, cnt := range p.fpPending {
+		if cnt != 0 {
+			t.Errorf("fpPending[%d] = %d, want 0 after drain", i, cnt)
+		}
+	}
+
+	if em.Regs.ReadX(0) != 42 {
+		t.Errorf("X0 = %d, want 42", em.Regs.ReadX(0))
+	}
+
+	t.Logf("ScoreboardFlush: %d instructions, %d cycles, CPI=%.2f",
+		p.InstDone, p.Cycles, p.CPI())
+}
+
 func TestLatency_KnownOps(t *testing.T) {
 	tests := []struct {
 		op   arm64asm.Op

@@ -211,6 +211,9 @@ func sourceFPs(inst arm64asm.Inst) []int {
 
 	if IsStore(inst.Op) {
 		add(argFP(inst.Args[0]))
+		if inst.Op == arm64asm.STP {
+			add(argFP(inst.Args[1]))
+		}
 		return srcs
 	}
 

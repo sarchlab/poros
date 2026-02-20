@@ -264,26 +264,8 @@ func (p *Pipeline) stageFetch() {
 
 // flush clears fetch and decode stages after a taken branch.
 func (p *Pipeline) flush() {
-	// Clear scoreboard entries for flushed instructions.
-	if p.decode.valid {
-		p.clearScoreboard(p.decode.inst)
-	}
 	p.fetch = stageReg{}
 	p.decode = stageReg{}
-
-	// Update fetch PC to the branch target (emulator's current PC).
 	p.fetchPC = p.Emu.Regs.PC
 }
 
-func (p *Pipeline) clearScoreboard(inst arm64asm.Inst) {
-	gpr, fp := destRegs(inst)
-	if gpr >= 0 {
-		p.gprPending[gpr]--
-	}
-	if fp >= 0 {
-		p.fpPending[fp]--
-	}
-	if gpr2 := destRegs2(inst); gpr2 >= 0 {
-		p.gprPending[gpr2]--
-	}
-}
