@@ -88,8 +88,8 @@ for bench in "${BENCHMARKS[@]}"; do
     times=()
     run_ok=true
     for run in $(seq 1 $RUNS); do
-      # PolyBench prints timing to stderr
-      t=$(perl -e 'alarm shift; exec @ARGV' "$TIMEOUT_SEC" "$outbin" 2>&1 >/dev/null || true)
+      # PolyBench prints timing to stdout
+      t=$(perl -e 'alarm shift; exec @ARGV' "$TIMEOUT_SEC" "$outbin" 2>/dev/null || true)
       if [ -z "$t" ]; then
         echo "  Run $run of $name ($ds_lower): no output or timeout" | tee -a "$LOG_FILE"
         run_ok=false
