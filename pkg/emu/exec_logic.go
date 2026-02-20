@@ -519,6 +519,23 @@ func (e *executor) execSBFM(inst arm64asm.Inst) error {
 	return nil
 }
 
+func (e *executor) execUBFIZ(inst arm64asm.Inst) error {
+	// UBFIZ Xd, Xn, #lsb, #width — extract lower 'width' bits, shift left by 'lsb'
+	is32 := is32bit(inst.Args[0])
+	src := e.readOperandVal(inst.Args[1], is32)
+	lsb := resolveImm(inst.Args[2])
+	width := resolveImm(inst.Args[3])
+
+	mask := (uint64(1) << width) - 1
+	result := (src & mask) << lsb
+
+	if is32 {
+		result = mask32(result)
+	}
+	e.writeGPR(inst.Args[0], result)
+	return nil
+}
+
 func (e *executor) execUBFX(inst arm64asm.Inst) error {
 	// UBFX is an alias of UBFM
 	return e.execUBFM(inst)

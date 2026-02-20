@@ -108,6 +108,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execUXTH(inst)
 	case arm64asm.UBFM:
 		return false, e.execUBFM(inst)
+	case arm64asm.UBFIZ:
+		return false, e.execUBFIZ(inst)
 	case arm64asm.SBFM:
 		return false, e.execSBFM(inst)
 	case arm64asm.UBFX:
@@ -210,6 +212,10 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execFNEG(inst)
 	case arm64asm.FABS:
 		return false, e.execFABS(inst)
+
+	// SIMD scalar move
+	case arm64asm.MOVI:
+		return false, e.execMOVI(inst)
 
 	// FP move / convert / compare
 	case arm64asm.FMOV:

@@ -1,6 +1,7 @@
 package emu
 
 import (
+	"fmt"
 	"math"
 
 	"golang.org/x/arch/arm64/arm64asm"
@@ -355,6 +356,21 @@ func (e *executor) execFCVTZS(inst arm64asm.Inst) error {
 		}
 	}
 	return nil
+}
+
+func (e *executor) execMOVI(inst arm64asm.Inst) error {
+	dst := inst.Args[0].(arm64asm.Reg)
+	val := resolveImm(inst.Args[1])
+
+	if di := dRegIndex(dst); di >= 0 {
+		e.regs.WriteDRaw(di, val)
+		return nil
+	}
+	if si := sRegIndex(dst); si >= 0 {
+		e.regs.WriteSRaw(si, uint32(val))
+		return nil
+	}
+	return fmt.Errorf("MOVI: unsupported destination register %v", dst)
 }
 
 func (e *executor) execFCVTZU(inst arm64asm.Inst) error {
