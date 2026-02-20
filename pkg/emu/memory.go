@@ -5,10 +5,19 @@ import (
 	"math"
 )
 
+// MemAccess records a single memory read or write performed during execution.
+type MemAccess struct {
+	Addr    uint64
+	Size    int
+	IsWrite bool
+}
+
 // Memory provides a flat byte-addressable memory model using a page table.
 // Each page is 4096 bytes. Pages are allocated on demand.
 type Memory struct {
-	pages map[uint64][]byte // page address -> 4096 byte page
+	pages        map[uint64][]byte // page address -> 4096 byte page
+	Accesses     []MemAccess
+	TrackAccesses bool
 }
 
 const pageSize = 4096
@@ -29,69 +38,98 @@ func (m *Memory) getPage(addr uint64) []byte {
 	return page
 }
 
-// ReadU8 reads a single byte.
-func (m *Memory) ReadU8(addr uint64) uint8 {
+// ClearAccesses resets the recorded memory accesses.
+func (m *Memory) ClearAccesses() {
+	m.Accesses = m.Accesses[:0]
+}
+
+func (m *Memory) trackAccess(addr uint64, size int, isWrite bool) {
+	if m.TrackAccesses {
+		m.Accesses = append(m.Accesses, MemAccess{Addr: addr, Size: size, IsWrite: isWrite})
+	}
+}
+
+// readByteRaw reads a single byte without tracking.
+func (m *Memory) readByteRaw(addr uint64) uint8 {
 	page := m.getPage(addr)
 	return page[addr&uint64(pageMask)]
 }
 
-// WriteU8 writes a single byte.
-func (m *Memory) WriteU8(addr uint64, val uint8) {
+// writeByteRaw writes a single byte without tracking.
+func (m *Memory) writeByteRaw(addr uint64, val uint8) {
 	page := m.getPage(addr)
 	page[addr&uint64(pageMask)] = val
 }
 
+// ReadU8 reads a single byte.
+func (m *Memory) ReadU8(addr uint64) uint8 {
+	m.trackAccess(addr, 1, false)
+	return m.readByteRaw(addr)
+}
+
+// WriteU8 writes a single byte.
+func (m *Memory) WriteU8(addr uint64, val uint8) {
+	m.trackAccess(addr, 1, true)
+	m.writeByteRaw(addr, val)
+}
+
 // ReadU16 reads a 16-bit little-endian value.
 func (m *Memory) ReadU16(addr uint64) uint16 {
+	m.trackAccess(addr, 2, false)
 	var buf [2]byte
 	for i := range buf {
-		buf[i] = m.ReadU8(addr + uint64(i))
+		buf[i] = m.readByteRaw(addr + uint64(i))
 	}
 	return binary.LittleEndian.Uint16(buf[:])
 }
 
 // WriteU16 writes a 16-bit little-endian value.
 func (m *Memory) WriteU16(addr uint64, val uint16) {
+	m.trackAccess(addr, 2, true)
 	var buf [2]byte
 	binary.LittleEndian.PutUint16(buf[:], val)
 	for i, b := range buf {
-		m.WriteU8(addr+uint64(i), b)
+		m.writeByteRaw(addr+uint64(i), b)
 	}
 }
 
 // ReadU32 reads a 32-bit little-endian value.
 func (m *Memory) ReadU32(addr uint64) uint32 {
+	m.trackAccess(addr, 4, false)
 	var buf [4]byte
 	for i := range buf {
-		buf[i] = m.ReadU8(addr + uint64(i))
+		buf[i] = m.readByteRaw(addr + uint64(i))
 	}
 	return binary.LittleEndian.Uint32(buf[:])
 }
 
 // WriteU32 writes a 32-bit little-endian value.
 func (m *Memory) WriteU32(addr uint64, val uint32) {
+	m.trackAccess(addr, 4, true)
 	var buf [4]byte
 	binary.LittleEndian.PutUint32(buf[:], val)
 	for i, b := range buf {
-		m.WriteU8(addr+uint64(i), b)
+		m.writeByteRaw(addr+uint64(i), b)
 	}
 }
 
 // ReadU64 reads a 64-bit little-endian value.
 func (m *Memory) ReadU64(addr uint64) uint64 {
+	m.trackAccess(addr, 8, false)
 	var buf [8]byte
 	for i := range buf {
-		buf[i] = m.ReadU8(addr + uint64(i))
+		buf[i] = m.readByteRaw(addr + uint64(i))
 	}
 	return binary.LittleEndian.Uint64(buf[:])
 }
 
 // WriteU64 writes a 64-bit little-endian value.
 func (m *Memory) WriteU64(addr uint64, val uint64) {
+	m.trackAccess(addr, 8, true)
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], val)
 	for i, b := range buf {
-		m.WriteU8(addr+uint64(i), b)
+		m.writeByteRaw(addr+uint64(i), b)
 	}
 }
 
@@ -116,9 +154,10 @@ func (m *Memory) WriteF64(addr uint64, val float64) {
 }
 
 // Write bulk-loads bytes into memory starting at addr.
+// This does NOT track accesses (used for initialization).
 func (m *Memory) Write(addr uint64, data []byte) {
 	for i, b := range data {
-		m.WriteU8(addr+uint64(i), b)
+		m.writeByteRaw(addr+uint64(i), b)
 	}
 }
 

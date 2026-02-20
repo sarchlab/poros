@@ -102,6 +102,8 @@ func (em *Emulator) Step() error {
 // instruction and whether the branch was taken (PC changed to something
 // other than PC+4). It also checks the halt condition before executing.
 func (em *Emulator) StepDetailed() (arm64asm.Inst, bool, error) {
+	em.Mem.ClearAccesses()
+
 	if em.Regs.PC == em.haltPC && em.InstCount > 0 {
 		em.Halted = true
 		return arm64asm.Inst{}, false, nil
