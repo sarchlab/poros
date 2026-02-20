@@ -13,8 +13,8 @@ The simulator consists of:
 ## Milestones
 
 ### M1: Project Scaffolding + Polybench Baselines
-**Status:** Not started
-**Budget:** 4 cycles
+**Status:** COMPLETE (cycle 1)
+**Budget:** 4 cycles | **Actual:** 1 cycle
 **Scope:**
 - Go module setup with Akita v4 dependency
 - PolyBench/C 4.2.1 cloned and compiled natively on M2
@@ -116,7 +116,21 @@ The simulator consists of:
 ## Total Estimated Budget: ~48 cycles
 
 ## Lessons Learned
-(To be updated as project progresses)
+
+### M1
+- Completed in 1 cycle (budgeted 4) — team was effective with parallel workers
+- macOS lacks `timeout` command — use `perl -e 'alarm shift; exec @ARGV'` as workaround
+- MINI/SMALL datasets produce microsecond-range timings — noise is significant even with median of 3 runs
+- PolyBench timing output goes to stdout (not stderr)
+- Akita v4 API: `sim.NewTickingComponent(name, engine, freq, ticker)` + `Tick() bool` pattern
+- Fat/universal Mach-O handling needed (e.g., /usr/bin/* are often universal)
+
+### Instruction Analysis (for M2)
+- Disassembled 10 PolyBench benchmarks: ~60 unique ARM64 instructions identified
+- Compiler auto-vectorizes some kernels (mvt uses 40x FMLA + 40x LD1R)
+- **Recommendation: compile with `-fno-vectorize -fno-slp-vectorize`** to eliminate SIMD for initial emulator, reducing scope significantly
+- Top instructions by frequency: MOV, ADD, STP, LDR, STR, LDP, B, BL, FADD, FDIV, FMADD, FMLA
+- Key FP instructions needed: FADD, FSUB, FMUL, FDIV, FMADD, FMSUB, FSQRT, SCVTF, UCVTF
 
 ## Key Risks
 1. **ARM64 emulator complexity**: Even a subset of ARM64 is large. Compiler may emit unexpected instructions.
