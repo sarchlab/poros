@@ -12,7 +12,7 @@ CSV_FILE="$SCRIPT_DIR/timing.csv"
 LOG_FILE="$SCRIPT_DIR/build.log"
 
 CC=clang
-CFLAGS="-O3 -DPOLYBENCH_TIME"
+CFLAGS="-O3 -fno-vectorize -fno-slp-vectorize -DPOLYBENCH_TIME"
 LDFLAGS="-lm"
 RUNS=3
 TIMEOUT_SEC=30
