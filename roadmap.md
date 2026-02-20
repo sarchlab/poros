@@ -25,8 +25,8 @@ The simulator consists of:
 - Disassemble a simple ARM64 binary using `golang.org/x/arch/arm64/arm64asm`
 
 ### M2: ARM64 Functional Emulator (Core Subset)
-**Status:** Not started
-**Budget:** 8 cycles
+**Status:** COMPLETE (3 cycles)
+**Budget:** 8 cycles | **Actual:** 3 cycles
 **Scope:**
 - ARM64 instruction decoder covering PolyBench instruction mix:
   - Integer arithmetic (ADD, SUB, MUL, SDIV, UDIV, MADD, shifts, bitfield)
@@ -131,6 +131,14 @@ The simulator consists of:
 - **Recommendation: compile with `-fno-vectorize -fno-slp-vectorize`** to eliminate SIMD for initial emulator, reducing scope significantly
 - Top instructions by frequency: MOV, ADD, STP, LDR, STR, LDP, B, BL, FADD, FDIV, FMADD, FMLA
 - Key FP instructions needed: FADD, FSUB, FMUL, FDIV, FMADD, FMSUB, FSQRT, SCVTF, UCVTF
+
+### M2
+- Completed in 3 cycles (budgeted 8) — Kai built full emulator + e2e test efficiently
+- 53+ ARM64 instructions implemented, 100 tests, kernel_atax e2e passing
+- Function-level emulation approach works well — no need for full binary/syscall support
+- arm64asm library is solid for decoding; some aliases (CMP→SUBS, MOV→ORR) need careful handling
+- UBFIZ and MOVI needed beyond initial instruction list — expect more such gaps in future kernels
+- PolyBench recompiled with -fno-vectorize: 7 benchmarks spot-checked, zero SIMD
 
 ## Key Risks
 1. **ARM64 emulator complexity**: Even a subset of ARM64 is large. Compiler may emit unexpected instructions.
