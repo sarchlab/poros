@@ -1066,15 +1066,18 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	const freq = 3.49e9 // M2 Avalanche core frequency
 
 	type kernelResult struct {
-		name      string
-		insts     uint64
-		iooCycles uint64  // in-order cycles
-		iooCPI    float64 // in-order CPI
-		oooCycles uint64  // OoO cycles
-		oooCPI    float64 // OoO CPI
-		native    float64 // native time in seconds
-		l1HitRate float64
-		l2HitRate float64
+		name         string
+		insts        uint64
+		iooCycles    uint64  // in-order cycles
+		iooCPI       float64 // in-order CPI
+		oooCycles    uint64  // OoO cycles
+		oooCPI       float64 // OoO CPI
+		oooNoBPCycles uint64  // OoO cycles without branch predictor
+		oooNoBPCPI   float64 // OoO CPI without branch predictor
+		bpAccuracy   float64 // branch prediction accuracy (Hits/Predictions * 100)
+		native       float64 // native time in seconds
+		l1HitRate    float64
+		l2HitRate    float64
 	}
 
 	// setupAtaxEmu creates a fresh emulator configured for the atax kernel.
@@ -1700,7 +1703,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 			t.Fatalf("%s: in-order emulator should have halted", k.name)
 		}
 
-		// Run OoO pipeline.
+		// Run OoO pipeline (with branch predictor).
 		emOoO := k.setup()
 		cacheOoO := mem.NewCache(mem.DefaultCacheConfig())
 		pOoO := runOoOPipelineWithCache(t, emOoO, cacheOoO)
@@ -1708,48 +1711,77 @@ func TestOoO_ComparisonTable(t *testing.T) {
 			t.Fatalf("%s: OoO emulator should have halted", k.name)
 		}
 
+		// Capture branch prediction stats.
+		var bpAcc float64
+		if pOoO.BranchPred != nil && pOoO.BranchPred.Predictions > 0 {
+			bpAcc = float64(pOoO.BranchPred.Hits) / float64(pOoO.BranchPred.Predictions) * 100
+		}
+
+		// Run OoO pipeline without branch predictor.
+		emNoBP := k.setup()
+		cacheNoBP := mem.NewCache(mem.DefaultCacheConfig())
+		engineNoBP := sim.NewSerialEngine()
+		pNoBP := NewOoOPipeline("TestOoO", engineNoBP, 3490*sim.MHz, emNoBP)
+		pNoBP.Cache = cacheNoBP
+		pNoBP.BranchPred = nil
+		pNoBP.TickLater()
+		if err := engineNoBP.Run(); err != nil {
+			t.Fatalf("%s: no-BP engine.Run() failed: %v", k.name, err)
+		}
+		if pNoBP.Err != nil {
+			t.Fatalf("%s: no-BP pipeline error: %v", k.name, pNoBP.Err)
+		}
+		if !emNoBP.Halted {
+			t.Fatalf("%s: no-BP emulator should have halted", k.name)
+		}
+
 		stats := cacheOoO.Stats()
 		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
 		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
 
 		results = append(results, kernelResult{
-			name:      k.name,
-			insts:     pOoO.InstDone,
-			iooCycles: pIO.Cycles,
-			iooCPI:    pIO.CPI(),
-			oooCycles: pOoO.Cycles,
-			oooCPI:    pOoO.CPI(),
-			native:    k.native,
-			l1HitRate: l1Hit,
-			l2HitRate: l2Hit,
+			name:          k.name,
+			insts:         pOoO.InstDone,
+			iooCycles:     pIO.Cycles,
+			iooCPI:        pIO.CPI(),
+			oooCycles:     pOoO.Cycles,
+			oooCPI:        pOoO.CPI(),
+			oooNoBPCycles: pNoBP.Cycles,
+			oooNoBPCPI:    pNoBP.CPI(),
+			bpAccuracy:    bpAcc,
+			native:        k.native,
+			l1HitRate:     l1Hit,
+			l2HitRate:     l2Hit,
 		})
 	}
 
 	// Print comparison table.
-	t.Logf("\n%-8s | %12s | %11s | %9s | %7s | %14s | %12s | %8s | %8s | %8s",
-		"Kernel", "Instructions", "InOrder CPI", "OoO CPI", "Speedup", "Sim Time (s)", "Native (s)", "Ratio", "L1 Hit%", "L2 Hit%")
-	t.Logf("%-8s-+-%12s-+-%11s-+-%9s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s-+-%8s",
-		"--------", "------------", "-----------", "---------", "-------", "--------------", "------------", "--------", "--------", "--------")
+	t.Logf("\n%-8s | %12s | %11s | %9s | %10s | %7s | %9s | %7s | %14s | %12s | %8s | %8s | %8s",
+		"Kernel", "Instructions", "InOrder CPI", "OoO CPI", "NoBP CPI", "BP Acc%", "BP Improv", "Speedup", "Sim Time (s)", "Native (s)", "Ratio", "L1 Hit%", "L2 Hit%")
+	t.Logf("%-8s-+-%12s-+-%11s-+-%9s-+-%10s-+-%7s-+-%9s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s-+-%8s",
+		"--------", "------------", "-----------", "---------", "----------", "-------", "---------", "-------", "--------------", "------------", "--------", "--------", "--------")
 	for _, r := range results {
 		simTime := float64(r.oooCycles) / freq
 		ratio := simTime / r.native
 		speedup := r.iooCPI / r.oooCPI
-		t.Logf("%-8s | %12d | %11.2f | %9.2f | %6.2fx | %14e | %12e | %8.1f | %7.1f%% | %7.1f%%",
-			r.name, r.insts, r.iooCPI, r.oooCPI, speedup, simTime, r.native, ratio, r.l1HitRate*100, r.l2HitRate*100)
+		bpImprov := (r.oooNoBPCPI - r.oooCPI) / r.oooNoBPCPI * 100
+		t.Logf("%-8s | %12d | %11.2f | %9.2f | %10.2f | %6.1f%% | %8.1f%% | %6.2fx | %14e | %12e | %8.1f | %7.1f%% | %7.1f%%",
+			r.name, r.insts, r.iooCPI, r.oooCPI, r.oooNoBPCPI, r.bpAccuracy, bpImprov, speedup, simTime, r.native, ratio, r.l1HitRate*100, r.l2HitRate*100)
 	}
 
 	// Also print as a clean formatted string for easy copy-paste.
 	fmt.Println()
-	fmt.Printf("%-8s | %12s | %11s | %9s | %7s | %14s | %12s | %8s | %8s | %8s\n",
-		"Kernel", "Instructions", "InOrder CPI", "OoO CPI", "Speedup", "Sim Time (s)", "Native (s)", "Ratio", "L1 Hit%", "L2 Hit%")
-	fmt.Printf("%-8s-+-%12s-+-%11s-+-%9s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s-+-%8s\n",
-		"--------", "------------", "-----------", "---------", "-------", "--------------", "------------", "--------", "--------", "--------")
+	fmt.Printf("%-8s | %12s | %11s | %9s | %10s | %7s | %9s | %7s | %14s | %12s | %8s | %8s | %8s\n",
+		"Kernel", "Instructions", "InOrder CPI", "OoO CPI", "NoBP CPI", "BP Acc%", "BP Improv", "Speedup", "Sim Time (s)", "Native (s)", "Ratio", "L1 Hit%", "L2 Hit%")
+	fmt.Printf("%-8s-+-%12s-+-%11s-+-%9s-+-%10s-+-%7s-+-%9s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s-+-%8s\n",
+		"--------", "------------", "-----------", "---------", "----------", "-------", "---------", "-------", "--------------", "------------", "--------", "--------", "--------")
 	for _, r := range results {
 		simTime := float64(r.oooCycles) / freq
 		ratio := simTime / r.native
 		speedup := r.iooCPI / r.oooCPI
-		fmt.Printf("%-8s | %12d | %11.2f | %9.2f | %6.2fx | %14e | %12e | %8.1f | %7.1f%% | %7.1f%%\n",
-			r.name, r.insts, r.iooCPI, r.oooCPI, speedup, simTime, r.native, ratio, r.l1HitRate*100, r.l2HitRate*100)
+		bpImprov := (r.oooNoBPCPI - r.oooCPI) / r.oooNoBPCPI * 100
+		fmt.Printf("%-8s | %12d | %11.2f | %9.2f | %10.2f | %6.1f%% | %8.1f%% | %6.2fx | %14e | %12e | %8.1f | %7.1f%% | %7.1f%%\n",
+			r.name, r.insts, r.iooCPI, r.oooCPI, r.oooNoBPCPI, r.bpAccuracy, bpImprov, speedup, simTime, r.native, ratio, r.l1HitRate*100, r.l2HitRate*100)
 	}
 }
 
