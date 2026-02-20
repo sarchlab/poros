@@ -22,8 +22,9 @@ const (
 type OoOPipeline struct {
 	*sim.TickingComponent
 
-	Emu   *emu.Emulator
-	Cache *mem.Cache // optional, nil = fixed latency
+	Emu        *emu.Emulator
+	Cache      *mem.Cache          // optional, nil = fixed latency
+	BranchPred *BranchPredictor    // nil = always-not-taken (backward compatible)
 
 	// Configuration (set defaults in constructor).
 	FetchWidth    int // 8
@@ -88,6 +89,7 @@ func NewOoOPipeline(
 	p.fpUnits = make([]uint64, p.NumFP)
 	p.ldstUnits = make([]uint64, p.NumLDST)
 	p.rob = make([]uint64, p.ROBCapacity)
+	p.BranchPred = NewBranchPredictor()
 	p.TickingComponent = sim.NewTickingComponent(name, engine, freq, p)
 	return p
 }
@@ -227,9 +229,39 @@ func (p *OoOPipeline) fetchAndProcess() {
 		p.robCount++
 
 		// 11. Handle branch.
-		if branched {
+		if IsBranch(inst.Op) && p.BranchPred != nil {
+			isCall := inst.Op == arm64asm.BL || inst.Op == arm64asm.BLR
+			isReturn := inst.Op == arm64asm.RET
+
+			// Simulate the prediction that would have happened at fetch time.
+			predTaken, predTarget := p.BranchPred.Predict(pc, isCall, isReturn)
+
+			// Actual outcome from StepDetailed.
+			actualTaken := branched
+			actualTarget := p.Emu.Regs.PC
+
+			// Update predictor with actual outcome.
+			p.BranchPred.Update(pc, actualTaken, actualTarget, predTaken, isCall, isReturn)
+
+			// Check if prediction was correct.
+			mispredicted := (predTaken != actualTaken) ||
+				(predTaken && predTarget != actualTarget)
+
+			if mispredicted {
+				p.frontendReady = issueCycle + uint64(p.BranchPenalty)
+				break
+			}
+			// Correct prediction: no penalty.
+			if actualTaken {
+				// Still stop fetching after taken branch — fetch from new
+				// target next cycle, but no penalty.
+				fetched++
+				break
+			}
+		} else if branched {
+			// Fallback for non-branch PC changes or nil predictor.
 			p.frontendReady = issueCycle + uint64(p.BranchPenalty)
-			break // stop fetching this cycle
+			break
 		}
 
 		fetched++
