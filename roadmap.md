@@ -55,33 +55,36 @@ The simulator consists of:
 - Comparison table: atax=2.6x, mvt=4.8x, gemm=7.2x (all within 10x target)
 
 ### M4: Cache Hierarchy + Memory Access Tracking
-**Status:** Not started
-**Budget:** 5 cycles
+**Status:** COMPLETE (2 cycles)
+**Budget:** 5 cycles | **Actual:** 2 cycles
 **Scope:**
-- Add memory access tracking to the emulator (record address, size, read/write for each load/store instruction)
-- Simple L1D cache model: 128KB, 8-way set-associative, 64B lines, LRU replacement
-- L2 cache model: 16MB, 16-way, 128B lines, LRU replacement
-- Hit/miss latency: L1 hit=3 cycles, L1 miss + L2 hit=18 cycles, L2 miss (DRAM)=335 cycles (~96ns at 3.49GHz)
-- L1 Instruction Cache: model as ideal (always hit, 1 cycle) — instruction working set is small
-- Pipeline Memory stage uses cache model to determine actual latency per access
-- Fix scoreboard flush bug (decrement without matching increment on taken branches)
-- Extract 3+ additional PolyBench kernels to increase test coverage
-- Run all kernels through pipeline and report comparison table
-- **Target: memory-bound benchmarks should show realistic slowdown vs compute-bound**
-- **Note: MINI datasets likely fit in L1, so cache effect may be small; this builds infrastructure for larger datasets later**
+- Memory access tracking in emulator (`Memory.Accesses` + `TrackAccesses` flag)
+- L1D cache: 128KB/8-way/64B lines, LRU replacement
+- L2 cache: 16MB/16-way/128B lines, LRU replacement
+- Hit/miss latency: L1=3, L2=18, DRAM=335 cycles
+- Pipeline Memory stage uses cache `Lookup()` for variable latency
+- Scoreboard flush bug fixed (don't decrement for un-issued decode instructions)
+- FP STP source tracking fixed (check both Args[0] and Args[1])
+- Instruction fetch cache pollution fixed (use `readByteRaw` for fetch, not `ReadU8`)
+- 3 new kernels extracted: 2mm, 3mm, bicg (total: 6 kernels)
+- L1 hit rates 97.7-99.6% (MINI datasets fit in cache as expected)
+- CPI: atax=4.75, mvt=4.91, gemm=3.46, 2mm=3.44, 3mm=3.23, bicg=5.51
 
 ### M5: Superscalar + Out-of-Order Execution
 **Status:** Not started
 **Budget:** 8 cycles
 **Scope:**
-- Widen pipeline: 8-wide fetch/decode, up to 14-wide issue
-- Execution unit modeling: 6 INT + 4 LD/ST + 4 FP/SIMD ports
-- Instruction scheduling / reservation stations
-- ROB (~300 entries)
-- Register renaming
-- Load/store queue
-- Instruction elimination (MOV, NOP)
-- **Target: get within 2x of real execution time**
+- Replace 5-stage in-order pipeline with OoO superscalar timing model
+- **Key design**: In-order functional execution (emulator runs in program order via `StepDetailed()`), OoO timing model tracks when instructions *would* issue/complete
+- Frontend: 8-wide fetch, 8-wide decode/rename
+- Backend: Reservation stations → execution units → ROB retire
+- Execution units: 6 INT + 4 LD/ST + 4 FP/SIMD ports (M2 Avalanche core)
+- ROB: ~300 entries, in-order retirement
+- Register renaming: physical register file (~192 INT + ~128 FP physical regs)
+- Load/store queue: enforce memory ordering, integrate with cache model
+- Instruction elimination (MOV between regs, NOP) — zero-cycle
+- All 6 existing kernels must produce correct output
+- **Target: CPI ~1.0-2.0 (down from 3.2-5.5), sim/native ratio within 2x**
 
 ### M6: Branch Predictor
 **Status:** Not started
@@ -114,7 +117,7 @@ The simulator consists of:
 - Final validation pass
 - Performance optimization of the simulator itself (simulation speed)
 
-## Total Estimated Budget: ~42 cycles (revised down — team has been faster than expected)
+## Total Estimated Budget: ~42 cycles | **Spent so far: ~8 cycles (M1:1 + M2:3 + M3:2 + M4:2)**
 
 ## Lessons Learned
 
@@ -153,6 +156,15 @@ The simulator consists of:
   - FP STP source tracking incomplete in regs.go
 - `unsafe.Pointer` usage in regs.go for accessing arm64asm internals — fragile across library versions
 - Key insight: For M4 cache integration, need to add memory access tracking to the emulator since it currently accesses `em.Mem` directly in executor functions with no visibility from the pipeline
+
+### M4
+- Completed in 2 cycles (budgeted 5) — parallel workers effective (Leo: cache model, Kai: integration + bug fixes, Nora: kernel extraction)
+- Cache model is synchronous (no Akita ports) — simple `Lookup()` call, correct design choice for in-order pipeline
+- Instruction fetch was polluting D-cache: fixed by using raw byte read for fetch stage
+- MINI dataset CPI: 3.2-5.5x — overestimation dominated by in-order pipeline, not cache misses
+- L1 hit rates 97.7-99.6% confirm MINI datasets fit in cache — cache model mainly matters for larger datasets
+- Key insight for M5: the 3-5x overestimation gap is almost entirely due to in-order single-issue vs real M2's OoO superscalar. M5 (OoO) is the critical accuracy milestone
+- Architecture note: `StepDetailed()` returns (inst, branched, err) and the pipeline calls it in Execute stage. For OoO, the emulator still executes in program order but the timing model tracks overlapped execution
 
 ## Key Risks
 1. **ARM64 emulator complexity**: Even a subset of ARM64 is large. Compiler may emit unexpected instructions.
