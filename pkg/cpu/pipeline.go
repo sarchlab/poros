@@ -3,6 +3,7 @@ package cpu
 import (
 	"github.com/sarchlab/akita/v4/sim"
 	"github.com/sarchlab/m2sim3/pkg/emu"
+	"github.com/sarchlab/m2sim3/pkg/mem"
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
@@ -14,6 +15,7 @@ type stageReg struct {
 	cyclesLeft int  // remaining cycles in current stage
 	executed   bool // emulator has executed this instruction
 	branched   bool // taken branch detected at Execute
+	memLatency int  // precomputed memory stage latency
 }
 
 // Pipeline is a 5-stage in-order pipeline TickingComponent.
@@ -23,7 +25,8 @@ type stageReg struct {
 type Pipeline struct {
 	*sim.TickingComponent
 
-	Emu *emu.Emulator
+	Emu   *emu.Emulator
+	Cache *mem.Cache // optional cache model (nil = fixed latency)
 
 	// Pipeline stage registers.
 	fetch     stageReg
@@ -59,6 +62,7 @@ func NewPipeline(
 	freq sim.Freq,
 	emulator *emu.Emulator,
 ) *Pipeline {
+	emulator.Mem.TrackAccesses = true
 	p := &Pipeline{
 		Emu:         emulator,
 		fetchPC:     emulator.Regs.PC,
@@ -155,6 +159,7 @@ func (p *Pipeline) stageExecute() bool {
 
 	// First cycle: call the emulator for functional execution.
 	if !p.execute.executed {
+		p.Emu.Mem.ClearAccesses()
 		inst, branched, err := p.Emu.StepDetailed()
 		if err != nil {
 			p.Err = err
@@ -164,6 +169,7 @@ func (p *Pipeline) stageExecute() bool {
 		_ = inst // already have it in execute.inst
 		p.execute.executed = true
 		p.execute.branched = branched
+		p.execute.memLatency = p.computeMemLatency()
 
 		// Handle taken branch: flush fetch and decode stages.
 		// This also covers halt (RET to haltPC): flush + pipeline drains.
@@ -183,12 +189,7 @@ func (p *Pipeline) stageExecute() bool {
 	}
 
 	p.memory = p.execute
-	// Set memory stage latency.
-	if IsLoad(p.execute.inst.Op) {
-		p.memory.cyclesLeft = p.LoadLatency - 1
-	} else {
-		p.memory.cyclesLeft = 0 // stores and non-memory: 1 cycle
-	}
+	p.memory.cyclesLeft = p.memory.memLatency
 	p.execute = stageReg{}
 	return false
 }
@@ -260,6 +261,40 @@ func (p *Pipeline) stageFetch() {
 		inst:  inst,
 	}
 	p.fetchPC += 4 // predict not-taken
+}
+
+// computeMemLatency determines the memory stage latency for the instruction
+// currently in the execute stage, based on tracked memory accesses and cache.
+func (p *Pipeline) computeMemLatency() int {
+	if p.Cache == nil {
+		if IsLoad(p.execute.inst.Op) {
+			return p.LoadLatency - 1
+		}
+		return 0
+	}
+
+	accesses := p.Emu.Mem.Accesses
+	if len(accesses) == 0 {
+		return 0
+	}
+
+	worstLevel := mem.HitL1
+	for _, acc := range accesses {
+		level := p.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
+		if level > worstLevel {
+			worstLevel = level
+		}
+	}
+
+	cfg := p.Cache.Config()
+	switch worstLevel {
+	case mem.HitL2:
+		return cfg.L2Latency - 1
+	case mem.HitDRAM:
+		return cfg.DRAMLatency - 1
+	default:
+		return cfg.L1Latency - 1
+	}
 }
 
 // flush clears fetch and decode stages after a taken branch.
