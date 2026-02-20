@@ -5565,7 +5565,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupSymmEmu := func() *emu.Emulator {
-		m, n := 20, 25
+		m, n := 60, 80
 		alpha, beta := 1.5, 1.2
 
 		C := make([]float64, m*n)
@@ -5616,7 +5616,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		cBuf := make([]byte, m*n*8)
@@ -5654,7 +5654,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupCholeskyEmu := func() *emu.Emulator {
-		n := 20
+		n := 120
 
 		A0 := make([]float64, n*n)
 		for i := 0; i < n; i++ {
@@ -5695,7 +5695,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, n*n*8)
@@ -5716,7 +5716,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupLUEmu := func() *emu.Emulator {
-		n := 20
+		n := 120
 
 		A0 := make([]float64, n*n)
 		for i := 0; i < n; i++ {
@@ -5759,7 +5759,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, n*n*8)
@@ -5780,7 +5780,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupFloydWarshallEmu := func() *emu.Emulator {
-		n := 20
+		n := 180
 
 		path := make([]float64, n*n)
 		for i := 0; i < n; i++ {
@@ -5811,7 +5811,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		pathBuf := make([]byte, n*n*8)
@@ -5832,7 +5832,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupCovarianceEmu := func() *emu.Emulator {
-		m, n := 15, 20
+		m, n := 80, 100
 		floatN := float64(n)
 
 		data := make([]float64, n*m)
@@ -5879,7 +5879,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		dataBuf := make([]byte, n*m*8)
@@ -5907,7 +5907,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupCorrelationEmu := func() *emu.Emulator {
-		m, n := 15, 20
+		m, n := 80, 100
 		floatN := float64(n)
 
 		data := make([]float64, n*m)
@@ -5975,7 +5975,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		dataBuf := make([]byte, n*m*8)
@@ -6005,7 +6005,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupGramschmidtEmu := func() *emu.Emulator {
-		m, n := 20, 30
+		m, n := 60, 80
 		A := make([]float64, m*n)
 		for i := 0; i < m; i++ {
 			for j := 0; j < n; j++ {
@@ -6045,7 +6045,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, m*n*8)
@@ -6070,7 +6070,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupLudcmpEmu := func() *emu.Emulator {
-		n := 40
+		n := 120
 		fn := float64(n)
 
 		A0 := make([]float64, n*n)
@@ -6137,7 +6137,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, n*n*8)
@@ -6168,7 +6168,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupNussinovEmu := func() *emu.Emulator {
-		n := 60
+		n := 180
 		seq := make([]byte, n)
 		for i := 0; i < n; i++ {
 			seq[i] = byte((i + 1) % 4)
@@ -6205,7 +6205,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 		em.LoadProgram(seqBase, seq)
 		em.LoadProgram(tableBase, make([]byte, n*n*4))
@@ -6222,8 +6222,8 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupAdiEmu := func() *emu.Emulator {
-		tsteps := 20
-		n := 20
+		tsteps := 40
+		n := 60
 
 		u := make([]float64, n*n)
 		for i := 0; i < n; i++ {
@@ -6283,7 +6283,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		uBuf := make([]byte, n*n*8)
@@ -6310,9 +6310,9 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupFdtd2dEmu := func() *emu.Emulator {
-		tmax := 20
-		nx := 20
-		ny := 30
+		tmax := 40
+		nx := 60
+		ny := 80
 
 		ex := make([]float64, nx*ny)
 		ey := make([]float64, nx*ny)
@@ -6361,7 +6361,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		exBuf := make([]byte, nx*ny*8)
@@ -6404,8 +6404,8 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupHeat3dEmu := func() *emu.Emulator {
-		tsteps := 20
-		n := 10
+		tsteps := 40
+		n := 20
 		nn := n * n
 		total := n * n * n
 
@@ -6458,7 +6458,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, total*8)
@@ -6486,8 +6486,8 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupJacobi2dEmu := func() *emu.Emulator {
-		tsteps := 20
-		n := 30
+		tsteps := 40
+		n := 90
 
 		A := make([]float64, n*n)
 		B := make([]float64, n*n)
@@ -6529,7 +6529,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, n*n*8)
@@ -6557,8 +6557,8 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupSeidel2dEmu := func() *emu.Emulator {
-		tsteps := 20
-		n := 20
+		tsteps := 40
+		n := 120
 
 		A := make([]float64, n*n)
 		for i := 0; i < n; i++ {
@@ -6591,7 +6591,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, n*n*8)
@@ -6612,8 +6612,8 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupDericheEmu := func() *emu.Emulator {
-		w := 64
-		h := 64
+		w := 192
+		h := 128
 
 		imgIn := make([]float64, w*h)
 		for i := 0; i < w; i++ {
@@ -6694,7 +6694,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 50_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		imgInBuf := make([]byte, w*h*8)
@@ -6743,21 +6743,21 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		{"syrk", setupSyrkEmu, 0.000232},
 		{"syr2k", setupSyr2kEmu, 0.000146},
 		{"trmm", setupTrmmEmu, 0.000078},
-		{"symm", setupSymmEmu, 0.000015},
-		{"cholesky", setupCholeskyEmu, 0.000008},
-		{"lu", setupLUEmu, 0.000006},
-		{"floydwarshall", setupFloydWarshallEmu, 0.000008},
-		{"covariance", setupCovarianceEmu, 0.000010},
-		{"correlation", setupCorrelationEmu, 0.000012},
-		{"gramschmidt", setupGramschmidtEmu, 0.000028},
-		{"ludcmp", setupLudcmpEmu, 0.000034},
-		{"nussinov", setupNussinovEmu, 0.000025},
-		{"adi", setupAdiEmu, 0.000045},
-		{"fdtd2d", setupFdtd2dEmu, 0.000020},
-		{"heat3d", setupHeat3dEmu, 0.000067},
-		{"jacobi2d", setupJacobi2dEmu, 0.000010},
-		{"seidel2d", setupSeidel2dEmu, 0.000005},
-		{"deriche", setupDericheEmu, 0.000025},
+		{"symm", setupSymmEmu, 0.000245},
+		{"cholesky", setupCholeskyEmu, 0.000214},
+		{"lu", setupLUEmu, 0.000369},
+		{"floydwarshall", setupFloydWarshallEmu, 0.007780},
+		{"covariance", setupCovarianceEmu, 0.000528},
+		{"correlation", setupCorrelationEmu, 0.000250},
+		{"gramschmidt", setupGramschmidtEmu, 0.000547},
+		{"ludcmp", setupLudcmpEmu, 0.000774},
+		{"nussinov", setupNussinovEmu, 0.001146},
+		{"adi", setupAdiEmu, 0.002274},
+		{"fdtd2d", setupFdtd2dEmu, 0.000446},
+		{"heat3d", setupHeat3dEmu, 0.000580},
+		{"jacobi2d", setupJacobi2dEmu, 0.001041},
+		{"seidel2d", setupSeidel2dEmu, 0.007733},
+		{"deriche", setupDericheEmu, 0.000475},
 	}
 
 	results := make([]kernelResult, 0, len(kernels))
