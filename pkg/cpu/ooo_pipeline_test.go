@@ -4304,7 +4304,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 
 	// setupAtaxEmu creates a fresh emulator configured for the atax kernel.
 	setupAtaxEmu := func() *emu.Emulator {
-		m, n := 38, 42
+		m, n := 116, 124
 		A := make([]float64, m*n)
 		x := make([]float64, n)
 		for i := 0; i < n; i++ {
@@ -4337,7 +4337,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, m*n*8)
@@ -4369,7 +4369,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 
 	// setupMvtEmu creates a fresh emulator configured for the mvt kernel.
 	setupMvtEmu := func() *emu.Emulator {
-		n := 40
+		n := 120
 		x1 := make([]float64, n)
 		x2 := make([]float64, n)
 		y1 := make([]float64, n)
@@ -4408,7 +4408,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		x1Buf := make([]byte, n*8)
@@ -4456,7 +4456,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 
 	// setupGemmEmu creates a fresh emulator configured for the gemm kernel.
 	setupGemmEmu := func() *emu.Emulator {
-		ni, nj, nk := 20, 25, 30
+		ni, nj, nk := 60, 70, 80
 		alpha, beta := 1.5, 1.2
 
 		C := make([]float64, ni*nj)
@@ -4504,7 +4504,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		cBuf := make([]byte, ni*nj*8)
@@ -4544,7 +4544,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 
 	// setup2mmEmu creates a fresh emulator configured for the 2mm kernel.
 	setup2mmEmu := func() *emu.Emulator {
-		ni, nj, nk, nl := 16, 18, 22, 24
+		ni, nj, nk, nl := 40, 50, 70, 80
 		alpha, beta := 1.5, 1.2
 
 		tmp := make([]float64, ni*nj)
@@ -4609,7 +4609,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		tmpBuf := make([]byte, ni*nj*8)
@@ -4665,7 +4665,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 
 	// setup3mmEmu creates a fresh emulator configured for the 3mm kernel.
 	setup3mmEmu := func() *emu.Emulator {
-		ni, nj, nk, nl, nm := 16, 18, 20, 22, 24
+		ni, nj, nk, nl, nm := 40, 50, 60, 70, 80
 
 		A := make([]float64, ni*nk)
 		B := make([]float64, nk*nj)
@@ -4743,7 +4743,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		eBuf := make([]byte, ni*nj*8)
@@ -4812,7 +4812,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 
 	// setupBicgEmu creates a fresh emulator configured for the bicg kernel.
 	setupBicgEmu := func() *emu.Emulator {
-		m, n := 38, 42
+		m, n := 116, 124
 
 		A := make([]float64, m*n)
 		s := make([]float64, n)
@@ -4850,7 +4850,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, m*n*8)
@@ -4900,7 +4900,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupGesummvEmu := func() *emu.Emulator {
-		n := 30
+		n := 90
 		alpha, beta := 1.5, 1.2
 
 		A := make([]float64, n*n)
@@ -4936,7 +4936,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, n*n*8)
@@ -4978,7 +4978,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupGemverEmu := func() *emu.Emulator {
-		n := 30
+		n := 120
 		fn := float64(n)
 
 		A := make([]float64, n*n)
@@ -5038,7 +5038,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, n*n*8)
@@ -5087,7 +5087,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupDoitgenEmu := func() *emu.Emulator {
-		nr, nq, np := 10, 12, 8
+		nr, nq, np := 25, 20, 30
 
 		A := make([]float64, nr*nq*np)
 		C4 := make([]float64, np*np)
@@ -5127,7 +5127,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, nr*nq*np*8)
@@ -5159,7 +5159,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupTrisolvEmu := func() *emu.Emulator {
-		n := 40
+		n := 120
 
 		L := make([]float64, n*n)
 		b := make([]float64, n)
@@ -5188,7 +5188,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		lBuf := make([]byte, n*n*8)
@@ -5217,7 +5217,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupDurbinEmu := func() *emu.Emulator {
-		n := 40
+		n := 120
 
 		r := make([]float64, n)
 		for i := 0; i < n; i++ {
@@ -5256,7 +5256,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		rBuf := make([]byte, n*8)
@@ -5280,8 +5280,8 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupJacobi1dEmu := func() *emu.Emulator {
-		tsteps := 20
-		n := 30
+		tsteps := 40
+		n := 120
 
 		A := make([]float64, n)
 		B := make([]float64, n)
@@ -5309,7 +5309,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, n*8)
@@ -5336,7 +5336,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupSyrkEmu := func() *emu.Emulator {
-		n, m := 20, 25
+		n, m := 80, 60
 		alpha, beta := 1.5, 1.2
 
 		C := make([]float64, n*n)
@@ -5378,7 +5378,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		cBuf := make([]byte, n*n*8)
@@ -5409,7 +5409,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupSyr2kEmu := func() *emu.Emulator {
-		n, m := 20, 25
+		n, m := 80, 60
 		alpha, beta := 1.5, 1.2
 
 		C := make([]float64, n*n)
@@ -5456,7 +5456,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		cBuf := make([]byte, n*n*8)
@@ -5494,7 +5494,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	setupTrmmEmu := func() *emu.Emulator {
-		m, n := 20, 25
+		m, n := 60, 80
 		alpha := 1.5
 
 		A := make([]float64, m*m)
@@ -5535,7 +5535,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
-		em.MaxInst = 10_000_000
+		em.MaxInst = 100_000_000
 		em.LoadProgram(codeBase, encodeInsts(code))
 
 		aBuf := make([]byte, m*m*8)
@@ -6728,21 +6728,21 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	kernels := []setupFunc{
-		{"atax", setupAtaxEmu, 0.000008},
-		{"mvt", setupMvtEmu, 0.000004},
-		{"gemm", setupGemmEmu, 0.000016},
-		{"2mm", setup2mmEmu, 0.000020},
-		{"3mm", setup3mmEmu, 0.000030},
-		{"bicg", setupBicgEmu, 0.000006},
-		{"gesummv", setupGesummvEmu, 0.000008},
-		{"gemver", setupGemverEmu, 0.000009},
-		{"doitgen", setupDoitgenEmu, 0.000015},
-		{"trisolv", setupTrisolvEmu, 0.000007},
-		{"durbin", setupDurbinEmu, 0.000009},
-		{"jacobi1d", setupJacobi1dEmu, 0.000004},
-		{"syrk", setupSyrkEmu, 0.000012},
-		{"syr2k", setupSyr2kEmu, 0.000014},
-		{"trmm", setupTrmmEmu, 0.000010},
+		{"atax", setupAtaxEmu, 0.000042},
+		{"mvt", setupMvtEmu, 0.000034},
+		{"gemm", setupGemmEmu, 0.000148},
+		{"2mm", setup2mmEmu, 0.000424},
+		{"3mm", setup3mmEmu, 0.000905},
+		{"bicg", setupBicgEmu, 0.000398},
+		{"gesummv", setupGesummvEmu, 0.000049},
+		{"gemver", setupGemverEmu, 0.000083},
+		{"doitgen", setupDoitgenEmu, 0.000506},
+		{"trisolv", setupTrisolvEmu, 0.000027},
+		{"durbin", setupDurbinEmu, 0.000015},
+		{"jacobi1d", setupJacobi1dEmu, 0.000015},
+		{"syrk", setupSyrkEmu, 0.000232},
+		{"syr2k", setupSyr2kEmu, 0.000146},
+		{"trmm", setupTrmmEmu, 0.000078},
 		{"symm", setupSymmEmu, 0.000015},
 		{"cholesky", setupCholeskyEmu, 0.000008},
 		{"lu", setupLUEmu, 0.000006},
