@@ -7,7 +7,8 @@ func ExecuteLatency(op arm64asm.Op) int {
 	switch op {
 	// Multiply
 	case arm64asm.MUL, arm64asm.MADD, arm64asm.MSUB,
-		arm64asm.UMULL, arm64asm.UMULH:
+		arm64asm.UMULL, arm64asm.UMULH,
+		arm64asm.SMULL, arm64asm.SMADDL:
 		return 3
 
 	// Division

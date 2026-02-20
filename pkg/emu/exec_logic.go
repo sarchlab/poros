@@ -519,6 +519,29 @@ func (e *executor) execSBFM(inst arm64asm.Inst) error {
 	return nil
 }
 
+func (e *executor) execSBFIZ(inst arm64asm.Inst) error {
+	// SBFIZ Xd, Xn, #lsb, #width — extract lower 'width' bits, sign-extend, shift left by 'lsb'
+	is32 := is32bit(inst.Args[0])
+	src := e.readOperandVal(inst.Args[1], is32)
+	lsb := resolveImm(inst.Args[2])
+	width := resolveImm(inst.Args[3])
+
+	mask := (uint64(1) << width) - 1
+	field := src & mask
+	// Sign extend from bit (width-1)
+	signBit := (field >> (width - 1)) & 1
+	if signBit != 0 {
+		field |= ^mask
+	}
+	result := field << lsb
+
+	if is32 {
+		result = mask32(result)
+	}
+	e.writeGPR(inst.Args[0], result)
+	return nil
+}
+
 func (e *executor) execUBFIZ(inst arm64asm.Inst) error {
 	// UBFIZ Xd, Xn, #lsb, #width — extract lower 'width' bits, shift left by 'lsb'
 	is32 := is32bit(inst.Args[0])

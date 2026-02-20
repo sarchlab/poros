@@ -34,6 +34,10 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execMSUB(inst)
 	case arm64asm.UMULL:
 		return false, e.execUMULL(inst)
+	case arm64asm.SMULL:
+		return false, e.execSMULL(inst)
+	case arm64asm.SMADDL:
+		return false, e.execSMADDL(inst)
 	case arm64asm.UMULH:
 		return false, e.execUMULH(inst)
 	case arm64asm.NEG:
@@ -112,6 +116,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execUBFIZ(inst)
 	case arm64asm.SBFM:
 		return false, e.execSBFM(inst)
+	case arm64asm.SBFIZ:
+		return false, e.execSBFIZ(inst)
 	case arm64asm.UBFX:
 		return false, e.execUBFX(inst)
 	case arm64asm.SBFX:

@@ -120,6 +120,27 @@ func (e *executor) execUMULL(inst arm64asm.Inst) error {
 	return nil
 }
 
+func (e *executor) execSMULL(inst arm64asm.Inst) error {
+	// SMULL Xd, Wn, Wm — 32x32→64 signed multiply
+	dst := inst.Args[0]
+	op1 := int64(int32(e.readOperandVal(inst.Args[1], true)))
+	op2 := int64(int32(e.readOperandVal(inst.Args[2], true)))
+	result := uint64(op1 * op2)
+	e.writeGPR(dst, result)
+	return nil
+}
+
+func (e *executor) execSMADDL(inst arm64asm.Inst) error {
+	// SMADDL Xd, Wn, Wm, Xa — Xd = Xa + (sext(Wn) * sext(Wm))
+	dst := inst.Args[0]
+	op1 := int64(int32(e.readOperandVal(inst.Args[1], true)))
+	op2 := int64(int32(e.readOperandVal(inst.Args[2], true)))
+	addend := int64(e.readOperandVal(inst.Args[3], false))
+	result := uint64(addend + op1*op2)
+	e.writeGPR(dst, result)
+	return nil
+}
+
 func (e *executor) execUMULH(inst arm64asm.Inst) error {
 	// UMULH Xd, Xn, Xm — 64x64→128, return high 64 bits
 	dst := inst.Args[0]

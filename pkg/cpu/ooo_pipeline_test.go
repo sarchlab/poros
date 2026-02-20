@@ -3361,6 +3361,504 @@ func TestOoO_PolyBenchNussinov(t *testing.T) {
 		p.InstDone, p.Cycles, p.CPI(), maxErr)
 }
 
+func TestOoO_PolyBenchAdi(t *testing.T) {
+	// End-to-end PolyBench kernel_adi through the OoO pipeline.
+	// Alternating Direction Implicit solver.
+	tsteps := 20
+	n := 20
+
+	u := make([]float64, n*n)
+
+	// init_array: u[i][j] = (i + n - j) / n
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			u[i*n+j] = float64(i+n-j) / float64(n)
+		}
+	}
+
+	// Golden reference.
+	gu := make([]float64, n*n)
+	gv := make([]float64, n*n)
+	gp := make([]float64, n*n)
+	gq := make([]float64, n*n)
+	copy(gu, u)
+
+	DX := 1.0 / float64(n)
+	DY := 1.0 / float64(n)
+	DT := 1.0 / float64(tsteps)
+	B1 := 2.0
+	B2 := 1.0
+	mul1 := B1 * DT / (DX * DX)
+	mul2 := B2 * DT / (DY * DY)
+
+	a := -mul1 / 2.0
+	b := 1.0 + mul1
+	c := a
+	d := -mul2 / 2.0
+	e := 1.0 + mul2
+	f := d
+
+	for tt := 1; tt <= tsteps; tt++ {
+		// Column Sweep
+		for i := 1; i < n-1; i++ {
+			gv[0*n+i] = 1.0
+			gp[i*n+0] = 0.0
+			gq[i*n+0] = gv[0*n+i]
+			for j := 1; j < n-1; j++ {
+				gp[i*n+j] = -c / (a*gp[i*n+j-1] + b)
+				gq[i*n+j] = (-d*gu[j*n+i-1] + (1.0+2.0*d)*gu[j*n+i] - f*gu[j*n+i+1] - a*gq[i*n+j-1]) / (a*gp[i*n+j-1] + b)
+			}
+			gv[(n-1)*n+i] = 1.0
+			for j := n - 2; j >= 1; j-- {
+				gv[j*n+i] = gp[i*n+j]*gv[(j+1)*n+i] + gq[i*n+j]
+			}
+		}
+		// Row Sweep
+		for i := 1; i < n-1; i++ {
+			gu[i*n+0] = 1.0
+			gp[i*n+0] = 0.0
+			gq[i*n+0] = gu[i*n+0]
+			for j := 1; j < n-1; j++ {
+				gp[i*n+j] = -f / (d*gp[i*n+j-1] + e)
+				gq[i*n+j] = (-a*gv[(i-1)*n+j] + (1.0+2.0*a)*gv[i*n+j] - c*gv[(i+1)*n+j] - d*gq[i*n+j-1]) / (d*gp[i*n+j-1] + e)
+			}
+			gu[i*n+n-1] = 1.0
+			for j := n - 2; j >= 1; j-- {
+				gu[i*n+j] = gp[i*n+j]*gu[i*n+j+1] + gq[i*n+j]
+			}
+		}
+	}
+	_ = e
+	_ = f
+
+	code := []uint32{
+		0xd10383ff, 0xa9087bfd, 0xa9096ffc, 0xa90a67fa, 0xa90b5ff8, 0xa90c57f6,
+		0xa90d4ff4, 0x7100041f, 0xb90067e0, 0xf90037e1, 0x54001b0b, 0xf94037e1,
+		0xb94067e8, 0x1e6e1007, 0x1e601010, 0xd2e7fe1d, 0x1e620020, 0x1e620101,
+		0x5100082c, 0x93407c29, 0x93407d8a, 0x937d7c2b, 0x9b2c7c32, 0x51000428,
+		0x8b0a012e, 0x8b0b0046, 0x9b2c242c, 0x1e6018e0, 0x8b0e0c50, 0xd10020ce,
+		0x91002160, 0xf9003fee, 0xd37df252, 0x8b00008e, 0xd37df18c, 0x1b017d0d,
+		0xf9002fee, 0x8b0000ae, 0x8b08012f, 0xf9002bee, 0x910040ce, 0x9100218c,
+		0xf9001fee, 0x9100224e, 0x8b2dcc6d, 0xf9001bee, 0x9100206e, 0xd37df1ef,
+		0xa90233e6, 0x8b0b008c, 0x91002210, 0xf90027ec, 0xd37d7d0c, 0xd1000511,
+		0xf9000fee, 0x8b21d1ce, 0xcb0b03f4, 0x8b0b00b2, 0xd100219b, 0x5280002c,
+		0xf9000bee, 0x8b00006e, 0xf90023f2, 0xf90007ee, 0x1e6118e1, 0x1e600800,
+		0x1e612822, 0x1e601823, 0x1e7c1001, 0x1e601842, 0x1e610840, 0x1e610861,
+		0x1e672842, 0x1e672863, 0x1e614004, 0x1e614025, 0x1f501c26, 0x1f501c07,
+		0x14000006, 0xb94067ec, 0xf9403bee, 0x6b0c01df, 0x110005cc, 0x540011e0,
+		0xf9003bec, 0xf94037ec, 0x71000d9f, 0x54ffff0b, 0xa9444bec, 0x52800038,
+		0xa9429fe6, 0xf9401ff3, 0xa9455bf5, 0x9b097f0e, 0xf838787d, 0xaa1303f7,
+		0xaa1503f9, 0xaa1603fa, 0xaa1103fe, 0xf82e789f, 0xfc787870, 0xfc2e78b0,
+		0xfc5f8350, 0xf10007de, 0x1f500810, 0x1e701891, 0xfc008751, 0x6d7f46f2,
+		0x1e7108d1, 0x1f5244b1, 0xfd4002f2, 0x8b0b02f7, 0x1f5244b1, 0xfc5f8332,
+		0x1f524491, 0x1e701a30, 0xfc008730, 0x54fffe21, 0xaa0303f7, 0xaa0a03f9,
+		0xf83879bd, 0xfc797a50, 0xfc666af1, 0xfc797992, 0xf1000739, 0x1f514a10,
+		0xfc276af0, 0x8b1402f7, 0x54ffff2c, 0x91000718, 0x8b0b02d6, 0x8b0b02b5,
+		0x91002273, 0x910020e7, 0xeb08031f, 0x910020c6, 0x8b0b0252, 0x8b0b018c,
+		0x54fffa61, 0xf94037ec, 0x71000d9f, 0x54fff84b, 0xa941b3f5, 0xaa1f03fe,
+		0xa9445bf8, 0x52800033, 0xa9454be6, 0xa940e7e7, 0x9b1e7d7a, 0x9b097e77,
+		0x8b1a017c, 0x8b1a01e0, 0x8b1c0081, 0x8b00008e, 0x8b0000a0, 0xf837785d,
+		0x8b1c00bc, 0xeb00003f, 0xf837789f, 0xfa4e3382, 0xfc777850, 0xfc3778b0,
+		0x540002a3, 0x9b1e2d6e, 0xaa1f03fc, 0xfc6e6890, 0xfc6e68b1, 0x1f500c32,
+		0x1e7218b0, 0xfc3c6a50, 0xfc7c68f3, 0xfc7c6ab4, 0x1e7308f3, 0x1f544c93,
+		0xfc7c6b34, 0x1f544c93, 0x1f514cb1, 0x1e721a31, 0xfc3c68d1, 0x9100239c,
+		0xeb1c037f, 0x54fffe41, 0x14000015, 0xaa1f03fc, 0x8b1c024e, 0xfc5f81d0,
+		0x1f500c30, 0x1e7018b1, 0xfd0001d1, 0x8b1c030e, 0xfc7c68f1, 0xfc7c6ab2,
+		0x1e7108f1, 0x1f524491, 0xfc7c6b32, 0x9100239c, 0xeb1c037f, 0x1f524491,
+		0xfd4001d2, 0x1f5244b1, 0x1e701a30, 0xfd0005d0, 0x54fffdc1, 0xf9403fee,
+		0x91000673, 0xf83779dd, 0xaa0a03f7, 0xfc7a6a10, 0xfc777ad1, 0xfc777b12,
+		0x1f504a30, 0xfc377990, 0xf10006f7, 0x54ffff6c, 0x910007de, 0x8b0b0339,
+		0x8b0b02b5, 0x8b0b00c6, 0x8b0b00e7, 0x8b0b0252, 0xeb08027f, 0x8b0b0318,
+		0x8b0b02d6, 0x8b0b018c, 0x54fff681, 0x17ffff6e, 0xa94d4ff4, 0xa94c57f6,
+		0xa94b5ff8, 0xa94a67fa, 0xa9496ffc, 0xa9487bfd, 0x910383ff, 0xd65f03c0,
+	}
+
+	codeBase := uint64(0x10000)
+	uBase := uint64(0x100000)
+	vBase := uint64(0x200000)
+	pBase := uint64(0x300000)
+	qBase := uint64(0x400000)
+	stackBase := uint64(0x500000)
+	haltPC := uint64(0xFFFF0000)
+
+	em := emu.NewEmulator()
+	em.MaxInst = 10_000_000
+	em.LoadProgram(codeBase, encodeInsts(code))
+
+	uBuf := make([]byte, n*n*8)
+	for i, val := range u {
+		binary.LittleEndian.PutUint64(uBuf[i*8:], math.Float64bits(val))
+	}
+	em.LoadProgram(uBase, uBuf)
+
+	em.LoadProgram(vBase, make([]byte, n*n*8))
+	em.LoadProgram(pBase, make([]byte, n*n*8))
+	em.LoadProgram(qBase, make([]byte, n*n*8))
+	em.LoadProgram(stackBase, make([]byte, 16384))
+
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(0, uint64(tsteps))
+	em.Regs.WriteX(1, uint64(n))
+	em.Regs.WriteX(2, uBase)
+	em.Regs.WriteX(3, vBase)
+	em.Regs.WriteX(4, pBase)
+	em.Regs.WriteX(5, qBase)
+	em.Regs.WriteX(30, haltPC)
+	em.Regs.SP = stackBase + 16384
+	em.SetHaltPC(haltPC)
+
+	pipe := runOoOPipeline(t, em)
+
+	if !em.Halted {
+		t.Fatal("emulator should have halted")
+	}
+
+	maxRelErr := 0.0
+	for i := 0; i < n*n; i++ {
+		bits := em.Mem.ReadU64(uBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := gu[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-6 {
+			row, col := i/n, i%n
+			t.Errorf("u[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+
+	t.Logf("kernel_adi: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		pipe.InstDone, pipe.Cycles, pipe.CPI(), maxRelErr)
+}
+
+func TestOoO_PolyBenchFdtd2d(t *testing.T) {
+	// End-to-end PolyBench kernel_fdtd_2d through the OoO pipeline.
+	// 2D Finite Different Time Domain.
+	tmax := 20
+	nx := 20
+	ny := 30
+
+	ex := make([]float64, nx*ny)
+	ey := make([]float64, nx*ny)
+	hz := make([]float64, nx*ny)
+	fict := make([]float64, tmax)
+
+	// init_array
+	for i := 0; i < tmax; i++ {
+		fict[i] = float64(i)
+	}
+	for i := 0; i < nx; i++ {
+		for j := 0; j < ny; j++ {
+			ex[i*ny+j] = float64(i*(j+1)) / float64(nx)
+			ey[i*ny+j] = float64(i*(j+2)) / float64(ny)
+			hz[i*ny+j] = float64(i*(j+3)) / float64(nx)
+		}
+	}
+
+	// Golden reference.
+	gex := make([]float64, nx*ny)
+	gey := make([]float64, nx*ny)
+	ghz := make([]float64, nx*ny)
+	copy(gex, ex)
+	copy(gey, ey)
+	copy(ghz, hz)
+
+	for tt := 0; tt < tmax; tt++ {
+		for j := 0; j < ny; j++ {
+			gey[0*ny+j] = fict[tt]
+		}
+		for i := 1; i < nx; i++ {
+			for j := 0; j < ny; j++ {
+				gey[i*ny+j] = gey[i*ny+j] - 0.5*(ghz[i*ny+j]-ghz[(i-1)*ny+j])
+			}
+		}
+		for i := 0; i < nx; i++ {
+			for j := 1; j < ny; j++ {
+				gex[i*ny+j] = gex[i*ny+j] - 0.5*(ghz[i*ny+j]-ghz[i*ny+j-1])
+			}
+		}
+		for i := 0; i < nx-1; i++ {
+			for j := 0; j < ny-1; j++ {
+				ghz[i*ny+j] = ghz[i*ny+j] - 0.7*(gex[i*ny+j+1]-gex[i*ny+j]+gey[(i+1)*ny+j]-gey[i*ny+j])
+			}
+		}
+	}
+
+	code := []uint32{
+		0x7100041f, 0x54000e0b, 0xa9bc67fa, 0xa9015ff8, 0xa90257f6, 0xa9034ff4,
+		0x7100083f, 0x1e7c1000, 0x2a0203ea, 0x1a9fa7ef, 0x7100042b, 0x937d7c50,
+		0x1a9fa7ee, 0x7100085f, 0xd37d7c52, 0xb203e7e7, 0xaa1f03e8, 0x51000449,
+		0x2a0003ec, 0x2a0103ed, 0x1a9fa5ce, 0x1a9fa5ef, 0x910020b1, 0x91002060,
+		0xd1000543, 0xf2f7fcc7, 0x14000004, 0x91000508, 0xeb0c011f, 0x54000a00,
+		0x7100045f, 0x54ffff8b, 0xfc6878c1, 0xaa0a03f3, 0xaa0403f4, 0xf1000673,
+		0xfc008681, 0x54ffffc1, 0x7100083f, 0x540002ab, 0xaa0403f3, 0xaa0503f4,
+		0x52800035, 0xaa0a03f6, 0xaa1303f7, 0xaa1403f8, 0xfc706b01, 0xfc408702,
+		0xf10006d6, 0x1e623821, 0xfc706ae2, 0x1f400821, 0xfc306ae1, 0x910022f7,
+		0x54ffff01, 0x910006b5, 0x8b100294, 0x8b100273, 0xeb0d02bf, 0x54fffe01,
+		0x3707fbee, 0xaa1f03f3, 0xaa0003f4, 0xaa1103f5, 0xaa0303f6, 0xaa1403f7,
+		0xaa1503f8, 0x6d7f8702, 0xf10006d6, 0x91002318, 0x1e623821, 0xfd4002e2,
+		0x1f400821, 0xfc0086e1, 0x54ffff21, 0x91000673, 0x8b1202b5, 0x8b120294,
+		0xeb0d027f, 0x54fffe21, 0x3707f96f, 0xaa1f03f3, 0xaa0503f4, 0xaa0003f5,
+		0xaa0403f6, 0x91000673, 0xaa1403f7, 0xaa1503f8, 0xaa0903f9, 0xaa1603fa,
+		0x6d7f8702, 0x9e6700e3, 0xf1000739, 0x91002318, 0x1e623821, 0xfc726b42,
+		0x1e622821, 0xfc408742, 0x1e623821, 0xfd4002e2, 0x1f430821, 0xfc0086e1,
+		0x54fffe81, 0xeb0b027f, 0x8b1202d6, 0x8b1202b5, 0x8b120294, 0x54fffd41,
+		0x17ffffaf, 0xa9434ff4, 0xa94257f6, 0xa9415ff8, 0xa8c467fa, 0xd65f03c0,
+	}
+
+	codeBase := uint64(0x10000)
+	exBase := uint64(0x100000)
+	eyBase := uint64(0x200000)
+	hzBase := uint64(0x300000)
+	fictBase := uint64(0x400000)
+	stackBase := uint64(0x500000)
+	haltPC := uint64(0xFFFF0000)
+
+	em := emu.NewEmulator()
+	em.MaxInst = 10_000_000
+	em.LoadProgram(codeBase, encodeInsts(code))
+
+	exBuf := make([]byte, nx*ny*8)
+	for i, val := range ex {
+		binary.LittleEndian.PutUint64(exBuf[i*8:], math.Float64bits(val))
+	}
+	em.LoadProgram(exBase, exBuf)
+
+	eyBuf := make([]byte, nx*ny*8)
+	for i, val := range ey {
+		binary.LittleEndian.PutUint64(eyBuf[i*8:], math.Float64bits(val))
+	}
+	em.LoadProgram(eyBase, eyBuf)
+
+	hzBuf := make([]byte, nx*ny*8)
+	for i, val := range hz {
+		binary.LittleEndian.PutUint64(hzBuf[i*8:], math.Float64bits(val))
+	}
+	em.LoadProgram(hzBase, hzBuf)
+
+	fictBuf := make([]byte, tmax*8)
+	for i, val := range fict {
+		binary.LittleEndian.PutUint64(fictBuf[i*8:], math.Float64bits(val))
+	}
+	em.LoadProgram(fictBase, fictBuf)
+
+	em.LoadProgram(stackBase, make([]byte, 16384))
+
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(0, uint64(tmax))
+	em.Regs.WriteX(1, uint64(nx))
+	em.Regs.WriteX(2, uint64(ny))
+	em.Regs.WriteX(3, exBase)
+	em.Regs.WriteX(4, eyBase)
+	em.Regs.WriteX(5, hzBase)
+	em.Regs.WriteX(6, fictBase)
+	em.Regs.WriteX(30, haltPC)
+	em.Regs.SP = stackBase + 16384
+	em.SetHaltPC(haltPC)
+
+	pipe := runOoOPipeline(t, em)
+
+	if !em.Halted {
+		t.Fatal("emulator should have halted")
+	}
+
+	maxRelErr := 0.0
+	for i := 0; i < nx*ny; i++ {
+		bits := em.Mem.ReadU64(exBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := gex[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-6 {
+			row, col := i/ny, i%ny
+			t.Errorf("ex[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+	for i := 0; i < nx*ny; i++ {
+		bits := em.Mem.ReadU64(eyBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := gey[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-6 {
+			row, col := i/ny, i%ny
+			t.Errorf("ey[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+	for i := 0; i < nx*ny; i++ {
+		bits := em.Mem.ReadU64(hzBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := ghz[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-6 {
+			row, col := i/ny, i%ny
+			t.Errorf("hz[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+
+	t.Logf("kernel_fdtd_2d: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		pipe.InstDone, pipe.Cycles, pipe.CPI(), maxRelErr)
+}
+
+func TestOoO_PolyBenchHeat3d(t *testing.T) {
+	// End-to-end PolyBench kernel_heat_3d through the OoO pipeline.
+	// 3D Heat equation.
+	tsteps := 20
+	n := 10
+
+	nn := n * n
+	total := n * n * n
+	A := make([]float64, total)
+	B := make([]float64, total)
+
+	// init_array: A[i][j][k] = B[i][j][k] = (i + j + (n-k)) * 10 / n
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			for k := 0; k < n; k++ {
+				A[i*nn+j*n+k] = float64(i+j+(n-k)) * 10 / float64(n)
+				B[i*nn+j*n+k] = A[i*nn+j*n+k]
+			}
+		}
+	}
+
+	// Golden reference.
+	gA := make([]float64, total)
+	gB := make([]float64, total)
+	copy(gA, A)
+	copy(gB, B)
+
+	for tt := 1; tt <= tsteps; tt++ {
+		for i := 1; i < n-1; i++ {
+			for j := 1; j < n-1; j++ {
+				for k := 1; k < n-1; k++ {
+					gB[i*nn+j*n+k] = 0.125*(gA[(i+1)*nn+j*n+k]-2.0*gA[i*nn+j*n+k]+gA[(i-1)*nn+j*n+k]) +
+						0.125*(gA[i*nn+(j+1)*n+k]-2.0*gA[i*nn+j*n+k]+gA[i*nn+(j-1)*n+k]) +
+						0.125*(gA[i*nn+j*n+k+1]-2.0*gA[i*nn+j*n+k]+gA[i*nn+j*n+k-1]) +
+						gA[i*nn+j*n+k]
+				}
+			}
+		}
+		for i := 1; i < n-1; i++ {
+			for j := 1; j < n-1; j++ {
+				for k := 1; k < n-1; k++ {
+					gA[i*nn+j*n+k] = 0.125*(gB[(i+1)*nn+j*n+k]-2.0*gB[i*nn+j*n+k]+gB[(i-1)*nn+j*n+k]) +
+						0.125*(gB[i*nn+(j+1)*n+k]-2.0*gB[i*nn+j*n+k]+gB[i*nn+(j-1)*n+k]) +
+						0.125*(gB[i*nn+j*n+k+1]-2.0*gB[i*nn+j*n+k]+gB[i*nn+j*n+k-1]) +
+						gB[i*nn+j*n+k]
+				}
+			}
+		}
+	}
+
+	code := []uint32{
+		0x7100041f, 0x5400142b, 0xd101c3ff, 0xa9017bfd, 0xa9026ffc, 0xa90367fa,
+		0xa9045ff8, 0xa90557f6, 0xa9064ff4, 0x1b017c2b, 0x93407c2c, 0x937d7c29,
+		0x51000428, 0x1e701000, 0x1e681001, 0x9100212f, 0xd37d7d0d, 0xd37d7d6a,
+		0x8b0b018c, 0x8b2b51e5, 0xd37df18e, 0x8b0f004b, 0xd10021ac, 0x91002150,
+		0x8b05004d, 0x8b21d204, 0x910021d1, 0x8b10004e, 0x8b100070, 0xf90007f0,
+		0x8b110070, 0x8b110051, 0x8b040052, 0x8b040062, 0x8b0f0064, 0x8b050063,
+		0x52800025, 0xf90003e2, 0x14000005, 0x110004af, 0x6b0000bf, 0x2a0f03e5,
+		0x54000e20, 0x71000c3f, 0x54ffff6b, 0xaa1103e6, 0xaa1003e7, 0xaa0d03f3,
+		0xaa0b03f4, 0xaa1203f5, 0xaa0e03f6, 0x52800037, 0x910006f7, 0xaa0603f8,
+		0xaa0703f9, 0xaa1303fa, 0xaa1403fb, 0xaa1503fc, 0xaa1603fd, 0x5280003e,
+		0xaa1f03ef, 0x910007de, 0x8b0f0302, 0xfc6f6b82, 0xfc6f6b45, 0x6d7f8c44,
+		0xfc6f6ba6, 0xfd400447, 0x1f400862, 0x1f401465, 0x1e662842, 0xfc6f6b66,
+		0x1e6628a5, 0x1f401c66, 0x1e610842, 0x1e6428c4, 0x1f4108a2, 0x1f410882,
+		0x1e622862, 0xfc2f6b22, 0x910021ef, 0xeb0f019f, 0x54fffd81, 0x8b0903bd,
+		0x8b09039c, 0x8b09037b, 0xeb0803df, 0x8b09035a, 0x8b090339, 0x8b090318,
+		0x54fffc41, 0x8b0a02d6, 0x8b0a02b5, 0x8b0a0294, 0xeb0802ff, 0x8b0a0273,
+		0x8b0a00e7, 0x8b0a00c6, 0x54fffa41, 0x71000c3f, 0x54fff86b, 0xa9405bf5,
+		0xaa1003e6, 0xaa1103e7, 0xaa0303f3, 0xaa0403f4, 0x52800037, 0x910006f7,
+		0xaa0603f8, 0xaa0703f9, 0xaa1303fa, 0xaa1403fb, 0xaa1503fc, 0xaa1603fd,
+		0x5280003e, 0xaa1f03ef, 0x910007de, 0x8b0f0302, 0xfc6f6b82, 0xfc6f6b45,
+		0x6d7f8c44, 0xfc6f6ba6, 0xfd400447, 0x1f400862, 0x1f401465, 0x1e662842,
+		0xfc6f6b66, 0x1e6628a5, 0x1f401c66, 0x1e610842, 0x1e6428c4, 0x1f4108a2,
+		0x1f410882, 0x1e622862, 0xfc2f6b22, 0x910021ef, 0xeb0f019f, 0x54fffd81,
+		0x8b0903bd, 0x8b09039c, 0x8b09037b, 0xeb0803df, 0x8b09035a, 0x8b090339,
+		0x8b090318, 0x54fffc41, 0x8b0a02d6, 0x8b0a02b5, 0x8b0a0294, 0xeb0802ff,
+		0x8b0a0273, 0x8b0a00e7, 0x8b0a00c6, 0x54fffa41, 0x17ffff8d, 0xa9464ff4,
+		0xa94557f6, 0xa9445ff8, 0xa94367fa, 0xa9426ffc, 0xa9417bfd, 0x9101c3ff,
+		0xd65f03c0,
+	}
+
+	codeBase := uint64(0x10000)
+	aBase := uint64(0x100000)
+	bBase := uint64(0x200000)
+	stackBase := uint64(0x300000)
+	haltPC := uint64(0xFFFF0000)
+
+	em := emu.NewEmulator()
+	em.MaxInst = 10_000_000
+	em.LoadProgram(codeBase, encodeInsts(code))
+
+	aBuf := make([]byte, total*8)
+	for i, val := range A {
+		binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(val))
+	}
+	em.LoadProgram(aBase, aBuf)
+
+	bBuf := make([]byte, total*8)
+	for i, val := range B {
+		binary.LittleEndian.PutUint64(bBuf[i*8:], math.Float64bits(val))
+	}
+	em.LoadProgram(bBase, bBuf)
+
+	em.LoadProgram(stackBase, make([]byte, 16384))
+
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(0, uint64(tsteps))
+	em.Regs.WriteX(1, uint64(n))
+	em.Regs.WriteX(2, aBase)
+	em.Regs.WriteX(3, bBase)
+	em.Regs.WriteX(30, haltPC)
+	em.Regs.SP = stackBase + 16384
+	em.SetHaltPC(haltPC)
+
+	pipe := runOoOPipeline(t, em)
+
+	if !em.Halted {
+		t.Fatal("emulator should have halted")
+	}
+
+	maxRelErr := 0.0
+	for i := 0; i < total; i++ {
+		bits := em.Mem.ReadU64(aBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := gA[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-6 {
+			ii := i / nn
+			jj := (i % nn) / n
+			kk := i % n
+			t.Errorf("A[%d][%d][%d] = %g, want %g (relErr=%e)", ii, jj, kk, got, want, relErr)
+		}
+	}
+
+	t.Logf("kernel_heat_3d: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		pipe.InstDone, pipe.Cycles, pipe.CPI(), maxRelErr)
+}
+
 func TestOoO_ComparisonTable(t *testing.T) {
 	const freq = 3.49e9 // M2 Avalanche core frequency
 
@@ -5298,6 +5796,270 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		return em
 	}
 
+	setupAdiEmu := func() *emu.Emulator {
+		tsteps := 20
+		n := 20
+
+		u := make([]float64, n*n)
+		for i := 0; i < n; i++ {
+			for j := 0; j < n; j++ {
+				u[i*n+j] = float64(i+n-j) / float64(n)
+			}
+		}
+
+		code := []uint32{
+			0xd10383ff, 0xa9087bfd, 0xa9096ffc, 0xa90a67fa, 0xa90b5ff8, 0xa90c57f6,
+			0xa90d4ff4, 0x7100041f, 0xb90067e0, 0xf90037e1, 0x54001b0b, 0xf94037e1,
+			0xb94067e8, 0x1e6e1007, 0x1e601010, 0xd2e7fe1d, 0x1e620020, 0x1e620101,
+			0x5100082c, 0x93407c29, 0x93407d8a, 0x937d7c2b, 0x9b2c7c32, 0x51000428,
+			0x8b0a012e, 0x8b0b0046, 0x9b2c242c, 0x1e6018e0, 0x8b0e0c50, 0xd10020ce,
+			0x91002160, 0xf9003fee, 0xd37df252, 0x8b00008e, 0xd37df18c, 0x1b017d0d,
+			0xf9002fee, 0x8b0000ae, 0x8b08012f, 0xf9002bee, 0x910040ce, 0x9100218c,
+			0xf9001fee, 0x9100224e, 0x8b2dcc6d, 0xf9001bee, 0x9100206e, 0xd37df1ef,
+			0xa90233e6, 0x8b0b008c, 0x91002210, 0xf90027ec, 0xd37d7d0c, 0xd1000511,
+			0xf9000fee, 0x8b21d1ce, 0xcb0b03f4, 0x8b0b00b2, 0xd100219b, 0x5280002c,
+			0xf9000bee, 0x8b00006e, 0xf90023f2, 0xf90007ee, 0x1e6118e1, 0x1e600800,
+			0x1e612822, 0x1e601823, 0x1e7c1001, 0x1e601842, 0x1e610840, 0x1e610861,
+			0x1e672842, 0x1e672863, 0x1e614004, 0x1e614025, 0x1f501c26, 0x1f501c07,
+			0x14000006, 0xb94067ec, 0xf9403bee, 0x6b0c01df, 0x110005cc, 0x540011e0,
+			0xf9003bec, 0xf94037ec, 0x71000d9f, 0x54ffff0b, 0xa9444bec, 0x52800038,
+			0xa9429fe6, 0xf9401ff3, 0xa9455bf5, 0x9b097f0e, 0xf838787d, 0xaa1303f7,
+			0xaa1503f9, 0xaa1603fa, 0xaa1103fe, 0xf82e789f, 0xfc787870, 0xfc2e78b0,
+			0xfc5f8350, 0xf10007de, 0x1f500810, 0x1e701891, 0xfc008751, 0x6d7f46f2,
+			0x1e7108d1, 0x1f5244b1, 0xfd4002f2, 0x8b0b02f7, 0x1f5244b1, 0xfc5f8332,
+			0x1f524491, 0x1e701a30, 0xfc008730, 0x54fffe21, 0xaa0303f7, 0xaa0a03f9,
+			0xf83879bd, 0xfc797a50, 0xfc666af1, 0xfc797992, 0xf1000739, 0x1f514a10,
+			0xfc276af0, 0x8b1402f7, 0x54ffff2c, 0x91000718, 0x8b0b02d6, 0x8b0b02b5,
+			0x91002273, 0x910020e7, 0xeb08031f, 0x910020c6, 0x8b0b0252, 0x8b0b018c,
+			0x54fffa61, 0xf94037ec, 0x71000d9f, 0x54fff84b, 0xa941b3f5, 0xaa1f03fe,
+			0xa9445bf8, 0x52800033, 0xa9454be6, 0xa940e7e7, 0x9b1e7d7a, 0x9b097e77,
+			0x8b1a017c, 0x8b1a01e0, 0x8b1c0081, 0x8b00008e, 0x8b0000a0, 0xf837785d,
+			0x8b1c00bc, 0xeb00003f, 0xf837789f, 0xfa4e3382, 0xfc777850, 0xfc3778b0,
+			0x540002a3, 0x9b1e2d6e, 0xaa1f03fc, 0xfc6e6890, 0xfc6e68b1, 0x1f500c32,
+			0x1e7218b0, 0xfc3c6a50, 0xfc7c68f3, 0xfc7c6ab4, 0x1e7308f3, 0x1f544c93,
+			0xfc7c6b34, 0x1f544c93, 0x1f514cb1, 0x1e721a31, 0xfc3c68d1, 0x9100239c,
+			0xeb1c037f, 0x54fffe41, 0x14000015, 0xaa1f03fc, 0x8b1c024e, 0xfc5f81d0,
+			0x1f500c30, 0x1e7018b1, 0xfd0001d1, 0x8b1c030e, 0xfc7c68f1, 0xfc7c6ab2,
+			0x1e7108f1, 0x1f524491, 0xfc7c6b32, 0x9100239c, 0xeb1c037f, 0x1f524491,
+			0xfd4001d2, 0x1f5244b1, 0x1e701a30, 0xfd0005d0, 0x54fffdc1, 0xf9403fee,
+			0x91000673, 0xf83779dd, 0xaa0a03f7, 0xfc7a6a10, 0xfc777ad1, 0xfc777b12,
+			0x1f504a30, 0xfc377990, 0xf10006f7, 0x54ffff6c, 0x910007de, 0x8b0b0339,
+			0x8b0b02b5, 0x8b0b00c6, 0x8b0b00e7, 0x8b0b0252, 0xeb08027f, 0x8b0b0318,
+			0x8b0b02d6, 0x8b0b018c, 0x54fff681, 0x17ffff6e, 0xa94d4ff4, 0xa94c57f6,
+			0xa94b5ff8, 0xa94a67fa, 0xa9496ffc, 0xa9487bfd, 0x910383ff, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		uBase := uint64(0x100000)
+		vBase := uint64(0x200000)
+		pBase := uint64(0x300000)
+		qBase := uint64(0x400000)
+		stackBase := uint64(0x500000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+		em.LoadProgram(codeBase, encodeInsts(code))
+
+		uBuf := make([]byte, n*n*8)
+		for i, val := range u {
+			binary.LittleEndian.PutUint64(uBuf[i*8:], math.Float64bits(val))
+		}
+		em.LoadProgram(uBase, uBuf)
+		em.LoadProgram(vBase, make([]byte, n*n*8))
+		em.LoadProgram(pBase, make([]byte, n*n*8))
+		em.LoadProgram(qBase, make([]byte, n*n*8))
+		em.LoadProgram(stackBase, make([]byte, 16384))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, uint64(tsteps))
+		em.Regs.WriteX(1, uint64(n))
+		em.Regs.WriteX(2, uBase)
+		em.Regs.WriteX(3, vBase)
+		em.Regs.WriteX(4, pBase)
+		em.Regs.WriteX(5, qBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 16384
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
+	setupFdtd2dEmu := func() *emu.Emulator {
+		tmax := 20
+		nx := 20
+		ny := 30
+
+		ex := make([]float64, nx*ny)
+		ey := make([]float64, nx*ny)
+		hz := make([]float64, nx*ny)
+		fict := make([]float64, tmax)
+
+		for i := 0; i < tmax; i++ {
+			fict[i] = float64(i)
+		}
+		for i := 0; i < nx; i++ {
+			for j := 0; j < ny; j++ {
+				ex[i*ny+j] = float64(i*(j+1)) / float64(nx)
+				ey[i*ny+j] = float64(i*(j+2)) / float64(ny)
+				hz[i*ny+j] = float64(i*(j+3)) / float64(nx)
+			}
+		}
+
+		code := []uint32{
+			0x7100041f, 0x54000e0b, 0xa9bc67fa, 0xa9015ff8, 0xa90257f6, 0xa9034ff4,
+			0x7100083f, 0x1e7c1000, 0x2a0203ea, 0x1a9fa7ef, 0x7100042b, 0x937d7c50,
+			0x1a9fa7ee, 0x7100085f, 0xd37d7c52, 0xb203e7e7, 0xaa1f03e8, 0x51000449,
+			0x2a0003ec, 0x2a0103ed, 0x1a9fa5ce, 0x1a9fa5ef, 0x910020b1, 0x91002060,
+			0xd1000543, 0xf2f7fcc7, 0x14000004, 0x91000508, 0xeb0c011f, 0x54000a00,
+			0x7100045f, 0x54ffff8b, 0xfc6878c1, 0xaa0a03f3, 0xaa0403f4, 0xf1000673,
+			0xfc008681, 0x54ffffc1, 0x7100083f, 0x540002ab, 0xaa0403f3, 0xaa0503f4,
+			0x52800035, 0xaa0a03f6, 0xaa1303f7, 0xaa1403f8, 0xfc706b01, 0xfc408702,
+			0xf10006d6, 0x1e623821, 0xfc706ae2, 0x1f400821, 0xfc306ae1, 0x910022f7,
+			0x54ffff01, 0x910006b5, 0x8b100294, 0x8b100273, 0xeb0d02bf, 0x54fffe01,
+			0x3707fbee, 0xaa1f03f3, 0xaa0003f4, 0xaa1103f5, 0xaa0303f6, 0xaa1403f7,
+			0xaa1503f8, 0x6d7f8702, 0xf10006d6, 0x91002318, 0x1e623821, 0xfd4002e2,
+			0x1f400821, 0xfc0086e1, 0x54ffff21, 0x91000673, 0x8b1202b5, 0x8b120294,
+			0xeb0d027f, 0x54fffe21, 0x3707f96f, 0xaa1f03f3, 0xaa0503f4, 0xaa0003f5,
+			0xaa0403f6, 0x91000673, 0xaa1403f7, 0xaa1503f8, 0xaa0903f9, 0xaa1603fa,
+			0x6d7f8702, 0x9e6700e3, 0xf1000739, 0x91002318, 0x1e623821, 0xfc726b42,
+			0x1e622821, 0xfc408742, 0x1e623821, 0xfd4002e2, 0x1f430821, 0xfc0086e1,
+			0x54fffe81, 0xeb0b027f, 0x8b1202d6, 0x8b1202b5, 0x8b120294, 0x54fffd41,
+			0x17ffffaf, 0xa9434ff4, 0xa94257f6, 0xa9415ff8, 0xa8c467fa, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		exBase := uint64(0x100000)
+		eyBase := uint64(0x200000)
+		hzBase := uint64(0x300000)
+		fictBase := uint64(0x400000)
+		stackBase := uint64(0x500000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+		em.LoadProgram(codeBase, encodeInsts(code))
+
+		exBuf := make([]byte, nx*ny*8)
+		for i, val := range ex {
+			binary.LittleEndian.PutUint64(exBuf[i*8:], math.Float64bits(val))
+		}
+		em.LoadProgram(exBase, exBuf)
+
+		eyBuf := make([]byte, nx*ny*8)
+		for i, val := range ey {
+			binary.LittleEndian.PutUint64(eyBuf[i*8:], math.Float64bits(val))
+		}
+		em.LoadProgram(eyBase, eyBuf)
+
+		hzBuf := make([]byte, nx*ny*8)
+		for i, val := range hz {
+			binary.LittleEndian.PutUint64(hzBuf[i*8:], math.Float64bits(val))
+		}
+		em.LoadProgram(hzBase, hzBuf)
+
+		fictBuf := make([]byte, tmax*8)
+		for i, val := range fict {
+			binary.LittleEndian.PutUint64(fictBuf[i*8:], math.Float64bits(val))
+		}
+		em.LoadProgram(fictBase, fictBuf)
+		em.LoadProgram(stackBase, make([]byte, 16384))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, uint64(tmax))
+		em.Regs.WriteX(1, uint64(nx))
+		em.Regs.WriteX(2, uint64(ny))
+		em.Regs.WriteX(3, exBase)
+		em.Regs.WriteX(4, eyBase)
+		em.Regs.WriteX(5, hzBase)
+		em.Regs.WriteX(6, fictBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 16384
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
+	setupHeat3dEmu := func() *emu.Emulator {
+		tsteps := 20
+		n := 10
+		nn := n * n
+		total := n * n * n
+
+		A := make([]float64, total)
+		B := make([]float64, total)
+		for i := 0; i < n; i++ {
+			for j := 0; j < n; j++ {
+				for k := 0; k < n; k++ {
+					A[i*nn+j*n+k] = float64(i+j+(n-k)) * 10 / float64(n)
+					B[i*nn+j*n+k] = A[i*nn+j*n+k]
+				}
+			}
+		}
+
+		code := []uint32{
+			0x7100041f, 0x5400142b, 0xd101c3ff, 0xa9017bfd, 0xa9026ffc, 0xa90367fa,
+			0xa9045ff8, 0xa90557f6, 0xa9064ff4, 0x1b017c2b, 0x93407c2c, 0x937d7c29,
+			0x51000428, 0x1e701000, 0x1e681001, 0x9100212f, 0xd37d7d0d, 0xd37d7d6a,
+			0x8b0b018c, 0x8b2b51e5, 0xd37df18e, 0x8b0f004b, 0xd10021ac, 0x91002150,
+			0x8b05004d, 0x8b21d204, 0x910021d1, 0x8b10004e, 0x8b100070, 0xf90007f0,
+			0x8b110070, 0x8b110051, 0x8b040052, 0x8b040062, 0x8b0f0064, 0x8b050063,
+			0x52800025, 0xf90003e2, 0x14000005, 0x110004af, 0x6b0000bf, 0x2a0f03e5,
+			0x54000e20, 0x71000c3f, 0x54ffff6b, 0xaa1103e6, 0xaa1003e7, 0xaa0d03f3,
+			0xaa0b03f4, 0xaa1203f5, 0xaa0e03f6, 0x52800037, 0x910006f7, 0xaa0603f8,
+			0xaa0703f9, 0xaa1303fa, 0xaa1403fb, 0xaa1503fc, 0xaa1603fd, 0x5280003e,
+			0xaa1f03ef, 0x910007de, 0x8b0f0302, 0xfc6f6b82, 0xfc6f6b45, 0x6d7f8c44,
+			0xfc6f6ba6, 0xfd400447, 0x1f400862, 0x1f401465, 0x1e662842, 0xfc6f6b66,
+			0x1e6628a5, 0x1f401c66, 0x1e610842, 0x1e6428c4, 0x1f4108a2, 0x1f410882,
+			0x1e622862, 0xfc2f6b22, 0x910021ef, 0xeb0f019f, 0x54fffd81, 0x8b0903bd,
+			0x8b09039c, 0x8b09037b, 0xeb0803df, 0x8b09035a, 0x8b090339, 0x8b090318,
+			0x54fffc41, 0x8b0a02d6, 0x8b0a02b5, 0x8b0a0294, 0xeb0802ff, 0x8b0a0273,
+			0x8b0a00e7, 0x8b0a00c6, 0x54fffa41, 0x71000c3f, 0x54fff86b, 0xa9405bf5,
+			0xaa1003e6, 0xaa1103e7, 0xaa0303f3, 0xaa0403f4, 0x52800037, 0x910006f7,
+			0xaa0603f8, 0xaa0703f9, 0xaa1303fa, 0xaa1403fb, 0xaa1503fc, 0xaa1603fd,
+			0x5280003e, 0xaa1f03ef, 0x910007de, 0x8b0f0302, 0xfc6f6b82, 0xfc6f6b45,
+			0x6d7f8c44, 0xfc6f6ba6, 0xfd400447, 0x1f400862, 0x1f401465, 0x1e662842,
+			0xfc6f6b66, 0x1e6628a5, 0x1f401c66, 0x1e610842, 0x1e6428c4, 0x1f4108a2,
+			0x1f410882, 0x1e622862, 0xfc2f6b22, 0x910021ef, 0xeb0f019f, 0x54fffd81,
+			0x8b0903bd, 0x8b09039c, 0x8b09037b, 0xeb0803df, 0x8b09035a, 0x8b090339,
+			0x8b090318, 0x54fffc41, 0x8b0a02d6, 0x8b0a02b5, 0x8b0a0294, 0xeb0802ff,
+			0x8b0a0273, 0x8b0a00e7, 0x8b0a00c6, 0x54fffa41, 0x17ffff8d, 0xa9464ff4,
+			0xa94557f6, 0xa9445ff8, 0xa94367fa, 0xa9426ffc, 0xa9417bfd, 0x9101c3ff,
+			0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		aBase := uint64(0x100000)
+		bBase := uint64(0x200000)
+		stackBase := uint64(0x300000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+		em.LoadProgram(codeBase, encodeInsts(code))
+
+		aBuf := make([]byte, total*8)
+		for i, val := range A {
+			binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(val))
+		}
+		em.LoadProgram(aBase, aBuf)
+
+		bBuf := make([]byte, total*8)
+		for i, val := range B {
+			binary.LittleEndian.PutUint64(bBuf[i*8:], math.Float64bits(val))
+		}
+		em.LoadProgram(bBase, bBuf)
+		em.LoadProgram(stackBase, make([]byte, 16384))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, uint64(tsteps))
+		em.Regs.WriteX(1, uint64(n))
+		em.Regs.WriteX(2, aBase)
+		em.Regs.WriteX(3, bBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 16384
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
 	type setupFunc struct {
 		name   string
 		setup  func() *emu.Emulator
@@ -5329,6 +6091,9 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		{"gramschmidt", setupGramschmidtEmu, 0.000028},
 		{"ludcmp", setupLudcmpEmu, 0.000034},
 		{"nussinov", setupNussinovEmu, 0.000025},
+		{"adi", setupAdiEmu, 0.000045},
+		{"fdtd2d", setupFdtd2dEmu, 0.000020},
+		{"heat3d", setupHeat3dEmu, 0.000067},
 	}
 
 	results := make([]kernelResult, 0, len(kernels))
