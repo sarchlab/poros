@@ -546,6 +546,541 @@ func TestPipeline_PolyBenchGemm(t *testing.T) {
 		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
 }
 
+func TestPipeline_PolyBench2mm(t *testing.T) {
+	// End-to-end PolyBench kernel_2mm through the pipeline.
+	ni, nj, nk, nl := 16, 18, 22, 24
+	alpha, beta := 1.5, 1.2
+
+	tmp := make([]float64, ni*nj)
+	A := make([]float64, ni*nk)
+	B := make([]float64, nk*nj)
+	C := make([]float64, nj*nl)
+	D := make([]float64, ni*nl)
+
+	for i := 0; i < ni; i++ {
+		for j := 0; j < nk; j++ {
+			A[i*nk+j] = float64((i*j+1)%ni) / float64(ni)
+		}
+		for j := 0; j < nj; j++ {
+			tmp[i*nj+j] = 0.0
+		}
+	}
+	for i := 0; i < nk; i++ {
+		for j := 0; j < nj; j++ {
+			B[i*nj+j] = float64(i*(j+1)%nj) / float64(nj)
+		}
+	}
+	for i := 0; i < nj; i++ {
+		for j := 0; j < nl; j++ {
+			C[i*nl+j] = float64((i*(j+3)+1)%nl) / float64(nl)
+		}
+	}
+	for i := 0; i < ni; i++ {
+		for j := 0; j < nl; j++ {
+			D[i*nl+j] = float64(i*(j+2)%nk) / float64(nk)
+		}
+	}
+
+	// Golden reference.
+	goldenTmp := make([]float64, ni*nj)
+	for i := 0; i < ni; i++ {
+		for j := 0; j < nj; j++ {
+			goldenTmp[i*nj+j] = 0.0
+			for k := 0; k < nk; k++ {
+				goldenTmp[i*nj+j] += alpha * A[i*nk+k] * B[k*nj+j]
+			}
+		}
+	}
+	expectedD := make([]float64, ni*nl)
+	copy(expectedD, D)
+	for i := 0; i < ni; i++ {
+		for j := 0; j < nl; j++ {
+			expectedD[i*nl+j] *= beta
+			for k := 0; k < nj; k++ {
+				expectedD[i*nl+j] += goldenTmp[i*nj+k] * C[k*nl+j]
+			}
+		}
+	}
+
+	code := []uint32{
+		0x7100041f, 0x54000a8b, 0xa9be57f6, 0xa9014ff4,
+		0x5280000b, 0xd280000c, 0x2a0103e8, 0xf94013e9,
+		0x2a0003ea, 0xd37d7c2d, 0x2a0203ee, 0x14000005,
+		0x9100058c, 0x0b02016b, 0xeb0a019f, 0x540003a0,
+		0x7100043f, 0x54ffff6b, 0xd280000f, 0x8b2b4cb0,
+		0x9b087d91, 0x8b110c91, 0xaa0603f3, 0x14000005,
+		0x910005ef, 0x91002273, 0xeb0801ff, 0x54fffe20,
+		0xf82f7a3f, 0x7100045f, 0x54ffff4b, 0x2f00e402,
+		0xaa0e03f4, 0xaa1303f5, 0xaa1003f6, 0xfc4086c3,
+		0x1e600863, 0xfd4002a4, 0x1f440862, 0xfc2f7a22,
+		0x8b0d02b5, 0xf1000694, 0x54ffff21, 0x17ffffed,
+		0x7100041f, 0x540004cb, 0x5280000b, 0xd280000c,
+		0xd37d7c6d, 0x2a0303ee, 0x14000005, 0x9100058c,
+		0x0b01016b, 0xeb0a019f, 0x540003a0, 0x7100047f,
+		0x54ffff6b, 0xd280000f, 0x8b2b4c90, 0x9b0e7d91,
+		0x8b110d31, 0xaa0703e0, 0x14000005, 0x910005ef,
+		0x91002000, 0xeb0e01ff, 0x54fffe20, 0xfc6f7a20,
+		0x1e610800, 0xfc2f7a20, 0xaa0803e2, 0xaa0003e5,
+		0xaa1003e6, 0x7100043f, 0x54fffeab, 0xfc4084c2,
+		0xfd4000a3, 0x1f430040, 0xfc2f7a20, 0x8b0d00a5,
+		0xf1000442, 0x54ffff41, 0x17ffffed, 0xa9414ff4,
+		0xa8c257f6, 0xd65f03c0,
+	}
+
+	codeBase := uint64(0x10000)
+	tmpBase := uint64(0x100000)
+	aBase := uint64(0x200000)
+	bBase := uint64(0x300000)
+	cBase := uint64(0x400000)
+	dBase := uint64(0x500000)
+	stackBase := uint64(0x600000)
+	haltPC := uint64(0xFFFF0000)
+
+	em := emu.NewEmulator()
+	em.MaxInst = 10_000_000
+	em.LoadProgram(codeBase, encodeInsts(code))
+
+	// Load tmp matrix.
+	tmpBuf := make([]byte, ni*nj*8)
+	for i, v := range tmp {
+		binary.LittleEndian.PutUint64(tmpBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(tmpBase, tmpBuf)
+
+	// Load A matrix.
+	aBuf := make([]byte, ni*nk*8)
+	for i, v := range A {
+		binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(aBase, aBuf)
+
+	// Load B matrix.
+	bBuf := make([]byte, nk*nj*8)
+	for i, v := range B {
+		binary.LittleEndian.PutUint64(bBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(bBase, bBuf)
+
+	// Load C matrix.
+	cBuf := make([]byte, nj*nl*8)
+	for i, v := range C {
+		binary.LittleEndian.PutUint64(cBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(cBase, cBuf)
+
+	// Load D matrix.
+	dBuf := make([]byte, ni*nl*8)
+	for i, v := range D {
+		binary.LittleEndian.PutUint64(dBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(dBase, dBuf)
+
+	// Allocate stack space and write D's address for stack-passed arg.
+	stackBuf := make([]byte, 8192)
+	binary.LittleEndian.PutUint64(stackBuf[4096:], dBase)
+	em.LoadProgram(stackBase, stackBuf)
+
+	// Set registers per ARM64 ABI.
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(0, uint64(ni))
+	em.Regs.WriteX(1, uint64(nj))
+	em.Regs.WriteX(2, uint64(nk))
+	em.Regs.WriteX(3, uint64(nl))
+	em.Regs.WriteD(0, alpha)
+	em.Regs.WriteD(1, beta)
+	em.Regs.WriteX(4, tmpBase)
+	em.Regs.WriteX(5, aBase)
+	em.Regs.WriteX(6, bBase)
+	em.Regs.WriteX(7, cBase)
+	em.Regs.WriteX(30, haltPC)
+	em.Regs.SP = stackBase + 4096
+	em.SetHaltPC(haltPC)
+
+	p := runPipeline(t, em)
+
+	if !em.Halted {
+		t.Fatal("emulator should have halted")
+	}
+
+	// Verify D[] matches golden reference.
+	maxRelErr := 0.0
+	for i := 0; i < ni*nl; i++ {
+		bits := em.Mem.ReadU64(dBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := expectedD[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-10 {
+			row, col := i/nl, i%nl
+			t.Errorf("D[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+
+	t.Logf("kernel_2mm: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+}
+
+func TestPipeline_PolyBench3mm(t *testing.T) {
+	// End-to-end PolyBench kernel_3mm through the pipeline.
+	ni, nj, nk, nl, nm := 16, 18, 20, 22, 24
+
+	A := make([]float64, ni*nk)
+	B := make([]float64, nk*nj)
+	C := make([]float64, nj*nm)
+	D := make([]float64, nm*nl)
+	E := make([]float64, ni*nj)
+	F := make([]float64, nj*nl)
+	G := make([]float64, ni*nl)
+
+	for i := 0; i < ni; i++ {
+		for j := 0; j < nk; j++ {
+			A[i*nk+j] = float64((i*j+1)%ni) / float64(5*ni)
+		}
+	}
+	for i := 0; i < nk; i++ {
+		for j := 0; j < nj; j++ {
+			B[i*nj+j] = float64((i*(j+1)+2)%nj) / float64(5*nj)
+		}
+	}
+	for i := 0; i < nj; i++ {
+		for j := 0; j < nm; j++ {
+			C[i*nm+j] = float64(i*(j+3)%nl) / float64(5*nl)
+		}
+	}
+	for i := 0; i < nm; i++ {
+		for j := 0; j < nl; j++ {
+			D[i*nl+j] = float64((i*(j+2)+2)%nk) / float64(5*nk)
+		}
+	}
+
+	// Golden reference.
+	expectedE := make([]float64, ni*nj)
+	for i := 0; i < ni; i++ {
+		for j := 0; j < nj; j++ {
+			for k := 0; k < nk; k++ {
+				expectedE[i*nj+j] += A[i*nk+k] * B[k*nj+j]
+			}
+		}
+	}
+	expectedF := make([]float64, nj*nl)
+	for i := 0; i < nj; i++ {
+		for j := 0; j < nl; j++ {
+			for k := 0; k < nm; k++ {
+				expectedF[i*nl+j] += C[i*nm+k] * D[k*nl+j]
+			}
+		}
+	}
+	expectedG := make([]float64, ni*nl)
+	for i := 0; i < ni; i++ {
+		for j := 0; j < nl; j++ {
+			for k := 0; k < nj; k++ {
+				expectedG[i*nl+j] += expectedE[i*nj+k] * expectedF[k*nl+j]
+			}
+		}
+	}
+
+	code := []uint32{
+		0xa9be57f6, 0xa9014ff4, 0x2a0103e8, 0x2a0003e9,
+		0x7100041f, 0x540004ab, 0x5280000a, 0xd280000b,
+		0xd37d7c2c, 0x2a0203ed, 0x14000005, 0x9100056b,
+		0x0b02014a, 0xeb09017f, 0x54000380, 0x7100043f,
+		0x54ffff6b, 0xd280000e, 0x8b2a4ccf, 0x9b087d70,
+		0x8b100cb0, 0xaa0703f1, 0x14000005, 0x910005ce,
+		0x91002231, 0xeb0801df, 0x54fffe20, 0xf82e7a1f,
+		0x7100045f, 0x54ffff4b, 0x2f00e400, 0xaa0d03f3,
+		0xaa1103f4, 0xaa0f03f5, 0xfc4086a1, 0xfd400282,
+		0x1f420020, 0xfc2e7a00, 0x8b0c0294, 0xf1000673,
+		0x54ffff41, 0x17ffffee, 0xf94013ea, 0x2a0303eb,
+		0x7100043f, 0x540004cb, 0x5280000c, 0xd280000d,
+		0xa942bbef, 0xd37d7c70, 0x2a0403f1, 0x14000005,
+		0x910005ad, 0x0b04018c, 0xeb0801bf, 0x54000380,
+		0x7100047f, 0x54ffff6b, 0xd2800002, 0x8b2c4de6,
+		0x9b0b7da7, 0x8b070d47, 0xaa0e03f3, 0x14000005,
+		0x91000442, 0x91002273, 0xeb0b005f, 0x54fffe20,
+		0xf82278ff, 0x7100049f, 0x54ffff4b, 0x2f00e400,
+		0xaa1103f4, 0xaa1303f5, 0xaa0603f6, 0xfc4086c1,
+		0xfd4002a2, 0x1f420020, 0xfc2278e0, 0x8b1002b5,
+		0xf1000694, 0x54ffff41, 0x17ffffee, 0x7100041f,
+		0x540004cb, 0x5280000c, 0xd280000d, 0xf9401fee,
+		0xaa0303ef, 0xd37d7def, 0x14000005, 0x910005ad,
+		0x0b01018c, 0xeb0901bf, 0x54000380, 0x7100047f,
+		0x54ffff6b, 0xd2800010, 0x8b2c4cb1, 0x9b0b7da0,
+		0x8b000dc0, 0xaa0a03e2, 0x14000005, 0x91000610,
+		0x91002042, 0xeb0b021f, 0x54fffe20, 0xf830781f,
+		0x7100043f, 0x54ffff4b, 0x2f00e400, 0xaa0803e4,
+		0xaa0203e6, 0xaa1103e7, 0xfc4084e1, 0xfd4000c2,
+		0x1f420020, 0xfc307800, 0x8b0f00c6, 0xf1000484,
+		0x54ffff41, 0x17ffffee, 0xa9414ff4, 0xa8c257f6,
+		0xd65f03c0,
+	}
+
+	codeBase := uint64(0x10000)
+	eBase := uint64(0x100000)
+	aBase := uint64(0x200000)
+	bBase := uint64(0x300000)
+	fBase := uint64(0x400000)
+	cBase := uint64(0x500000)
+	dBase := uint64(0x600000)
+	gBase := uint64(0x700000)
+	stackBase := uint64(0x800000)
+	haltPC := uint64(0xFFFF0000)
+
+	em := emu.NewEmulator()
+	em.MaxInst = 10_000_000
+	em.LoadProgram(codeBase, encodeInsts(code))
+
+	// Load E matrix.
+	eBuf := make([]byte, ni*nj*8)
+	for i, v := range E {
+		binary.LittleEndian.PutUint64(eBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(eBase, eBuf)
+
+	// Load A matrix.
+	aBuf := make([]byte, ni*nk*8)
+	for i, v := range A {
+		binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(aBase, aBuf)
+
+	// Load B matrix.
+	bBuf := make([]byte, nk*nj*8)
+	for i, v := range B {
+		binary.LittleEndian.PutUint64(bBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(bBase, bBuf)
+
+	// Load F matrix.
+	fBuf := make([]byte, nj*nl*8)
+	for i, v := range F {
+		binary.LittleEndian.PutUint64(fBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(fBase, fBuf)
+
+	// Load C matrix.
+	cBufData := make([]byte, nj*nm*8)
+	for i, v := range C {
+		binary.LittleEndian.PutUint64(cBufData[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(cBase, cBufData)
+
+	// Load D matrix.
+	dBufData := make([]byte, nm*nl*8)
+	for i, v := range D {
+		binary.LittleEndian.PutUint64(dBufData[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(dBase, dBufData)
+
+	// Load G matrix.
+	gBuf := make([]byte, ni*nl*8)
+	for i, v := range G {
+		binary.LittleEndian.PutUint64(gBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(gBase, gBuf)
+
+	// Allocate stack space and write stack-passed args.
+	stackBuf := make([]byte, 8192)
+	binary.LittleEndian.PutUint64(stackBuf[4096:], fBase)
+	binary.LittleEndian.PutUint64(stackBuf[4096+8:], cBase)
+	binary.LittleEndian.PutUint64(stackBuf[4096+16:], dBase)
+	binary.LittleEndian.PutUint64(stackBuf[4096+24:], gBase)
+	em.LoadProgram(stackBase, stackBuf)
+
+	// Set registers per ARM64 ABI.
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(0, uint64(ni))
+	em.Regs.WriteX(1, uint64(nj))
+	em.Regs.WriteX(2, uint64(nk))
+	em.Regs.WriteX(3, uint64(nl))
+	em.Regs.WriteX(4, uint64(nm))
+	em.Regs.WriteX(5, eBase)
+	em.Regs.WriteX(6, aBase)
+	em.Regs.WriteX(7, bBase)
+	em.Regs.WriteX(30, haltPC)
+	em.Regs.SP = stackBase + 4096
+	em.SetHaltPC(haltPC)
+
+	p := runPipeline(t, em)
+
+	if !em.Halted {
+		t.Fatal("emulator should have halted")
+	}
+
+	// Verify G[] matches golden reference.
+	maxRelErr := 0.0
+	for i := 0; i < ni*nl; i++ {
+		bits := em.Mem.ReadU64(gBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := expectedG[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-10 {
+			row, col := i/nl, i%nl
+			t.Errorf("G[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+
+	t.Logf("kernel_3mm: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+}
+
+func TestPipeline_PolyBenchBicg(t *testing.T) {
+	// End-to-end PolyBench kernel_bicg through the pipeline.
+	m, n := 38, 42
+
+	A := make([]float64, m*n)
+	s := make([]float64, n)
+	q := make([]float64, m)
+	p := make([]float64, n)
+	r := make([]float64, m)
+
+	for i := 0; i < m; i++ {
+		r[i] = float64(i%m) / float64(m)
+		for j := 0; j < n; j++ {
+			A[i*n+j] = float64(i*(j+1)%n) / float64(n)
+		}
+	}
+	for i := 0; i < n; i++ {
+		s[i] = 0.0
+		p[i] = float64(i%n) / float64(n)
+	}
+
+	// Golden reference.
+	expectedS := make([]float64, n)
+	expectedQ := make([]float64, m)
+	copy(expectedS, s)
+	for i := 0; i < m; i++ {
+		expectedQ[i] = 0.0
+		for j := 0; j < n; j++ {
+			expectedS[j] += r[i] * A[i*n+j]
+			expectedQ[i] += A[i*n+j] * p[j]
+		}
+	}
+
+	code := []uint32{
+		0x7100041f, 0x540003cb, 0xd2800008, 0x2a0103e9,
+		0xd37d7c2a, 0x2a0003eb, 0x14000005, 0x91000508,
+		0x8b0a0042, 0xeb0b011f, 0x540002a0, 0xf828789f,
+		0xaa0903ec, 0xaa0303ed, 0xaa0503ee, 0xaa0203ef,
+		0x7100043f, 0x54fffecb, 0xfd4001a0, 0xfc6878c1,
+		0xfd4001e2, 0x1f420020, 0xfc0085a0, 0xfc687880,
+		0xfc4085e1, 0xfc4085c2, 0x1f420020, 0xfc287880,
+		0xf100058c, 0x54fffea1, 0x17ffffe9, 0xd65f03c0,
+	}
+
+	codeBase := uint64(0x10000)
+	aBase := uint64(0x100000)
+	sBase := uint64(0x200000)
+	qBase := uint64(0x300000)
+	pBase := uint64(0x400000)
+	rBase := uint64(0x500000)
+	haltPC := uint64(0xFFFF0000)
+
+	em := emu.NewEmulator()
+	em.MaxInst = 10_000_000
+	em.LoadProgram(codeBase, encodeInsts(code))
+
+	// Load A matrix.
+	aBuf := make([]byte, m*n*8)
+	for i, v := range A {
+		binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(aBase, aBuf)
+
+	// Load s vector.
+	sBuf := make([]byte, n*8)
+	for i, v := range s {
+		binary.LittleEndian.PutUint64(sBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(sBase, sBuf)
+
+	// Load q vector.
+	qBuf := make([]byte, m*8)
+	for i, v := range q {
+		binary.LittleEndian.PutUint64(qBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(qBase, qBuf)
+
+	// Load p vector.
+	pBuf := make([]byte, n*8)
+	for i, v := range p {
+		binary.LittleEndian.PutUint64(pBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(pBase, pBuf)
+
+	// Load r vector.
+	rBuf := make([]byte, m*8)
+	for i, v := range r {
+		binary.LittleEndian.PutUint64(rBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(rBase, rBuf)
+
+	em.LoadProgram(uint64(0x600000), make([]byte, 8192))
+
+	// Set registers per ARM64 ABI.
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(0, uint64(m))
+	em.Regs.WriteX(1, uint64(n))
+	em.Regs.WriteX(2, aBase)
+	em.Regs.WriteX(3, sBase)
+	em.Regs.WriteX(4, qBase)
+	em.Regs.WriteX(5, pBase)
+	em.Regs.WriteX(6, rBase)
+	em.Regs.WriteX(30, haltPC)
+	em.Regs.SP = 0x600000 + 8192
+	em.SetHaltPC(haltPC)
+
+	pip := runPipeline(t, em)
+
+	if !em.Halted {
+		t.Fatal("emulator should have halted")
+	}
+
+	// Verify s[] matches golden reference.
+	maxRelErr := 0.0
+	for i := 0; i < n; i++ {
+		bits := em.Mem.ReadU64(sBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := expectedS[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-10 {
+			t.Errorf("s[%d] = %g, want %g (relErr=%e)", i, got, want, relErr)
+		}
+	}
+
+	// Verify q[] matches golden reference.
+	for i := 0; i < m; i++ {
+		bits := em.Mem.ReadU64(qBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := expectedQ[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > maxRelErr {
+			maxRelErr = relErr
+		}
+		if relErr > 1e-10 {
+			t.Errorf("q[%d] = %g, want %g (relErr=%e)", i, got, want, relErr)
+		}
+	}
+
+	t.Logf("kernel_bicg: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		pip.InstDone, pip.Cycles, pip.CPI(), maxRelErr)
+}
+
 func TestPipeline_ComparisonTable(t *testing.T) {
 	const freq = 3.49e9 // M2 Avalanche core frequency
 
