@@ -113,7 +113,7 @@ func (em *Emulator) StepDetailed() (arm64asm.Inst, bool, error) {
 
 	var buf [4]byte
 	for i := range buf {
-		buf[i] = em.Mem.ReadU8(em.Regs.PC + uint64(i))
+		buf[i] = em.Mem.readByteRaw(em.Regs.PC + uint64(i))
 	}
 
 	inst, err := arm64asm.Decode(buf[:])
