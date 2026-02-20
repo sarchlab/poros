@@ -117,8 +117,21 @@ func (e *executor) execLDP(inst arm64asm.Inst) error {
 	rt2 := inst.Args[1]
 	is32 := is32bit(rt1)
 
-	// Check for FP register pair
+	// Check for FP/SIMD register pair
 	if r, ok := rt1.(arm64asm.Reg); ok {
+		// Q register pair (128-bit each)
+		if qi := qRegIndex(r); qi >= 0 {
+			addr := e.resolveMemAddr(inst.Args[2], true)
+			r2 := inst.Args[1].(arm64asm.Reg)
+			qi2 := qRegIndex(r2)
+			lo1 := e.mem.ReadU64(addr)
+			hi1 := e.mem.ReadU64(addr + 8)
+			lo2 := e.mem.ReadU64(addr + 16)
+			hi2 := e.mem.ReadU64(addr + 24)
+			e.regs.WriteQ(qi, lo1, hi1)
+			e.regs.WriteQ(qi2, lo2, hi2)
+			return nil
+		}
 		if di := dRegIndex(r); di >= 0 {
 			addr := e.resolveMemAddr(inst.Args[2], true)
 			r2 := inst.Args[1].(arm64asm.Reg)
@@ -228,8 +241,21 @@ func (e *executor) execSTP(inst arm64asm.Inst) error {
 	rt2 := inst.Args[1]
 	is32 := is32bit(rt1)
 
-	// Check for FP register pair
+	// Check for FP/SIMD register pair
 	if r, ok := rt1.(arm64asm.Reg); ok {
+		// Q register pair (128-bit each)
+		if qi := qRegIndex(r); qi >= 0 {
+			addr := e.resolveMemAddr(inst.Args[2], true)
+			r2 := inst.Args[1].(arm64asm.Reg)
+			qi2 := qRegIndex(r2)
+			lo1, hi1 := e.regs.ReadQ(qi)
+			lo2, hi2 := e.regs.ReadQ(qi2)
+			e.mem.WriteU64(addr, lo1)
+			e.mem.WriteU64(addr+8, hi1)
+			e.mem.WriteU64(addr+16, lo2)
+			e.mem.WriteU64(addr+24, hi2)
+			return nil
+		}
 		if di := dRegIndex(r); di >= 0 {
 			addr := e.resolveMemAddr(inst.Args[2], true)
 			r2 := inst.Args[1].(arm64asm.Reg)

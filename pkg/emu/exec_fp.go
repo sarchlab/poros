@@ -359,6 +359,25 @@ func (e *executor) execFCVTZS(inst arm64asm.Inst) error {
 }
 
 func (e *executor) execMOVI(inst arm64asm.Inst) error {
+	// Check for vector arrangement form (e.g., MOVI V0.2D, #0)
+	if ra, ok := inst.Args[0].(arm64asm.RegisterWithArrangement); ok {
+		reg, arrangement := getRegWithArrangement(ra)
+		vi := vRegIndex(reg)
+		if vi < 0 {
+			return fmt.Errorf("MOVI: unsupported vector register %v", reg)
+		}
+		val := resolveImm(inst.Args[1])
+		const arrangement2D = 12 // arm64asm.Arrangement2D
+		if arrangement == arrangement2D {
+			// MOVI Vd.2D, #imm — write imm to both 64-bit lanes
+			e.regs.WriteQ(vi, val, val)
+			return nil
+		}
+		// For other arrangements, write the value to lo, clear hi
+		e.regs.WriteQ(vi, val, 0)
+		return nil
+	}
+
 	dst := inst.Args[0].(arm64asm.Reg)
 	val := resolveImm(inst.Args[1])
 
@@ -371,6 +390,54 @@ func (e *executor) execMOVI(inst arm64asm.Inst) error {
 		return nil
 	}
 	return fmt.Errorf("MOVI: unsupported destination register %v", dst)
+}
+
+func (e *executor) execSXTL(inst arm64asm.Inst) error {
+	// SXTL is SSHLL with shift=0 (sign-extend long)
+	// SXTL Vd.2D, Vn.2S — sign-extend each 32-bit element to 64-bit
+	dstRA := inst.Args[0].(arm64asm.RegisterWithArrangement)
+	srcRA := inst.Args[1].(arm64asm.RegisterWithArrangement)
+
+	dstReg, _ := getRegWithArrangement(dstRA)
+	srcReg, _ := getRegWithArrangement(srcRA)
+
+	di := vRegIndex(dstReg)
+	si := vRegIndex(srcReg)
+	if di < 0 || si < 0 {
+		return fmt.Errorf("SXTL: invalid registers dst=%v src=%v", dstReg, srcReg)
+	}
+
+	// Read source: two 32-bit lanes packed in the low 64 bits
+	srcLo, _ := e.regs.ReadQ(si)
+	lane0 := int32(uint32(srcLo))         // bits [31:0]
+	lane1 := int32(uint32(srcLo >> 32))    // bits [63:32]
+
+	// Write dest: two 64-bit lanes (sign-extended)
+	e.regs.WriteQ(di, uint64(int64(lane0)), uint64(int64(lane1)))
+	return nil
+}
+
+func (e *executor) execFCVT(inst arm64asm.Inst) error {
+	dst := inst.Args[0].(arm64asm.Reg)
+	src := inst.Args[1].(arm64asm.Reg)
+
+	dstDI := dRegIndex(dst)
+	dstSI := sRegIndex(dst)
+	srcDI := dRegIndex(src)
+	srcSI := sRegIndex(src)
+
+	if dstDI >= 0 && srcSI >= 0 {
+		// FCVT Dd, Sn — single to double
+		val := e.regs.ReadS(srcSI)
+		e.regs.WriteD(dstDI, float64(val))
+	} else if dstSI >= 0 && srcDI >= 0 {
+		// FCVT Sd, Dn — double to single
+		val := e.regs.ReadD(srcDI)
+		e.regs.WriteS(dstSI, float32(val))
+	} else {
+		return fmt.Errorf("FCVT: unsupported operand combination dst=%v src=%v", dst, src)
+	}
+	return nil
 }
 
 func (e *executor) execFCVTZU(inst arm64asm.Inst) error {
