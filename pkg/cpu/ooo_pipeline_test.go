@@ -4315,8 +4315,9 @@ type setupFunc struct {
 // used by ComparisonTable and QuickEval tests.
 func comparisonKernels() []setupFunc {
 	// setupAtaxEmu creates a fresh emulator configured for the atax kernel.
+	// MEDIUM dataset: M=390, N=410
 	setupAtaxEmu := func() *emu.Emulator {
-		m, n := 116, 124
+		m, n := 390, 410
 		A := make([]float64, m*n)
 		x := make([]float64, n)
 		for i := 0; i < n; i++ {
@@ -4343,9 +4344,9 @@ func comparisonKernels() []setupFunc {
 
 		codeBase := uint64(0x10000)
 		aBase := uint64(0x100000)
-		xBase := uint64(0x200000)
-		yBase := uint64(0x300000)
-		tmpBase := uint64(0x400000)
+		xBase := uint64(0x300000)
+		yBase := uint64(0x400000)
+		tmpBase := uint64(0x500000)
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
@@ -4374,14 +4375,15 @@ func comparisonKernels() []setupFunc {
 		em.Regs.WriteX(4, yBase)
 		em.Regs.WriteX(5, tmpBase)
 		em.Regs.WriteX(30, haltPC)
-		em.Regs.SP = 0x500000 + 8192
+		em.Regs.SP = 0x600000 + 8192
 		em.SetHaltPC(haltPC)
 		return em
 	}
 
 	// setupMvtEmu creates a fresh emulator configured for the mvt kernel.
+	// MEDIUM dataset: N=400
 	setupMvtEmu := func() *emu.Emulator {
-		n := 120
+		n := 400
 		x1 := make([]float64, n)
 		x2 := make([]float64, n)
 		y1 := make([]float64, n)
@@ -4461,7 +4463,7 @@ func comparisonKernels() []setupFunc {
 		em.Regs.WriteX(4, y2Base)
 		em.Regs.WriteX(5, aBase)
 		em.Regs.WriteX(30, haltPC)
-		em.Regs.SP = 0x600000 + 8192
+		em.Regs.SP = 0x800000 + 8192
 		em.SetHaltPC(haltPC)
 		return em
 	}
@@ -4911,8 +4913,9 @@ func comparisonKernels() []setupFunc {
 		return em
 	}
 
+	// MEDIUM dataset: N=250
 	setupGesummvEmu := func() *emu.Emulator {
-		n := 90
+		n := 250
 		alpha, beta := 1.5, 1.2
 
 		A := make([]float64, n*n)
@@ -6734,11 +6737,11 @@ func comparisonKernels() []setupFunc {
 	}
 
 	return []setupFunc{
-		{"atax", setupAtaxEmu, 0.000041, []dataRegion{
-			{0x100000, 115072}, {0x200000, 992}, {0x300000, 992}, {0x400000, 928},
+		{"atax", setupAtaxEmu, 0.000408, []dataRegion{
+			{0x100000, 1279200}, {0x300000, 3280}, {0x400000, 3280}, {0x500000, 3120},
 		}},
-		{"mvt", setupMvtEmu, 0.000050, []dataRegion{
-			{0x100000, 960}, {0x200000, 960}, {0x300000, 960}, {0x400000, 960}, {0x500000, 115200},
+		{"mvt", setupMvtEmu, 0.000574, []dataRegion{
+			{0x100000, 3200}, {0x200000, 3200}, {0x300000, 3200}, {0x400000, 3200}, {0x500000, 1280000},
 		}},
 		{"gemm", setupGemmEmu, 0.000271, []dataRegion{
 			{0x100000, 33600}, {0x200000, 38400}, {0x300000, 44800}, {0x400000, 8192},
@@ -6752,8 +6755,8 @@ func comparisonKernels() []setupFunc {
 		{"bicg", setupBicgEmu, 0.000066, []dataRegion{
 			{0x100000, 115072}, {0x200000, 992}, {0x300000, 928}, {0x400000, 992}, {0x500000, 928}, {0x600000, 8192},
 		}},
-		{"gesummv", setupGesummvEmu, 0.000040, []dataRegion{
-			{0x100000, 64800}, {0x200000, 64800}, {0x300000, 720}, {0x400000, 720}, {0x500000, 720}, {0x600000, 8192},
+		{"gesummv", setupGesummvEmu, 0.000277, []dataRegion{
+			{0x100000, 500000}, {0x200000, 500000}, {0x300000, 2000}, {0x400000, 2000}, {0x500000, 2000}, {0x600000, 8192},
 		}},
 		{"gemver", setupGemverEmu, 0.000082, []dataRegion{
 			{0x100000, 115200}, {0x200000, 960}, {0x300000, 960}, {0x400000, 960}, {0x500000, 960}, {0x600000, 960}, {0x700000, 960}, {0x800000, 960}, {0x900000, 960}, {0xA00000, 8192},
