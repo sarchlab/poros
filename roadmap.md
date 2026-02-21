@@ -111,26 +111,57 @@ The simulator consists of:
 - BP accuracy 94.4%-99.5% across all 30 benchmarks
 
 ### M8: Calibration + Accuracy Tuning
-**Status:** IN PROGRESS
-**Budget:** 8 cycles
-**Scope:**
-- **Priority 1: Memory ordering** — Replace conservative "loads wait for ALL stores" with address-based disambiguation and store-to-load forwarding (biggest lever, est. 2-3x impact)
-- **Priority 2: Native time validation** — Re-measure native times for SMALL dataset (many current times are microsecond-scale and noisy). Use median of 5+ runs, kernel-only timing
-- **Priority 3: Parameter calibration** — Adjust ROB (330→~256), fetch width (8→~6), misprediction penalty (13→~15-17), validate execution latencies against M2 data
-- **Priority 4: Outlier investigation** — Analyze benchmarks with ratio <1.0 (simulator too fast, e.g. bicg=0.4x) and >5.0 (too slow, e.g. gemm=8.5x)
-- **Target: ≤20% average time estimation error, no benchmark >50% error**
-- Error formula: error = abs(sim-hw)/min(sim,hw). Need ratio between 0.67 and 1.50 for all benchmarks.
+**Status:** DEADLINE MISSED (8 cycles used, target not met)
+**Budget:** 8 cycles | **Actual:** 8 cycles (incomplete)
+**Progress:**
+- Address-based load-store disambiguation ✓ (store buffer)
+- Store-to-load forwarding ✓
+- Native time re-validation (7-run medians) ✓ (trisolv, jacobi2d, fdtd2d, syrk fixed)
+- Parameter tuning: ROB 330→256, FetchWidth 8→3, BranchPenalty 13→17, various latencies ✓
+- Error metrics in ComparisonTable + QuickEval (6-benchmark fast test) ✓
+- Next-line prefetcher, MSHR limits, taken-branch redirect penalty ✓
+- **Final results: Avg error 46.6% (target ≤20%), Max error 236.1% (target ≤50%)**
+- 10/30 benchmarks ≤20% error, 21/30 ≤50% error
+- Improved from ~57.8% to 46.6% avg error over 8 cycles
 
-### M9: Polish + Edge Cases
+**Post-mortem — Why M8 missed deadline:**
+1. **Compensating parameter tuning instead of structural fixes**: FetchWidth was reduced from 8→3 (unrealistic) to globally slow down the sim, creating artificial IPC ceiling of 3.0. Real M2 achieves IPC 4+ on some benchmarks.
+2. **No per-benchmark root cause analysis**: The 5 worst outliers (>100% error) contribute ~50% of total error but weren't individually investigated until late.
+3. **Slow feedback loop**: Full ComparisonTable takes 20 min. QuickEval added late.
+4. **Structural model gaps**: Pipeline has no frontend depth (fetch→issue is instant), L1 latency too high (5cy vs real 3-4cy), FetchWidth too low (3 vs real 6-8).
+
+### M8.1: Pipeline Structural Fixes — Fix Top Outliers
+**Status:** NEXT
+**Budget:** 4 cycles
+**Target:** Max error ≤ 120%, Avg error ≤ 40%
+**Scope:**
+- **Root cause analysis** for 5 worst benchmarks: jacobi2d (236%), trisolv (156%), nussinov (109%), fdtd2d (100%), seidel2d (95%)
+- **Fix FetchWidth**: Increase from 3 to 6 (realistic M2 value). The current value caps IPC at 3.0, preventing the sim from achieving realistic throughput on high-ILP benchmarks like jacobi2d (real IPC ~4.0) and nussinov (real IPC ~4.0)
+- **Fix L1 latency**: Reduce from 5cy to 3-4cy (real M2 value). This directly reduces FADD chain critical path in stencils.
+- **Add compensating mechanism**: FetchWidth increase will make sim-too-fast benchmarks worse unless compensated. Options: add frontend pipeline depth (decode→issue latency), increase taken-branch redirect cost, or add decode bandwidth limit separate from FetchWidth.
+- **Native timing for small benchmarks**: Re-measure sub-50µs benchmarks (trisolv 24µs, jacobi1d 14µs, gesummv 39µs, atax 41µs) with 101+ runs
+- Do NOT use global parameter tuning as the primary approach
+
+### M8.2: Average Error Reduction — Target ≤20% avg, ≤50% max
+**Status:** Not started
+**Budget:** 4 cycles
+**Target:** Avg error ≤ 20%, Max error ≤ 50% (project success criteria)
+**Scope:**
+- Fix remaining >50% error benchmarks
+- Improve 20-50% error benchmarks toward ≤20%
+- Final parameter calibration after structural fixes are stable
+- May need per-benchmark investigation for stubborn outliers
+
+### M9: Polish + Final Validation
 **Status:** Not started
 **Budget:** 4 cycles
 **Scope:**
-- Fix remaining outlier benchmarks if M8 doesn't fully converge
+- Fix remaining outlier benchmarks if M8.2 doesn't fully converge
 - Code cleanup
 - Final validation pass
 - Performance optimization of the simulator itself (simulation speed)
 
-## Total Estimated Budget: ~47 cycles | **Spent so far: ~15 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2)**
+## Total Estimated Budget: ~55 cycles | **Spent so far: ~23 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8)**
 
 ## Lessons Learned
 
@@ -209,6 +240,18 @@ The simulator consists of:
 - **Key insight for M8**: Two separate problems: (1) simulator timing model accuracy (memory ordering, parameters), (2) native reference time accuracy (measurement noise at microsecond scale). Must fix both.
 - ComparisonTable takes ~19 minutes for all 30 benchmarks at SMALL — need -timeout 30m flag
 - Individual tests use MINI for fast correctness checks, ComparisonTable uses SMALL for timing comparison — good separation of concerns
+
+### M8 (partial)
+- Used 8 cycles (budgeted 8) — milestone NOT met. Reduced avg error from ~57.8% to 46.6% and max from ~300% to 236%
+- **Biggest win**: Taken-branch redirect penalty reduced avg error by 10.5 percentage points in one change
+- **Biggest misfire**: FetchWidth 8→3 was a compensation hack that caps IPC at 3.0. Real M2 achieves IPC 4+. This helped sim-too-fast benchmarks but fundamentally limited accuracy for sim-too-slow ones.
+- **Prefetcher and L2 latency reduction had zero impact** because cache warm-up pre-populates L1 (97-100% hit rates)
+- Parameter tuning hit diminishing returns after cycle 4-5. Remaining errors require structural model changes, not parameter knob turning.
+- **Root cause of remaining error**: (1) FetchWidth=3 caps cross-iteration parallelism for stencils, (2) L1 latency 5cy is too high (real M2 is 3-4cy), (3) No frontend pipeline depth makes sim systematically too fast, compensated by artificially low FetchWidth
+- **Key error decomposition**: 5 benchmarks >100% error contribute 50% of total error. 9 benchmarks >50% error contribute 67%. Must do per-benchmark root cause analysis, not global tuning.
+- Current pipeline params: FetchWidth=3, RetireWidth=8, ROB=256, NumINT=6, NumFP=4, NumLDST=3, BranchPenalty=17, L1=5cy, L2=14cy, DRAM=335cy, StoreBuffer=56, MSHR=12
+- **Process lesson**: QuickEval (130s, 6 benchmarks) was much more useful for iteration than full ComparisonTable (20min, 30 benchmarks). Should have been built earlier.
+- **Process lesson**: Sequential tune→measure→tune loop was slow. Need parallel investigation of specific outliers.
 
 ## Key Risks
 1. **ARM64 emulator complexity**: Even a subset of ARM64 is large. Compiler may emit unexpected instructions.
