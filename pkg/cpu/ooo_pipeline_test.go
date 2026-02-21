@@ -6752,7 +6752,7 @@ func comparisonKernels() []setupFunc {
 		{"bicg", setupBicgEmu, 0.000066, []dataRegion{
 			{0x100000, 115072}, {0x200000, 992}, {0x300000, 928}, {0x400000, 992}, {0x500000, 928}, {0x600000, 8192},
 		}},
-		{"gesummv", setupGesummvEmu, 0.000039, []dataRegion{
+		{"gesummv", setupGesummvEmu, 0.000040, []dataRegion{
 			{0x100000, 64800}, {0x200000, 64800}, {0x300000, 720}, {0x400000, 720}, {0x500000, 720}, {0x600000, 8192},
 		}},
 		{"gemver", setupGemverEmu, 0.000082, []dataRegion{

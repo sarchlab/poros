@@ -8,7 +8,7 @@ gemm,small,0.000271
 gemver,mini,0.000012
 gemver,small,0.000082
 gesummv,mini,0.000008
-gesummv,small,0.000039
+gesummv,small,0.000040
 symm,mini,0.000014
 symm,small,0.000247
 syr2k,mini,0.000021
