@@ -83,14 +83,14 @@ func NewOoOPipeline(
 	emulator.Mem.TrackAccesses = true
 	p := &OoOPipeline{
 		Emu:             emulator,
-		FetchWidth:      4,
+		FetchWidth:      3,
 		RetireWidth:     8,
 		ROBCapacity:     256,
 		NumINT:          6,
 		NumFP:           4,
 		NumLDST:         3,
-		BranchPenalty:   15,
-		LoadLatency:     4,
+		BranchPenalty:   17,
+		LoadLatency:     5,
 		storeBufferSize: 56,
 	}
 	p.intUnits = make([]uint64, p.NumINT)
@@ -231,8 +231,8 @@ func (p *OoOPipeline) fetchAndProcess() {
 		// 6. Compute execution latency.
 		var latency uint64
 		if forwarded {
-			// Store-to-load forwarding: ~4-cycle forwarding latency (M2 estimate).
-			latency = 4
+			// Store-to-load forwarding: ~5-cycle forwarding latency (M2 estimate).
+			latency = 5
 		} else {
 			latency = p.instrLatency(inst)
 		}
@@ -415,7 +415,7 @@ func (p *OoOPipeline) instrLatency(inst arm64asm.Inst) uint64 {
 				p.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
 			}
 		}
-		return 1
+		return 3
 	}
 	return uint64(ExecuteLatency(inst.Op))
 }

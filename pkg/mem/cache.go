@@ -31,7 +31,7 @@ func DefaultCacheConfig() CacheConfig {
 		L2Size:      16 * 1024 * 1024,
 		L2Ways:      16,
 		L2LineSize:  128,
-		L1Latency:   4,
+		L1Latency:   5,
 		L2Latency:   18,
 		DRAMLatency: 335,
 	}
