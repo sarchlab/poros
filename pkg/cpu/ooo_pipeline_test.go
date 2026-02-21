@@ -6824,32 +6824,111 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	}
 
 	// Print comparison table.
-	t.Logf("\n%-8s | %12s | %11s | %9s | %10s | %7s | %9s | %7s | %14s | %12s | %8s | %8s | %8s",
-		"Kernel", "Instructions", "InOrder CPI", "OoO CPI", "NoBP CPI", "BP Acc%", "BP Improv", "Speedup", "Sim Time (s)", "Native (s)", "Ratio", "L1 Hit%", "L2 Hit%")
-	t.Logf("%-8s-+-%12s-+-%11s-+-%9s-+-%10s-+-%7s-+-%9s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s-+-%8s",
-		"--------", "------------", "-----------", "---------", "----------", "-------", "---------", "-------", "--------------", "------------", "--------", "--------", "--------")
+	t.Logf("\n%-8s | %12s | %11s | %9s | %10s | %7s | %9s | %7s | %14s | %12s | %8s | %8s | %8s | %8s",
+		"Kernel", "Instructions", "InOrder CPI", "OoO CPI", "NoBP CPI", "BP Acc%", "BP Improv", "Speedup", "Sim Time (s)", "Native (s)", "Ratio", "L1 Hit%", "L2 Hit%", "Error")
+	t.Logf("%-8s-+-%12s-+-%11s-+-%9s-+-%10s-+-%7s-+-%9s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s-+-%8s-+-%8s",
+		"--------", "------------", "-----------", "---------", "----------", "-------", "---------", "-------", "--------------", "------------", "--------", "--------", "--------", "--------")
+
+	var totalError float64
+	var maxError float64
+	var maxErrorName string
+	countInRange := 0    // ratio in [0.67, 1.50]
+	countLE20 := 0       // error <= 0.20
+	countLE50 := 0       // error <= 0.50
+
 	for _, r := range results {
 		simTime := float64(r.oooCycles) / freq
 		ratio := simTime / r.native
 		speedup := r.iooCPI / r.oooCPI
 		bpImprov := (r.oooNoBPCPI - r.oooCPI) / r.oooNoBPCPI * 100
-		t.Logf("%-8s | %12d | %11.2f | %9.2f | %10.2f | %6.1f%% | %8.1f%% | %6.2fx | %14e | %12e | %8.1f | %7.1f%% | %7.1f%%",
-			r.name, r.insts, r.iooCPI, r.oooCPI, r.oooNoBPCPI, r.bpAccuracy, bpImprov, speedup, simTime, r.native, ratio, r.l1HitRate*100, r.l2HitRate*100)
+		minVal := math.Min(simTime, r.native)
+		errVal := math.Abs(simTime-r.native) / minVal
+
+		totalError += errVal
+		if errVal > maxError {
+			maxError = errVal
+			maxErrorName = r.name
+		}
+		if ratio >= 0.67 && ratio <= 1.50 {
+			countInRange++
+		}
+		if errVal <= 0.20 {
+			countLE20++
+		}
+		if errVal <= 0.50 {
+			countLE50++
+		}
+
+		t.Logf("%-8s | %12d | %11.2f | %9.2f | %10.2f | %6.1f%% | %8.1f%% | %6.2fx | %14e | %12e | %8.1f | %7.1f%% | %7.1f%% | %7.1f%%",
+			r.name, r.insts, r.iooCPI, r.oooCPI, r.oooNoBPCPI, r.bpAccuracy, bpImprov, speedup, simTime, r.native, ratio, r.l1HitRate*100, r.l2HitRate*100, errVal*100)
+	}
+
+	n := len(results)
+	avgError := totalError / float64(n)
+
+	t.Logf("")
+	t.Logf("Summary (%d benchmarks):", n)
+	t.Logf("  Avg Error:          %6.1f%%", avgError*100)
+	t.Logf("  Max Error:          %6.1f%% (%s)", maxError*100, maxErrorName)
+	t.Logf("  In range [0.67-1.50]: %d / %d", countInRange, n)
+	t.Logf("  Within 20%% error:    %d / %d", countLE20, n)
+	t.Logf("  Within 50%% error:    %d / %d", countLE50, n)
+
+	passAvg := avgError <= 0.20
+	passMax := maxError <= 0.50
+	if passAvg && passMax {
+		t.Logf("  Result: PASS (avgError=%.1f%% <= 20%%, maxError=%.1f%% <= 50%%)", avgError*100, maxError*100)
+	} else {
+		reasons := ""
+		if !passAvg {
+			reasons += fmt.Sprintf("avgError=%.1f%% > 20%%", avgError*100)
+		}
+		if !passMax {
+			if reasons != "" {
+				reasons += ", "
+			}
+			reasons += fmt.Sprintf("maxError=%.1f%% > 50%%", maxError*100)
+		}
+		t.Logf("  Result: FAIL (%s)", reasons)
 	}
 
 	// Also print as a clean formatted string for easy copy-paste.
 	fmt.Println()
-	fmt.Printf("%-8s | %12s | %11s | %9s | %10s | %7s | %9s | %7s | %14s | %12s | %8s | %8s | %8s\n",
-		"Kernel", "Instructions", "InOrder CPI", "OoO CPI", "NoBP CPI", "BP Acc%", "BP Improv", "Speedup", "Sim Time (s)", "Native (s)", "Ratio", "L1 Hit%", "L2 Hit%")
-	fmt.Printf("%-8s-+-%12s-+-%11s-+-%9s-+-%10s-+-%7s-+-%9s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s-+-%8s\n",
-		"--------", "------------", "-----------", "---------", "----------", "-------", "---------", "-------", "--------------", "------------", "--------", "--------", "--------")
+	fmt.Printf("%-8s | %12s | %11s | %9s | %10s | %7s | %9s | %7s | %14s | %12s | %8s | %8s | %8s | %8s\n",
+		"Kernel", "Instructions", "InOrder CPI", "OoO CPI", "NoBP CPI", "BP Acc%", "BP Improv", "Speedup", "Sim Time (s)", "Native (s)", "Ratio", "L1 Hit%", "L2 Hit%", "Error")
+	fmt.Printf("%-8s-+-%12s-+-%11s-+-%9s-+-%10s-+-%7s-+-%9s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s-+-%8s-+-%8s\n",
+		"--------", "------------", "-----------", "---------", "----------", "-------", "---------", "-------", "--------------", "------------", "--------", "--------", "--------", "--------")
 	for _, r := range results {
 		simTime := float64(r.oooCycles) / freq
 		ratio := simTime / r.native
 		speedup := r.iooCPI / r.oooCPI
 		bpImprov := (r.oooNoBPCPI - r.oooCPI) / r.oooNoBPCPI * 100
-		fmt.Printf("%-8s | %12d | %11.2f | %9.2f | %10.2f | %6.1f%% | %8.1f%% | %6.2fx | %14e | %12e | %8.1f | %7.1f%% | %7.1f%%\n",
-			r.name, r.insts, r.iooCPI, r.oooCPI, r.oooNoBPCPI, r.bpAccuracy, bpImprov, speedup, simTime, r.native, ratio, r.l1HitRate*100, r.l2HitRate*100)
+		minVal := math.Min(simTime, r.native)
+		errVal := math.Abs(simTime-r.native) / minVal
+		fmt.Printf("%-8s | %12d | %11.2f | %9.2f | %10.2f | %6.1f%% | %8.1f%% | %6.2fx | %14e | %12e | %8.1f | %7.1f%% | %7.1f%% | %7.1f%%\n",
+			r.name, r.insts, r.iooCPI, r.oooCPI, r.oooNoBPCPI, r.bpAccuracy, bpImprov, speedup, simTime, r.native, ratio, r.l1HitRate*100, r.l2HitRate*100, errVal*100)
+	}
+
+	fmt.Printf("\nSummary (%d benchmarks):\n", n)
+	fmt.Printf("  Avg Error:          %6.1f%%\n", avgError*100)
+	fmt.Printf("  Max Error:          %6.1f%% (%s)\n", maxError*100, maxErrorName)
+	fmt.Printf("  In range [0.67-1.50]: %d / %d\n", countInRange, n)
+	fmt.Printf("  Within 20%% error:    %d / %d\n", countLE20, n)
+	fmt.Printf("  Within 50%% error:    %d / %d\n", countLE50, n)
+	if passAvg && passMax {
+		fmt.Printf("  Result: PASS (avgError=%.1f%% <= 20%%, maxError=%.1f%% <= 50%%)\n", avgError*100, maxError*100)
+	} else {
+		reasons := ""
+		if !passAvg {
+			reasons += fmt.Sprintf("avgError=%.1f%% > 20%%", avgError*100)
+		}
+		if !passMax {
+			if reasons != "" {
+				reasons += ", "
+			}
+			reasons += fmt.Sprintf("maxError=%.1f%% > 50%%", maxError*100)
+		}
+		fmt.Printf("  Result: FAIL (%s)\n", reasons)
 	}
 }
 
