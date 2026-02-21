@@ -4284,24 +4284,36 @@ func TestOoO_PolyBenchDeriche(t *testing.T) {
 		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
 }
 
-func TestOoO_ComparisonTable(t *testing.T) {
-	const freq = 3.49e9 // M2 Avalanche core frequency
+// dataRegion describes a contiguous memory region to warm in the cache.
+type dataRegion struct {
+	addr uint64
+	size int
+}
 
-	type kernelResult struct {
-		name         string
-		insts        uint64
-		iooCycles    uint64  // in-order cycles
-		iooCPI       float64 // in-order CPI
-		oooCycles    uint64  // OoO cycles
-		oooCPI       float64 // OoO CPI
-		oooNoBPCycles uint64  // OoO cycles without branch predictor
-		oooNoBPCPI   float64 // OoO CPI without branch predictor
-		bpAccuracy   float64 // branch prediction accuracy (Hits/Predictions * 100)
-		native       float64 // native time in seconds
-		l1HitRate    float64
-		l2HitRate    float64
+// warmCache pre-populates the cache with the given data regions by issuing
+// read lookups every 64 bytes (L1 line size). This simulates the
+// initialization phase that occurs before the kernel runs on real hardware.
+func warmCache(cache *mem.Cache, regions []dataRegion) {
+	const lineSize = 64
+	for _, r := range regions {
+		for off := 0; off < r.size; off += lineSize {
+			cache.Lookup(r.addr+uint64(off), 8, false)
+		}
 	}
+}
 
+// setupFunc defines a benchmark kernel with its setup closure, native
+// execution time, and data regions for cache warm-up.
+type setupFunc struct {
+	name    string
+	setup   func() *emu.Emulator
+	native  float64
+	regions []dataRegion
+}
+
+// comparisonKernels returns the full set of benchmark kernel definitions
+// used by ComparisonTable and QuickEval tests.
+func comparisonKernels() []setupFunc {
 	// setupAtaxEmu creates a fresh emulator configured for the atax kernel.
 	setupAtaxEmu := func() *emu.Emulator {
 		m, n := 116, 124
@@ -6721,44 +6733,119 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		return em
 	}
 
-	type setupFunc struct {
-		name   string
-		setup  func() *emu.Emulator
-		native float64
+	return []setupFunc{
+		{"atax", setupAtaxEmu, 0.000041, []dataRegion{
+			{0x100000, 115072}, {0x200000, 992}, {0x300000, 992}, {0x400000, 928},
+		}},
+		{"mvt", setupMvtEmu, 0.000050, []dataRegion{
+			{0x100000, 960}, {0x200000, 960}, {0x300000, 960}, {0x400000, 960}, {0x500000, 115200},
+		}},
+		{"gemm", setupGemmEmu, 0.000271, []dataRegion{
+			{0x100000, 33600}, {0x200000, 38400}, {0x300000, 44800}, {0x400000, 8192},
+		}},
+		{"2mm", setup2mmEmu, 0.000419, []dataRegion{
+			{0x100000, 16000}, {0x200000, 22400}, {0x300000, 28000}, {0x400000, 32000}, {0x500000, 25600}, {0x600000, 8192},
+		}},
+		{"3mm", setup3mmEmu, 0.000641, []dataRegion{
+			{0x100000, 16000}, {0x200000, 19200}, {0x300000, 24000}, {0x400000, 28000}, {0x500000, 32000}, {0x600000, 44800}, {0x700000, 22400}, {0x800000, 8192},
+		}},
+		{"bicg", setupBicgEmu, 0.000066, []dataRegion{
+			{0x100000, 115072}, {0x200000, 992}, {0x300000, 928}, {0x400000, 992}, {0x500000, 928}, {0x600000, 8192},
+		}},
+		{"gesummv", setupGesummvEmu, 0.000039, []dataRegion{
+			{0x100000, 64800}, {0x200000, 64800}, {0x300000, 720}, {0x400000, 720}, {0x500000, 720}, {0x600000, 8192},
+		}},
+		{"gemver", setupGemverEmu, 0.000082, []dataRegion{
+			{0x100000, 115200}, {0x200000, 960}, {0x300000, 960}, {0x400000, 960}, {0x500000, 960}, {0x600000, 960}, {0x700000, 960}, {0x800000, 960}, {0x900000, 960}, {0xA00000, 8192},
+		}},
+		{"doitgen", setupDoitgenEmu, 0.000494, []dataRegion{
+			{0x100000, 120000}, {0x200000, 7200}, {0x300000, 240}, {0x400000, 8192},
+		}},
+		{"trisolv", setupTrisolvEmu, 0.000018, []dataRegion{
+			{0x100000, 115200}, {0x200000, 960}, {0x300000, 960},
+		}},
+		{"durbin", setupDurbinEmu, 0.000024, []dataRegion{
+			{0x100000, 960}, {0x200000, 960}, {0x300000, 960},
+		}},
+		{"jacobi1d", setupJacobi1dEmu, 0.000014, []dataRegion{
+			{0x100000, 960}, {0x200000, 960},
+		}},
+		{"syrk", setupSyrkEmu, 0.000101, []dataRegion{
+			{0x100000, 51200}, {0x200000, 38400}, {0x300000, 8192},
+		}},
+		{"syr2k", setupSyr2kEmu, 0.000350, []dataRegion{
+			{0x100000, 51200}, {0x200000, 38400}, {0x300000, 38400}, {0x400000, 8192},
+		}},
+		{"trmm", setupTrmmEmu, 0.000184, []dataRegion{
+			{0x100000, 28800}, {0x200000, 38400}, {0x300000, 8192},
+		}},
+		{"symm", setupSymmEmu, 0.000247, []dataRegion{
+			{0x100000, 38400}, {0x200000, 28800}, {0x300000, 38400}, {0x400000, 8192},
+		}},
+		{"cholesky", setupCholeskyEmu, 0.000441, []dataRegion{
+			{0x100000, 115200}, {0x200000, 8192},
+		}},
+		{"lu", setupLUEmu, 0.000833, []dataRegion{
+			{0x100000, 115200}, {0x200000, 8192},
+		}},
+		{"floydwarshall", setupFloydWarshallEmu, 0.007104, []dataRegion{
+			{0x100000, 259200}, {0x200000, 8192},
+		}},
+		{"covariance", setupCovarianceEmu, 0.000520, []dataRegion{
+			{0x100000, 64000}, {0x200000, 51200}, {0x300000, 640}, {0x400000, 8192},
+		}},
+		{"correlation", setupCorrelationEmu, 0.000253, []dataRegion{
+			{0x100000, 64000}, {0x200000, 51200}, {0x300000, 640}, {0x400000, 640}, {0x500000, 8192},
+		}},
+		{"gramschmidt", setupGramschmidtEmu, 0.000537, []dataRegion{
+			{0x100000, 38400}, {0x200000, 51200}, {0x300000, 38400}, {0x400000, 8192},
+		}},
+		{"ludcmp", setupLudcmpEmu, 0.001128, []dataRegion{
+			{0x100000, 115200}, {0x200000, 960}, {0x300000, 960}, {0x400000, 960}, {0x500000, 8192},
+		}},
+		{"nussinov", setupNussinovEmu, 0.000711, []dataRegion{
+			{0x100000, 180}, {0x200000, 129600}, {0x300000, 8192},
+		}},
+		{"adi", setupAdiEmu, 0.002739, []dataRegion{
+			{0x100000, 28800}, {0x200000, 28800}, {0x300000, 28800}, {0x400000, 28800}, {0x500000, 16384},
+		}},
+		{"fdtd2d", setupFdtd2dEmu, 0.000792, []dataRegion{
+			{0x100000, 38400}, {0x200000, 38400}, {0x300000, 38400}, {0x400000, 320}, {0x500000, 16384},
+		}},
+		{"heat3d", setupHeat3dEmu, 0.001523, []dataRegion{
+			{0x100000, 64000}, {0x200000, 64000}, {0x300000, 16384},
+		}},
+		{"jacobi2d", setupJacobi2dEmu, 0.000485, []dataRegion{
+			{0x100000, 64800}, {0x200000, 64800}, {0x300000, 8192},
+		}},
+		{"seidel2d", setupSeidel2dEmu, 0.007820, []dataRegion{
+			{0x100000, 115200}, {0x200000, 8192},
+		}},
+		{"deriche", setupDericheEmu, 0.000441, []dataRegion{
+			{0x100000, 196608}, {0x200000, 196608}, {0x300000, 196608}, {0x400000, 196608}, {0x500000, 8192},
+		}},
+	}
+}
+
+func TestOoO_ComparisonTable(t *testing.T) {
+	const freq = 3.49e9 // M2 Avalanche core frequency
+
+	type kernelResult struct {
+		name         string
+		insts        uint64
+		iooCycles    uint64  // in-order cycles
+		iooCPI       float64 // in-order CPI
+		oooCycles    uint64  // OoO cycles
+		oooCPI       float64 // OoO CPI
+		oooNoBPCycles uint64  // OoO cycles without branch predictor
+		oooNoBPCPI   float64 // OoO CPI without branch predictor
+		bpAccuracy   float64 // branch prediction accuracy (Hits/Predictions * 100)
+		native       float64 // native time in seconds
+		l1HitRate    float64
+		l2HitRate    float64
 	}
 
-	kernels := []setupFunc{
-		{"atax", setupAtaxEmu, 0.000041},
-		{"mvt", setupMvtEmu, 0.000050},
-		{"gemm", setupGemmEmu, 0.000271},
-		{"2mm", setup2mmEmu, 0.000419},
-		{"3mm", setup3mmEmu, 0.000641},
-		{"bicg", setupBicgEmu, 0.000066},
-		{"gesummv", setupGesummvEmu, 0.000039},
-		{"gemver", setupGemverEmu, 0.000082},
-		{"doitgen", setupDoitgenEmu, 0.000494},
-		{"trisolv", setupTrisolvEmu, 0.000018},
-		{"durbin", setupDurbinEmu, 0.000024},
-		{"jacobi1d", setupJacobi1dEmu, 0.000014},
-		{"syrk", setupSyrkEmu, 0.000101},
-		{"syr2k", setupSyr2kEmu, 0.000350},
-		{"trmm", setupTrmmEmu, 0.000184},
-		{"symm", setupSymmEmu, 0.000247},
-		{"cholesky", setupCholeskyEmu, 0.000441},
-		{"lu", setupLUEmu, 0.000833},
-		{"floydwarshall", setupFloydWarshallEmu, 0.007104},
-		{"covariance", setupCovarianceEmu, 0.000520},
-		{"correlation", setupCorrelationEmu, 0.000253},
-		{"gramschmidt", setupGramschmidtEmu, 0.000537},
-		{"ludcmp", setupLudcmpEmu, 0.001128},
-		{"nussinov", setupNussinovEmu, 0.000711},
-		{"adi", setupAdiEmu, 0.002739},
-		{"fdtd2d", setupFdtd2dEmu, 0.000792},
-		{"heat3d", setupHeat3dEmu, 0.001523},
-		{"jacobi2d", setupJacobi2dEmu, 0.000485},
-		{"seidel2d", setupSeidel2dEmu, 0.007820},
-		{"deriche", setupDericheEmu, 0.000441},
-	}
+	kernels := comparisonKernels()
 
 	results := make([]kernelResult, 0, len(kernels))
 
@@ -6766,6 +6853,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		// Run in-order pipeline.
 		emIO := k.setup()
 		cacheIO := mem.NewCache(mem.DefaultCacheConfig())
+		warmCache(cacheIO, k.regions)
 		pIO := runPipelineWithCache(t, emIO, cacheIO)
 		if !emIO.Halted {
 			t.Fatalf("%s: in-order emulator should have halted", k.name)
@@ -6774,6 +6862,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		// Run OoO pipeline (with branch predictor).
 		emOoO := k.setup()
 		cacheOoO := mem.NewCache(mem.DefaultCacheConfig())
+		warmCache(cacheOoO, k.regions)
 		pOoO := runOoOPipelineWithCache(t, emOoO, cacheOoO)
 		if !emOoO.Halted {
 			t.Fatalf("%s: OoO emulator should have halted", k.name)
@@ -6788,6 +6877,7 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		// Run OoO pipeline without branch predictor.
 		emNoBP := k.setup()
 		cacheNoBP := mem.NewCache(mem.DefaultCacheConfig())
+		warmCache(cacheNoBP, k.regions)
 		engineNoBP := sim.NewSerialEngine()
 		pNoBP := NewOoOPipeline("TestOoO", engineNoBP, 3490*sim.MHz, emNoBP)
 		pNoBP.Cache = cacheNoBP
@@ -6930,6 +7020,106 @@ func TestOoO_ComparisonTable(t *testing.T) {
 		}
 		fmt.Printf("  Result: FAIL (%s)\n", reasons)
 	}
+}
+
+// TestOoO_QuickEval runs 6 representative benchmarks through the OoO pipeline
+// only (skip in-order and no-BP variants). Includes cache warm-up. Reports sim
+// time, native time, ratio, and error. Should complete in <5 minutes.
+func TestOoO_QuickEval(t *testing.T) {
+	const freq = 3.49e9 // M2 Avalanche core frequency
+
+	// Select 6 representative benchmarks from the full comparison suite.
+	quickNames := map[string]bool{
+		"atax": true, "bicg": true, "gemm": true,
+		"floydwarshall": true, "trisolv": true, "seidel2d": true,
+	}
+
+	allKernels := comparisonKernels()
+	var kernels []setupFunc
+	for _, k := range allKernels {
+		if quickNames[k.name] {
+			kernels = append(kernels, k)
+		}
+	}
+
+	type quickResult struct {
+		name    string
+		insts   uint64
+		cycles  uint64
+		cpi     float64
+		simTime float64
+		native  float64
+		ratio   float64
+		errVal  float64
+	}
+
+	results := make([]quickResult, 0, len(kernels))
+
+	for _, k := range kernels {
+		em := k.setup()
+		cache := mem.NewCache(mem.DefaultCacheConfig())
+		warmCache(cache, k.regions)
+		p := runOoOPipelineWithCache(t, em, cache)
+		if !em.Halted {
+			t.Fatalf("%s: emulator should have halted", k.name)
+		}
+
+		simTime := float64(p.Cycles) / freq
+		ratio := simTime / k.native
+		minVal := math.Min(simTime, k.native)
+		errVal := math.Abs(simTime-k.native) / minVal
+
+		results = append(results, quickResult{
+			name:    k.name,
+			insts:   p.InstDone,
+			cycles:  p.Cycles,
+			cpi:     p.CPI(),
+			simTime: simTime,
+			native:  k.native,
+			ratio:   ratio,
+			errVal:  errVal,
+		})
+	}
+
+	// Print QuickEval table.
+	t.Logf("\n%-14s | %10s | %10s | %7s | %14s | %12s | %8s | %8s",
+		"Kernel", "Insts", "Cycles", "CPI", "Sim Time (s)", "Native (s)", "Ratio", "Error")
+	t.Logf("%-14s-+-%10s-+-%10s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s",
+		"--------------", "----------", "----------", "-------", "--------------", "------------", "--------", "--------")
+
+	var totalError float64
+	var maxError float64
+	var maxErrorName string
+	for _, r := range results {
+		t.Logf("%-14s | %10d | %10d | %7.2f | %14e | %12e | %8.1f | %7.1f%%",
+			r.name, r.insts, r.cycles, r.cpi, r.simTime, r.native, r.ratio, r.errVal*100)
+		totalError += r.errVal
+		if r.errVal > maxError {
+			maxError = r.errVal
+			maxErrorName = r.name
+		}
+	}
+
+	n := len(results)
+	avgError := totalError / float64(n)
+	t.Logf("")
+	t.Logf("QuickEval Summary (%d benchmarks):", n)
+	t.Logf("  Avg Error: %6.1f%%", avgError*100)
+	t.Logf("  Max Error: %6.1f%% (%s)", maxError*100, maxErrorName)
+
+	// Also print clean table for easy copy-paste.
+	fmt.Println()
+	fmt.Printf("%-14s | %10s | %10s | %7s | %14s | %12s | %8s | %8s\n",
+		"Kernel", "Insts", "Cycles", "CPI", "Sim Time (s)", "Native (s)", "Ratio", "Error")
+	fmt.Printf("%-14s-+-%10s-+-%10s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s\n",
+		"--------------", "----------", "----------", "-------", "--------------", "------------", "--------", "--------")
+	for _, r := range results {
+		fmt.Printf("%-14s | %10d | %10d | %7.2f | %14e | %12e | %8.1f | %7.1f%%\n",
+			r.name, r.insts, r.cycles, r.cpi, r.simTime, r.native, r.ratio, r.errVal*100)
+	}
+	fmt.Printf("\nQuickEval Summary (%d benchmarks):\n", n)
+	fmt.Printf("  Avg Error: %6.1f%%\n", avgError*100)
+	fmt.Printf("  Max Error: %6.1f%% (%s)\n", maxError*100, maxErrorName)
 }
 
 func TestOoO_RegisterReadinessAfterDrain(t *testing.T) {
