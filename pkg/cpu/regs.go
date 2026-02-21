@@ -221,6 +221,11 @@ func sourceFPs(inst arm64asm.Inst) []int {
 		return srcs
 	}
 
+	// Loads read from memory addresses (GPRs), not FP registers.
+	if IsLoad(inst.Op) {
+		return srcs
+	}
+
 	for i := 1; i < len(inst.Args); i++ {
 		if inst.Args[i] == nil {
 			break
