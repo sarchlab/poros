@@ -231,8 +231,8 @@ func (p *OoOPipeline) fetchAndProcess() {
 		// 6. Compute execution latency.
 		var latency uint64
 		if forwarded {
-			// Store-to-load forwarding: 1-cycle forwarding latency.
-			latency = 1
+			// Store-to-load forwarding: ~4-cycle forwarding latency (M2 estimate).
+			latency = 4
 		} else {
 			latency = p.instrLatency(inst)
 		}
