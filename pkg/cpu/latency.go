@@ -15,13 +15,13 @@ func ExecuteLatency(op arm64asm.Op) int {
 	case arm64asm.SDIV, arm64asm.UDIV:
 		return 10
 
-	// FP simple
+	// FP simple (M2 Avalanche: 3-cycle FADD/FSUB)
 	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FCMP,
 		arm64asm.FMOV, arm64asm.FCSEL,
 		arm64asm.SCVTF, arm64asm.UCVTF,
 		arm64asm.FCVTZS, arm64asm.FCVTZU,
 		arm64asm.FNEG, arm64asm.FABS:
-		return 4
+		return 3
 
 	// FP multiply
 	case arm64asm.FMUL, arm64asm.FMADD, arm64asm.FMSUB:
