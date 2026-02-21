@@ -42,7 +42,8 @@ type OoOPipeline struct {
 	BranchPenalty int // 15
 	LoadLatency   int // 4 (used when Cache is nil)
 	FrontendDepth int // pipeline stages from fetch to issue (decode/rename/dispatch)
-	WakeupDelay   int // 1 — scheduler wakeup latency before dependents can issue
+	WakeupDelay   int // 0 — scheduler wakeup latency (disabled, replaced by IssueWidth)
+	IssueWidth    int // max instructions that can start execution per cycle (0 = unlimited)
 
 	// Register readiness: cycle when value is available (0 = available now).
 	gprReady   [32]uint64
@@ -63,6 +64,10 @@ type OoOPipeline struct {
 	// Store buffer for address-based load-store disambiguation.
 	storeBuffer     []storeBufferEntry
 	storeBufferSize int // default 56 (Apple M2 estimate)
+
+	// Issue width tracking: number of instructions issued per cycle.
+	issueSlotsUsed    map[uint64]int
+	issueSlotCleanup  uint64 // last cycle when old entries were cleaned
 
 	// MSHR (Miss Status Holding Registers) — limits outstanding L1 misses.
 	mshrBusyUntil []uint64 // len = mshrLimit; each entry = cycle when MSHR frees
@@ -99,13 +104,15 @@ func NewOoOPipeline(
 		BranchPenalty:   17,
 		LoadLatency:     5,
 		FrontendDepth:   0,
-		WakeupDelay:     1,
+		WakeupDelay:     0,
+		IssueWidth:      4,
 		storeBufferSize: 56,
 		mshrLimit:       12,
 	}
 	p.intUnits = make([]uint64, p.NumINT)
 	p.fpUnits = make([]uint64, p.NumFP)
 	p.ldstUnits = make([]uint64, p.NumLDST)
+	p.issueSlotsUsed = make(map[uint64]int)
 	p.rob = make([]uint64, p.ROBCapacity)
 	p.storeBuffer = make([]storeBufferEntry, 0, p.storeBufferSize)
 	p.mshrBusyUntil = make([]uint64, p.mshrLimit)
@@ -155,6 +162,17 @@ func (p *OoOPipeline) retire() {
 		p.robHead = (p.robHead + 1) % p.ROBCapacity
 		p.robCount--
 		retired++
+	}
+
+	// Periodically clean old issueSlotsUsed entries to prevent memory growth.
+	if p.IssueWidth > 0 && p.Cycles-p.issueSlotCleanup > 100 {
+		cutoff := p.Cycles - 100
+		for k := range p.issueSlotsUsed {
+			if k < cutoff {
+				delete(p.issueSlotsUsed, k)
+			}
+		}
+		p.issueSlotCleanup = p.Cycles
 	}
 }
 
@@ -259,6 +277,14 @@ func (p *OoOPipeline) fetchAndProcess() {
 				p.mshrBusyUntil[mshrIdx] = issueCycle + latency
 			}
 		}
+		// Issue width limit: cap instructions starting execution per cycle.
+		if p.IssueWidth > 0 {
+			for p.issueSlotsUsed[issueCycle] >= p.IssueWidth {
+				issueCycle++
+			}
+			p.issueSlotsUsed[issueCycle]++
+		}
+
 		completeCycle := issueCycle + latency
 
 		// 7. Update destination register readiness.
