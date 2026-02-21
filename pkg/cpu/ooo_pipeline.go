@@ -7,6 +7,12 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
+type storeBufferEntry struct {
+	addr          uint64
+	size          int
+	completeCycle uint64
+}
+
 type unitType int
 
 const (
@@ -27,13 +33,13 @@ type OoOPipeline struct {
 	BranchPred *BranchPredictor    // nil = always-not-taken (backward compatible)
 
 	// Configuration (set defaults in constructor).
-	FetchWidth    int // 8
+	FetchWidth    int // 6
 	RetireWidth   int // 8
-	ROBCapacity   int // 330
+	ROBCapacity   int // 256
 	NumINT        int // 6
 	NumFP         int // 4
 	NumLDST       int // 4
-	BranchPenalty int // 13
+	BranchPenalty int // 15
 	LoadLatency   int // 4 (used when Cache is nil)
 
 	// Register readiness: cycle when value is available (0 = available now).
@@ -51,8 +57,9 @@ type OoOPipeline struct {
 	robTail  int
 	robCount int
 
-	// Memory ordering.
-	lastStoreComplete uint64 // loads must wait for all prior stores
+	// Store buffer for address-based load-store disambiguation.
+	storeBuffer     []storeBufferEntry
+	storeBufferSize int // default 56 (Apple M2 estimate)
 
 	// Frontend.
 	frontendReady uint64 // cycle when frontend can fetch next batch
@@ -75,20 +82,22 @@ func NewOoOPipeline(
 ) *OoOPipeline {
 	emulator.Mem.TrackAccesses = true
 	p := &OoOPipeline{
-		Emu:           emulator,
-		FetchWidth:    8,
-		RetireWidth:   8,
-		ROBCapacity:   330,
-		NumINT:        6,
-		NumFP:         4,
-		NumLDST:       4,
-		BranchPenalty: 13,
-		LoadLatency:   4,
+		Emu:             emulator,
+		FetchWidth:      6,
+		RetireWidth:     8,
+		ROBCapacity:     256,
+		NumINT:          6,
+		NumFP:           4,
+		NumLDST:         4,
+		BranchPenalty:   15,
+		LoadLatency:     4,
+		storeBufferSize: 56,
 	}
 	p.intUnits = make([]uint64, p.NumINT)
 	p.fpUnits = make([]uint64, p.NumFP)
 	p.ldstUnits = make([]uint64, p.NumLDST)
 	p.rob = make([]uint64, p.ROBCapacity)
+	p.storeBuffer = make([]storeBufferEntry, 0, p.storeBufferSize)
 	p.BranchPred = NewBranchPredictor()
 	p.TickingComponent = sim.NewTickingComponent(name, engine, freq, p)
 	return p
@@ -171,14 +180,7 @@ func (p *OoOPipeline) fetchAndProcess() {
 			}
 		}
 
-		// 3. For loads: must wait for all prior stores to complete.
-		if IsLoad(inst.Op) {
-			if p.lastStoreComplete > srcReady {
-				srcReady = p.lastStoreComplete
-			}
-		}
-
-		// 4. Classify instruction and find execution unit.
+		// 3. Classify instruction and find execution unit.
 		ut := classifyUnit(inst.Op)
 		dispatchCycle := p.Cycles
 		issueCycle := dispatchCycle
@@ -189,7 +191,7 @@ func (p *OoOPipeline) fetchAndProcess() {
 		bestUnit, bestCycle := p.findUnit(ut, issueCycle)
 		issueCycle = bestCycle
 
-		// 5. Execute functionally (in program order).
+		// 4. Execute functionally (in program order).
 		_, branched, execErr := p.Emu.StepDetailed()
 		if execErr != nil {
 			p.Err = execErr
@@ -197,8 +199,43 @@ func (p *OoOPipeline) fetchAndProcess() {
 			return
 		}
 
+		// 5. Address-based load-store disambiguation (after StepDetailed
+		//    so actual addresses are available in p.Emu.Mem.Accesses).
+		forwarded := false
+		if IsLoad(inst.Op) {
+			accesses := p.Emu.Mem.Accesses
+			allForwarded := len(accesses) > 0
+			for _, acc := range accesses {
+				covered := false
+				for _, sb := range p.storeBuffer {
+					if acc.Addr < sb.addr+uint64(sb.size) &&
+						sb.addr < acc.Addr+uint64(acc.Size) {
+						// Address overlap: load must wait for this store.
+						if sb.completeCycle > issueCycle {
+							issueCycle = sb.completeCycle
+						}
+						// Check if the store fully covers this load access.
+						if sb.addr <= acc.Addr &&
+							acc.Addr+uint64(acc.Size) <= sb.addr+uint64(sb.size) {
+							covered = true
+						}
+					}
+				}
+				if !covered {
+					allForwarded = false
+				}
+			}
+			forwarded = allForwarded
+		}
+
 		// 6. Compute execution latency.
-		latency := p.instrLatency(inst)
+		var latency uint64
+		if forwarded {
+			// Store-to-load forwarding: 1-cycle forwarding latency.
+			latency = 1
+		} else {
+			latency = p.instrLatency(inst)
+		}
 		completeCycle := issueCycle + latency
 
 		// 7. Update destination register readiness.
@@ -213,10 +250,19 @@ func (p *OoOPipeline) fetchAndProcess() {
 			p.gprReady[gpr2] = completeCycle
 		}
 
-		// 8. For stores: update lastStoreComplete.
+		// 8. For stores: add to store buffer.
 		if IsStore(inst.Op) {
-			if completeCycle > p.lastStoreComplete {
-				p.lastStoreComplete = completeCycle
+			for _, acc := range p.Emu.Mem.Accesses {
+				entry := storeBufferEntry{
+					addr:          acc.Addr,
+					size:          acc.Size,
+					completeCycle: completeCycle,
+				}
+				if len(p.storeBuffer) >= p.storeBufferSize {
+					// Evict oldest entry.
+					p.storeBuffer = p.storeBuffer[1:]
+				}
+				p.storeBuffer = append(p.storeBuffer, entry)
 			}
 		}
 
