@@ -40,7 +40,7 @@ lu,small,0.000833
 ludcmp,mini,0.000034
 ludcmp,small,0.001128
 trisolv,mini,0.000008
-trisolv,small,0.000018
+trisolv,small,0.000024
 adi,mini,0.000096
 adi,small,0.002739
 fdtd-2d,mini,0.000043

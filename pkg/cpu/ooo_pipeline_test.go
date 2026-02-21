@@ -6761,7 +6761,7 @@ func comparisonKernels() []setupFunc {
 		{"doitgen", setupDoitgenEmu, 0.000494, []dataRegion{
 			{0x100000, 120000}, {0x200000, 7200}, {0x300000, 240}, {0x400000, 8192},
 		}},
-		{"trisolv", setupTrisolvEmu, 0.000018, []dataRegion{
+		{"trisolv", setupTrisolvEmu, 0.000024, []dataRegion{
 			{0x100000, 115200}, {0x200000, 960}, {0x300000, 960},
 		}},
 		{"durbin", setupDurbinEmu, 0.000024, []dataRegion{
