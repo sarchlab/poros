@@ -7125,6 +7125,79 @@ func TestOoO_QuickEval(t *testing.T) {
 	fmt.Printf("  Max Error: %6.1f%% (%s)\n", maxError*100, maxErrorName)
 }
 
+// TestOoO_All30 runs all 30 benchmarks through OoO pipeline only (no in-order
+// or no-BP variants). This is faster than ComparisonTable and suitable for
+// quick full-suite error measurement.
+func TestOoO_All30(t *testing.T) {
+	const freq = 3.49e9
+
+	kernels := comparisonKernels()
+
+	type result struct {
+		name    string
+		insts   uint64
+		cycles  uint64
+		cpi     float64
+		simTime float64
+		native  float64
+		ratio   float64
+		errVal  float64
+	}
+
+	results := make([]result, 0, len(kernels))
+
+	for _, k := range kernels {
+		em := k.setup()
+		cache := mem.NewCache(mem.DefaultCacheConfig())
+		warmCache(cache, k.regions)
+		p := runOoOPipelineWithCache(t, em, cache)
+		if !em.Halted {
+			t.Fatalf("%s: emulator should have halted", k.name)
+		}
+
+		simTime := float64(p.Cycles) / freq
+		ratio := simTime / k.native
+		minVal := math.Min(simTime, k.native)
+		errVal := math.Abs(simTime-k.native) / minVal
+
+		results = append(results, result{
+			name:    k.name,
+			insts:   p.InstDone,
+			cycles:  p.Cycles,
+			cpi:     p.CPI(),
+			simTime: simTime,
+			native:  k.native,
+			ratio:   ratio,
+			errVal:  errVal,
+		})
+	}
+
+	fmt.Println()
+	fmt.Printf("%-14s | %10s | %10s | %7s | %14s | %12s | %8s | %8s\n",
+		"Kernel", "Insts", "Cycles", "CPI", "Sim Time (s)", "Native (s)", "Ratio", "Error")
+	fmt.Printf("%-14s-+-%10s-+-%10s-+-%7s-+-%14s-+-%12s-+-%8s-+-%8s\n",
+		"--------------", "----------", "----------", "-------", "--------------", "------------", "--------", "--------")
+
+	var totalError float64
+	var maxError float64
+	var maxErrorName string
+	for _, r := range results {
+		fmt.Printf("%-14s | %10d | %10d | %7.2f | %14e | %12e | %8.1f | %7.1f%%\n",
+			r.name, r.insts, r.cycles, r.cpi, r.simTime, r.native, r.ratio, r.errVal*100)
+		totalError += r.errVal
+		if r.errVal > maxError {
+			maxError = r.errVal
+			maxErrorName = r.name
+		}
+	}
+
+	n := len(results)
+	avgError := totalError / float64(n)
+	fmt.Printf("\nAll30 Summary (%d benchmarks):\n", n)
+	fmt.Printf("  Avg Error: %6.1f%%\n", avgError*100)
+	fmt.Printf("  Max Error: %6.1f%% (%s)\n", maxError*100, maxErrorName)
+}
+
 func TestOoO_RegisterReadinessAfterDrain(t *testing.T) {
 	// Verify that after the OoO pipeline drains completely, all register
 	// readiness timestamps are reasonable (no values exceeding final cycle count).
