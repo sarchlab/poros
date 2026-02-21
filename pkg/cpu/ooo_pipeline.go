@@ -61,6 +61,10 @@ type OoOPipeline struct {
 	storeBuffer     []storeBufferEntry
 	storeBufferSize int // default 56 (Apple M2 estimate)
 
+	// MSHR (Miss Status Holding Registers) — limits outstanding L1 misses.
+	mshrBusyUntil []uint64 // len = mshrLimit; each entry = cycle when MSHR frees
+	mshrLimit     int      // default 12 (Apple M2 estimate: 12-16)
+
 	// Frontend.
 	frontendReady uint64 // cycle when frontend can fetch next batch
 
@@ -92,12 +96,14 @@ func NewOoOPipeline(
 		BranchPenalty:   17,
 		LoadLatency:     5,
 		storeBufferSize: 56,
+		mshrLimit:       12,
 	}
 	p.intUnits = make([]uint64, p.NumINT)
 	p.fpUnits = make([]uint64, p.NumFP)
 	p.ldstUnits = make([]uint64, p.NumLDST)
 	p.rob = make([]uint64, p.ROBCapacity)
 	p.storeBuffer = make([]storeBufferEntry, 0, p.storeBufferSize)
+	p.mshrBusyUntil = make([]uint64, p.mshrLimit)
 	p.BranchPred = NewBranchPredictor()
 	p.TickingComponent = sim.NewTickingComponent(name, engine, freq, p)
 	return p
@@ -234,7 +240,14 @@ func (p *OoOPipeline) fetchAndProcess() {
 			// Store-to-load forwarding: ~5-cycle forwarding latency (M2 estimate).
 			latency = 5
 		} else {
-			latency = p.instrLatency(inst)
+			var miss bool
+			latency, miss = p.instrLatency(inst)
+			// MSHR: if load missed L1, acquire an MSHR slot (may stall).
+			if miss {
+				mshrIdx, mshrCycle := p.acquireMSHR(issueCycle)
+				issueCycle = mshrCycle
+				p.mshrBusyUntil[mshrIdx] = issueCycle + latency
+			}
 		}
 		completeCycle := issueCycle + latency
 
@@ -383,12 +396,13 @@ func (p *OoOPipeline) markUnitBusy(ut unitType, idx int, issueCycle uint64, op a
 }
 
 // instrLatency computes the execution latency for an instruction.
-func (p *OoOPipeline) instrLatency(inst arm64asm.Inst) uint64 {
+// For loads, l1Miss indicates whether the load missed L1 (needs MSHR).
+func (p *OoOPipeline) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bool) {
 	if IsLoad(inst.Op) {
 		if p.Cache != nil {
 			accesses := p.Emu.Mem.Accesses
 			if len(accesses) == 0 {
-				return uint64(p.LoadLatency)
+				return uint64(p.LoadLatency), false
 			}
 			worst := mem.HitL1
 			for _, acc := range accesses {
@@ -400,14 +414,14 @@ func (p *OoOPipeline) instrLatency(inst arm64asm.Inst) uint64 {
 			cfg := p.Cache.Config()
 			switch worst {
 			case mem.HitL2:
-				return uint64(cfg.L2Latency)
+				return uint64(cfg.L2Latency), true
 			case mem.HitDRAM:
-				return uint64(cfg.DRAMLatency)
+				return uint64(cfg.DRAMLatency), true
 			default:
-				return uint64(cfg.L1Latency)
+				return uint64(cfg.L1Latency), false
 			}
 		}
-		return uint64(p.LoadLatency)
+		return uint64(p.LoadLatency), false
 	}
 	if IsStore(inst.Op) {
 		if p.Cache != nil {
@@ -415,7 +429,24 @@ func (p *OoOPipeline) instrLatency(inst arm64asm.Inst) uint64 {
 				p.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
 			}
 		}
-		return 3
+		return 3, false
 	}
-	return uint64(ExecuteLatency(inst.Op))
+	return uint64(ExecuteLatency(inst.Op)), false
+}
+
+// acquireMSHR finds the earliest-available MSHR slot. If all MSHRs are busy
+// past issueCycle, the load is delayed. Returns (mshrIndex, adjustedIssueCycle).
+func (p *OoOPipeline) acquireMSHR(issueCycle uint64) (int, uint64) {
+	bestIdx := 0
+	bestTime := p.mshrBusyUntil[0]
+	for i := 1; i < len(p.mshrBusyUntil); i++ {
+		if p.mshrBusyUntil[i] < bestTime {
+			bestIdx = i
+			bestTime = p.mshrBusyUntil[i]
+		}
+	}
+	if bestTime > issueCycle {
+		return bestIdx, bestTime
+	}
+	return bestIdx, issueCycle
 }
