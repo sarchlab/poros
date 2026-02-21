@@ -93,7 +93,7 @@ func NewOoOPipeline(
 		ROBCapacity:     256,
 		NumINT:          6,
 		NumFP:           4,
-		NumLDST:         3,
+		NumLDST:         4,
 		BranchPenalty:   17,
 		LoadLatency:     5,
 		storeBufferSize: 56,
