@@ -41,6 +41,7 @@ type OoOPipeline struct {
 	NumLDST       int // 4
 	BranchPenalty int // 15
 	LoadLatency   int // 4 (used when Cache is nil)
+	FrontendDepth int // pipeline stages from fetch to issue (decode/rename/dispatch)
 
 	// Register readiness: cycle when value is available (0 = available now).
 	gprReady   [32]uint64
@@ -88,7 +89,7 @@ func NewOoOPipeline(
 	emulator.Mem.TrackAccesses = true
 	p := &OoOPipeline{
 		Emu:             emulator,
-		FetchWidth:      3,
+		FetchWidth:      6,
 		RetireWidth:     8,
 		ROBCapacity:     256,
 		NumINT:          6,
@@ -96,6 +97,7 @@ func NewOoOPipeline(
 		NumLDST:         3,
 		BranchPenalty:   17,
 		LoadLatency:     5,
+		FrontendDepth:   7,
 		storeBufferSize: 56,
 		mshrLimit:       12,
 	}
@@ -194,7 +196,7 @@ func (p *OoOPipeline) fetchAndProcess() {
 
 		// 3. Classify instruction and find execution unit.
 		ut := classifyUnit(inst.Op)
-		dispatchCycle := p.Cycles
+		dispatchCycle := p.Cycles + uint64(p.FrontendDepth)
 		issueCycle := dispatchCycle
 		if srcReady > issueCycle {
 			issueCycle = srcReady
