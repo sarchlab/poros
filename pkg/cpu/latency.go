@@ -78,3 +78,27 @@ func IsBranch(op arm64asm.Op) bool {
 	}
 	return false
 }
+
+// SetsFlags returns true if the instruction writes NZCV condition flags.
+func SetsFlags(op arm64asm.Op) bool {
+	switch op {
+	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST,
+		arm64asm.CCMP, arm64asm.CCMN,
+		arm64asm.ADDS, arm64asm.SUBS, arm64asm.ANDS,
+		arm64asm.FCMP, arm64asm.FCCMP, arm64asm.FCCMPE:
+		return true
+	}
+	return false
+}
+
+// UsesFlags returns true if the instruction reads NZCV condition flags.
+// Branch instructions are excluded — they are predicted, not data-dependent.
+func UsesFlags(op arm64asm.Op) bool {
+	switch op {
+	case arm64asm.CSEL, arm64asm.CSINC, arm64asm.CSINV, arm64asm.CSNEG,
+		arm64asm.CCMP, arm64asm.CCMN,
+		arm64asm.FCSEL, arm64asm.FCCMP, arm64asm.FCCMPE:
+		return true
+	}
+	return false
+}

@@ -43,8 +43,9 @@ type OoOPipeline struct {
 	LoadLatency   int // 4 (used when Cache is nil)
 
 	// Register readiness: cycle when value is available (0 = available now).
-	gprReady [32]uint64
-	fpReady  [32]uint64
+	gprReady   [32]uint64
+	fpReady    [32]uint64
+	flagsReady uint64 // NZCV condition flags readiness
 
 	// Execution unit availability: next cycle each unit can accept new work.
 	intUnits  []uint64 // len = NumINT
@@ -186,6 +187,11 @@ func (p *OoOPipeline) fetchAndProcess() {
 			}
 		}
 
+		// Flags (NZCV) dependency.
+		if UsesFlags(inst.Op) && p.flagsReady > srcReady {
+			srcReady = p.flagsReady
+		}
+
 		// 3. Classify instruction and find execution unit.
 		ut := classifyUnit(inst.Op)
 		dispatchCycle := p.Cycles
@@ -263,6 +269,11 @@ func (p *OoOPipeline) fetchAndProcess() {
 			p.gprReady[gpr2] = completeCycle
 		}
 
+		// Update NZCV flags readiness.
+		if SetsFlags(inst.Op) {
+			p.flagsReady = completeCycle
+		}
+
 		// 8. For stores: add to store buffer.
 		if IsStore(inst.Op) {
 			for _, acc := range p.Emu.Mem.Accesses {
@@ -272,7 +283,12 @@ func (p *OoOPipeline) fetchAndProcess() {
 					completeCycle: completeCycle,
 				}
 				if len(p.storeBuffer) >= p.storeBufferSize {
-					// Evict oldest entry.
+					// Store buffer full — stall frontend until oldest
+					// store retires (its completeCycle).
+					stallUntil := p.storeBuffer[0].completeCycle + 1
+					if stallUntil > p.frontendReady {
+						p.frontendReady = stallUntil
+					}
 					p.storeBuffer = p.storeBuffer[1:]
 				}
 				p.storeBuffer = append(p.storeBuffer, entry)
@@ -310,10 +326,10 @@ func (p *OoOPipeline) fetchAndProcess() {
 				p.frontendReady = issueCycle + uint64(p.BranchPenalty)
 				break
 			}
-			// Correct prediction: no penalty.
+			// Correct prediction: taken branch still costs ~1 cycle for
+			// BTB redirect of the instruction fetch unit.
 			if actualTaken {
-				// Still stop fetching after taken branch — fetch from new
-				// target next cycle, but no penalty.
+				p.frontendReady = p.Cycles + 2 // 1-cycle redirect bubble
 				fetched++
 				break
 			}
