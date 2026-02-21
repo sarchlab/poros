@@ -91,7 +91,7 @@ func NewOoOPipeline(
 		RetireWidth:     8,
 		ROBCapacity:     256,
 		NumINT:          6,
-		NumFP:           3,
+		NumFP:           4,
 		NumLDST:         3,
 		BranchPenalty:   17,
 		LoadLatency:     5,
