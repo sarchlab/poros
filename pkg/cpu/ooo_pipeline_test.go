@@ -5171,7 +5171,7 @@ func comparisonKernels() []setupFunc {
 	}
 
 	setupTrisolvEmu := func() *emu.Emulator {
-		n := 120
+		n := 400
 
 		L := make([]float64, n*n)
 		b := make([]float64, n)
@@ -5195,8 +5195,8 @@ func comparisonKernels() []setupFunc {
 
 		codeBase := uint64(0x10000)
 		lBase := uint64(0x100000)
-		xBase := uint64(0x200000)
-		bBase := uint64(0x300000)
+		xBase := uint64(0x300000)
+		bBase := uint64(0x400000)
 		haltPC := uint64(0xFFFF0000)
 
 		em := emu.NewEmulator()
@@ -5223,13 +5223,13 @@ func comparisonKernels() []setupFunc {
 		em.Regs.WriteX(2, xBase)
 		em.Regs.WriteX(3, bBase)
 		em.Regs.WriteX(30, haltPC)
-		em.Regs.SP = 0x400000 + 8192
+		em.Regs.SP = 0x500000 + 8192
 		em.SetHaltPC(haltPC)
 		return em
 	}
 
 	setupDurbinEmu := func() *emu.Emulator {
-		n := 120
+		n := 400
 
 		r := make([]float64, n)
 		for i := 0; i < n; i++ {
@@ -5292,8 +5292,8 @@ func comparisonKernels() []setupFunc {
 	}
 
 	setupJacobi1dEmu := func() *emu.Emulator {
-		tsteps := 40
-		n := 120
+		tsteps := 100
+		n := 400
 
 		A := make([]float64, n)
 		B := make([]float64, n)
@@ -6761,14 +6761,14 @@ func comparisonKernels() []setupFunc {
 		{"doitgen", setupDoitgenEmu, 0.000494, []dataRegion{
 			{0x100000, 120000}, {0x200000, 7200}, {0x300000, 240}, {0x400000, 8192},
 		}},
-		{"trisolv", setupTrisolvEmu, 0.000024, []dataRegion{
-			{0x100000, 115200}, {0x200000, 960}, {0x300000, 960},
+		{"trisolv", setupTrisolvEmu, 0.000191, []dataRegion{
+			{0x100000, 1280000}, {0x300000, 3200}, {0x400000, 3200},
 		}},
-		{"durbin", setupDurbinEmu, 0.000024, []dataRegion{
-			{0x100000, 960}, {0x200000, 960}, {0x300000, 960},
+		{"durbin", setupDurbinEmu, 0.000211, []dataRegion{
+			{0x100000, 3200}, {0x200000, 3200}, {0x300000, 3200},
 		}},
-		{"jacobi1d", setupJacobi1dEmu, 0.000014, []dataRegion{
-			{0x100000, 960}, {0x200000, 960},
+		{"jacobi1d", setupJacobi1dEmu, 0.000088, []dataRegion{
+			{0x100000, 3200}, {0x200000, 3200},
 		}},
 		{"syrk", setupSyrkEmu, 0.000217, []dataRegion{
 			{0x100000, 51200}, {0x200000, 38400}, {0x300000, 8192},

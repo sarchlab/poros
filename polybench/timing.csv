@@ -33,6 +33,7 @@ cholesky,mini,0.000022
 cholesky,small,0.000441
 durbin,mini,0.000007
 durbin,small,0.000024
+durbin,medium,0.000211
 gramschmidt,mini,0.000028
 gramschmidt,small,0.000537
 lu,mini,0.000016
@@ -41,6 +42,7 @@ ludcmp,mini,0.000034
 ludcmp,small,0.001128
 trisolv,mini,0.000008
 trisolv,small,0.000024
+trisolv,medium,0.000191
 adi,mini,0.000096
 adi,small,0.002739
 fdtd-2d,mini,0.000043
@@ -49,6 +51,7 @@ heat-3d,mini,0.000063
 heat-3d,small,0.001523
 jacobi-1d,mini,0.000006
 jacobi-1d,small,0.000014
+jacobi-1d,medium,0.000088
 jacobi-2d,mini,0.000025
 jacobi-2d,small,0.001109
 seidel-2d,mini,0.000308
