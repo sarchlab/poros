@@ -6770,7 +6770,7 @@ func comparisonKernels() []setupFunc {
 		{"jacobi1d", setupJacobi1dEmu, 0.000014, []dataRegion{
 			{0x100000, 960}, {0x200000, 960},
 		}},
-		{"syrk", setupSyrkEmu, 0.000101, []dataRegion{
+		{"syrk", setupSyrkEmu, 0.000217, []dataRegion{
 			{0x100000, 51200}, {0x200000, 38400}, {0x300000, 8192},
 		}},
 		{"syr2k", setupSyr2kEmu, 0.000350, []dataRegion{
@@ -6809,13 +6809,13 @@ func comparisonKernels() []setupFunc {
 		{"adi", setupAdiEmu, 0.002739, []dataRegion{
 			{0x100000, 28800}, {0x200000, 28800}, {0x300000, 28800}, {0x400000, 28800}, {0x500000, 16384},
 		}},
-		{"fdtd2d", setupFdtd2dEmu, 0.000792, []dataRegion{
+		{"fdtd2d", setupFdtd2dEmu, 0.000923, []dataRegion{
 			{0x100000, 38400}, {0x200000, 38400}, {0x300000, 38400}, {0x400000, 320}, {0x500000, 16384},
 		}},
 		{"heat3d", setupHeat3dEmu, 0.001523, []dataRegion{
 			{0x100000, 64000}, {0x200000, 64000}, {0x300000, 16384},
 		}},
-		{"jacobi2d", setupJacobi2dEmu, 0.000485, []dataRegion{
+		{"jacobi2d", setupJacobi2dEmu, 0.001109, []dataRegion{
 			{0x100000, 64800}, {0x200000, 64800}, {0x300000, 8192},
 		}},
 		{"seidel2d", setupSeidel2dEmu, 0.007820, []dataRegion{

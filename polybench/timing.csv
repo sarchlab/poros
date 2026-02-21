@@ -14,7 +14,7 @@ symm,small,0.000247
 syr2k,mini,0.000021
 syr2k,small,0.000350
 syrk,mini,0.000019
-syrk,small,0.000101
+syrk,small,0.000217
 trmm,mini,0.000011
 trmm,small,0.000184
 2mm,mini,0.000019
@@ -44,13 +44,13 @@ trisolv,small,0.000018
 adi,mini,0.000096
 adi,small,0.002739
 fdtd-2d,mini,0.000043
-fdtd-2d,small,0.000792
+fdtd-2d,small,0.000923
 heat-3d,mini,0.000063
 heat-3d,small,0.001523
 jacobi-1d,mini,0.000006
 jacobi-1d,small,0.000014
 jacobi-2d,mini,0.000025
-jacobi-2d,small,0.000485
+jacobi-2d,small,0.001109
 seidel-2d,mini,0.000308
 seidel-2d,small,0.007820
 deriche,mini,0.000035
