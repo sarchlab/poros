@@ -143,51 +143,44 @@ The simulator consists of:
 - **Lesson**: Global structural changes help sim-slow benchmarks but hurt the far more numerous sim-fast ones. Need per-benchmark targeted fixes, not global knobs.
 
 ### M8.1r: Revert + Measurement Fix + Targeted Per-Benchmark Fixes
-**Status:** NEXT
-**Budget:** 4 cycles
+**Status:** COMPLETE (4 cycles — targets far exceeded)
+**Budget:** 4 cycles | **Actual:** 4 cycles
 **Target:** Avg error ≤ 40%, Max error ≤ 160%
-**Scope:**
-- **Step 0: REVERT** pipeline code to commit 39f43c4 (best known state: avg 46.6%, max 236.1%). Cherry-pick ec9fd68 (Nora's gesummv/atax native time fixes). This is mandatory before any other work.
-- **Step 1: Fix measurement noise** for trisolv (156% error, native time 24µs is in the noise floor). Either switch trisolv to MEDIUM dataset in ComparisonTable, or use `clock_gettime_nsec_np()` for nanosecond-precision measurement, or take 1001-run median. Same for other sub-50µs benchmarks that show high error.
-- **Step 2: Per-benchmark investigation** of remaining >80% error benchmarks. For each one, determine: (a) is the error from sim being too fast or too slow? (b) what specific mechanism is missing? (c) is there a targeted fix that doesn't regress other benchmarks?
-- **Step 3: Targeted fixes only.** Each fix must be validated on QuickEval first AND must not increase avg error by >2pp. If it does, revert immediately.
-- **Absolute rules:**
-  - Do NOT change FetchWidth (keep at 3)
-  - Do NOT change L1 latency (keep at 5cy)
-  - Do NOT add global pipeline mechanisms (no FrontendDepth, WakeupDelay, IssueWidth)
-  - Do NOT do parameter sweeps
-  - REVERT any change that increases avg error by >2pp on QuickEval
+**Result:** Avg error 25.0%, Max error 108.9% (nussinov)
+**Key fixes:**
+- Reverted 3 failed M8.1 pipeline commits → back to 39f43c4 best-known state
+- MEDIUM dataset migration for 6 sub-50µs benchmarks (trisolv, durbin, jacobi1d, mvt, atax, gesummv)
+- NumLDST 3→4 (matches M2 hardware)
+- FP LDP sourceFPs false dependency fix → jacobi2d 236%→0.5%, fdtd2d 100%→16%
+- FP latency fix: FMADD/FMSUB 4→6cy, FDIV 10→15cy → trisolv 100%→57%, seidel2d 95%→65.5%
+- Net: avg error 46.6% → 25.0%, max 236.1% → 108.9%
 
-### M8.2: Systematic Accuracy Improvement — Target ≤30% avg, ≤80% max
-**Status:** Not started
-**Budget:** 6 cycles
-**Target:** Avg error ≤ 30%, Max error ≤ 80%
-**Scope:**
-- Per-benchmark analysis and targeted fixes for all >50% error benchmarks
-- Investigate adding speculative memory disambiguation (predict-and-recover model) as the correct sim-fast fix
-- If ready, cautiously try L1 latency reduction with proper compensating mechanism
-- Continue MEDIUM dataset migration for noisy benchmarks
+**Benchmarks >50% remaining (7):** nussinov(108.9%), seidel2d(65.5%), mvt(62.2%), correlation(61.6%), trisolv(57.0%), gemm(54.0%), ludcmp(52.0%)
 
-### M8.3: Final Accuracy Tuning — Target ≤20% avg, ≤50% max
-**Status:** Not started
+### M8.2: Final Accuracy — Target ≤20% avg, ≤50% max (project success)
+**Status:** NEXT
 **Budget:** 6 cycles
 **Target:** Avg error ≤ 20%, Max error ≤ 50% (project success criteria)
+**Current state:** Avg 25.0%, Max 108.9% — need 5pp avg reduction + cap all benchmarks at 50%
 **Scope:**
-- Fix remaining >50% error benchmarks
-- Improve 20-50% error benchmarks toward ≤20%
-- Final parameter calibration only after structural fixes are stable
-- Per-benchmark investigation for stubborn outliers
+- **Priority 1: nussinov (108.9%)** — largest outlier, integer DP benchmark, sim 2.1x too slow. Root cause unknown. Must investigate instruction patterns, branch prediction accuracy, possible integer latency issue.
+- **Priority 2: seidel2d (65.5%)** — sim too fast. Not bottlenecked by FMSUB (Kai confirmed). Investigate store buffer / memory ordering / loop-carried dependency modeling.
+- **Priority 3: mvt (62.2%)** — sim too fast. Check what changed after MEDIUM dataset migration.
+- **Priority 4: correlation (61.6%)** — sim too slow. Investigate which instructions dominate.
+- **Priority 5: trisolv (57.0%), gemm (54.0%), ludcmp (52.0%)** — close to target, may respond to targeted fixes from priorities 1-4.
+- **Avg reduction**: Even fixing only >50% benchmarks may suffice. If avg stays >20%, investigate 30-50% range benchmarks (gemver 47.1%, adi 42.4%, syrk 39.3%, deriche 38.6%).
+- **Constraints:** Same rules as M8.1r — no FetchWidth change, no L1 change, no global mechanisms, revert on >2pp avg regression.
 
 ### M9: Polish + Final Validation
 **Status:** Not started
 **Budget:** 4 cycles
 **Scope:**
-- Fix remaining outlier benchmarks if M8.3 doesn't fully converge
+- Fix remaining outlier benchmarks if M8.2 doesn't fully converge
 - Code cleanup
 - Final validation pass
 - Performance optimization of the simulator itself (simulation speed)
 
-## Total Estimated Budget: ~63 cycles | **Spent so far: ~27 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8 + M8.1:4)**
+## Total Estimated Budget: ~47 cycles | **Spent so far: ~31 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8 + M8.1:4 + M8.1r:4)**
 
 ## Lessons Learned
 
@@ -287,6 +280,14 @@ The simulator consists of:
 - **Key insight**: FetchWidth=3 is "wrong" (real M2 is 6-8 wide) but it compensates for the sim's OTHER missing bottlenecks (speculative memory disambiguation penalties, scheduling overhead, physical register pressure, etc.). Fixing FetchWidth without also adding these missing bottlenecks just makes everything faster.
 - **Strategic conclusion**: Per-benchmark targeted fixes are the only path forward. Global changes always help some benchmarks and hurt others. The 10 benchmarks already ≤20% prove the model CAN be accurate — the errors are in specific mechanisms for specific benchmark patterns.
 - **Measurement note**: Nora's 101-run re-measurements of durbin and jacobi1d confirmed existing values. gesummv and atax native times were updated (ec9fd68).
+
+### M8.1r
+- Despite being flagged as "deadline missed", the targets (avg ≤40%, max ≤160%) were actually far exceeded: avg 25.0%, max 108.9%.
+- **Targeted bug fixes >> parameter tuning**: sourceFPs false dependency fix (jacobi2d 236%→0.5%) and FP latency corrections (FMADD/FMSUB 4→6cy) each had 10-20pp impact on avg error, dwarfing all M8's parameter tuning.
+- **MEDIUM dataset migration was essential**: Sub-50µs benchmarks had ≥50% measurement noise. Switching 6 benchmarks to MEDIUM eliminated this noise source.
+- **Two bug fixes accounted for most progress**: FP LDP sourceFPs fix (jacobi2d/fdtd2d) and FP latency fix (trisolv/seidel2d/bicg) together reduced avg from 46.6% → 25.0%.
+- **nussinov is the remaining hard case**: 108.9% error, integer DP benchmark, sim too slow. Not responsive to any FP changes. Needs dedicated investigation.
+- **Remaining >50% benchmarks are a mix of sim-fast (seidel2d, mvt, trisolv, ludcmp) and sim-slow (nussinov, correlation, gemm)** — no single mechanism will fix all of them.
 
 ## Key Risks
 1. **ARM64 emulator complexity**: Even a subset of ARM64 is large. Compiler may emit unexpected instructions.
