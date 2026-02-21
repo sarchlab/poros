@@ -99,38 +99,38 @@ The simulator consists of:
 - Current sim/native ratios: atax=2.2x, mvt=4.4x, gemm=4.0x, 2mm=2.4x, 3mm=2.0x, bicg=2.9x
 
 ### M7: Full Benchmark Coverage
-**Status:** Not started
-**Budget:** 8 cycles
+**Status:** COMPLETE (2 cycles)
+**Budget:** 8 cycles | **Actual:** 2 cycles
 **Scope:**
-- Extract all 30 PolyBench benchmarks as simulator test functions (currently only 6)
-- Add any missing ARM64 instruction support for remaining 24 benchmarks
-- All 30 benchmarks must produce correct output (maxRelErr=0)
-- Use SMALL dataset for timing comparison (MINI is too noisy — microsecond timings)
-- Collect and report sim/native ratios for all 30 benchmarks
-- **Target: all 30 benchmarks running with correct output**
+- All 30 PolyBench benchmarks extracted as Go test functions
+- 4 new ARM64 instructions: FCVT, SXTL, MOVI.2D, STP/LDP Q-register
+- All 30 produce correct output (maxRelErr ≤ 3.96e-16)
+- SMALL dataset sizes for ComparisonTable timing comparison
+- ComparisonTable runs all 30 benchmarks (~19 min)
+- Sim/native ratios range 0.4x-8.5x (need calibration)
+- BP accuracy 94.4%-99.5% across all 30 benchmarks
 
 ### M8: Calibration + Accuracy Tuning
-**Status:** Not started
+**Status:** IN PROGRESS
 **Budget:** 8 cycles
 **Scope:**
-- Analyze systematic errors across all 30 benchmarks
-- Relax conservative memory ordering (currently loads wait for ALL prior stores — too pessimistic)
-- Implement store-to-load forwarding or address-based disambiguation
-- Tune pipeline parameters: execution unit counts, latencies, cache timings
-- Adjust clock frequency / IPC assumptions based on M2 reverse-engineering data
+- **Priority 1: Memory ordering** — Replace conservative "loads wait for ALL stores" with address-based disambiguation and store-to-load forwarding (biggest lever, est. 2-3x impact)
+- **Priority 2: Native time validation** — Re-measure native times for SMALL dataset (many current times are microsecond-scale and noisy). Use median of 5+ runs, kernel-only timing
+- **Priority 3: Parameter calibration** — Adjust ROB (330→~256), fetch width (8→~6), misprediction penalty (13→~15-17), validate execution latencies against M2 data
+- **Priority 4: Outlier investigation** — Analyze benchmarks with ratio <1.0 (simulator too fast, e.g. bicg=0.4x) and >5.0 (too slow, e.g. gemm=8.5x)
 - **Target: ≤20% average time estimation error, no benchmark >50% error**
-- Note: current sim/native ratios are 2.0-4.4x — need to get to ~1.0x
+- Error formula: error = abs(sim-hw)/min(sim,hw). Need ratio between 0.67 and 1.50 for all benchmarks.
 
 ### M9: Polish + Edge Cases
 **Status:** Not started
 **Budget:** 4 cycles
 **Scope:**
-- Fix remaining outlier benchmarks
+- Fix remaining outlier benchmarks if M8 doesn't fully converge
 - Code cleanup
 - Final validation pass
 - Performance optimization of the simulator itself (simulation speed)
 
-## Total Estimated Budget: ~47 cycles | **Spent so far: ~13 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3)**
+## Total Estimated Budget: ~47 cycles | **Spent so far: ~15 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2)**
 
 ## Lessons Learned
 
@@ -199,6 +199,16 @@ The simulator consists of:
 - Sim/native ratios still 2.0-4.4x — remaining gap is primarily from: (1) conservative memory ordering, (2) parameter calibration, (3) MINI dataset timing noise
 - 2 unit tests are trivially passable by always-taken predictor — tagged table weakly tested in isolation
 - **Key insight for M7**: The 2-4x gap won't close from microarchitectural features alone. Need to expand to all 30 benchmarks and systematically calibrate parameters.
+
+### M7
+- Completed in 2 cycles (budgeted 8) — parallel worker batches very effective (8 workers across 2 cycles)
+- 24 new benchmarks + SMALL dataset migration done in parallel batches of 3 benchmarks each
+- 4 new instructions needed: FCVT (float precision convert), SXTL (sign extend long), MOVI.2D (vector zero), STP/LDP Q-register (128-bit pair load/store)
+- Sim/native ratios wildly inconsistent: 0.4x (bicg) to 8.5x (gemm). Some benchmarks *underestimate* time.
+- Native times are hardcoded constants (from M1 measurements), not measured at runtime. Many are 15-500 microseconds — likely noisy.
+- **Key insight for M8**: Two separate problems: (1) simulator timing model accuracy (memory ordering, parameters), (2) native reference time accuracy (measurement noise at microsecond scale). Must fix both.
+- ComparisonTable takes ~19 minutes for all 30 benchmarks at SMALL — need -timeout 30m flag
+- Individual tests use MINI for fast correctness checks, ComparisonTable uses SMALL for timing comparison — good separation of concerns
 
 ## Key Risks
 1. **ARM64 emulator complexity**: Even a subset of ARM64 is large. Compiler may emit unexpected instructions.
