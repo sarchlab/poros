@@ -42,6 +42,7 @@ type OoOPipeline struct {
 	BranchPenalty int // 15
 	LoadLatency   int // 4 (used when Cache is nil)
 	FrontendDepth int // pipeline stages from fetch to issue (decode/rename/dispatch)
+	WakeupDelay   int // 1 — scheduler wakeup latency before dependents can issue
 
 	// Register readiness: cycle when value is available (0 = available now).
 	gprReady   [32]uint64
@@ -97,7 +98,8 @@ func NewOoOPipeline(
 		NumLDST:         3,
 		BranchPenalty:   17,
 		LoadLatency:     5,
-		FrontendDepth:   7,
+		FrontendDepth:   0,
+		WakeupDelay:     1,
 		storeBufferSize: 56,
 		mshrLimit:       12,
 	}
@@ -260,25 +262,28 @@ func (p *OoOPipeline) fetchAndProcess() {
 		completeCycle := issueCycle + latency
 
 		// 7. Update destination register readiness.
+		//    Add wakeup delay: dependents can issue WakeupDelay cycles
+		//    after the producing instruction completes.
+		wakeupReady := completeCycle + uint64(p.WakeupDelay)
 		gpr, fp := destRegs(inst)
 		if gpr >= 0 && gpr < 31 {
-			p.gprReady[gpr] = completeCycle
+			p.gprReady[gpr] = wakeupReady
 		}
 		if fp >= 0 {
-			p.fpReady[fp] = completeCycle
+			p.fpReady[fp] = wakeupReady
 		}
 		if gpr2, fp2 := destRegs2(inst); gpr2 >= 0 || fp2 >= 0 {
 			if gpr2 >= 0 {
-				p.gprReady[gpr2] = completeCycle
+				p.gprReady[gpr2] = wakeupReady
 			}
 			if fp2 >= 0 {
-				p.fpReady[fp2] = completeCycle
+				p.fpReady[fp2] = wakeupReady
 			}
 		}
 
 		// Update NZCV flags readiness.
 		if SetsFlags(inst.Op) {
-			p.flagsReady = completeCycle
+			p.flagsReady = wakeupReady
 		}
 
 		// 8. For stores: add to store buffer.
