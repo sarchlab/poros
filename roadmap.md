@@ -131,37 +131,63 @@ The simulator consists of:
 4. **Structural model gaps**: Pipeline has no frontend depth (fetch→issue is instant), L1 latency too high (5cy vs real 3-4cy), FetchWidth too low (3 vs real 6-8).
 
 ### M8.1: Pipeline Structural Fixes — Fix Top Outliers
+**Status:** DEADLINE MISSED (4 cycles used, regression from 46.6% to 60.7% avg)
+**Budget:** 4 cycles | **Actual:** 4 cycles (failed)
+**Scope:** Attempted FetchWidth 3→6, L1 5→3cy, FrontendDepth, WakeupDelay, IssueWidth
+**Post-mortem:**
+- FetchWidth 3→6 exposed underlying sim-fast bias: 25/30 benchmarks became even faster
+- Three compensation mechanisms tried (FrontendDepth=7, WakeupDelay=1, IssueWidth=4) — none effective
+- WakeupDelay=1 was best single change (helped seidel2d 95%→56%) but worsened jacobi2d (236%→300%)
+- Net result: avg error went from 46.6% → 60.7%, a significant regression
+- **Root cause of failure**: The approach of "realistic FetchWidth + compensating mechanism" was wrong. FetchWidth=3 is a crude throttle but it compensates for the sim's missing real-world bottlenecks (speculative memory disambiguation penalties, scheduling overhead, physical register pressure). Removing the throttle without adding these real bottlenecks just makes everything faster.
+- **Lesson**: Global structural changes help sim-slow benchmarks but hurt the far more numerous sim-fast ones. Need per-benchmark targeted fixes, not global knobs.
+
+### M8.1r: Revert + Measurement Fix + Targeted Per-Benchmark Fixes
 **Status:** NEXT
 **Budget:** 4 cycles
-**Target:** Max error ≤ 120%, Avg error ≤ 40%
+**Target:** Avg error ≤ 40%, Max error ≤ 160%
 **Scope:**
-- **Root cause analysis** for 5 worst benchmarks: jacobi2d (236%), trisolv (156%), nussinov (109%), fdtd2d (100%), seidel2d (95%)
-- **Fix FetchWidth**: Increase from 3 to 6 (realistic M2 value). The current value caps IPC at 3.0, preventing the sim from achieving realistic throughput on high-ILP benchmarks like jacobi2d (real IPC ~4.0) and nussinov (real IPC ~4.0)
-- **Fix L1 latency**: Reduce from 5cy to 3-4cy (real M2 value). This directly reduces FADD chain critical path in stencils.
-- **Add compensating mechanism**: FetchWidth increase will make sim-too-fast benchmarks worse unless compensated. Options: add frontend pipeline depth (decode→issue latency), increase taken-branch redirect cost, or add decode bandwidth limit separate from FetchWidth.
-- **Native timing for small benchmarks**: Re-measure sub-50µs benchmarks (trisolv 24µs, jacobi1d 14µs, gesummv 39µs, atax 41µs) with 101+ runs
-- Do NOT use global parameter tuning as the primary approach
+- **Step 0: REVERT** pipeline code to commit 39f43c4 (best known state: avg 46.6%, max 236.1%). Cherry-pick ec9fd68 (Nora's gesummv/atax native time fixes). This is mandatory before any other work.
+- **Step 1: Fix measurement noise** for trisolv (156% error, native time 24µs is in the noise floor). Either switch trisolv to MEDIUM dataset in ComparisonTable, or use `clock_gettime_nsec_np()` for nanosecond-precision measurement, or take 1001-run median. Same for other sub-50µs benchmarks that show high error.
+- **Step 2: Per-benchmark investigation** of remaining >80% error benchmarks. For each one, determine: (a) is the error from sim being too fast or too slow? (b) what specific mechanism is missing? (c) is there a targeted fix that doesn't regress other benchmarks?
+- **Step 3: Targeted fixes only.** Each fix must be validated on QuickEval first AND must not increase avg error by >2pp. If it does, revert immediately.
+- **Absolute rules:**
+  - Do NOT change FetchWidth (keep at 3)
+  - Do NOT change L1 latency (keep at 5cy)
+  - Do NOT add global pipeline mechanisms (no FrontendDepth, WakeupDelay, IssueWidth)
+  - Do NOT do parameter sweeps
+  - REVERT any change that increases avg error by >2pp on QuickEval
 
-### M8.2: Average Error Reduction — Target ≤20% avg, ≤50% max
+### M8.2: Systematic Accuracy Improvement — Target ≤30% avg, ≤80% max
 **Status:** Not started
-**Budget:** 4 cycles
+**Budget:** 6 cycles
+**Target:** Avg error ≤ 30%, Max error ≤ 80%
+**Scope:**
+- Per-benchmark analysis and targeted fixes for all >50% error benchmarks
+- Investigate adding speculative memory disambiguation (predict-and-recover model) as the correct sim-fast fix
+- If ready, cautiously try L1 latency reduction with proper compensating mechanism
+- Continue MEDIUM dataset migration for noisy benchmarks
+
+### M8.3: Final Accuracy Tuning — Target ≤20% avg, ≤50% max
+**Status:** Not started
+**Budget:** 6 cycles
 **Target:** Avg error ≤ 20%, Max error ≤ 50% (project success criteria)
 **Scope:**
 - Fix remaining >50% error benchmarks
 - Improve 20-50% error benchmarks toward ≤20%
-- Final parameter calibration after structural fixes are stable
-- May need per-benchmark investigation for stubborn outliers
+- Final parameter calibration only after structural fixes are stable
+- Per-benchmark investigation for stubborn outliers
 
 ### M9: Polish + Final Validation
 **Status:** Not started
 **Budget:** 4 cycles
 **Scope:**
-- Fix remaining outlier benchmarks if M8.2 doesn't fully converge
+- Fix remaining outlier benchmarks if M8.3 doesn't fully converge
 - Code cleanup
 - Final validation pass
 - Performance optimization of the simulator itself (simulation speed)
 
-## Total Estimated Budget: ~55 cycles | **Spent so far: ~23 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8)**
+## Total Estimated Budget: ~63 cycles | **Spent so far: ~27 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8 + M8.1:4)**
 
 ## Lessons Learned
 
@@ -252,6 +278,15 @@ The simulator consists of:
 - Current pipeline params: FetchWidth=3, RetireWidth=8, ROB=256, NumINT=6, NumFP=4, NumLDST=3, BranchPenalty=17, L1=5cy, L2=14cy, DRAM=335cy, StoreBuffer=56, MSHR=12
 - **Process lesson**: QuickEval (130s, 6 benchmarks) was much more useful for iteration than full ComparisonTable (20min, 30 benchmarks). Should have been built earlier.
 - **Process lesson**: Sequential tune→measure→tune loop was slow. Need parallel investigation of specific outliers.
+
+### M8.1
+- Used 4 cycles, went BACKWARDS: avg error 46.6% → 60.7%. Net negative progress.
+- **FetchWidth 3→6 was the wrong bet.** It exposed the sim's fundamental over-optimism without adding the real bottlenecks that would compensate.
+- **Three compensation attempts failed**: FrontendDepth=7 (too crude, slowed everything equally), WakeupDelay=1 (added latency to dependency chains — helped seidel2d but worsened jacobi2d), IssueWidth=4 (no measurable impact because FetchWidth already limits throughput).
+- **Process failure: no revert-on-regression.** The team kept layering changes on top of regressions instead of reverting to the best known state. Each subsequent change was evaluated against the already-degraded baseline, making it impossible to detect cumulative regression.
+- **Key insight**: FetchWidth=3 is "wrong" (real M2 is 6-8 wide) but it compensates for the sim's OTHER missing bottlenecks (speculative memory disambiguation penalties, scheduling overhead, physical register pressure, etc.). Fixing FetchWidth without also adding these missing bottlenecks just makes everything faster.
+- **Strategic conclusion**: Per-benchmark targeted fixes are the only path forward. Global changes always help some benchmarks and hurt others. The 10 benchmarks already ≤20% prove the model CAN be accurate — the errors are in specific mechanisms for specific benchmark patterns.
+- **Measurement note**: Nora's 101-run re-measurements of durbin and jacobi1d confirmed existing values. gesummv and atax native times were updated (ec9fd68).
 
 ## Key Risks
 1. **ARM64 emulator complexity**: Even a subset of ARM64 is large. Compiler may emit unexpected instructions.
