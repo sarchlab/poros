@@ -83,12 +83,12 @@ func NewOoOPipeline(
 	emulator.Mem.TrackAccesses = true
 	p := &OoOPipeline{
 		Emu:             emulator,
-		FetchWidth:      6,
+		FetchWidth:      4,
 		RetireWidth:     8,
 		ROBCapacity:     256,
 		NumINT:          6,
 		NumFP:           4,
-		NumLDST:         4,
+		NumLDST:         3,
 		BranchPenalty:   15,
 		LoadLatency:     4,
 		storeBufferSize: 56,

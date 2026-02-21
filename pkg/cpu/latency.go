@@ -21,7 +21,7 @@ func ExecuteLatency(op arm64asm.Op) int {
 		arm64asm.SCVTF, arm64asm.UCVTF,
 		arm64asm.FCVTZS, arm64asm.FCVTZU,
 		arm64asm.FNEG, arm64asm.FABS:
-		return 3
+		return 4
 
 	// FP multiply
 	case arm64asm.FMUL, arm64asm.FMADD, arm64asm.FMSUB:
