@@ -265,8 +265,13 @@ func (p *OoOPipeline) fetchAndProcess() {
 		if fp >= 0 {
 			p.fpReady[fp] = completeCycle
 		}
-		if gpr2 := destRegs2(inst); gpr2 >= 0 {
-			p.gprReady[gpr2] = completeCycle
+		if gpr2, fp2 := destRegs2(inst); gpr2 >= 0 || fp2 >= 0 {
+			if gpr2 >= 0 {
+				p.gprReady[gpr2] = completeCycle
+			}
+			if fp2 >= 0 {
+				p.fpReady[fp2] = completeCycle
+			}
 		}
 
 		// Update NZCV flags readiness.

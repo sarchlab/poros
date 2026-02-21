@@ -96,20 +96,24 @@ func destRegs(inst arm64asm.Inst) (gpr, fp int) {
 	return
 }
 
-// destRegs2 returns the second GPR destination for pair instructions (LDP).
-func destRegs2(inst arm64asm.Inst) int {
+// destRegs2 returns the second destination for pair instructions (LDP).
+func destRegs2(inst arm64asm.Inst) (gpr, fp int) {
+	gpr, fp = -1, -1
 	if inst.Op != arm64asm.LDP && inst.Op != arm64asm.LDPSW {
-		return -1
+		return
 	}
 	if inst.Args[1] == nil {
-		return -1
+		return
 	}
 	if r, ok := inst.Args[1].(arm64asm.Reg); ok {
 		if idx := gprIdx(r); idx >= 0 && idx < 31 {
-			return idx
+			gpr = idx
+		}
+		if idx := fpIdx(r); idx >= 0 {
+			fp = idx
 		}
 	}
-	return -1
+	return
 }
 
 // memImmLayout matches arm64asm.MemImmediate internal layout.
