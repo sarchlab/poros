@@ -27,6 +27,13 @@ func fpIdx(r arm64asm.Reg) int {
 	if r >= arm64asm.S0 && r <= arm64asm.S31 {
 		return int(r - arm64asm.S0)
 	}
+	// Q and V registers alias the same physical FP register file.
+	if r >= arm64asm.Q0 && r <= arm64asm.Q31 {
+		return int(r - arm64asm.Q0)
+	}
+	if r >= arm64asm.V0 && r <= arm64asm.V31 {
+		return int(r - arm64asm.V0)
+	}
 	return -1
 }
 
@@ -37,9 +44,31 @@ func argGPR(arg arm64asm.Arg) int {
 	return -1
 }
 
+// rwaLayout matches arm64asm.RegisterWithArrangement internal layout.
+type rwaLayout struct {
+	r   uint16
+	a   uint8
+	cnt uint8
+}
+
+// rwaiLayout matches arm64asm.RegisterWithArrangementAndIndex internal layout.
+type rwaiLayout struct {
+	r     uint16
+	a     uint8
+	index uint8
+	cnt   uint8
+}
+
 func argFP(arg arm64asm.Arg) int {
-	if r, ok := arg.(arm64asm.Reg); ok {
-		return fpIdx(r)
+	switch a := arg.(type) {
+	case arm64asm.Reg:
+		return fpIdx(a)
+	case arm64asm.RegisterWithArrangement:
+		s := *(*rwaLayout)(unsafe.Pointer(&a))
+		return fpIdx(arm64asm.Reg(s.r))
+	case arm64asm.RegisterWithArrangementAndIndex:
+		s := *(*rwaiLayout)(unsafe.Pointer(&a))
+		return fpIdx(arm64asm.Reg(s.r))
 	}
 	return -1
 }
@@ -79,19 +108,16 @@ func destRegs(inst arm64asm.Inst) (gpr, fp int) {
 		return
 	}
 
-	r, ok := inst.Args[0].(arm64asm.Reg)
-	if !ok {
-		return
+	// Extract destination register from Args[0], handling both
+	// plain Reg and SIMD RegisterWithArrangement.
+	fp = argFP(inst.Args[0])
+	if r, ok := inst.Args[0].(arm64asm.Reg); ok {
+		if idx := gprIdx(r); idx >= 0 && idx < 31 {
+			gpr = idx
+		}
 	}
 
-	if idx := gprIdx(r); idx >= 0 && idx < 31 {
-		gpr = idx
-	}
-	if idx := fpIdx(r); idx >= 0 {
-		fp = idx
-	}
-
-	// LDP writes two GPRs (Args[0] and Args[1]).
+	// LDP writes two registers (Args[0] and Args[1]).
 	// We only track the first here; the second is handled by destRegs2.
 	return
 }

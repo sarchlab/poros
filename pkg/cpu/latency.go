@@ -31,9 +31,9 @@ func ExecuteLatency(op arm64asm.Op) int {
 	case arm64asm.FMADD, arm64asm.FMSUB:
 		return 6
 
-	// FP divide (M2 double-precision: ~15 cycles)
+	// FP divide (M2 double-precision: ~22 cycles)
 	case arm64asm.FDIV:
-		return 15
+		return 22
 
 	// FP square root
 	case arm64asm.FSQRT:
