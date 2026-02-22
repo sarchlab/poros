@@ -176,17 +176,17 @@ The simulator consists of:
 3. Branch redirect bubble model is globally optimistic for non-LSD branches.
 
 ### M9: Final Cleanup — Merge all code to main + Write README
-**Status:** IN PROGRESS
-**Budget:** 2 cycles
+**Status:** COMPLETE (1 cycle)
+**Budget:** 2 cycles | **Actual:** 1 cycle
 **Scope:**
-- Merge leo/benchmarks → main (53 commits with all M7-M8.2 work)
-- Close 3 stale open PRs (#18, #19, #20) — content already in leo/benchmarks
-- Write README.md with simulator usage instructions, architecture details, and accuracy results
-- Clean up stale remote branches
+- Merge leo/benchmarks → main (53 commits with all M7-M8.2 work) ✓
+- Close 3 stale open PRs (#18, #19, #20) — content already in leo/benchmarks ✓
+- Write README.md with simulator usage instructions, architecture details, and accuracy results ✓
+- Clean up stale remote branches ✓
 
-## Total Budget: ~47 cycles | **Total spent: ~35 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8 + M8.1:4 + M8.1r:4 + M8.2:4)**
+## Total Budget: ~47 cycles | **Total spent: ~36 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8 + M8.1:4 + M8.1r:4 + M8.2:4 + M9:1)**
 
-## PROJECT COMPLETE — Success criteria achieved at 35 cycles (budget was 47)
+## PROJECT COMPLETE — All milestones done. Success criteria achieved at 36 cycles (budget was 47).
 
 ## Lessons Learned
 
