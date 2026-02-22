@@ -290,6 +290,25 @@ func (p *OoOPipeline) fetchAndProcess() {
 			}
 		}
 
+		// 7b. Track base register writeback for pre/post-indexed addressing.
+		// The base writeback (e.g., X22 += 8 in "str D1, [X22], #8") is
+		// available after address generation (1 cycle), independent of the
+		// instruction's data latency.
+		if base := baseWritebackGPR(inst); base >= 0 && base < 31 && base != gpr {
+			if IsStore(inst.Op) {
+				// For stores, base writeback depends only on the base
+				// register, not on the store data operand.
+				baseReady := p.gprReady[base]
+				if dispatchCycle > baseReady {
+					baseReady = dispatchCycle
+				}
+				p.gprReady[base] = baseReady + 1
+			} else {
+				// For loads, issueCycle already includes base readiness.
+				p.gprReady[base] = issueCycle + 1
+			}
+		}
+
 		// Update NZCV flags readiness.
 		if SetsFlags(inst.Op) {
 			p.flagsReady = completeCycle

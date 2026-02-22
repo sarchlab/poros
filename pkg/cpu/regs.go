@@ -168,6 +168,39 @@ func regExtReg(rea arm64asm.RegExtshiftAmount) arm64asm.Reg {
 	return s.Reg
 }
 
+// baseWritebackGPR returns the GPR index of the base register written back
+// by pre/post-indexed load/store instructions (e.g., "ldr d1, [x22], #8"
+// writes x22 = x22+8). Returns -1 if no writeback occurs.
+func baseWritebackGPR(inst arm64asm.Inst) int {
+	var memArg arm64asm.Arg
+	if IsLoad(inst.Op) {
+		if inst.Op == arm64asm.LDP || inst.Op == arm64asm.LDPSW {
+			memArg = inst.Args[2]
+		} else {
+			memArg = inst.Args[1]
+		}
+	} else if IsStore(inst.Op) {
+		if inst.Op == arm64asm.STP {
+			memArg = inst.Args[2]
+		} else {
+			memArg = inst.Args[1]
+		}
+	}
+	if memArg == nil {
+		return -1
+	}
+	mi, ok := memArg.(arm64asm.MemImmediate)
+	if !ok {
+		return -1
+	}
+	s := *(*memImmLayout)(unsafe.Pointer(&mi))
+	mode := arm64asm.AddrMode(s.Mode)
+	if mode != arm64asm.AddrPostIndex && mode != arm64asm.AddrPreIndex {
+		return -1
+	}
+	return gprIdx(arm64asm.Reg(s.Base))
+}
+
 // sourceGPRs returns all GPR indices read by the instruction.
 func sourceGPRs(inst arm64asm.Inst) []int {
 	var srcs []int
