@@ -105,7 +105,7 @@ func NewOoOPipeline(
 		LoadLatency:     5,
 		storeBufferSize: 56,
 		mshrLimit:       12,
-		fpPhysLimit:     48,
+		fpPhysLimit:     72,
 	}
 	p.intUnits = make([]uint64, p.NumINT)
 	p.fpUnits = make([]uint64, p.NumFP)
@@ -419,12 +419,17 @@ func (p *OoOPipeline) findUnit(ut unitType, earliest uint64) (int, uint64) {
 }
 
 // markUnitBusy marks an execution unit as occupied.
-// Most units are pipelined (1-cycle throughput). DIV/SQRT are non-pipelined.
+// Most units are pipelined (1-cycle throughput). DIV/SQRT are partially
+// pipelined: the unit is busy for throughput cycles (< latency).
 func (p *OoOPipeline) markUnitBusy(ut unitType, idx int, issueCycle uint64, op arm64asm.Op) {
 	busyUntil := issueCycle + 1 // pipelined: 1-cycle throughput
-	if op == arm64asm.SDIV || op == arm64asm.UDIV ||
-		op == arm64asm.FDIV || op == arm64asm.FSQRT {
+	switch op {
+	case arm64asm.SDIV, arm64asm.UDIV:
 		busyUntil = issueCycle + uint64(ExecuteLatency(op)) // non-pipelined
+	case arm64asm.FDIV:
+		busyUntil = issueCycle + 10 // partially pipelined: 10cy throughput, 22cy latency
+	case arm64asm.FSQRT:
+		busyUntil = issueCycle + 6 // partially pipelined: 6cy throughput, 12cy latency
 	}
 	switch ut {
 	case unitINT:
