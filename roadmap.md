@@ -175,9 +175,14 @@ The simulator consists of:
 2. gemm native time may need re-measurement (+25.5% discrepancy found by Violet).
 3. Branch redirect bubble model is globally optimistic for non-LSD branches.
 
-### M9: Polish + Final Validation
-**Status:** NOT NEEDED — project success achieved at M8.2
-**Notes:** M8.2 achieved avg=13.1%, max=36.0%, exceeding all targets. Polish not required for success criteria.
+### M9: Final Cleanup — Merge all code to main + Write README
+**Status:** IN PROGRESS
+**Budget:** 2 cycles
+**Scope:**
+- Merge leo/benchmarks → main (53 commits with all M7-M8.2 work)
+- Close 3 stale open PRs (#18, #19, #20) — content already in leo/benchmarks
+- Write README.md with simulator usage instructions, architecture details, and accuracy results
+- Clean up stale remote branches
 
 ## Total Budget: ~47 cycles | **Total spent: ~35 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8 + M8.1:4 + M8.1r:4 + M8.2:4)**
 
