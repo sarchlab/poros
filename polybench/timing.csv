@@ -1,6 +1,6 @@
 benchmark,dataset,time_seconds
 correlation,mini,0.000010
-correlation,small,0.000253
+correlation,small,0.000524
 covariance,mini,0.000026
 covariance,small,0.000520
 gemm,mini,0.000016
@@ -20,7 +20,7 @@ trmm,small,0.000184
 2mm,mini,0.000019
 2mm,small,0.000419
 3mm,mini,0.000029
-3mm,small,0.000641
+3mm,small,0.000804
 atax,mini,0.000011
 atax,small,0.000041
 bicg,mini,0.000011
@@ -46,7 +46,7 @@ trisolv,medium,0.000191
 adi,mini,0.000096
 adi,small,0.002739
 fdtd-2d,mini,0.000043
-fdtd-2d,small,0.000923
+fdtd-2d,small,0.000817
 heat-3d,mini,0.000063
 heat-3d,small,0.001523
 jacobi-1d,mini,0.000006
@@ -61,4 +61,4 @@ deriche,small,0.000441
 floyd-warshall,mini,0.000229
 floyd-warshall,small,0.007104
 nussinov,mini,0.000050
-nussinov,small,0.000711
+nussinov,small,0.001175

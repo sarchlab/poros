@@ -6749,7 +6749,7 @@ func comparisonKernels() []setupFunc {
 		{"2mm", setup2mmEmu, 0.000419, []dataRegion{
 			{0x100000, 16000}, {0x200000, 22400}, {0x300000, 28000}, {0x400000, 32000}, {0x500000, 25600}, {0x600000, 8192},
 		}},
-		{"3mm", setup3mmEmu, 0.000641, []dataRegion{
+		{"3mm", setup3mmEmu, 0.000804, []dataRegion{
 			{0x100000, 16000}, {0x200000, 19200}, {0x300000, 24000}, {0x400000, 28000}, {0x500000, 32000}, {0x600000, 44800}, {0x700000, 22400}, {0x800000, 8192},
 		}},
 		{"bicg", setupBicgEmu, 0.000066, []dataRegion{
@@ -6797,7 +6797,7 @@ func comparisonKernels() []setupFunc {
 		{"covariance", setupCovarianceEmu, 0.000520, []dataRegion{
 			{0x100000, 64000}, {0x200000, 51200}, {0x300000, 640}, {0x400000, 8192},
 		}},
-		{"correlation", setupCorrelationEmu, 0.000253, []dataRegion{
+		{"correlation", setupCorrelationEmu, 0.000524, []dataRegion{
 			{0x100000, 64000}, {0x200000, 51200}, {0x300000, 640}, {0x400000, 640}, {0x500000, 8192},
 		}},
 		{"gramschmidt", setupGramschmidtEmu, 0.000537, []dataRegion{
@@ -6806,13 +6806,13 @@ func comparisonKernels() []setupFunc {
 		{"ludcmp", setupLudcmpEmu, 0.001128, []dataRegion{
 			{0x100000, 115200}, {0x200000, 960}, {0x300000, 960}, {0x400000, 960}, {0x500000, 8192},
 		}},
-		{"nussinov", setupNussinovEmu, 0.000711, []dataRegion{
+		{"nussinov", setupNussinovEmu, 0.001175, []dataRegion{
 			{0x100000, 180}, {0x200000, 129600}, {0x300000, 8192},
 		}},
 		{"adi", setupAdiEmu, 0.002739, []dataRegion{
 			{0x100000, 28800}, {0x200000, 28800}, {0x300000, 28800}, {0x400000, 28800}, {0x500000, 16384},
 		}},
-		{"fdtd2d", setupFdtd2dEmu, 0.000923, []dataRegion{
+		{"fdtd2d", setupFdtd2dEmu, 0.000817, []dataRegion{
 			{0x100000, 38400}, {0x200000, 38400}, {0x300000, 38400}, {0x400000, 320}, {0x500000, 16384},
 		}},
 		{"heat3d", setupHeat3dEmu, 0.001523, []dataRegion{
