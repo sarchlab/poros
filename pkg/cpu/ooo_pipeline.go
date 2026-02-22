@@ -53,10 +53,17 @@ type OoOPipeline struct {
 	ldstUnits []uint64 // len = NumLDST
 
 	// ROB (circular buffer).
-	rob      []uint64 // completeCycle per entry
-	robHead  int
-	robTail  int
-	robCount int
+	rob        []uint64 // completeCycle per entry
+	robFPDests []int    // FP register destinations per ROB entry
+	robHead    int
+	robTail    int
+	robCount   int
+
+	// Physical FP register file limit.
+	// Each in-flight instruction writing FP registers consumes physical
+	// registers. When exhausted, dispatch stalls (models M2's ~128 phys FP regs).
+	fpPhysLimit int // rename registers available (phys - arch), default 96
+	fpInFlight  int // currently consumed by in-flight instructions
 
 	// Store buffer for address-based load-store disambiguation.
 	storeBuffer     []storeBufferEntry
@@ -98,11 +105,13 @@ func NewOoOPipeline(
 		LoadLatency:     5,
 		storeBufferSize: 56,
 		mshrLimit:       12,
+		fpPhysLimit:     48,
 	}
 	p.intUnits = make([]uint64, p.NumINT)
 	p.fpUnits = make([]uint64, p.NumFP)
 	p.ldstUnits = make([]uint64, p.NumLDST)
 	p.rob = make([]uint64, p.ROBCapacity)
+	p.robFPDests = make([]int, p.ROBCapacity)
 	p.storeBuffer = make([]storeBufferEntry, 0, p.storeBufferSize)
 	p.mshrBusyUntil = make([]uint64, p.mshrLimit)
 	p.BranchPred = NewBranchPredictor()
@@ -147,6 +156,7 @@ func (p *OoOPipeline) retire() {
 		if p.rob[p.robHead] > p.Cycles {
 			break // head entry not yet complete
 		}
+		p.fpInFlight -= p.robFPDests[p.robHead]
 		p.InstDone++
 		p.robHead = (p.robHead + 1) % p.ROBCapacity
 		p.robCount--
@@ -162,7 +172,8 @@ func (p *OoOPipeline) fetchAndProcess() {
 	}
 
 	fetched := 0
-	for fetched < p.FetchWidth && p.robCount < p.ROBCapacity && !p.Emu.Halted {
+	for fetched < p.FetchWidth && p.robCount < p.ROBCapacity &&
+		p.fpInFlight < p.fpPhysLimit && !p.Emu.Halted {
 		// 1. Peek at instruction at emulator's current PC.
 		pc := p.Emu.Regs.PC
 		var buf [4]byte
@@ -265,12 +276,17 @@ func (p *OoOPipeline) fetchAndProcess() {
 		if fp >= 0 {
 			p.fpReady[fp] = completeCycle
 		}
+		fpDests := 0
+		if fp >= 0 {
+			fpDests++
+		}
 		if gpr2, fp2 := destRegs2(inst); gpr2 >= 0 || fp2 >= 0 {
 			if gpr2 >= 0 {
 				p.gprReady[gpr2] = completeCycle
 			}
 			if fp2 >= 0 {
 				p.fpReady[fp2] = completeCycle
+				fpDests++
 			}
 		}
 
@@ -303,8 +319,10 @@ func (p *OoOPipeline) fetchAndProcess() {
 		// 9. Mark execution unit busy.
 		p.markUnitBusy(ut, bestUnit, issueCycle, inst.Op)
 
-		// 10. Add to ROB.
+		// 10. Add to ROB and track FP register usage.
 		p.rob[p.robTail] = completeCycle
+		p.robFPDests[p.robTail] = fpDests
+		p.fpInFlight += fpDests
 		p.robTail = (p.robTail + 1) % p.ROBCapacity
 		p.robCount++
 
