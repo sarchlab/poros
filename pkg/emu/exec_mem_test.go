@@ -144,3 +144,50 @@ func TestSTP_LDP_W(t *testing.T) {
 	assertW(t, em, 4, 0xAAAA)
 	assertW(t, em, 5, 0xBBBB)
 }
+
+func TestSTP_LDP_Q(t *testing.T) {
+	// STP Q0, Q1, [X2]       => 0xAD000440
+	// LDP Q2, Q3, [X2]       => 0xAD400C42  (need to verify)
+	// Let me use STP then manual read, plus separate LDP test.
+
+	// Test STP Q0, Q1, [X2]
+	em := newTestEmulator(0xAD000440)
+	em.Regs.WriteQ(0, 0x1111111122222222, 0x3333333344444444)
+	em.Regs.WriteQ(1, 0xAAAAAAAABBBBBBBB, 0xCCCCCCCCDDDDDDDD)
+	em.Regs.WriteX(2, 0x10000)
+	stepN(t, em, 1)
+
+	// Verify memory contents
+	if got := em.Mem.ReadU64(0x10000); got != 0x1111111122222222 {
+		t.Errorf("mem[0x10000] = %#x, want 0x1111111122222222", got)
+	}
+	if got := em.Mem.ReadU64(0x10008); got != 0x3333333344444444 {
+		t.Errorf("mem[0x10008] = %#x, want 0x3333333344444444", got)
+	}
+	if got := em.Mem.ReadU64(0x10010); got != 0xAAAAAAAABBBBBBBB {
+		t.Errorf("mem[0x10010] = %#x, want 0xAAAAAAAABBBBBBBB", got)
+	}
+	if got := em.Mem.ReadU64(0x10018); got != 0xCCCCCCCCDDDDDDDD {
+		t.Errorf("mem[0x10018] = %#x, want 0xCCCCCCCCDDDDDDDD", got)
+	}
+}
+
+func TestLDP_Q(t *testing.T) {
+	// LDP Q0, Q1, [X2]       => 0xAD400440
+	em := newTestEmulator(0xAD400440)
+	em.Regs.WriteX(2, 0x10000)
+	em.Mem.WriteU64(0x10000, 0xAAAA)
+	em.Mem.WriteU64(0x10008, 0xBBBB)
+	em.Mem.WriteU64(0x10010, 0xCCCC)
+	em.Mem.WriteU64(0x10018, 0xDDDD)
+	stepN(t, em, 1)
+
+	lo0, hi0 := em.Regs.ReadQ(0)
+	lo1, hi1 := em.Regs.ReadQ(1)
+	if lo0 != 0xAAAA || hi0 != 0xBBBB {
+		t.Errorf("Q0 = (%#x, %#x), want (0xAAAA, 0xBBBB)", lo0, hi0)
+	}
+	if lo1 != 0xCCCC || hi1 != 0xDDDD {
+		t.Errorf("Q1 = (%#x, %#x), want (0xCCCC, 0xDDDD)", lo1, hi1)
+	}
+}

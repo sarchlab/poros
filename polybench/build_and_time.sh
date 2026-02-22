@@ -1,6 +1,6 @@
 #!/bin/bash
 # build_and_time.sh - Compile and time all 30 PolyBench/C benchmarks
-# for MINI and SMALL datasets, reporting median of 3 runs.
+# for MINI and SMALL datasets, reporting median of 7 runs.
 
 set -euo pipefail
 
@@ -14,7 +14,7 @@ LOG_FILE="$SCRIPT_DIR/build.log"
 CC=clang
 CFLAGS="-O3 -fno-vectorize -fno-slp-vectorize -DPOLYBENCH_TIME"
 LDFLAGS="-lm"
-RUNS=3
+RUNS=7
 TIMEOUT_SEC=30
 
 # All 30 benchmarks: relative path from PolyBenchC-4.2.1 root
@@ -53,9 +53,9 @@ BENCHMARKS=(
 
 DATASETS=("MINI_DATASET" "SMALL_DATASET")
 
-# Compute median of 3 values
-median3() {
-  echo "$1 $2 $3" | tr ' ' '\n' | sort -g | sed -n '2p'
+# Compute median of N values (pass all values as arguments)
+medianN() {
+  printf '%s\n' "$@" | sort -g | sed -n "$(( ($# + 1) / 2 ))p"
 }
 
 mkdir -p "$BUILD_DIR"
@@ -84,7 +84,7 @@ for bench in "${BENCHMARKS[@]}"; do
       continue
     fi
 
-    # Run 3 times and collect timing
+    # Run 7 times and collect timing
     times=()
     run_ok=true
     for run in $(seq 1 $RUNS); do
@@ -99,7 +99,7 @@ for bench in "${BENCHMARKS[@]}"; do
     done
 
     if [ "$run_ok" = true ] && [ ${#times[@]} -eq $RUNS ]; then
-      med=$(median3 "${times[0]}" "${times[1]}" "${times[2]}")
+      med=$(medianN "${times[@]}")
       echo "  $name ($ds_lower): ${times[*]} -> median $med" | tee -a "$LOG_FILE"
       echo "$name,$ds_lower,$med" >> "$CSV_FILE"
     else

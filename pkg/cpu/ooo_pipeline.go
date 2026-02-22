@@ -7,6 +7,12 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
+type storeBufferEntry struct {
+	addr          uint64
+	size          int
+	completeCycle uint64
+}
+
 type unitType int
 
 const (
@@ -27,18 +33,19 @@ type OoOPipeline struct {
 	BranchPred *BranchPredictor    // nil = always-not-taken (backward compatible)
 
 	// Configuration (set defaults in constructor).
-	FetchWidth    int // 8
+	FetchWidth    int // 6
 	RetireWidth   int // 8
-	ROBCapacity   int // 330
+	ROBCapacity   int // 256
 	NumINT        int // 6
 	NumFP         int // 4
 	NumLDST       int // 4
-	BranchPenalty int // 13
+	BranchPenalty int // 15
 	LoadLatency   int // 4 (used when Cache is nil)
 
 	// Register readiness: cycle when value is available (0 = available now).
-	gprReady [32]uint64
-	fpReady  [32]uint64
+	gprReady   [32]uint64
+	fpReady    [32]uint64
+	flagsReady uint64 // NZCV condition flags readiness
 
 	// Execution unit availability: next cycle each unit can accept new work.
 	intUnits  []uint64 // len = NumINT
@@ -46,13 +53,25 @@ type OoOPipeline struct {
 	ldstUnits []uint64 // len = NumLDST
 
 	// ROB (circular buffer).
-	rob      []uint64 // completeCycle per entry
-	robHead  int
-	robTail  int
-	robCount int
+	rob        []uint64 // completeCycle per entry
+	robFPDests []int    // FP register destinations per ROB entry
+	robHead    int
+	robTail    int
+	robCount   int
 
-	// Memory ordering.
-	lastStoreComplete uint64 // loads must wait for all prior stores
+	// Physical FP register file limit.
+	// Each in-flight instruction writing FP registers consumes physical
+	// registers. When exhausted, dispatch stalls (models M2's ~128 phys FP regs).
+	fpPhysLimit int // rename registers available (phys - arch), default 96
+	fpInFlight  int // currently consumed by in-flight instructions
+
+	// Store buffer for address-based load-store disambiguation.
+	storeBuffer     []storeBufferEntry
+	storeBufferSize int // default 56 (Apple M2 estimate)
+
+	// MSHR (Miss Status Holding Registers) — limits outstanding L1 misses.
+	mshrBusyUntil []uint64 // len = mshrLimit; each entry = cycle when MSHR frees
+	mshrLimit     int      // default 12 (Apple M2 estimate: 12-16)
 
 	// Frontend.
 	frontendReady uint64 // cycle when frontend can fetch next batch
@@ -75,20 +94,26 @@ func NewOoOPipeline(
 ) *OoOPipeline {
 	emulator.Mem.TrackAccesses = true
 	p := &OoOPipeline{
-		Emu:           emulator,
-		FetchWidth:    8,
-		RetireWidth:   8,
-		ROBCapacity:   330,
-		NumINT:        6,
-		NumFP:         4,
-		NumLDST:       4,
-		BranchPenalty: 13,
-		LoadLatency:   4,
+		Emu:             emulator,
+		FetchWidth:      3,
+		RetireWidth:     8,
+		ROBCapacity:     256,
+		NumINT:          6,
+		NumFP:           4,
+		NumLDST:         4,
+		BranchPenalty:   17,
+		LoadLatency:     5,
+		storeBufferSize: 56,
+		mshrLimit:       12,
+		fpPhysLimit:     72,
 	}
 	p.intUnits = make([]uint64, p.NumINT)
 	p.fpUnits = make([]uint64, p.NumFP)
 	p.ldstUnits = make([]uint64, p.NumLDST)
 	p.rob = make([]uint64, p.ROBCapacity)
+	p.robFPDests = make([]int, p.ROBCapacity)
+	p.storeBuffer = make([]storeBufferEntry, 0, p.storeBufferSize)
+	p.mshrBusyUntil = make([]uint64, p.mshrLimit)
 	p.BranchPred = NewBranchPredictor()
 	p.TickingComponent = sim.NewTickingComponent(name, engine, freq, p)
 	return p
@@ -131,6 +156,7 @@ func (p *OoOPipeline) retire() {
 		if p.rob[p.robHead] > p.Cycles {
 			break // head entry not yet complete
 		}
+		p.fpInFlight -= p.robFPDests[p.robHead]
 		p.InstDone++
 		p.robHead = (p.robHead + 1) % p.ROBCapacity
 		p.robCount--
@@ -146,7 +172,8 @@ func (p *OoOPipeline) fetchAndProcess() {
 	}
 
 	fetched := 0
-	for fetched < p.FetchWidth && p.robCount < p.ROBCapacity && !p.Emu.Halted {
+	for fetched < p.FetchWidth && p.robCount < p.ROBCapacity &&
+		p.fpInFlight < p.fpPhysLimit && !p.Emu.Halted {
 		// 1. Peek at instruction at emulator's current PC.
 		pc := p.Emu.Regs.PC
 		var buf [4]byte
@@ -171,14 +198,12 @@ func (p *OoOPipeline) fetchAndProcess() {
 			}
 		}
 
-		// 3. For loads: must wait for all prior stores to complete.
-		if IsLoad(inst.Op) {
-			if p.lastStoreComplete > srcReady {
-				srcReady = p.lastStoreComplete
-			}
+		// Flags (NZCV) dependency.
+		if UsesFlags(inst.Op) && p.flagsReady > srcReady {
+			srcReady = p.flagsReady
 		}
 
-		// 4. Classify instruction and find execution unit.
+		// 3. Classify instruction and find execution unit.
 		ut := classifyUnit(inst.Op)
 		dispatchCycle := p.Cycles
 		issueCycle := dispatchCycle
@@ -189,7 +214,7 @@ func (p *OoOPipeline) fetchAndProcess() {
 		bestUnit, bestCycle := p.findUnit(ut, issueCycle)
 		issueCycle = bestCycle
 
-		// 5. Execute functionally (in program order).
+		// 4. Execute functionally (in program order).
 		_, branched, execErr := p.Emu.StepDetailed()
 		if execErr != nil {
 			p.Err = execErr
@@ -197,8 +222,50 @@ func (p *OoOPipeline) fetchAndProcess() {
 			return
 		}
 
+		// 5. Address-based load-store disambiguation (after StepDetailed
+		//    so actual addresses are available in p.Emu.Mem.Accesses).
+		forwarded := false
+		if IsLoad(inst.Op) {
+			accesses := p.Emu.Mem.Accesses
+			allForwarded := len(accesses) > 0
+			for _, acc := range accesses {
+				covered := false
+				for _, sb := range p.storeBuffer {
+					if acc.Addr < sb.addr+uint64(sb.size) &&
+						sb.addr < acc.Addr+uint64(acc.Size) {
+						// Address overlap: load must wait for this store.
+						if sb.completeCycle > issueCycle {
+							issueCycle = sb.completeCycle
+						}
+						// Check if the store fully covers this load access.
+						if sb.addr <= acc.Addr &&
+							acc.Addr+uint64(acc.Size) <= sb.addr+uint64(sb.size) {
+							covered = true
+						}
+					}
+				}
+				if !covered {
+					allForwarded = false
+				}
+			}
+			forwarded = allForwarded
+		}
+
 		// 6. Compute execution latency.
-		latency := p.instrLatency(inst)
+		var latency uint64
+		if forwarded {
+			// Store-to-load forwarding: ~5-cycle forwarding latency (M2 estimate).
+			latency = 5
+		} else {
+			var miss bool
+			latency, miss = p.instrLatency(inst)
+			// MSHR: if load missed L1, acquire an MSHR slot (may stall).
+			if miss {
+				mshrIdx, mshrCycle := p.acquireMSHR(issueCycle)
+				issueCycle = mshrCycle
+				p.mshrBusyUntil[mshrIdx] = issueCycle + latency
+			}
+		}
 		completeCycle := issueCycle + latency
 
 		// 7. Update destination register readiness.
@@ -209,22 +276,72 @@ func (p *OoOPipeline) fetchAndProcess() {
 		if fp >= 0 {
 			p.fpReady[fp] = completeCycle
 		}
-		if gpr2 := destRegs2(inst); gpr2 >= 0 {
-			p.gprReady[gpr2] = completeCycle
+		fpDests := 0
+		if fp >= 0 {
+			fpDests++
+		}
+		if gpr2, fp2 := destRegs2(inst); gpr2 >= 0 || fp2 >= 0 {
+			if gpr2 >= 0 {
+				p.gprReady[gpr2] = completeCycle
+			}
+			if fp2 >= 0 {
+				p.fpReady[fp2] = completeCycle
+				fpDests++
+			}
 		}
 
-		// 8. For stores: update lastStoreComplete.
+		// 7b. Track base register writeback for pre/post-indexed addressing.
+		// The base writeback (e.g., X22 += 8 in "str D1, [X22], #8") is
+		// available after address generation (1 cycle), independent of the
+		// instruction's data latency.
+		if base := baseWritebackGPR(inst); base >= 0 && base < 31 && base != gpr {
+			if IsStore(inst.Op) {
+				// For stores, base writeback depends only on the base
+				// register, not on the store data operand.
+				baseReady := p.gprReady[base]
+				if dispatchCycle > baseReady {
+					baseReady = dispatchCycle
+				}
+				p.gprReady[base] = baseReady + 1
+			} else {
+				// For loads, issueCycle already includes base readiness.
+				p.gprReady[base] = issueCycle + 1
+			}
+		}
+
+		// Update NZCV flags readiness.
+		if SetsFlags(inst.Op) {
+			p.flagsReady = completeCycle
+		}
+
+		// 8. For stores: add to store buffer.
 		if IsStore(inst.Op) {
-			if completeCycle > p.lastStoreComplete {
-				p.lastStoreComplete = completeCycle
+			for _, acc := range p.Emu.Mem.Accesses {
+				entry := storeBufferEntry{
+					addr:          acc.Addr,
+					size:          acc.Size,
+					completeCycle: completeCycle,
+				}
+				if len(p.storeBuffer) >= p.storeBufferSize {
+					// Store buffer full — stall frontend until oldest
+					// store retires (its completeCycle).
+					stallUntil := p.storeBuffer[0].completeCycle + 1
+					if stallUntil > p.frontendReady {
+						p.frontendReady = stallUntil
+					}
+					p.storeBuffer = p.storeBuffer[1:]
+				}
+				p.storeBuffer = append(p.storeBuffer, entry)
 			}
 		}
 
 		// 9. Mark execution unit busy.
 		p.markUnitBusy(ut, bestUnit, issueCycle, inst.Op)
 
-		// 10. Add to ROB.
+		// 10. Add to ROB and track FP register usage.
 		p.rob[p.robTail] = completeCycle
+		p.robFPDests[p.robTail] = fpDests
+		p.fpInFlight += fpDests
 		p.robTail = (p.robTail + 1) % p.ROBCapacity
 		p.robCount++
 
@@ -251,10 +368,12 @@ func (p *OoOPipeline) fetchAndProcess() {
 				p.frontendReady = issueCycle + uint64(p.BranchPenalty)
 				break
 			}
-			// Correct prediction: no penalty.
+			// Correct prediction, taken: BTB provides the target in the
+			// same cycle, so the redirect is effectively free on M2
+			// (loop stream detector / micro-op cache eliminates the
+			// redirect bubble for well-predicted branches).
 			if actualTaken {
-				// Still stop fetching after taken branch — fetch from new
-				// target next cycle, but no penalty.
+				p.frontendReady = p.Cycles + 1 // 0-cycle redirect
 				fetched++
 				break
 			}
@@ -319,12 +438,17 @@ func (p *OoOPipeline) findUnit(ut unitType, earliest uint64) (int, uint64) {
 }
 
 // markUnitBusy marks an execution unit as occupied.
-// Most units are pipelined (1-cycle throughput). DIV/SQRT are non-pipelined.
+// Most units are pipelined (1-cycle throughput). DIV/SQRT are partially
+// pipelined: the unit is busy for throughput cycles (< latency).
 func (p *OoOPipeline) markUnitBusy(ut unitType, idx int, issueCycle uint64, op arm64asm.Op) {
 	busyUntil := issueCycle + 1 // pipelined: 1-cycle throughput
-	if op == arm64asm.SDIV || op == arm64asm.UDIV ||
-		op == arm64asm.FDIV || op == arm64asm.FSQRT {
+	switch op {
+	case arm64asm.SDIV, arm64asm.UDIV:
 		busyUntil = issueCycle + uint64(ExecuteLatency(op)) // non-pipelined
+	case arm64asm.FDIV:
+		busyUntil = issueCycle + 10 // partially pipelined: 10cy throughput, 22cy latency
+	case arm64asm.FSQRT:
+		busyUntil = issueCycle + 6 // partially pipelined: 6cy throughput, 12cy latency
 	}
 	switch ut {
 	case unitINT:
@@ -337,12 +461,13 @@ func (p *OoOPipeline) markUnitBusy(ut unitType, idx int, issueCycle uint64, op a
 }
 
 // instrLatency computes the execution latency for an instruction.
-func (p *OoOPipeline) instrLatency(inst arm64asm.Inst) uint64 {
+// For loads, l1Miss indicates whether the load missed L1 (needs MSHR).
+func (p *OoOPipeline) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bool) {
 	if IsLoad(inst.Op) {
 		if p.Cache != nil {
 			accesses := p.Emu.Mem.Accesses
 			if len(accesses) == 0 {
-				return uint64(p.LoadLatency)
+				return uint64(p.LoadLatency), false
 			}
 			worst := mem.HitL1
 			for _, acc := range accesses {
@@ -354,14 +479,14 @@ func (p *OoOPipeline) instrLatency(inst arm64asm.Inst) uint64 {
 			cfg := p.Cache.Config()
 			switch worst {
 			case mem.HitL2:
-				return uint64(cfg.L2Latency)
+				return uint64(cfg.L2Latency), true
 			case mem.HitDRAM:
-				return uint64(cfg.DRAMLatency)
+				return uint64(cfg.DRAMLatency), true
 			default:
-				return uint64(cfg.L1Latency)
+				return uint64(cfg.L1Latency), false
 			}
 		}
-		return uint64(p.LoadLatency)
+		return uint64(p.LoadLatency), false
 	}
 	if IsStore(inst.Op) {
 		if p.Cache != nil {
@@ -369,7 +494,24 @@ func (p *OoOPipeline) instrLatency(inst arm64asm.Inst) uint64 {
 				p.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
 			}
 		}
-		return 1
+		return 3, false
 	}
-	return uint64(ExecuteLatency(inst.Op))
+	return uint64(ExecuteLatency(inst.Op)), false
+}
+
+// acquireMSHR finds the earliest-available MSHR slot. If all MSHRs are busy
+// past issueCycle, the load is delayed. Returns (mshrIndex, adjustedIssueCycle).
+func (p *OoOPipeline) acquireMSHR(issueCycle uint64) (int, uint64) {
+	bestIdx := 0
+	bestTime := p.mshrBusyUntil[0]
+	for i := 1; i < len(p.mshrBusyUntil); i++ {
+		if p.mshrBusyUntil[i] < bestTime {
+			bestIdx = i
+			bestTime = p.mshrBusyUntil[i]
+		}
+	}
+	if bestTime > issueCycle {
+		return bestIdx, bestTime
+	}
+	return bestIdx, issueCycle
 }

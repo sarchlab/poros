@@ -31,8 +31,8 @@ func DefaultCacheConfig() CacheConfig {
 		L2Size:      16 * 1024 * 1024,
 		L2Ways:      16,
 		L2LineSize:  128,
-		L1Latency:   3,
-		L2Latency:   18,
+		L1Latency:   5,
+		L2Latency:   14,
 		DRAMLatency: 335,
 	}
 }
@@ -136,6 +136,19 @@ func NewCache(cfg CacheConfig) *Cache {
 	}
 }
 
+// Prefetch silently brings addr into L1 (next-line prefetch on L1 miss).
+func (c *Cache) Prefetch(addr uint64) {
+	if c.l1.lookup(addr) {
+		return // already in L1
+	}
+	if c.l2.lookup(addr) {
+		c.l1.install(addr)
+	} else {
+		c.l2.install(addr)
+		c.l1.install(addr)
+	}
+}
+
 // Lookup simulates a memory access and returns the level where it was satisfied.
 func (c *Cache) Lookup(addr uint64, size int, isWrite bool) HitLevel {
 	if c.l1.lookup(addr) {
@@ -144,15 +157,19 @@ func (c *Cache) Lookup(addr uint64, size int, isWrite bool) HitLevel {
 	}
 	c.stats.L1Misses++
 
+	nextLine := ((addr / uint64(c.cfg.L1LineSize)) + 1) * uint64(c.cfg.L1LineSize)
+
 	if c.l2.lookup(addr) {
 		c.stats.L2Hits++
 		c.l1.install(addr)
+		c.Prefetch(nextLine)
 		return HitL2
 	}
 	c.stats.L2Misses++
 
 	c.l2.install(addr)
 	c.l1.install(addr)
+	c.Prefetch(nextLine)
 	return HitDRAM
 }
 

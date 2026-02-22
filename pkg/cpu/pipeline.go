@@ -124,8 +124,13 @@ func (p *Pipeline) stageWriteback() {
 	if fp >= 0 {
 		p.fpPending[fp]--
 	}
-	if gpr2 := destRegs2(p.writeback.inst); gpr2 >= 0 {
-		p.gprPending[gpr2]--
+	if gpr2, fp2 := destRegs2(p.writeback.inst); gpr2 >= 0 || fp2 >= 0 {
+		if gpr2 >= 0 {
+			p.gprPending[gpr2]--
+		}
+		if fp2 >= 0 {
+			p.fpPending[fp2]--
+		}
 	}
 
 	p.InstDone++
@@ -228,8 +233,13 @@ func (p *Pipeline) stageDecode() bool {
 	if fp >= 0 {
 		p.fpPending[fp]++
 	}
-	if gpr2 := destRegs2(p.decode.inst); gpr2 >= 0 {
-		p.gprPending[gpr2]++
+	if gpr2, fp2 := destRegs2(p.decode.inst); gpr2 >= 0 || fp2 >= 0 {
+		if gpr2 >= 0 {
+			p.gprPending[gpr2]++
+		}
+		if fp2 >= 0 {
+			p.fpPending[fp2]++
+		}
 	}
 
 	p.execute = p.decode

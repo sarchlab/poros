@@ -180,3 +180,27 @@ func sRegIndex(reg arm64asm.Reg) int {
 	}
 	return -1
 }
+
+func qRegIndex(reg arm64asm.Reg) int {
+	if reg >= arm64asm.Q0 && reg <= arm64asm.Q31 {
+		return int(reg - arm64asm.Q0)
+	}
+	return -1
+}
+
+func vRegIndex(reg arm64asm.Reg) int {
+	if reg >= arm64asm.V0 && reg <= arm64asm.V31 {
+		return int(reg - arm64asm.V0)
+	}
+	return -1
+}
+
+// ReadQ reads the full 128-bit Q register as (lo, hi).
+func (r *Registers) ReadQ(reg int) (uint64, uint64) {
+	return r.FP[reg].Lo, r.FP[reg].Hi
+}
+
+// WriteQ writes a full 128-bit Q register.
+func (r *Registers) WriteQ(reg int, lo, hi uint64) {
+	r.FP[reg] = uint128{Lo: lo, Hi: hi}
+}

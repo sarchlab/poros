@@ -7,14 +7,15 @@ func ExecuteLatency(op arm64asm.Op) int {
 	switch op {
 	// Multiply
 	case arm64asm.MUL, arm64asm.MADD, arm64asm.MSUB,
-		arm64asm.UMULL, arm64asm.UMULH:
+		arm64asm.UMULL, arm64asm.UMULH,
+		arm64asm.SMULL, arm64asm.SMADDL:
 		return 3
 
 	// Division
 	case arm64asm.SDIV, arm64asm.UDIV:
 		return 10
 
-	// FP simple
+	// FP simple (M2 Avalanche: 3-cycle FADD/FSUB)
 	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FCMP,
 		arm64asm.FMOV, arm64asm.FCSEL,
 		arm64asm.SCVTF, arm64asm.UCVTF,
@@ -22,13 +23,17 @@ func ExecuteLatency(op arm64asm.Op) int {
 		arm64asm.FNEG, arm64asm.FABS:
 		return 3
 
-	// FP multiply
-	case arm64asm.FMUL, arm64asm.FMADD, arm64asm.FMSUB:
+	// FP multiply (standalone)
+	case arm64asm.FMUL:
 		return 4
 
-	// FP divide
+	// FP multiply-accumulate (FMADD/FMSUB: multiply + accumulate pipeline stages)
+	case arm64asm.FMADD, arm64asm.FMSUB:
+		return 7
+
+	// FP divide (M2 double-precision: ~22 cycles)
 	case arm64asm.FDIV:
-		return 10
+		return 22
 
 	// FP square root
 	case arm64asm.FSQRT:
@@ -73,6 +78,30 @@ func IsBranch(op arm64asm.Op) bool {
 	case arm64asm.B, arm64asm.BL, arm64asm.BR, arm64asm.BLR,
 		arm64asm.RET, arm64asm.CBZ, arm64asm.CBNZ,
 		arm64asm.TBZ, arm64asm.TBNZ:
+		return true
+	}
+	return false
+}
+
+// SetsFlags returns true if the instruction writes NZCV condition flags.
+func SetsFlags(op arm64asm.Op) bool {
+	switch op {
+	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST,
+		arm64asm.CCMP, arm64asm.CCMN,
+		arm64asm.ADDS, arm64asm.SUBS, arm64asm.ANDS,
+		arm64asm.FCMP, arm64asm.FCCMP, arm64asm.FCCMPE:
+		return true
+	}
+	return false
+}
+
+// UsesFlags returns true if the instruction reads NZCV condition flags.
+// Branch instructions are excluded — they are predicted, not data-dependent.
+func UsesFlags(op arm64asm.Op) bool {
+	switch op {
+	case arm64asm.CSEL, arm64asm.CSINC, arm64asm.CSINV, arm64asm.CSNEG,
+		arm64asm.CCMP, arm64asm.CCMN,
+		arm64asm.FCSEL, arm64asm.FCCMP, arm64asm.FCCMPE:
 		return true
 	}
 	return false

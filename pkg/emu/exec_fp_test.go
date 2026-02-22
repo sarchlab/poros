@@ -244,3 +244,72 @@ func TestFADD_S(t *testing.T) {
 		t.Errorf("S0 = %f, want 4.0", got)
 	}
 }
+
+func TestFCVT_S_to_D(t *testing.T) {
+	// FCVT D0, S1 => 0x1E22C020
+	enc := uint32(0x1E22C020)
+	verifyDecode(t, enc, arm64asm.FCVT)
+
+	em := newTestEmulator(enc)
+	em.Regs.WriteS(1, 3.5)
+	stepN(t, em, 1)
+	if got := em.Regs.ReadD(0); got != 3.5 {
+		t.Errorf("D0 = %f, want 3.5", got)
+	}
+}
+
+func TestFCVT_D_to_S(t *testing.T) {
+	// FCVT S0, D1 => 0x1E624020
+	enc := uint32(0x1E624020)
+	verifyDecode(t, enc, arm64asm.FCVT)
+
+	em := newTestEmulator(enc)
+	em.Regs.WriteD(1, 2.25)
+	stepN(t, em, 1)
+	if got := em.Regs.ReadS(0); got != 2.25 {
+		t.Errorf("S0 = %f, want 2.25", got)
+	}
+}
+
+func TestSXTL_2D_2S(t *testing.T) {
+	// SXTL V0.2D, V1.2S => 0x0F20A420
+	enc := uint32(0x0F20A420)
+	verifyDecode(t, enc, arm64asm.SXTL)
+
+	em := newTestEmulator(enc)
+	// Pack two int32 values into V1: lane0=-5 (0xFFFFFFFB), lane1=42 (0x2A)
+	var neg5 int32 = -5
+	var pos42 int32 = 42
+	lane0 := uint64(uint32(neg5))    // 0xFFFFFFFB
+	lane1 := uint64(uint32(pos42))   // 0x0000002A
+	em.Regs.WriteQ(1, lane0|(lane1<<32), 0)
+	stepN(t, em, 1)
+
+	lo, hi := em.Regs.ReadQ(0)
+	// Lane 0: int64(-5) = 0xFFFFFFFFFFFFFFFB
+	wantLo := uint64(int64(neg5))
+	if lo != wantLo {
+		t.Errorf("V0 lane0 = %#x, want %#x", lo, wantLo)
+	}
+	// Lane 1: int64(42) = 0x000000000000002A
+	wantHi := uint64(int64(pos42))
+	if hi != wantHi {
+		t.Errorf("V0 lane1 = %#x, want %#x", hi, wantHi)
+	}
+}
+
+func TestMOVI_2D_Zero(t *testing.T) {
+	// MOVI V0.2D, #0 => 0x6F00E400
+	enc := uint32(0x6F00E400)
+	verifyDecode(t, enc, arm64asm.MOVI)
+
+	em := newTestEmulator(enc)
+	// Pre-fill V0 with non-zero data
+	em.Regs.WriteQ(0, 0xDEADBEEF, 0xCAFEBABE)
+	stepN(t, em, 1)
+
+	lo, hi := em.Regs.ReadQ(0)
+	if lo != 0 || hi != 0 {
+		t.Errorf("V0 = (%#x, %#x), want (0, 0)", lo, hi)
+	}
+}

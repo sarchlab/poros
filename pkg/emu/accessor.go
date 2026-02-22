@@ -49,6 +49,19 @@ func getMemImmediate(mi arm64asm.MemImmediate) (arm64asm.RegSP, arm64asm.AddrMod
 	return arm64asm.RegSP(s.Base), arm64asm.AddrMode(s.Mode), s.Imm
 }
 
+// regWithArrangementLayout matches arm64asm.RegisterWithArrangement:
+// { r Reg(uint16); a Arrangement(uint8); cnt uint8 }
+type regWithArrangementLayout struct {
+	Reg         arm64asm.Reg
+	Arrangement uint8
+	Cnt         uint8
+}
+
+func getRegWithArrangement(ra arm64asm.RegisterWithArrangement) (arm64asm.Reg, uint8) {
+	s := *(*regWithArrangementLayout)(unsafe.Pointer(&ra))
+	return s.Reg, s.Arrangement
+}
+
 // immFpLayout matches arm64asm.Imm_fp: { s uint8; exp int8; pre uint8 }
 type immFpLayout struct {
 	S   uint8

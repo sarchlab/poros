@@ -99,38 +99,94 @@ The simulator consists of:
 - Current sim/native ratios: atax=2.2x, mvt=4.4x, gemm=4.0x, 2mm=2.4x, 3mm=2.0x, bicg=2.9x
 
 ### M7: Full Benchmark Coverage
-**Status:** Not started
-**Budget:** 8 cycles
+**Status:** COMPLETE (2 cycles)
+**Budget:** 8 cycles | **Actual:** 2 cycles
 **Scope:**
-- Extract all 30 PolyBench benchmarks as simulator test functions (currently only 6)
-- Add any missing ARM64 instruction support for remaining 24 benchmarks
-- All 30 benchmarks must produce correct output (maxRelErr=0)
-- Use SMALL dataset for timing comparison (MINI is too noisy — microsecond timings)
-- Collect and report sim/native ratios for all 30 benchmarks
-- **Target: all 30 benchmarks running with correct output**
+- All 30 PolyBench benchmarks extracted as Go test functions
+- 4 new ARM64 instructions: FCVT, SXTL, MOVI.2D, STP/LDP Q-register
+- All 30 produce correct output (maxRelErr ≤ 3.96e-16)
+- SMALL dataset sizes for ComparisonTable timing comparison
+- ComparisonTable runs all 30 benchmarks (~19 min)
+- Sim/native ratios range 0.4x-8.5x (need calibration)
+- BP accuracy 94.4%-99.5% across all 30 benchmarks
 
 ### M8: Calibration + Accuracy Tuning
-**Status:** Not started
-**Budget:** 8 cycles
-**Scope:**
-- Analyze systematic errors across all 30 benchmarks
-- Relax conservative memory ordering (currently loads wait for ALL prior stores — too pessimistic)
-- Implement store-to-load forwarding or address-based disambiguation
-- Tune pipeline parameters: execution unit counts, latencies, cache timings
-- Adjust clock frequency / IPC assumptions based on M2 reverse-engineering data
-- **Target: ≤20% average time estimation error, no benchmark >50% error**
-- Note: current sim/native ratios are 2.0-4.4x — need to get to ~1.0x
+**Status:** DEADLINE MISSED (8 cycles used, target not met)
+**Budget:** 8 cycles | **Actual:** 8 cycles (incomplete)
+**Progress:**
+- Address-based load-store disambiguation ✓ (store buffer)
+- Store-to-load forwarding ✓
+- Native time re-validation (7-run medians) ✓ (trisolv, jacobi2d, fdtd2d, syrk fixed)
+- Parameter tuning: ROB 330→256, FetchWidth 8→3, BranchPenalty 13→17, various latencies ✓
+- Error metrics in ComparisonTable + QuickEval (6-benchmark fast test) ✓
+- Next-line prefetcher, MSHR limits, taken-branch redirect penalty ✓
+- **Final results: Avg error 46.6% (target ≤20%), Max error 236.1% (target ≤50%)**
+- 10/30 benchmarks ≤20% error, 21/30 ≤50% error
+- Improved from ~57.8% to 46.6% avg error over 8 cycles
 
-### M9: Polish + Edge Cases
-**Status:** Not started
-**Budget:** 4 cycles
-**Scope:**
-- Fix remaining outlier benchmarks
-- Code cleanup
-- Final validation pass
-- Performance optimization of the simulator itself (simulation speed)
+**Post-mortem — Why M8 missed deadline:**
+1. **Compensating parameter tuning instead of structural fixes**: FetchWidth was reduced from 8→3 (unrealistic) to globally slow down the sim, creating artificial IPC ceiling of 3.0. Real M2 achieves IPC 4+ on some benchmarks.
+2. **No per-benchmark root cause analysis**: The 5 worst outliers (>100% error) contribute ~50% of total error but weren't individually investigated until late.
+3. **Slow feedback loop**: Full ComparisonTable takes 20 min. QuickEval added late.
+4. **Structural model gaps**: Pipeline has no frontend depth (fetch→issue is instant), L1 latency too high (5cy vs real 3-4cy), FetchWidth too low (3 vs real 6-8).
 
-## Total Estimated Budget: ~47 cycles | **Spent so far: ~13 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3)**
+### M8.1: Pipeline Structural Fixes — Fix Top Outliers
+**Status:** DEADLINE MISSED (4 cycles used, regression from 46.6% to 60.7% avg)
+**Budget:** 4 cycles | **Actual:** 4 cycles (failed)
+**Scope:** Attempted FetchWidth 3→6, L1 5→3cy, FrontendDepth, WakeupDelay, IssueWidth
+**Post-mortem:**
+- FetchWidth 3→6 exposed underlying sim-fast bias: 25/30 benchmarks became even faster
+- Three compensation mechanisms tried (FrontendDepth=7, WakeupDelay=1, IssueWidth=4) — none effective
+- WakeupDelay=1 was best single change (helped seidel2d 95%→56%) but worsened jacobi2d (236%→300%)
+- Net result: avg error went from 46.6% → 60.7%, a significant regression
+- **Root cause of failure**: The approach of "realistic FetchWidth + compensating mechanism" was wrong. FetchWidth=3 is a crude throttle but it compensates for the sim's missing real-world bottlenecks (speculative memory disambiguation penalties, scheduling overhead, physical register pressure). Removing the throttle without adding these real bottlenecks just makes everything faster.
+- **Lesson**: Global structural changes help sim-slow benchmarks but hurt the far more numerous sim-fast ones. Need per-benchmark targeted fixes, not global knobs.
+
+### M8.1r: Revert + Measurement Fix + Targeted Per-Benchmark Fixes
+**Status:** COMPLETE (4 cycles — targets far exceeded)
+**Budget:** 4 cycles | **Actual:** 4 cycles
+**Target:** Avg error ≤ 40%, Max error ≤ 160%
+**Result:** Avg error 25.0%, Max error 108.9% (nussinov)
+**Key fixes:**
+- Reverted 3 failed M8.1 pipeline commits → back to 39f43c4 best-known state
+- MEDIUM dataset migration for 6 sub-50µs benchmarks (trisolv, durbin, jacobi1d, mvt, atax, gesummv)
+- NumLDST 3→4 (matches M2 hardware)
+- FP LDP sourceFPs false dependency fix → jacobi2d 236%→0.5%, fdtd2d 100%→16%
+- FP latency fix: FMADD/FMSUB 4→6cy, FDIV 10→15cy → trisolv 100%→57%, seidel2d 95%→65.5%
+- Net: avg error 46.6% → 25.0%, max 236.1% → 108.9%
+
+**Benchmarks >50% remaining (7):** nussinov(108.9%), seidel2d(65.5%), mvt(62.2%), correlation(61.6%), trisolv(57.0%), gemm(54.0%), ludcmp(52.0%)
+
+### M8.2: Final Accuracy — Target ≤20% avg, ≤50% max (project success)
+**Status:** COMPLETE (4 cycles)
+**Budget:** 6 cycles | **Actual:** 4 cycles
+**Target:** Avg error ≤ 20%, Max error ≤ 50% (project success criteria)
+**Result:** Avg error 13.1%, Max error 36.0% (ludcmp). All 30 benchmarks ≤50%. PROJECT SUCCESS.
+**Key fixes (commits c3126aa through 19661d1):**
+- Re-measured native times for correlation, nussinov, fdtd2d, 3mm (fixing measurement methodology)
+- Increased fpPhysLimit 48→72 & FDIV/FSQRT partial pipelining — correlation 136→113%, avg 22→20%
+- Added FP register file limit & FMADD 6→7cy — mvt 62→9%, trisolv 58→24%, avg 25→22%
+- Fixed FDIV latency 15→22cy & SIMD register tracking — seidel2d 65→37%, avg 26→25%
+- Removed taken branch redirect bubble — nussinov 109→70%, avg 37→27%
+- Tracked base register writeback for pre/post-indexed addressing
+**Verification:** Apollo verified with 3 independent agents (Victor, Vera, Violet). All acceptance criteria met.
+**Known issues (non-blocking):**
+1. P-core vs E-core timing: native references are predominantly E-core. Recommend pinning to P-cores for future work.
+2. gemm native time may need re-measurement (+25.5% discrepancy found by Violet).
+3. Branch redirect bubble model is globally optimistic for non-LSD branches.
+
+### M9: Final Cleanup — Merge all code to main + Write README
+**Status:** IN PROGRESS
+**Budget:** 2 cycles
+**Scope:**
+- Merge leo/benchmarks → main (53 commits with all M7-M8.2 work)
+- Close 3 stale open PRs (#18, #19, #20) — content already in leo/benchmarks
+- Write README.md with simulator usage instructions, architecture details, and accuracy results
+- Clean up stale remote branches
+
+## Total Budget: ~47 cycles | **Total spent: ~35 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8 + M8.1:4 + M8.1r:4 + M8.2:4)**
+
+## PROJECT COMPLETE — Success criteria achieved at 35 cycles (budget was 47)
 
 ## Lessons Learned
 
@@ -199,6 +255,54 @@ The simulator consists of:
 - Sim/native ratios still 2.0-4.4x — remaining gap is primarily from: (1) conservative memory ordering, (2) parameter calibration, (3) MINI dataset timing noise
 - 2 unit tests are trivially passable by always-taken predictor — tagged table weakly tested in isolation
 - **Key insight for M7**: The 2-4x gap won't close from microarchitectural features alone. Need to expand to all 30 benchmarks and systematically calibrate parameters.
+
+### M7
+- Completed in 2 cycles (budgeted 8) — parallel worker batches very effective (8 workers across 2 cycles)
+- 24 new benchmarks + SMALL dataset migration done in parallel batches of 3 benchmarks each
+- 4 new instructions needed: FCVT (float precision convert), SXTL (sign extend long), MOVI.2D (vector zero), STP/LDP Q-register (128-bit pair load/store)
+- Sim/native ratios wildly inconsistent: 0.4x (bicg) to 8.5x (gemm). Some benchmarks *underestimate* time.
+- Native times are hardcoded constants (from M1 measurements), not measured at runtime. Many are 15-500 microseconds — likely noisy.
+- **Key insight for M8**: Two separate problems: (1) simulator timing model accuracy (memory ordering, parameters), (2) native reference time accuracy (measurement noise at microsecond scale). Must fix both.
+- ComparisonTable takes ~19 minutes for all 30 benchmarks at SMALL — need -timeout 30m flag
+- Individual tests use MINI for fast correctness checks, ComparisonTable uses SMALL for timing comparison — good separation of concerns
+
+### M8 (partial)
+- Used 8 cycles (budgeted 8) — milestone NOT met. Reduced avg error from ~57.8% to 46.6% and max from ~300% to 236%
+- **Biggest win**: Taken-branch redirect penalty reduced avg error by 10.5 percentage points in one change
+- **Biggest misfire**: FetchWidth 8→3 was a compensation hack that caps IPC at 3.0. Real M2 achieves IPC 4+. This helped sim-too-fast benchmarks but fundamentally limited accuracy for sim-too-slow ones.
+- **Prefetcher and L2 latency reduction had zero impact** because cache warm-up pre-populates L1 (97-100% hit rates)
+- Parameter tuning hit diminishing returns after cycle 4-5. Remaining errors require structural model changes, not parameter knob turning.
+- **Root cause of remaining error**: (1) FetchWidth=3 caps cross-iteration parallelism for stencils, (2) L1 latency 5cy is too high (real M2 is 3-4cy), (3) No frontend pipeline depth makes sim systematically too fast, compensated by artificially low FetchWidth
+- **Key error decomposition**: 5 benchmarks >100% error contribute 50% of total error. 9 benchmarks >50% error contribute 67%. Must do per-benchmark root cause analysis, not global tuning.
+- Current pipeline params: FetchWidth=3, RetireWidth=8, ROB=256, NumINT=6, NumFP=4, NumLDST=3, BranchPenalty=17, L1=5cy, L2=14cy, DRAM=335cy, StoreBuffer=56, MSHR=12
+- **Process lesson**: QuickEval (130s, 6 benchmarks) was much more useful for iteration than full ComparisonTable (20min, 30 benchmarks). Should have been built earlier.
+- **Process lesson**: Sequential tune→measure→tune loop was slow. Need parallel investigation of specific outliers.
+
+### M8.1
+- Used 4 cycles, went BACKWARDS: avg error 46.6% → 60.7%. Net negative progress.
+- **FetchWidth 3→6 was the wrong bet.** It exposed the sim's fundamental over-optimism without adding the real bottlenecks that would compensate.
+- **Three compensation attempts failed**: FrontendDepth=7 (too crude, slowed everything equally), WakeupDelay=1 (added latency to dependency chains — helped seidel2d but worsened jacobi2d), IssueWidth=4 (no measurable impact because FetchWidth already limits throughput).
+- **Process failure: no revert-on-regression.** The team kept layering changes on top of regressions instead of reverting to the best known state. Each subsequent change was evaluated against the already-degraded baseline, making it impossible to detect cumulative regression.
+- **Key insight**: FetchWidth=3 is "wrong" (real M2 is 6-8 wide) but it compensates for the sim's OTHER missing bottlenecks (speculative memory disambiguation penalties, scheduling overhead, physical register pressure, etc.). Fixing FetchWidth without also adding these missing bottlenecks just makes everything faster.
+- **Strategic conclusion**: Per-benchmark targeted fixes are the only path forward. Global changes always help some benchmarks and hurt others. The 10 benchmarks already ≤20% prove the model CAN be accurate — the errors are in specific mechanisms for specific benchmark patterns.
+- **Measurement note**: Nora's 101-run re-measurements of durbin and jacobi1d confirmed existing values. gesummv and atax native times were updated (ec9fd68).
+
+### M8.1r
+- Despite being flagged as "deadline missed", the targets (avg ≤40%, max ≤160%) were actually far exceeded: avg 25.0%, max 108.9%.
+- **Targeted bug fixes >> parameter tuning**: sourceFPs false dependency fix (jacobi2d 236%→0.5%) and FP latency corrections (FMADD/FMSUB 4→6cy) each had 10-20pp impact on avg error, dwarfing all M8's parameter tuning.
+- **MEDIUM dataset migration was essential**: Sub-50µs benchmarks had ≥50% measurement noise. Switching 6 benchmarks to MEDIUM eliminated this noise source.
+- **Two bug fixes accounted for most progress**: FP LDP sourceFPs fix (jacobi2d/fdtd2d) and FP latency fix (trisolv/seidel2d/bicg) together reduced avg from 46.6% → 25.0%.
+- **nussinov is the remaining hard case**: 108.9% error, integer DP benchmark, sim too slow. Not responsive to any FP changes. Needs dedicated investigation.
+- **Remaining >50% benchmarks are a mix of sim-fast (seidel2d, mvt, trisolv, ludcmp) and sim-slow (nussinov, correlation, gemm)** — no single mechanism will fix all of them.
+
+### M8.2
+- Completed in 4 cycles (budgeted 6) — targeted per-benchmark approach continued to pay off
+- **Physical register pressure modeling was the key unlock**: fpPhysLimit and FP register file limit brought multiple benchmarks into range
+- **Instruction latency precision matters**: FDIV 15→22cy and FMADD 6→7cy had significant benchmark-specific impact
+- **Native timing re-measurement was critical**: Several benchmarks had incorrect reference times
+- **Branch redirect bubble removal**: Single largest impact on nussinov (108.9%→70%), demonstrating that even integer benchmarks benefit from branch prediction model refinement
+- **Final numbers far exceeded targets**: avg 13.1% vs ≤20% target, max 36.0% vs ≤50% target
+- **Project-wide lesson**: Targeted bug fixes consistently outperform global parameter tuning. Every milestone from M8.1r onward confirmed this.
 
 ## Key Risks
 1. **ARM64 emulator complexity**: Even a subset of ARM64 is large. Compiler may emit unexpected instructions.
