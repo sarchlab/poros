@@ -331,10 +331,12 @@ func (p *OoOPipeline) fetchAndProcess() {
 				p.frontendReady = issueCycle + uint64(p.BranchPenalty)
 				break
 			}
-			// Correct prediction: taken branch still costs ~1 cycle for
-			// BTB redirect of the instruction fetch unit.
+			// Correct prediction, taken: BTB provides the target in the
+			// same cycle, so the redirect is effectively free on M2
+			// (loop stream detector / micro-op cache eliminates the
+			// redirect bubble for well-predicted branches).
 			if actualTaken {
-				p.frontendReady = p.Cycles + 2 // 1-cycle redirect bubble
+				p.frontendReady = p.Cycles + 1 // 0-cycle redirect
 				fetched++
 				break
 			}
