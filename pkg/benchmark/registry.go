@@ -2431,7 +2431,7 @@ func All() []Benchmark {
 		return em
 	}
 
-	return []Benchmark{
+	polybench := []Benchmark{
 		{Name: "atax", Suite: "polybench", Setup: setupAtaxEmu, NativeTime: 0.000408, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 1279200}, {Addr: 0x300000, Size: 3280}, {Addr: 0x400000, Size: 3280}, {Addr: 0x500000, Size: 3120},
 		}},
@@ -2523,5 +2523,335 @@ func All() []Benchmark {
 			{Addr: 0x100000, Size: 196608}, {Addr: 0x200000, Size: 196608}, {Addr: 0x300000, Size: 196608}, {Addr: 0x400000, Size: 196608}, {Addr: 0x500000, Size: 8192},
 		}},
 	}
+
+	// Append PARSEC benchmarks.
+	polybench = append(polybench, parsecAll()...)
+	return polybench
+}
+
+// parsecAll returns the PARSEC benchmark definitions.
+func parsecAll() []Benchmark {
+	setupSwaptionsEmu := func() *emu.Emulator {
+		n := 8
+		r := 0.05
+		dt := 0.25
+
+		// Build positive-definite matrix: A = B*B^T + n*I
+		Bmat := make([]float64, n*n)
+		for i := 0; i < n; i++ {
+			for j := 0; j < n; j++ {
+				Bmat[i*n+j] = float64((i*3+j*7+1)%(n+1)) / float64(n+1)
+			}
+		}
+		A := make([]float64, n*n)
+		for i := 0; i < n; i++ {
+			for j := 0; j < n; j++ {
+				for k := 0; k < n; k++ {
+					A[i*n+j] += Bmat[i*n+k] * Bmat[j*n+k]
+				}
+			}
+			A[i*n+i] += float64(n)
+		}
+
+		// Z vector
+		Z := make([]float64, n)
+		for i := 0; i < n; i++ {
+			Z[i] = float64(i*3-n) * 0.2
+		}
+
+		// Cholesky code
+		cholCode := []uint32{
+			0x7100043f, 0x5400072b, 0xd280000c, 0x2a0103e8,
+			0xd37d7c29, 0x8b09000a, 0x5280002b, 0xaa0003ed,
+			0x14000007, 0x9100056b, 0x8b0901ad, 0x8b09014a,
+			0xaa0e03ec, 0xeb0801df, 0x54000580, 0xb400012c,
+			0xd280000e, 0x2f00e400, 0xfc6e79a1, 0x1f410020,
+			0x910005ce, 0xeb0e019f, 0x54ffff81, 0x14000002,
+			0x2f00e400, 0x1b017d8f, 0x8b0c0c10, 0xfc6f5a01,
+			0x1e603820, 0x1e61c000, 0xfc2f5a00, 0x9100058e,
+			0xeb0801df, 0x54fffd02, 0xaa0a03f1, 0xaa0b03e2,
+			0x1400000c, 0x2f00e400, 0x9b087c43, 0xfc637a01,
+			0x1e603820, 0xfc6f5a01, 0x1e611800, 0xfc237a00,
+			0x91000442, 0x8b090231, 0xeb08005f, 0x54fffb40,
+			0xb4fffeac, 0xd2800003, 0x2f00e400, 0xfc637a21,
+			0xfc6379a2, 0x1f420020, 0x91000463, 0xeb03019f,
+			0x54ffff61, 0x17ffffed, 0xd65f03c0,
+		}
+
+		// HJM code
+		hjmCode := []uint32{
+			0xa9bd57f6, 0xa9014ff4, 0xa9027bfd, 0x910083fd,
+			0xaa0303f6, 0xaa0203f3, 0xaa0103f4, 0xaa0003f5,
+			0x1e618800, // fnmul d0, d0, d1
+			0x94000000, // BL _exp (will be patched)
+			0x710006df, 0x5400028b,
+			0xd2800008, 0xd37d7ec9, 0x5280002a, 0x2a1603eb,
+			0xd280000c, 0x2f00e401, 0xfc6c7a82, 0xfc6c7a63,
+			0x1f430441, 0x9100058c, 0xeb0c015f, 0x54ffff61,
+			0x1e610801, 0xfc287aa1, 0x91000508, 0x9100054a,
+			0x8b090294, 0xeb0b011f, 0x54fffe41, 0xa9427bfd,
+			0xa9414ff4, 0xa8c357f6, 0xd65f03c0,
+		}
+
+		// Trampoline: after cholesky RET, sets up HJM regs and branches.
+		// The trampoline moves register values for HJM and then B to hjmBase.
+		// HJM expects: X0=dfBase, X1=lBase(=aBase), X2=zBase, D0=r, D1=dt, X3=n
+		// After cholesky: we restore from saved state on the trampoline.
+		//
+		// We encode the trampoline as: a series of MOV/MOVK to set regs, then B to hjm.
+		// For simplicity, we pre-compute everything in Go and use a different approach:
+		// Load fixed register values from a data area, then branch.
+
+		cholBase := uint64(0x10000)
+		hjmBase := uint64(0x20000)
+		trampolineBase := uint64(0x30000)
+		expHookAddr := uint64(0x40000)
+		aBase := uint64(0x100000)
+		dfBase := uint64(0x200000)
+		zBase := uint64(0x300000)
+		stackBase := uint64(0x400000)
+		dataBase := uint64(0x500000) // trampoline data area
+		haltPC := uint64(0xFFFF0000)
+
+		// Patch HJM BL at index 9 to target expHookAddr
+		blPC := hjmBase + 9*4
+		blOffset := int64(expHookAddr) - int64(blPC)
+		imm26 := uint32(blOffset/4) & 0x03FFFFFF
+		hjmCode[9] = 0x94000000 | imm26
+
+		// Build trampoline code:
+		// LDR X0, [X8, #0]   -> dfBase
+		// LDR X1, [X8, #8]   -> aBase (L is stored in-place)
+		// LDR X2, [X8, #16]  -> zBase
+		// LDR X3, [X8, #24]  -> n
+		// LDR D0, [X8, #32]  -> r
+		// LDR D1, [X8, #40]  -> dt
+		// MOV X30, haltPC (needs MOVZ + MOVK)
+		// MOV SP, stackBase+8192 (needs MOVZ + MOVK)
+		// B hjmBase
+		trampolineCode := []uint32{
+			0xf9400100, // LDR X0, [X8, #0]    -> dfBase
+			0xf9400501, // LDR X1, [X8, #8]    -> aBase
+			0xf9400902, // LDR X2, [X8, #16]   -> zBase
+			0xf9400d03, // LDR X3, [X8, #24]   -> n
+			0xfd401100, // LDR D0, [X8, #32]   -> r
+			0xfd401501, // LDR D1, [X8, #40]   -> dt
+		}
+		// MOVZ X30, #0 + MOVK to encode haltPC = 0xFFFF0000
+		// haltPC = 0xFFFF_0000 → MOVZ X30, #0 ; MOVK X30, #0xFFFF, LSL#16
+		trampolineCode = append(trampolineCode,
+			0xd280001e,                             // MOVZ X30, #0
+			0xf2bfffe0|0x1e,                        // MOVK X30, #0xFFFF, LSL#16
+			0xd2900000|0x1f,                         // MOVZ SP, #0x8000 (32768 = stackBase+8192 low bits if we use full addr)
+		)
+		// Actually, SP setup is tricky. Let me just set SP from the data area too.
+		// Rewrite: use a simpler trampoline approach.
+
+		// Simpler trampoline: load everything from memory
+		// X8 is already set to dataBase before cholesky starts.
+		// But we need X8 to survive cholesky. Let's use a callee-saved register.
+		// Actually, cholesky clobbers many registers. Let's load X8 from a known address.
+
+		// Even simpler: set X8 to dataBase via MOVZ+MOVK, then LDR from there.
+		// dataBase = 0x500000
+		// MOVZ X8, #0x0000 ; MOVK X8, #0x50, LSL#16
+		trampolineCode = []uint32{
+			0xd2800008,          // MOVZ X8, #0
+			0xf2a00a08,          // MOVK X8, #0x50, LSL#16
+			0xf9400100,          // LDR X0, [X8, #0]    -> dfBase
+			0xf9400501,          // LDR X1, [X8, #8]    -> aBase
+			0xf9400902,          // LDR X2, [X8, #16]   -> zBase
+			0xf9400d03,          // LDR X3, [X8, #24]   -> n
+			0xfd401100,          // LDR D0, [X8, #32]   -> r
+			0xfd401501,          // LDR D1, [X8, #40]   -> dt
+			0xf9401900,          // LDR X0_temp, [X8, #48] -> SP value, load into X0 temp
+		}
+		// Hmm, this is getting complicated. Let me use a much simpler approach.
+
+		// Pre-compute the Cholesky L in Go, then set up a single emulator for HJM only.
+		// This is the pragmatic approach.
+		_ = cholCode
+		_ = cholBase
+		_ = trampolineBase
+		_ = trampolineCode
+		_ = dataBase
+
+		// Pre-compute golden Cholesky L.
+		L := make([]float64, n*n)
+		copy(L, A)
+		for j := 0; j < n; j++ {
+			sum := 0.0
+			for k := 0; k < j; k++ {
+				sum += L[j*n+k] * L[j*n+k]
+			}
+			L[j*n+j] = math.Sqrt(L[j*n+j] - sum)
+			for i := j + 1; i < n; i++ {
+				sum = 0.0
+				for k := 0; k < j; k++ {
+					sum += L[i*n+k] * L[j*n+k]
+				}
+				L[i*n+j] = (L[i*n+j] - sum) / L[j*n+j]
+			}
+		}
+
+		// Now set up emulator for the combined benchmark.
+		// We lay out: cholesky code at cholBase, then a small trampoline, then HJM code.
+		// Cholesky RET → X30 (trampoline). Trampoline sets regs, B to HJM.
+		// HJM RET → X30 (haltPC).
+
+		// Revised approach: Use two code sections in the same emulator.
+		// 1) Cholesky at cholBase, with X30=trampolineBase
+		// 2) Trampoline at trampolineBase loads regs from data area, then B to hjmBase
+		// 3) HJM at hjmBase, with X30 restored from stack (it saves/restores X30)
+
+		// Actually, HJM code saves X30 on entry (STP X22,X30,...) and restores it on exit (LDP).
+		// So we need to make sure X30=haltPC is set before HJM's RET.
+		// The HJM code saves X30 on the stack. If we set X30=haltPC before calling HJM,
+		// HJM will save it, then restore it, then RET to haltPC. But HJM does BL exp,
+		// which clobbers X30. HJM saves X30 initially and restores before RET.
+		// So if X30=haltPC at HJM entry, it'll be saved and restored correctly.
+
+		// Trampoline code:
+		// Load regs from data area at dataBase:
+		//   [dataBase+0]: dfBase, [+8]: aBase, [+16]: zBase, [+24]: n
+		//   [+32]: r (as float64 bits), [+40]: dt (as float64 bits)
+		//   [+48]: haltPC, [+56]: stackBase+8192
+		trampolineCode = []uint32{
+			// MOVZ X8, #0 ; MOVK X8, #0x50, LSL#16 → X8 = 0x500000 = dataBase
+			0xd2800008, // MOVZ X8, #0
+			0xf2a00a08, // MOVK X8, #0x50, LSL#16
+			0xf9400100, // LDR X0, [X8, #0]    → dfBase
+			0xf9400501, // LDR X1, [X8, #8]    → aBase (=lBase, cholesky done in-place)
+			0xf9400902, // LDR X2, [X8, #16]   → zBase
+			0xf9400d03, // LDR X3, [X8, #24]   → n
+			0xfd401100, // LDR D0, [X8, #32]   → r
+			0xfd401501, // LDR D1, [X8, #40]   → dt
+			0xf940191e, // LDR X30, [X8, #48]  → haltPC
+			0xf9401d1f, // LDR XZR/SP... (can't LDR into SP directly with this encoding)
+		}
+
+		// Loading SP is tricky. Let me use: LDR X9, [X8, #56] ; MOV SP, X9
+		trampolineCode = []uint32{
+			0xd2800008, // MOVZ X8, #0
+			0xf2a00a08, // MOVK X8, #0x50, LSL#16
+			0xf9400100, // LDR X0, [X8, #0]    → dfBase
+			0xf9400501, // LDR X1, [X8, #8]    → aBase
+			0xf9400902, // LDR X2, [X8, #16]   → zBase
+			0xf9400d03, // LDR X3, [X8, #24]   → n
+			0xfd401100, // LDR D0, [X8, #32]   → r
+			0xfd401501, // LDR D1, [X8, #40]   → dt
+			0xf940191e, // LDR X30, [X8, #48]  → haltPC
+			0xf9401d09, // LDR X9, [X8, #56]   → stack top
+			0x9100013f, // MOV SP, X9  (ADD SP, X9, #0)
+		}
+		// B to hjmBase: encode as B offset
+		branchOffset := int64(hjmBase) - int64(trampolineBase+11*4)
+		branchImm26 := uint32(branchOffset/4) & 0x03FFFFFF
+		trampolineCode = append(trampolineCode, 0x14000000|branchImm26)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+
+		// Load code sections
+		em.LoadProgram(cholBase, EncodeInsts(cholCode))
+		em.LoadProgram(trampolineBase, EncodeInsts(trampolineCode))
+		em.LoadProgram(hjmBase, EncodeInsts(hjmCode))
+
+		// Load data: A matrix
+		aBuf := make([]byte, n*n*8)
+		for i, v := range A {
+			binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(aBase, aBuf)
+
+		// Load data: Z vector
+		zBufData := make([]byte, n*8)
+		for i, v := range Z {
+			binary.LittleEndian.PutUint64(zBufData[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(zBase, zBufData)
+
+		// Load dF output (zero)
+		em.LoadProgram(dfBase, make([]byte, n*8))
+
+		// Stack
+		em.LoadProgram(stackBase, make([]byte, 8192))
+
+		// Trampoline data area
+		dataBuf := make([]byte, 64)
+		binary.LittleEndian.PutUint64(dataBuf[0:], dfBase)
+		binary.LittleEndian.PutUint64(dataBuf[8:], aBase)
+		binary.LittleEndian.PutUint64(dataBuf[16:], zBase)
+		binary.LittleEndian.PutUint64(dataBuf[24:], uint64(n))
+		binary.LittleEndian.PutUint64(dataBuf[32:], math.Float64bits(r))
+		binary.LittleEndian.PutUint64(dataBuf[40:], math.Float64bits(dt))
+		binary.LittleEndian.PutUint64(dataBuf[48:], haltPC)
+		binary.LittleEndian.PutUint64(dataBuf[56:], stackBase+8192)
+		em.LoadProgram(dataBase, dataBuf)
+
+		// Set initial registers for Cholesky phase:
+		// X0=aBase, X1=n, X30=trampolineBase (so RET goes to trampoline)
+		em.Regs.PC = cholBase
+		em.Regs.WriteX(0, aBase)
+		em.Regs.WriteX(1, uint64(n))
+		em.Regs.WriteX(30, trampolineBase) // after cholesky RET → trampoline
+		em.Regs.SP = stackBase + 8192
+		em.SetHaltPC(haltPC)
+
+		// Register exp function hook
+		em.RegisterFuncHook(expHookAddr, func(emInner *emu.Emulator) {
+			input := emInner.Regs.ReadD(0)
+			emInner.Regs.WriteD(0, math.Exp(input))
+		})
+
+		return em
+	}
+
+	return []Benchmark{
+		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 2.75e-07, Regions: []DataRegion{
+			{Addr: 0x100000, Size: 512}, {Addr: 0x200000, Size: 64}, {Addr: 0x300000, Size: 64}, {Addr: 0x400000, Size: 8192},
+		}},
+	}
+}
+
+// ByName returns a pointer to the benchmark with the given name, or nil if
+// no benchmark with that name exists.
+func ByName(name string) *Benchmark {
+	all := All()
+	for i := range all {
+		if all[i].Name == name {
+			return &all[i]
+		}
+	}
+	return nil
+}
+
+// BySuite returns all benchmarks belonging to the given suite.
+func BySuite(suite string) []Benchmark {
+	all := All()
+	var result []Benchmark
+	for _, b := range all {
+		if b.Suite == suite {
+			result = append(result, b)
+		}
+	}
+	return result
+}
+
+// QuickEval returns a subset of 6 representative benchmarks suitable for
+// quick evaluation: atax, bicg, gemm, floydwarshall, trisolv, seidel2d.
+func QuickEval() []Benchmark {
+	names := map[string]bool{
+		"atax": true, "bicg": true, "gemm": true,
+		"floydwarshall": true, "trisolv": true, "seidel2d": true,
+	}
+	all := All()
+	var result []Benchmark
+	for _, b := range all {
+		if names[b.Name] {
+			result = append(result, b)
+		}
+	}
+	return result
 }
 

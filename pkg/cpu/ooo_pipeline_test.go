@@ -7032,6 +7032,9 @@ func TestOoO_ComparisonTable(t *testing.T) {
 // only (skip in-order and no-BP variants). Includes cache warm-up. Reports sim
 // time, native time, ratio, and error. Should complete in <5 minutes.
 func TestOoO_QuickEval(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping QuickEval in short mode")
+	}
 	const freq = 3.49e9 // M2 Avalanche core frequency
 
 	// Select 6 representative benchmarks from the full comparison suite.
@@ -7132,6 +7135,9 @@ func TestOoO_QuickEval(t *testing.T) {
 // or no-BP variants). This is faster than ComparisonTable and suitable for
 // quick full-suite error measurement.
 func TestOoO_All30(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping All30 in short mode")
+	}
 	const freq = 3.49e9
 
 	kernels := comparisonKernels()
