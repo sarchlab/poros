@@ -188,9 +188,11 @@ The simulator consists of:
 - Write README.md with simulator usage instructions, architecture details, and accuracy results ✓
 - Clean up stale remote branches ✓
 
-## Total Budget: ~47 cycles | **Total spent: ~36 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8 + M8.1:4 + M8.1r:4 + M8.2:4 + M9:1)**
+## Total Budget: ~55 cycles | **Total spent: ~47 cycles (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8 + M8.1:4 + M8.1r:4 + M8.2:4 + M9:1 + M10:3 + M10.5:4 + M11:1 + M12:2 + M13:pending)**
 
-## PROJECT COMPLETE — All milestones done. Success criteria achieved at 36 cycles (budget was 47).
+## Phase 1 COMPLETE — PolyBench avg 13.1%, max 36.0% ✓
+## Phase 2 COMPLETE — Combined (34 benchmarks) avg 14.6%, max 42.5% ✓
+## Final milestone M13 (README + cleanup) in progress.
 
 ## Lessons Learned
 
@@ -354,24 +356,23 @@ The simulator consists of:
 **Verification:** Apollo verified all 8 acceptance criteria
 
 ### M12: PARSEC Accuracy — Scale Workloads + Calibrate
-**Status:** IN PROGRESS
-**Budget:** 6 cycles
+**Status:** COMPLETE (2 cycles)
+**Budget:** 6 cycles | **Actual:** 2 cycles
 **Scope:**
 - Scale up PARSEC kernels from ~1K-3K instructions to ≥100K instructions each
-- Measure proper native timing references for scaled-up workloads
-- Calibrate math function hook cycle costs if needed
+- Measure proper native timing references for scaled-up workloads (501-run medians × 2.2 E/P-core factor)
+- Calibrate math function hook cycle costs (FuncHookCycles fix in eval cmd)
 - Combined accuracy target: ≤20% avg, ≤50% max across all 34 benchmarks
-- Issue #150 has detailed requirements
-**Root cause of PARSEC errors (avg 281%, max 700%):**
-- Microscopic workloads (1355-3496 instructions vs PolyBench 170K-58M)
-- Sub-microsecond native times (measurement noise dominates)
-- Placeholder native times for streamcluster/canneal (exactly 1e-6)
+**Result:** Combined avg 14.6%, max 42.5% (swaptions). PARSEC avg 25.8%.
+**Per-benchmark PARSEC errors:** swaptions 42.5%, blackscholes 17.1%, streamcluster 36.0%, canneal 7.6%
+**Verification:** Apollo verified all 7 acceptance criteria directly
 
-### M13: Final Integration + Verification
-**Status:** PLANNED
+### M13: Final Integration — README Update + Branch Cleanup
+**Status:** NEXT
 **Budget:** 2 cycles
 **Scope:**
-- Combined ComparisonTable: all 30 PolyBench + 4 PARSEC benchmarks
-- README update with multi-core architecture and PARSEC results
-- Final verification: all benchmarks ≤20% avg, ≤50% max
+- Update README.md with PARSEC results table, multi-core architecture description, and combined accuracy numbers
+- Clean up stale local and remote branches
+- Ensure all work is merged to main
+- Final combined accuracy: avg 14.6%, max 42.5% — already verified by Apollo
 
