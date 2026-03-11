@@ -128,10 +128,38 @@ type Cache struct {
 }
 
 // NewCache creates a cache hierarchy from the given configuration.
+// Each call creates an independent L1+L2 pair (not shared).
 func NewCache(cfg CacheConfig) *Cache {
 	return &Cache{
 		l1:  newCacheLevel(cfg.L1Size, cfg.L1Ways, cfg.L1LineSize),
 		l2:  newCacheLevel(cfg.L2Size, cfg.L2Ways, cfg.L2LineSize),
+		cfg: cfg,
+	}
+}
+
+// SharedL2 is an L2 cache that can be shared across multiple cores.
+type SharedL2 struct {
+	level *cacheLevel
+	cfg   CacheConfig
+}
+
+// NewSharedL2 creates a shared L2 cache from the given config.
+// The L2 parameters (L2Size, L2Ways, L2LineSize) from cfg are used.
+func NewSharedL2(cfg CacheConfig) *SharedL2 {
+	return &SharedL2{
+		level: newCacheLevel(cfg.L2Size, cfg.L2Ways, cfg.L2LineSize),
+		cfg:   cfg,
+	}
+}
+
+// NewPrivateL1WithSharedL2 creates a per-core cache with a private L1 and a
+// shared L2. Multiple caches created with the same SharedL2 will share L2
+// state, so a miss in one core's L1 that populates the shared L2 will be
+// visible as an L2 hit from another core.
+func NewPrivateL1WithSharedL2(cfg CacheConfig, shared *SharedL2) *Cache {
+	return &Cache{
+		l1:  newCacheLevel(cfg.L1Size, cfg.L1Ways, cfg.L1LineSize),
+		l2:  shared.level,
 		cfg: cfg,
 	}
 }
