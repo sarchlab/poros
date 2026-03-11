@@ -3384,6 +3384,94 @@ func parsecAll() []Benchmark {
 		return em
 	}
 
+	// --- Vips 2D convolution benchmark ---
+	setupVipsEmu := func() *emu.Emulator {
+		W, H, K := 64, 64, 3
+
+		// Initialize input image
+		input := make([]float64, W*H)
+		for i := range input {
+			input[i] = float64(i%256) / 255.0
+		}
+
+		// Initialize convolution kernel (Gaussian-like 3x3)
+		kern := []float64{
+			1.0 / 16, 2.0 / 16, 1.0 / 16,
+			2.0 / 16, 4.0 / 16, 2.0 / 16,
+			1.0 / 16, 2.0 / 16, 1.0 / 16,
+		}
+
+		// Machine code: convolve2d function (66 instructions)
+		// Compiled from parsec/kernels/vips.c with:
+		//   clang -target arm64-apple-macos -O1 -fno-vectorize
+		//         -fno-slp-vectorize -fno-unroll-loops -fno-stack-protector
+		//
+		// CNEG conditions patched to match emulator semantics:
+		//   cneg mi → cneg pl, cneg le → cneg gt
+		code := []uint32{
+			0x0b457ca8, 0x13017d08, 0x4b08008d, 0x6b0d011f,
+			0x540007aa, 0xa9bd5ff8, 0xa90157f6, 0xa9024ff4,
+			0x52800009, 0x4b08006e, 0x7100011f, 0x5a88450a,
+			0x93407d0b, 0x93407c6c, 0x93407dad, 0x93407dce,
+			0x4b0803ef, 0x6b0f011f, 0x5a88d510, 0x0b100110,
+			0x11000610, 0xaa0b03f1, 0x14000005, 0x91000631,
+			0x0b030129, 0xeb0d023f, 0x54000480, 0x6b0e011f,
+			0x54ffff6a, 0x9b0c7e24, 0x8b040c04, 0xaa0903e6,
+			0xaa0b03e7, 0x14000006, 0xfc277880, 0x910004e7,
+			0x110004c6, 0xeb0e00ff, 0x54fffe20, 0x2f00e400,
+			0x310004bf, 0x54ffff2b, 0x52800013, 0xaa0603f4,
+			0xaa0f03f5, 0xaa1003f6, 0xaa1403f7, 0xaa1303f8,
+			0xfc77d821, 0xfc78d842, 0x1f420020, 0x11000718,
+			0x110006f7, 0x710006d6, 0x54ffff41, 0x110006b6,
+			0x0b050273, 0x0b030294, 0x6b0a02bf, 0xaa1603f5,
+			0x54fffe21, 0x17ffffe5, 0xa9424ff4, 0xa94157f6,
+			0xa8c35ff8, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		outputBase := uint64(0x100000)
+		inputBase := uint64(0x200000)
+		kernelBase := uint64(0x300000)
+		stackBase := uint64(0x400000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 100_000_000
+		em.LoadProgram(codeBase, EncodeInsts(code))
+
+		// Load input data
+		inputBuf := make([]byte, W*H*8)
+		for i, v := range input {
+			binary.LittleEndian.PutUint64(inputBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(inputBase, inputBuf)
+
+		// Load kernel data
+		kernBuf := make([]byte, K*K*8)
+		for i, v := range kern {
+			binary.LittleEndian.PutUint64(kernBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(kernelBase, kernBuf)
+
+		// Output buffer (zeros)
+		em.LoadProgram(outputBase, make([]byte, W*H*8))
+
+		// Stack
+		em.LoadProgram(stackBase, make([]byte, 8192))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, outputBase)  // output
+		em.Regs.WriteX(1, inputBase)   // input
+		em.Regs.WriteX(2, kernelBase)  // kernel
+		em.Regs.WriteX(3, uint64(W))   // width
+		em.Regs.WriteX(4, uint64(H))   // height
+		em.Regs.WriteX(5, uint64(K))   // ksize
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 8192
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
 	// NativeTime values measured on Apple M2 (3.49 GHz).
 	//
 	// Methodology: P-core times measured with 501-run median using
@@ -3392,7 +3480,8 @@ func parsecAll() []Benchmark {
 	// where Nora found E-core runs (at median) are ~2-2.5× P-core times
 	// for FP-heavy workloads on Apple M2 (see workspace/workspace/nora/note.md).
 	// P-core baselines: swaptions=8.89µs, blackscholes=20.95µs,
-	// streamcluster=6.86µs, canneal=6.95µs.
+	// streamcluster=6.86µs, canneal=6.95µs, fluidanimate=1.11µs,
+	// raytrace=42ns, vips=18.0µs.
 	return []Benchmark{
 		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 1.956e-05, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 50 * 50 * 8}, {Addr: 0x200000, Size: 50 * 8}, {Addr: 0x300000, Size: 50 * 8}, {Addr: 0x400000, Size: 8192},
@@ -3411,7 +3500,7 @@ func parsecAll() []Benchmark {
 			{Addr: 0x100000, Size: 8192 * 2 * 4}, // netlist (int32)
 			{Addr: 0x200000, Size: 512 * 2 * 4},  // locations (int32)
 		}},
-		{Name: "fluidanimate", Suite: "parsec", Setup: setupFluidanimateEmu, NativeTime: 1e-05, Regions: []DataRegion{
+		{Name: "fluidanimate", Suite: "parsec", Setup: setupFluidanimateEmu, NativeTime: 2.442e-06, Regions: []DataRegion{
 			{Addr: 0x1000, Size: 155 * 4},          // code
 			{Addr: 0x100000, Size: 16 * 8 * 11},    // particle data (11 arrays × 16 particles × 8 bytes)
 			{Addr: 0x800000, Size: 8192},            // stack
@@ -3424,6 +3513,11 @@ func parsecAll() []Benchmark {
 			{Addr: 0x400000, Size: 4 * 9 * 8},       // tri_verts
 			{Addr: 0x500000, Size: 7 * 4},            // tri_idx
 			{Addr: 0x600000, Size: 16384},            // stack
+		}},
+		{Name: "vips", Suite: "parsec", Setup: setupVipsEmu, NativeTime: 3.960e-05, Regions: []DataRegion{
+			{Addr: 0x100000, Size: 64 * 64 * 8}, // output
+			{Addr: 0x200000, Size: 64 * 64 * 8}, // input
+			{Addr: 0x300000, Size: 3 * 3 * 8},   // kernel
 		}},
 	}
 }
