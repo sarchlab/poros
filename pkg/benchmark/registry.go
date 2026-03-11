@@ -2532,7 +2532,7 @@ func All() []Benchmark {
 // parsecAll returns the PARSEC benchmark definitions.
 func parsecAll() []Benchmark {
 	setupSwaptionsEmu := func() *emu.Emulator {
-		n := 32
+		n := 50
 		r := 0.05
 		dt := 0.25
 
@@ -3119,7 +3119,7 @@ func parsecAll() []Benchmark {
 
 	return []Benchmark{
 		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 1e-4, Regions: []DataRegion{
-			{Addr: 0x100000, Size: 32 * 32 * 8}, {Addr: 0x200000, Size: 32 * 8}, {Addr: 0x300000, Size: 32 * 8}, {Addr: 0x400000, Size: 8192},
+			{Addr: 0x100000, Size: 50 * 50 * 8}, {Addr: 0x200000, Size: 50 * 8}, {Addr: 0x300000, Size: 50 * 8}, {Addr: 0x400000, Size: 8192},
 		}, FuncHookCycles: map[uint64]int{0x40000: 25}},
 		{Name: "blackscholes", Suite: "parsec", Setup: setupBlackScholesEmu, NativeTime: 1e-4, Regions: []DataRegion{
 			{Addr: 0x1000, Size: 173 * 4}, {Addr: 0x100000, Size: 1024 * 8}, {Addr: 0x200000, Size: 1024 * 8},
