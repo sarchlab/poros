@@ -2953,6 +2953,89 @@ func parsecAll() []Benchmark {
 		return em
 	}
 
+	// --- Streamcluster benchmark ---
+	setupStreamclusterEmu := func() *emu.Emulator {
+		npoints, dim := 32, 16
+		totalCoords := npoints * dim
+
+		p1 := make([]float64, totalCoords)
+		p2 := make([]float64, totalCoords)
+		for i := 0; i < totalCoords; i++ {
+			p1[i] = 1.0 + float64(i)*0.01
+			p2[i] = 2.0 - float64(i)*0.02
+		}
+
+		// ARM64 machine code for distance computation kernel:
+		//   X0 = p1 pointer, X1 = p2 pointer, X2 = out pointer
+		//   W3 = npoints, W4 = dim
+		// Compiled with: clang -target arm64-apple-macos -O1
+		//   -fno-vectorize -fno-slp-vectorize -fno-unroll-loops
+		code := []uint32{
+			0x7100047f, // cmp   w3, #1
+			0x5400032b, // b.lt  end
+			0xd2800008, // mov   x8, #0
+			0x2a0403e9, // mov   w9, w4
+			0xd37d7c8a, // ubfiz x10, x4, #3, #32
+			0x2a0303eb, // mov   w11, w3
+			0x14000007, // b     outer_loop
+			0xfc287840, // str   d0, [x2, x8, lsl #3]
+			0x91000508, // add   x8, x8, #1
+			0x8b0a0021, // add   x1, x1, x10
+			0x8b0a0000, // add   x0, x0, x10
+			0xeb0b011f, // cmp   x8, x11
+			0x540001c0, // b.eq  end
+			0x2f00e400, // movi  d0, #0
+			0x7100049f, // cmp   w4, #1
+			0x54ffff0b, // b.lt  store_result
+			0xaa0903ec, // mov   x12, x9
+			0xaa0003ed, // mov   x13, x0
+			0xaa0103ee, // mov   x14, x1
+			0xfc4085a1, // ldr   d1, [x13], #8
+			0xfc4085c2, // ldr   d2, [x14], #8
+			0x1e623821, // fsub  d1, d1, d2
+			0x1f410020, // fmadd d0, d1, d1, d0
+			0xf100058c, // subs  x12, x12, #1
+			0x54ffff61, // b.ne  inner_loop
+			0x17ffffee, // b     store_result
+			0xd65f03c0, // ret
+		}
+
+		codeBase := uint64(0x10000)
+		p1Base := uint64(0x100000)
+		p2Base := uint64(0x200000)
+		outBase := uint64(0x300000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 100_000_000
+		em.LoadProgram(codeBase, EncodeInsts(code))
+
+		p1Buf := make([]byte, totalCoords*8)
+		for i, v := range p1 {
+			binary.LittleEndian.PutUint64(p1Buf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(p1Base, p1Buf)
+
+		p2Buf := make([]byte, totalCoords*8)
+		for i, v := range p2 {
+			binary.LittleEndian.PutUint64(p2Buf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(p2Base, p2Buf)
+
+		em.LoadProgram(outBase, make([]byte, npoints*8))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, p1Base)
+		em.Regs.WriteX(1, p2Base)
+		em.Regs.WriteX(2, outBase)
+		em.Regs.WriteX(3, uint64(npoints))
+		em.Regs.WriteX(4, uint64(dim))
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = 0x400000 + 8192
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
 	return []Benchmark{
 		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 2.75e-07, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 512}, {Addr: 0x200000, Size: 64}, {Addr: 0x300000, Size: 64}, {Addr: 0x400000, Size: 8192},
@@ -2962,6 +3045,11 @@ func parsecAll() []Benchmark {
 			{Addr: 0x300000, Size: 128}, {Addr: 0x400000, Size: 128}, {Addr: 0x500000, Size: 128},
 			{Addr: 0x600000, Size: 128}, {Addr: 0x700000, Size: 64}, {Addr: 0x800000, Size: 8192},
 		}, FuncHookCycles: map[uint64]int{0xF000: 20, 0xF100: 25}},
+		{Name: "streamcluster", Suite: "parsec", Setup: setupStreamclusterEmu, NativeTime: 1e-6, Regions: []DataRegion{
+			{Addr: 0x100000, Size: 32 * 16 * 8},
+			{Addr: 0x200000, Size: 32 * 16 * 8},
+			{Addr: 0x300000, Size: 32 * 8},
+		}},
 	}
 }
 

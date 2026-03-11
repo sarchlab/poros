@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"math"
 	"testing"
 )
 
@@ -45,11 +46,11 @@ func TestBySuitePolybench(t *testing.T) {
 	}
 }
 
-// TestBySuiteParsec verifies that BySuite("parsec") returns exactly 2 benchmarks.
+// TestBySuiteParsec verifies that BySuite("parsec") returns exactly 3 benchmarks.
 func TestBySuiteParsec(t *testing.T) {
 	parsec := BySuite("parsec")
-	if len(parsec) != 2 {
-		t.Errorf("BySuite(\"parsec\") returned %d, want 2", len(parsec))
+	if len(parsec) != 3 {
+		t.Errorf("BySuite(\"parsec\") returned %d, want 3", len(parsec))
 	}
 }
 
@@ -74,5 +75,45 @@ func TestByName(t *testing.T) {
 	b = ByName("nonexistent")
 	if b != nil {
 		t.Errorf("ByName(\"nonexistent\") returned non-nil: %+v", b)
+	}
+}
+
+// TestStreamclusterCorrectness verifies the streamcluster kernel produces
+// correct Euclidean distance-squared values.
+func TestStreamclusterCorrectness(t *testing.T) {
+	b := ByName("streamcluster")
+	if b == nil {
+		t.Fatal("streamcluster benchmark not found")
+	}
+
+	em := b.Setup()
+	err := em.Run()
+	if err != nil {
+		t.Fatalf("emulator error: %v", err)
+	}
+
+	npoints, dim := 32, 16
+	totalCoords := npoints * dim
+
+	p1 := make([]float64, totalCoords)
+	p2 := make([]float64, totalCoords)
+	for i := 0; i < totalCoords; i++ {
+		p1[i] = 1.0 + float64(i)*0.01
+		p2[i] = 2.0 - float64(i)*0.02
+	}
+
+	outBase := uint64(0x300000)
+	for i := 0; i < npoints; i++ {
+		got := em.Mem.ReadF64(outBase + uint64(i*8))
+
+		expected := 0.0
+		for j := 0; j < dim; j++ {
+			diff := p1[i*dim+j] - p2[i*dim+j]
+			expected += diff * diff
+		}
+
+		if math.Abs(got-expected) > 1e-6 {
+			t.Errorf("out[%d]: got %f, want %f (diff=%e)", i, got, expected, got-expected)
+		}
 	}
 }
