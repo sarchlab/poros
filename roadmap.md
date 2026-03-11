@@ -376,9 +376,9 @@ The simulator consists of:
 - Ensure all work is merged to main ✓
 - Final combined accuracy: avg 14.6%, max 42.5% — verified by Apollo ✓
 
-## PROJECT COMPLETE ✅
+## Phase 2 DONE — Expanding to Full PARSEC (Phase 3)
 
-All success criteria achieved:
+Phase 2 results:
 - **PolyBench (30 benchmarks):** avg 13.1%, max 36.0% (targets: ≤20% avg, ≤50% max)
 - **PARSEC (4 benchmarks):** avg 25.8%, max 42.5%
 - **Combined (34 benchmarks):** avg 14.6%, max 42.5%
@@ -386,5 +386,20 @@ All success criteria achieved:
 - CLI tool (`m2sim list/run/eval`) ✓
 - All tests pass ✓
 - README documented ✓
-- Total cycles spent: ~48 (M1:1 + M2:3 + M3:2 + M4:2 + M5:2 + M6:3 + M7:2 + M8:8 + M8.1:4 + M8.1r:4 + M8.2:4 + M9:1 + M10:3 + M10.5:4 + M11:1 + M12:2 + M13:1)
+- Total cycles spent: ~48
+
+## Phase 3: Whole PARSEC Support (from human issue #156)
+
+**Goal:** Support ALL 13 PARSEC benchmarks (skip only for strong documented reasons). Create scripts for compilation, native timing, and simulation.
+
+### M14: Research & Planning — Feasibility of Remaining PARSEC Benchmarks
+**Status:** IN PROGRESS
+**Budget:** 1 cycle
+**Scope:**
+- Research feasibility of 9 remaining PARSEC benchmarks (bodytrack, dedup, facesim, ferret, fluidanimate, freqmine, raytrace, vips, x264)
+- Audit existing scripts/deliverables vs requirements
+- Determine which benchmarks need new ARM64 instructions
+- Plan implementation milestones
+
+### M15–M17: TBD — Implementation milestones to be defined after M14 research
 
