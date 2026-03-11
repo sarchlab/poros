@@ -393,13 +393,67 @@ Phase 2 results:
 **Goal:** Support ALL 13 PARSEC benchmarks (skip only for strong documented reasons). Create scripts for compilation, native timing, and simulation.
 
 ### M14: Research & Planning — Feasibility of Remaining PARSEC Benchmarks
-**Status:** IN PROGRESS
-**Budget:** 1 cycle
+**Status:** COMPLETE (1 cycle)
+**Budget:** 1 cycle | **Actual:** 1 cycle
 **Scope:**
-- Research feasibility of 9 remaining PARSEC benchmarks (bodytrack, dedup, facesim, ferret, fluidanimate, freqmine, raytrace, vips, x264)
-- Audit existing scripts/deliverables vs requirements
-- Determine which benchmarks need new ARM64 instructions
-- Plan implementation milestones
+- Iris researched all 9 remaining benchmarks (see workspace/workspace/iris/note.md)
+- Elena audited existing scripts/deliverables vs requirements (see workspace/workspace/elena/note.md)
+- Results: 5 HIGH/MEDIUM feasibility (fluidanimate, raytrace, vips, bodytrack, facesim), 2 additional MEDIUM (ferret, x264), 2 LOW/skip (dedup, freqmine)
+- New ARM64 instructions needed: FCCMP, FMAXNM, FMINNM (for fluidanimate/raytrace), UMADDL (for freqmine)
+- Library hooks: exp (bodytrack), log (facesim) — both already implemented
+- Scripts needed: parsec compile script, native timing script, simulation wrapper script
 
-### M15–M17: TBD — Implementation milestones to be defined after M14 research
+### Feasibility Summary (from Iris research)
+
+| Benchmark | Feasibility | Skip Reason |
+|-----------|-------------|-------------|
+| fluidanimate | HIGH | — |
+| raytrace | HIGH | — |
+| vips | MEDIUM | — |
+| bodytrack | MEDIUM | — |
+| facesim | MEDIUM | — |
+| ferret | MEDIUM | — |
+| x264 | MEDIUM | — |
+| freqmine | LOW | Pointer-chasing dominated, no real compute, tree traversal |
+| dedup | SKIP | Pipeline parallelism fundamentally incompatible with function-level emulation |
+
+**Plan: Support 11 of 13 PARSEC benchmarks.** Skip dedup (pipeline parallelism). Attempt freqmine but skip if accuracy is unachievable.
+
+### M15: New Instructions + First 3 PARSEC Kernels (fluidanimate, raytrace, vips)
+**Status:** NOT STARTED
+**Budget:** 6 cycles
+**Scope:**
+- Implement 3 new ARM64 instructions: FCCMP, FMAXNM, FMINNM (~30 lines)
+- Write C kernel source files for fluidanimate, raytrace, vips in parsec/kernels/
+- Compile to ARM64 object files, extract machine code
+- Add Go test functions (parsec_*_test.go) with golden reference validation
+- Add benchmark registry entries with setup functions
+- Measure native timing references on M2
+- Run through OoO pipeline, verify correct output and reasonable accuracy
+- Write _main.c wrappers for native timing
+
+### M16: Next 4 PARSEC Kernels (bodytrack, facesim, ferret, x264) + freqmine attempt
+**Status:** NOT STARTED
+**Budget:** 6 cycles
+**Scope:**
+- Write C kernel source files for bodytrack, facesim, ferret, x264, freqmine in parsec/kernels/
+- Implement UMADDL instruction if needed for freqmine
+- Add Go test functions and benchmark registry entries
+- Measure native timing references
+- bodytrack needs exp hook (already exists), facesim needs log hook (already exists)
+- x264 is integer-only — tests different simulator paths
+- freqmine: attempt but document as skipped if accuracy > 50%
+
+### M17: Scripts + Accuracy Tuning + Final Deliverables
+**Status:** NOT STARTED
+**Budget:** 4 cycles
+**Scope:**
+- Create parsec/build.sh — compile all PARSEC kernel C files to ARM64
+- Create parsec/time_native.sh — run each PARSEC kernel natively, collect wall-clock times
+- Create scripts/run_simulation.sh — run m2sim on all benchmarks, save results
+- Create scripts/compile_all.sh — unified compilation for both PolyBench and PARSEC
+- Accuracy tuning: ensure all new benchmarks meet ≤20% avg, ≤50% max targets
+- Add C source files for streamcluster and canneal (currently only in Go)
+- Update README.md with full PARSEC results
+- Final verification
 
