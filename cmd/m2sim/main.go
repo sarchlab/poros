@@ -460,6 +460,9 @@ func cmdEval() {
 		engine := sim.NewSerialEngine()
 		p := cpu.NewOoOPipeline("M2sim", engine, 3490*sim.MHz, em)
 		p.Cache = cache
+		if k.FuncHookCycles != nil {
+			p.FuncHookCycles = k.FuncHookCycles
+		}
 		p.TickLater()
 		if err := engine.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s engine.Run() failed: %v\n", k.Name, err)

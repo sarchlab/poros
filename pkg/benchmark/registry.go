@@ -3117,21 +3117,30 @@ func parsecAll() []Benchmark {
 		return em
 	}
 
+	// NativeTime values measured on Apple M2 (3.49 GHz).
+	//
+	// Methodology: P-core times measured with 501-run median using
+	// clang -O1 -fno-vectorize -fno-slp-vectorize -fno-unroll-loops.
+	// Adjusted by 2.2× E/P-core factor, consistent with PolyBench methodology
+	// where Nora found E-core runs (at median) are ~2-2.5× P-core times
+	// for FP-heavy workloads on Apple M2 (see workspace/workspace/nora/note.md).
+	// P-core baselines: swaptions=8.89µs, blackscholes=20.95µs,
+	// streamcluster=6.86µs, canneal=6.95µs.
 	return []Benchmark{
-		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 1e-4, Regions: []DataRegion{
+		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 1.956e-05, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 50 * 50 * 8}, {Addr: 0x200000, Size: 50 * 8}, {Addr: 0x300000, Size: 50 * 8}, {Addr: 0x400000, Size: 8192},
 		}, FuncHookCycles: map[uint64]int{0x40000: 25}},
-		{Name: "blackscholes", Suite: "parsec", Setup: setupBlackScholesEmu, NativeTime: 1e-4, Regions: []DataRegion{
+		{Name: "blackscholes", Suite: "parsec", Setup: setupBlackScholesEmu, NativeTime: 4.609e-05, Regions: []DataRegion{
 			{Addr: 0x1000, Size: 173 * 4}, {Addr: 0x100000, Size: 1024 * 8}, {Addr: 0x200000, Size: 1024 * 8},
 			{Addr: 0x300000, Size: 1024 * 8}, {Addr: 0x400000, Size: 1024 * 8}, {Addr: 0x500000, Size: 1024 * 8},
 			{Addr: 0x600000, Size: 1024 * 8}, {Addr: 0x700000, Size: 1024 * 4}, {Addr: 0x800000, Size: 8192},
 		}, FuncHookCycles: map[uint64]int{0xF000: 20, 0xF100: 25}},
-		{Name: "streamcluster", Suite: "parsec", Setup: setupStreamclusterEmu, NativeTime: 1e-4, Regions: []DataRegion{
+		{Name: "streamcluster", Suite: "parsec", Setup: setupStreamclusterEmu, NativeTime: 1.509e-05, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 512 * 32 * 8},
 			{Addr: 0x200000, Size: 512 * 32 * 8},
 			{Addr: 0x300000, Size: 512 * 8},
 		}},
-		{Name: "canneal", Suite: "parsec", Setup: setupCannealEmu, NativeTime: 1e-4, Regions: []DataRegion{
+		{Name: "canneal", Suite: "parsec", Setup: setupCannealEmu, NativeTime: 1.528e-05, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 8192 * 2 * 4}, // netlist (int32)
 			{Addr: 0x200000, Size: 512 * 2 * 4},  // locations (int32)
 		}},
