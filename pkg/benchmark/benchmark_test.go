@@ -46,11 +46,11 @@ func TestBySuitePolybench(t *testing.T) {
 	}
 }
 
-// TestBySuiteParsec verifies that BySuite("parsec") returns exactly 5 benchmarks.
+// TestBySuiteParsec verifies that BySuite("parsec") returns exactly 6 benchmarks.
 func TestBySuiteParsec(t *testing.T) {
 	parsec := BySuite("parsec")
-	if len(parsec) != 5 {
-		t.Errorf("BySuite(\"parsec\") returned %d, want 5", len(parsec))
+	if len(parsec) != 6 {
+		t.Errorf("BySuite(\"parsec\") returned %d, want 6", len(parsec))
 	}
 }
 

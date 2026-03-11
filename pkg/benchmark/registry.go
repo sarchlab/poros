@@ -3260,6 +3260,130 @@ func parsecAll() []Benchmark {
 		return em
 	}
 
+	// --- Raytrace benchmark ---
+	setupRaytraceEmu := func() *emu.Emulator {
+		numNodes := 7
+		numTris := 4
+
+		// 4 triangles forming a ground plane at z=0 from (-2,-2) to (2,2)
+		triVerts := []float64{
+			-2, -2, 0, 0, -2, 0, 0, 0, 0,
+			-2, -2, 0, 0, 0, 0, -2, 0, 0,
+			0, 0, 0, 2, 0, 0, 2, 2, 0,
+			0, 0, 0, 2, 2, 0, 0, 2, 0,
+		}
+
+		bbox := []float64{
+			-2, -2, -0.1, 2, 2, 0.1,
+			-2, -2, -0.1, 0, 0, 0.1,
+			0, 0, -0.1, 2, 2, 0.1,
+			-2, -2, -0.1, 0, 0, 0.1,
+			-2, -2, -0.1, 0, 0, 0.1,
+			0, 0, -0.1, 2, 2, 0.1,
+			0, 0, -0.1, 2, 2, 0.1,
+		}
+
+		children := []int32{
+			1, 2, 3, 4, 5, 6,
+			-1, -1, -1, -1, -1, -1, -1, -1,
+		}
+
+		triIdx := []int32{-1, -1, -1, 0, 1, 2, 3}
+
+		// Ray shooting down at (-1,-1)
+		ray := []float64{-1, -1, 5, 0, 0, -1}
+
+		code := []uint32{
+			0xd10503ff, 0x6d1033ed, 0x6d112beb, 0x6d1223e9, 0xa9136ffc, 0x6d400400,
+			0x6d410c02, 0x6d421404, 0x1e6e1006, 0x1e6318c7, 0x1e6418d0, 0xb90003ff,
+			0x52800028, 0xd2918809, 0xf2af16a9, 0xf2d5e3a9, 0xf2e882a9, 0x9e670131,
+			0x910003e9, 0x5280090a, 0xd297b76b, 0xf2bb3aeb, 0xf2cf9beb, 0xf2e7bb6b,
+			0x2f00e412, 0x1e7e1013, 0x5280002d, 0x1e6518d4, 0x14000007, 0x1e712300,
+			0x1e724704, 0x1e71cf11, 0xaa0c03ed, 0x7100019f, 0x54000e8d, 0x510005ac,
+			0xb86c592e, 0x37ffff6e, 0x6b0501df, 0x54ffff2a, 0x8b0e05cf, 0x8b0f1030,
+			0xfd400215, 0x2a0f050f, 0xfc6f5836, 0x6d416217, 0x6d426a19, 0x1e603ab5,
+			0x1e7508f5, 0x1e603b18, 0x1e7808f8, 0x1e613ad6, 0x1e760a16, 0x1e613b39,
+			0x1e790a19, 0x1e623af7, 0x1e770a97, 0x1e623b5a, 0x1e7a0a9a, 0x1e787abb,
+			0x1e786ab5, 0x1e797ad8, 0x1e796ad6, 0x1e7a7af9, 0x1e7a6af7, 0x1e786b78,
+			0x1e796b18, 0x1e767ab5, 0x1e777ab5, 0x1e712300, 0x1e7846a8, 0x54fffb2b,
+			0x1e6022a8, 0x54fffaed, 0x531f79cf, 0xb86f584f, 0x52800030, 0x331f75d0,
+			0xb8705850, 0x310005ff, 0x3a410a00, 0x54000100, 0x37f80070, 0xb82c5930,
+			0xaa0d03ec, 0x37fff96f, 0xb82cd92f, 0x1100058c, 0x17ffffc8, 0xb86e788d,
+			0x37fff8cd, 0x9baa0dad, 0x6d4079bd, 0x6d4155bf, 0x6d425db6, 0x6d4371b8,
+			0xfd4021a8, 0x1e7d3ab9, 0x1e7e3ada, 0x1e7f3afb, 0x1e7d3b15, 0x1e7e3b97,
+			0x1e7f3916, 0x1e658af8, 0x1f566088, 0x1e638ad8, 0x1f5560a9, 0x1e648ab8,
+			0x1f57606a, 0x1e690b58, 0x1f486338, 0x1f4a637c, 0x1e60c38b, 0x1e7e1018,
+			0x9e67016c, 0x1e6c2160, 0x54fff524, 0x1e7c18dc, 0x1e7d380b, 0x1e7e382c,
+			0x1e7f385f, 0x1e69099d, 0x1f48757d, 0x1f4a77fd, 0x1e7c0bbe, 0x1e6023c8,
+			0x1e6657c0, 0x54fff3cc, 0x1e7a8bfd, 0x1f5b759d, 0x1e7b897b, 0x1f596ffb,
+			0x1e798999, 0x1f5a6579, 0x1e7b089a, 0x1f5d687a, 0x1f5968ba, 0x1e7c0b5a,
+			0x1e7a2bde, 0x1e602348, 0x1e6657c0, 0x54fff20c, 0x1e7b0af7, 0x1f5d5eb5,
+			0x1f5956d5, 0x1e7c0ab5, 0x9e670176, 0x1e7622a0, 0x1e73ceb8, 0x17ffff88,
+			0xd2918808, 0xf2af16a8, 0xf2d5e3a8, 0xf2e882a8, 0x9e670100, 0x1e602220,
+			0x1e7e1000, 0x1e71ac00, 0xa9536ffc, 0x6d5223e9, 0x6d512beb, 0x6d5033ed,
+			0x910503ff, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		rayBase := uint64(0x100000)
+		bboxBase := uint64(0x200000)
+		childrenBase := uint64(0x300000)
+		triVertsBase := uint64(0x400000)
+		triIdxBase := uint64(0x500000)
+		stackBase := uint64(0x600000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+		em.LoadProgram(codeBase, EncodeInsts(code))
+
+		rayBuf := make([]byte, 6*8)
+		for i, v := range ray {
+			binary.LittleEndian.PutUint64(rayBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(rayBase, rayBuf)
+
+		bboxBuf := make([]byte, len(bbox)*8)
+		for i, v := range bbox {
+			binary.LittleEndian.PutUint64(bboxBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(bboxBase, bboxBuf)
+
+		childBuf := make([]byte, len(children)*4)
+		for i, v := range children {
+			binary.LittleEndian.PutUint32(childBuf[i*4:], uint32(v))
+		}
+		em.LoadProgram(childrenBase, childBuf)
+
+		tvBuf := make([]byte, len(triVerts)*8)
+		for i, v := range triVerts {
+			binary.LittleEndian.PutUint64(tvBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(triVertsBase, tvBuf)
+
+		tiBuf := make([]byte, len(triIdx)*4)
+		for i, v := range triIdx {
+			binary.LittleEndian.PutUint32(tiBuf[i*4:], uint32(v))
+		}
+		em.LoadProgram(triIdxBase, tiBuf)
+
+		em.LoadProgram(stackBase, make([]byte, 16384))
+
+		_ = numTris
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, rayBase)
+		em.Regs.WriteX(1, bboxBase)
+		em.Regs.WriteX(2, childrenBase)
+		em.Regs.WriteX(3, triVertsBase)
+		em.Regs.WriteX(4, triIdxBase)
+		em.Regs.WriteX(5, uint64(numNodes))
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 16384
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
 	// NativeTime values measured on Apple M2 (3.49 GHz).
 	//
 	// Methodology: P-core times measured with 501-run median using
@@ -3291,6 +3415,15 @@ func parsecAll() []Benchmark {
 			{Addr: 0x1000, Size: 155 * 4},          // code
 			{Addr: 0x100000, Size: 16 * 8 * 11},    // particle data (11 arrays × 16 particles × 8 bytes)
 			{Addr: 0x800000, Size: 8192},            // stack
+		}},
+		{Name: "raytrace", Suite: "parsec", Setup: setupRaytraceEmu, NativeTime: 1.38e-07, Regions: []DataRegion{
+			{Addr: 0x10000, Size: 164 * 4},         // code
+			{Addr: 0x100000, Size: 6 * 8},           // ray data
+			{Addr: 0x200000, Size: 7 * 6 * 8},       // bbox
+			{Addr: 0x300000, Size: 7 * 2 * 4},       // children
+			{Addr: 0x400000, Size: 4 * 9 * 8},       // tri_verts
+			{Addr: 0x500000, Size: 7 * 4},            // tri_idx
+			{Addr: 0x600000, Size: 16384},            // stack
 		}},
 	}
 }
