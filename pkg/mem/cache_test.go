@@ -109,6 +109,69 @@ func TestCache_Stats(t *testing.T) {
 	}
 }
 
+func TestMultiCoreCache(t *testing.T) {
+	cfg := DefaultCacheConfig()
+	shared := NewSharedL2(cfg)
+	c1 := NewPrivateL1WithSharedL2(cfg, shared)
+	c2 := NewPrivateL1WithSharedL2(cfg, shared)
+
+	// Cold access from core 1 — misses both L1 and L2, goes to DRAM.
+	level := c1.Lookup(0x1000, 8, false)
+	if level != HitDRAM {
+		t.Fatalf("core1 cold access: got %d, want HitDRAM (%d)", level, HitDRAM)
+	}
+
+	// Same address from core 2 — should miss private L1 but hit shared L2.
+	level = c2.Lookup(0x1000, 8, false)
+	if level != HitL2 {
+		t.Fatalf("core2 shared L2 hit: got %d, want HitL2 (%d)", level, HitL2)
+	}
+
+	// After core 2's lookup, address should now be in core 2's L1 as well.
+	level = c2.Lookup(0x1000, 8, false)
+	if level != HitL1 {
+		t.Fatalf("core2 L1 hit after install: got %d, want HitL1 (%d)", level, HitL1)
+	}
+
+	// Core 1's L1 should still have the address.
+	level = c1.Lookup(0x1000, 8, false)
+	if level != HitL1 {
+		t.Fatalf("core1 L1 hit: got %d, want HitL1 (%d)", level, HitL1)
+	}
+
+	// Stats are per-cache (per-core), not shared.
+	s1 := c1.Stats()
+	s2 := c2.Stats()
+	if s1.L2Misses != 1 {
+		t.Fatalf("core1 L2Misses=%d, want 1", s1.L2Misses)
+	}
+	if s2.L2Hits != 1 {
+		t.Fatalf("core2 L2Hits=%d, want 1", s2.L2Hits)
+	}
+}
+
+func TestMultiCoreCache_Independence(t *testing.T) {
+	cfg := DefaultCacheConfig()
+	shared := NewSharedL2(cfg)
+	c1 := NewPrivateL1WithSharedL2(cfg, shared)
+	c2 := NewPrivateL1WithSharedL2(cfg, shared)
+
+	// Access different addresses from different cores.
+	c1.Lookup(0x10000, 4, false) // DRAM miss
+	c2.Lookup(0x20000, 4, false) // DRAM miss
+
+	// Each address should only be in the originating core's L1.
+	level := c1.Lookup(0x20000, 4, false) // Not in c1's L1, but in shared L2
+	if level != HitL2 {
+		t.Fatalf("cross-core L2 hit: got %d, want HitL2 (%d)", level, HitL2)
+	}
+
+	level = c2.Lookup(0x10000, 4, false) // Not in c2's L1, but in shared L2
+	if level != HitL2 {
+		t.Fatalf("cross-core L2 hit: got %d, want HitL2 (%d)", level, HitL2)
+	}
+}
+
 func TestCache_WriteAllocate(t *testing.T) {
 	c := NewCache(DefaultCacheConfig())
 
