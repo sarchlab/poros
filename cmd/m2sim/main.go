@@ -18,11 +18,13 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `m2sim: Apple M2 cycle-accurate simulator
 
 Usage:
-  m2sim list                       List all available benchmarks
-  m2sim run <name>                 Run a single benchmark
-  m2sim run --all                  Run all benchmarks (full comparison table)
-  m2sim run --suite <suite>        Run all benchmarks in a suite
-  m2sim eval                       Quick 6-benchmark evaluation
+  m2sim list                            List all available benchmarks
+  m2sim run <name>                      Run a single benchmark
+  m2sim run <name> --cores N            Run a benchmark on N cores
+  m2sim run --all                       Run all benchmarks (full comparison table)
+  m2sim run --suite <suite>             Run all benchmarks in a suite
+  m2sim run --suite <suite> --cores N   Run suite benchmarks on N cores
+  m2sim eval                            Quick 6-benchmark evaluation
 `)
 	os.Exit(1)
 }
@@ -60,10 +62,21 @@ func cmdRun(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	allFlag := fs.Bool("all", false, "Run all benchmarks (full comparison table)")
 	suiteFlag := fs.String("suite", "", "Run all benchmarks in the given suite")
+	coresFlag := fs.Int("cores", 1, "Number of cores (default: 1, single-core)")
 	fs.Parse(args)
 
+	nCores := *coresFlag
+	if nCores < 1 {
+		fmt.Fprintf(os.Stderr, "error: --cores must be >= 1\n")
+		os.Exit(1)
+	}
+
 	if *allFlag {
-		runComparisonTable(benchmark.All())
+		if nCores > 1 {
+			runMultiCoreAll(benchmark.All(), nCores)
+		} else {
+			runComparisonTable(benchmark.All())
+		}
 		return
 	}
 
@@ -79,7 +92,11 @@ func cmdRun(args []string) {
 			fmt.Fprintf(os.Stderr, "error: no benchmarks found for suite %q\n", *suiteFlag)
 			os.Exit(1)
 		}
-		runComparisonTable(filtered)
+		if nCores > 1 {
+			runMultiCoreAll(filtered, nCores)
+		} else {
+			runComparisonTable(filtered)
+		}
 		return
 	}
 
@@ -93,7 +110,11 @@ func cmdRun(args []string) {
 	all := benchmark.All()
 	for _, b := range all {
 		if b.Name == name {
-			runSingle(b)
+			if nCores > 1 {
+				runMultiCore(b, nCores)
+			} else {
+				runSingle(b)
+			}
 			return
 		}
 	}
@@ -153,6 +174,81 @@ func runSingle(b benchmark.Benchmark) {
 	fmt.Printf("  BP Accuracy:   %.1f%%\n", bpAcc)
 	fmt.Printf("  L1 Hit Rate:   %.1f%%\n", l1Hit)
 	fmt.Printf("  L2 Hit Rate:   %.1f%%\n", l2Hit)
+}
+
+// runMultiCore runs a single benchmark on nCores cores and prints results.
+func runMultiCore(b benchmark.Benchmark, nCores int) {
+	configs := make([]cpu.CoreConfig, nCores)
+	for i := 0; i < nCores; i++ {
+		configs[i] = cpu.CoreConfig{
+			Emulator:       b.Setup(),
+			FuncHookCycles: b.FuncHookCycles,
+		}
+	}
+
+	engine := sim.NewSerialEngine()
+	mc := cpu.NewMultiCorePipeline("M2sim", engine, 3490*sim.MHz, configs)
+
+	// Warm caches for each core.
+	for _, core := range mc.Cores {
+		benchmark.WarmCache(core.Cache, b.Regions)
+	}
+
+	if err := mc.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: multi-core Run() failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	for i, core := range mc.Cores {
+		if !core.Emu.Halted {
+			fmt.Fprintf(os.Stderr, "error: core %d did not halt\n", i)
+			os.Exit(1)
+		}
+	}
+
+	simTime := float64(mc.TotalCycles) / freq
+
+	fmt.Printf("Benchmark: %s (%d cores)\n", b.Name, nCores)
+	fmt.Printf("  Total Instructions: %d\n", mc.TotalInstructions)
+	fmt.Printf("  Max Cycles:         %d\n", mc.TotalCycles)
+	fmt.Printf("  Sim Time:           %e s\n", simTime)
+	for i, core := range mc.Cores {
+		fmt.Printf("  Core %d:  %d insts, %d cycles, CPI=%.2f\n",
+			i, core.InstDone, core.Cycles, core.CPI())
+	}
+}
+
+// runMultiCoreAll runs all given benchmarks in multi-core mode and prints a summary table.
+func runMultiCoreAll(benchmarks []benchmark.Benchmark, nCores int) {
+	fmt.Printf("\n%-16s | %6s | %12s | %12s | %14s\n",
+		"Benchmark", "Cores", "Total Insts", "Max Cycles", "Sim Time (s)")
+	fmt.Printf("%-16s-+-%6s-+-%12s-+-%12s-+-%14s\n",
+		"----------------", "------", "------------", "------------", "--------------")
+
+	for _, b := range benchmarks {
+		configs := make([]cpu.CoreConfig, nCores)
+		for i := 0; i < nCores; i++ {
+			configs[i] = cpu.CoreConfig{
+				Emulator:       b.Setup(),
+				FuncHookCycles: b.FuncHookCycles,
+			}
+		}
+
+		engine := sim.NewSerialEngine()
+		mc := cpu.NewMultiCorePipeline("M2sim", engine, 3490*sim.MHz, configs)
+		for _, core := range mc.Cores {
+			benchmark.WarmCache(core.Cache, b.Regions)
+		}
+
+		if err := mc.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s multi-core Run() failed: %v\n", b.Name, err)
+			continue
+		}
+
+		simTime := float64(mc.TotalCycles) / freq
+		fmt.Printf("%-16s | %6d | %12d | %12d | %14e\n",
+			b.Name, nCores, mc.TotalInstructions, mc.TotalCycles, simTime)
+	}
 }
 
 // runComparisonTable runs all benchmarks with 3 pipeline variants and prints the full table.
