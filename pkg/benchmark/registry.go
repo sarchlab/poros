@@ -3036,6 +3036,97 @@ func parsecAll() []Benchmark {
 		return em
 	}
 
+	// --- Canneal benchmark ---
+	setupCannealEmu := func() *emu.Emulator {
+		n, m := 128, 64
+
+		netlist := make([]int32, n*2)
+		for i := 0; i < n*2; i++ {
+			netlist[i] = int32(i % m)
+		}
+
+		locations := make([]int32, m*2)
+		for i := 0; i < m; i++ {
+			locations[2*i] = int32((i * 37) % 1000)
+			locations[2*i+1] = int32((i * 73) % 1000)
+		}
+
+		// ARM64 machine code for routing_cost kernel:
+		//   X0 = netlist pointer, X1 = locations pointer, W2 = n
+		//   Returns total_cost in W0
+		//
+		// Note: CNEG conditions use PL instead of MI to match the
+		// emulator's CNEG implementation (condition sense is inverted
+		// relative to hardware).
+		code := []uint32{
+			0x7100045f, // cmp    w2, #1
+			0x5400034b, // b.lt   LBB0_4 (offset +0x68)
+			0xaa0003e8, // mov    x8, x0
+			0x52800000, // mov    w0, #0
+			0x91001108, // add    x8, x8, #4
+			0x52800029, // mov    w9, #1
+			0x2a0203ea, // mov    w10, w2
+			// LBB0_2 (loop body):
+			0x697fb10b, // ldpsw  x11, x12, [x8, #-4]
+			0xd37df16d, // lsl    x13, x11, #3
+			0xb86d682d, // ldr    w13, [x1, x13]
+			0xd37df18e, // lsl    x14, x12, #3
+			0xb86e682e, // ldr    w14, [x1, x14]
+			0x2a0b052b, // orr    w11, w9, w11, lsl #1
+			0xb86bd82b, // ldr    w11, [x1, w11, sxtw #2]
+			0x6b0e01ad, // subs   w13, w13, w14
+			0x2a0c052c, // orr    w12, w9, w12, lsl #1
+			0xb86cd82c, // ldr    w12, [x1, w12, sxtw #2]
+			0x4b0c016b, // sub    w11, w11, w12
+			0x5a8d45ac, // cneg   w12, w13, pl  (abs of dx)
+			0x7100017f, // cmp    w11, #0
+			0x5a8b456b, // cneg   w11, w11, pl  (abs of dy)
+			0x0b00018c, // add    w12, w12, w0
+			0x0b0b0180, // add    w0, w12, w11
+			0x91002108, // add    x8, x8, #8
+			0xf100054a, // subs   x10, x10, #1
+			0x54fffdc1, // b.ne   LBB0_2 (offset -0x48)
+			// LBB0_3:
+			0xd65f03c0, // ret
+			// LBB0_4:
+			0x52800000, // mov    w0, #0
+			0xd65f03c0, // ret
+		}
+
+		codeBase := uint64(0x10000)
+		netlistBase := uint64(0x100000)
+		locationsBase := uint64(0x200000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 100_000_000
+		em.LoadProgram(codeBase, EncodeInsts(code))
+
+		// Write netlist as little-endian int32
+		netlistBuf := make([]byte, n*2*4)
+		for i, v := range netlist {
+			binary.LittleEndian.PutUint32(netlistBuf[i*4:], uint32(v))
+		}
+		em.LoadProgram(netlistBase, netlistBuf)
+
+		// Write locations as little-endian int32
+		locationsBuf := make([]byte, m*2*4)
+		for i, v := range locations {
+			binary.LittleEndian.PutUint32(locationsBuf[i*4:], uint32(v))
+		}
+		em.LoadProgram(locationsBase, locationsBuf)
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, netlistBase)
+		em.Regs.WriteX(1, locationsBase)
+		em.Regs.WriteX(2, uint64(n))
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = 0x300000 + 8192
+		em.LoadProgram(0x300000, make([]byte, 8192))
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
 	return []Benchmark{
 		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 2.75e-07, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 512}, {Addr: 0x200000, Size: 64}, {Addr: 0x300000, Size: 64}, {Addr: 0x400000, Size: 8192},
@@ -3049,6 +3140,10 @@ func parsecAll() []Benchmark {
 			{Addr: 0x100000, Size: 32 * 16 * 8},
 			{Addr: 0x200000, Size: 32 * 16 * 8},
 			{Addr: 0x300000, Size: 32 * 8},
+		}},
+		{Name: "canneal", Suite: "parsec", Setup: setupCannealEmu, NativeTime: 1e-6, Regions: []DataRegion{
+			{Addr: 0x100000, Size: 128 * 2 * 4}, // netlist (int32)
+			{Addr: 0x200000, Size: 64 * 2 * 4},  // locations (int32)
 		}},
 	}
 }

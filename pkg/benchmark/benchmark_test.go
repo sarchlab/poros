@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// TestAllBenchmarkCount verifies that All() returns at least 32 benchmarks.
+// TestAllBenchmarkCount verifies that All() returns at least 34 benchmarks.
 func TestAllBenchmarkCount(t *testing.T) {
 	all := All()
-	if len(all) < 32 {
-		t.Errorf("All() returned %d benchmarks, want >= 32", len(all))
+	if len(all) < 34 {
+		t.Errorf("All() returned %d benchmarks, want >= 34", len(all))
 	}
 }
 
@@ -46,11 +46,11 @@ func TestBySuitePolybench(t *testing.T) {
 	}
 }
 
-// TestBySuiteParsec verifies that BySuite("parsec") returns exactly 3 benchmarks.
+// TestBySuiteParsec verifies that BySuite("parsec") returns exactly 4 benchmarks.
 func TestBySuiteParsec(t *testing.T) {
 	parsec := BySuite("parsec")
-	if len(parsec) != 3 {
-		t.Errorf("BySuite(\"parsec\") returned %d, want 3", len(parsec))
+	if len(parsec) != 4 {
+		t.Errorf("BySuite(\"parsec\") returned %d, want 4", len(parsec))
 	}
 }
 
@@ -75,6 +75,53 @@ func TestByName(t *testing.T) {
 	b = ByName("nonexistent")
 	if b != nil {
 		t.Errorf("ByName(\"nonexistent\") returned non-nil: %+v", b)
+	}
+}
+
+// TestCannealCorrectness verifies the canneal kernel produces the expected
+// routing cost.
+func TestCannealCorrectness(t *testing.T) {
+	b := ByName("canneal")
+	if b == nil {
+		t.Fatal("canneal benchmark not found")
+	}
+
+	em := b.Setup()
+	err := em.Run()
+	if err != nil {
+		t.Fatalf("emulator error: %v", err)
+	}
+
+	// Compute expected routing cost using the same algorithm as the kernel
+	n, m := 128, 64
+	netlist := make([]int32, n*2)
+	for i := 0; i < n*2; i++ {
+		netlist[i] = int32(i % m)
+	}
+	locations := make([]int32, m*2)
+	for i := 0; i < m; i++ {
+		locations[2*i] = int32((i * 37) % 1000)
+		locations[2*i+1] = int32((i * 73) % 1000)
+	}
+
+	expected := int32(0)
+	for i := 0; i < n; i++ {
+		a := netlist[2*i]
+		b := netlist[2*i+1]
+		dx := locations[2*a] - locations[2*b]
+		if dx < 0 {
+			dx = -dx
+		}
+		dy := locations[2*a+1] - locations[2*b+1]
+		if dy < 0 {
+			dy = -dy
+		}
+		expected += dx + dy
+	}
+
+	got := int32(em.Regs.ReadX(0))
+	if got != expected {
+		t.Errorf("canneal: got %d, want %d", got, expected)
 	}
 }
 
