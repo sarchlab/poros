@@ -111,6 +111,9 @@ func runSingle(b benchmark.Benchmark) {
 	engine := sim.NewSerialEngine()
 	p := cpu.NewOoOPipeline("M2sim", engine, 3490*sim.MHz, em)
 	p.Cache = cache
+	if b.FuncHookCycles != nil {
+		p.FuncHookCycles = b.FuncHookCycles
+	}
 	p.TickLater()
 	if err := engine.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: engine.Run() failed: %v\n", err)
@@ -196,6 +199,9 @@ func runComparisonTable(benchmarks []benchmark.Benchmark) {
 		engineOoO := sim.NewSerialEngine()
 		pOoO := cpu.NewOoOPipeline("M2sim", engineOoO, 3490*sim.MHz, emOoO)
 		pOoO.Cache = cacheOoO
+		if b.FuncHookCycles != nil {
+			pOoO.FuncHookCycles = b.FuncHookCycles
+		}
 		pOoO.TickLater()
 		if err := engineOoO.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s OoO engine.Run() failed: %v\n", b.Name, err)
@@ -219,6 +225,9 @@ func runComparisonTable(benchmarks []benchmark.Benchmark) {
 		engineNoBP := sim.NewSerialEngine()
 		pNoBP := cpu.NewOoOPipeline("M2sim", engineNoBP, 3490*sim.MHz, emNoBP)
 		pNoBP.Cache = cacheNoBP
+		if b.FuncHookCycles != nil {
+			pNoBP.FuncHookCycles = b.FuncHookCycles
+		}
 		pNoBP.BranchPred = nil
 		pNoBP.TickLater()
 		if err := engineNoBP.Run(); err != nil {

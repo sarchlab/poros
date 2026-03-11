@@ -19,11 +19,12 @@ type DataRegion struct {
 // Benchmark defines a benchmark kernel with its setup closure, native
 // execution time, and data regions for cache warm-up.
 type Benchmark struct {
-	Name       string
-	Suite      string
-	Setup      func() *emu.Emulator
-	NativeTime float64
-	Regions    []DataRegion
+	Name           string
+	Suite          string
+	Setup          func() *emu.Emulator
+	NativeTime     float64
+	Regions        []DataRegion
+	FuncHookCycles map[uint64]int // pipeline-level cycle cost for hooked functions
 }
 
 // EncodeInsts encodes a slice of ARM64 instruction words into a byte slice
