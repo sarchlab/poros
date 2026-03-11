@@ -238,6 +238,12 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execFMOV(inst)
 	case arm64asm.FCMP:
 		return false, e.execFCMP(inst)
+	case arm64asm.FCCMP:
+		return false, e.execFCCMP(inst)
+	case arm64asm.FMAXNM:
+		return false, e.execFMAXNM(inst)
+	case arm64asm.FMINNM:
+		return false, e.execFMINNM(inst)
 	case arm64asm.FCSEL:
 		return false, e.execFCSEL(inst)
 	case arm64asm.SCVTF:

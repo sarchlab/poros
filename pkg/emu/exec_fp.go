@@ -472,6 +472,92 @@ func (e *executor) execFCVT(inst arm64asm.Inst) error {
 	return nil
 }
 
+func (e *executor) execFCCMP(inst arm64asm.Inst) error {
+	cond := inst.Args[3].(arm64asm.Cond)
+	if e.regs.EvalCond(cond) {
+		// Condition true: compare the two FP registers (same as FCMP)
+		if isFPDouble(inst.Args[0]) {
+			a := e.regs.ReadD(dRegIndex(inst.Args[0].(arm64asm.Reg)))
+			b := e.regs.ReadD(dRegIndex(inst.Args[1].(arm64asm.Reg)))
+			e.setFPFlags64(a, b)
+		} else {
+			a := e.regs.ReadS(sRegIndex(inst.Args[0].(arm64asm.Reg)))
+			b := e.regs.ReadS(sRegIndex(inst.Args[1].(arm64asm.Reg)))
+			e.setFPFlags32(a, b)
+		}
+	} else {
+		// Condition false: set NZCV from immediate
+		nzcv := inst.Args[2].(arm64asm.Imm).Imm
+		e.regs.N = (nzcv & 8) != 0
+		e.regs.Z = (nzcv & 4) != 0
+		e.regs.C = (nzcv & 2) != 0
+		e.regs.V = (nzcv & 1) != 0
+	}
+	return nil
+}
+
+func (e *executor) execFMAXNM(inst arm64asm.Inst) error {
+	if isFPDouble(inst.Args[0]) {
+		di := dRegIndex(inst.Args[0].(arm64asm.Reg))
+		a := e.regs.ReadD(dRegIndex(inst.Args[1].(arm64asm.Reg)))
+		b := e.regs.ReadD(dRegIndex(inst.Args[2].(arm64asm.Reg)))
+		if math.IsNaN(a) && math.IsNaN(b) {
+			e.regs.WriteD(di, math.NaN())
+		} else if math.IsNaN(a) {
+			e.regs.WriteD(di, b)
+		} else if math.IsNaN(b) {
+			e.regs.WriteD(di, a)
+		} else {
+			e.regs.WriteD(di, math.Max(a, b))
+		}
+	} else {
+		si := sRegIndex(inst.Args[0].(arm64asm.Reg))
+		a := e.regs.ReadS(sRegIndex(inst.Args[1].(arm64asm.Reg)))
+		b := e.regs.ReadS(sRegIndex(inst.Args[2].(arm64asm.Reg)))
+		if math.IsNaN(float64(a)) && math.IsNaN(float64(b)) {
+			e.regs.WriteS(si, float32(math.NaN()))
+		} else if math.IsNaN(float64(a)) {
+			e.regs.WriteS(si, b)
+		} else if math.IsNaN(float64(b)) {
+			e.regs.WriteS(si, a)
+		} else {
+			e.regs.WriteS(si, float32(math.Max(float64(a), float64(b))))
+		}
+	}
+	return nil
+}
+
+func (e *executor) execFMINNM(inst arm64asm.Inst) error {
+	if isFPDouble(inst.Args[0]) {
+		di := dRegIndex(inst.Args[0].(arm64asm.Reg))
+		a := e.regs.ReadD(dRegIndex(inst.Args[1].(arm64asm.Reg)))
+		b := e.regs.ReadD(dRegIndex(inst.Args[2].(arm64asm.Reg)))
+		if math.IsNaN(a) && math.IsNaN(b) {
+			e.regs.WriteD(di, math.NaN())
+		} else if math.IsNaN(a) {
+			e.regs.WriteD(di, b)
+		} else if math.IsNaN(b) {
+			e.regs.WriteD(di, a)
+		} else {
+			e.regs.WriteD(di, math.Min(a, b))
+		}
+	} else {
+		si := sRegIndex(inst.Args[0].(arm64asm.Reg))
+		a := e.regs.ReadS(sRegIndex(inst.Args[1].(arm64asm.Reg)))
+		b := e.regs.ReadS(sRegIndex(inst.Args[2].(arm64asm.Reg)))
+		if math.IsNaN(float64(a)) && math.IsNaN(float64(b)) {
+			e.regs.WriteS(si, float32(math.NaN()))
+		} else if math.IsNaN(float64(a)) {
+			e.regs.WriteS(si, b)
+		} else if math.IsNaN(float64(b)) {
+			e.regs.WriteS(si, a)
+		} else {
+			e.regs.WriteS(si, float32(math.Min(float64(a), float64(b))))
+		}
+	}
+	return nil
+}
+
 func (e *executor) execFCVTZU(inst arm64asm.Inst) error {
 	dst := inst.Args[0].(arm64asm.Reg)
 	src := inst.Args[1].(arm64asm.Reg)
