@@ -48,6 +48,8 @@ func TestOoO_BlackScholes(t *testing.T) {
 	// Native timing (M2, -O1 -fno-vectorize, 16 options, median of 7 runs):
 	//   322 ns/iteration → ~1124 cycles @ 3.49 GHz
 	//   CPI ≈ 1124/1733 ≈ 0.65
+	const nativeTimeBlackScholes = 5.152e-06 // seconds, M2 -O1, 16 options, median of 7 runs (16 × 322ns)
+
 	numOptions := 16
 
 	stockPrices := []float64{
@@ -246,4 +248,9 @@ func TestOoO_BlackScholes(t *testing.T) {
 
 	t.Logf("BlackScholes: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
 		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+
+	simTime := float64(p.Cycles) / 3.49e9
+	ratio := simTime / nativeTimeBlackScholes
+	t.Logf("BlackScholes native comparison: simTime=%e, native=%e, ratio=%.2f",
+		simTime, nativeTimeBlackScholes, ratio)
 }
