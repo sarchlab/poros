@@ -151,6 +151,36 @@ func TestCSNEG_CondFalse(t *testing.T) {
 	assertX(t, em, 0, want)
 }
 
+func TestCNEG_CondTrue(t *testing.T) {
+	// CMP X3, X4                => 0xEB04007F
+	// CNEG X0, X1, EQ           => 0xDA811420
+	enc := uint32(0xDA811420)
+	verifyDecode(t, enc, arm64asm.CNEG)
+
+	em := newTestEmulator(0xEB04007F, enc)
+	em.Regs.WriteX(3, 42)
+	em.Regs.WriteX(4, 42) // equal, so EQ is true
+	em.Regs.WriteX(1, 7)
+	stepN(t, em, 2)
+	assertX(t, em, 0, 7) // cond true: Rd = Rn
+}
+
+func TestCNEG_CondFalse(t *testing.T) {
+	// CMP X3, X4                => 0xEB04007F
+	// CNEG X0, X1, EQ           => 0xDA811420
+	enc := uint32(0xDA811420)
+	verifyDecode(t, enc, arm64asm.CNEG)
+
+	em := newTestEmulator(0xEB04007F, enc)
+	em.Regs.WriteX(3, 42)
+	em.Regs.WriteX(4, 99) // not equal, so EQ is false
+	em.Regs.WriteX(1, 5)
+	stepN(t, em, 2)
+	// cond false: Rd = -Rn = -5
+	want := ^uint64(5) + 1 // two's complement of 5
+	assertX(t, em, 0, want)
+}
+
 func TestLSL_Imm(t *testing.T) {
 	// LSL X0, X1, #4 => UBFM X0, X1, #60, #59 => 0xD37CEC20
 	enc := uint32(0xD37CEC20)

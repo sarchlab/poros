@@ -76,6 +76,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execCSINC(inst)
 	case arm64asm.CSNEG:
 		return false, e.execCSNEG(inst)
+	case arm64asm.CNEG:
+		return false, e.execCNEG(inst)
 	case arm64asm.CSET:
 		return false, e.execCSET(inst)
 	case arm64asm.CINC:

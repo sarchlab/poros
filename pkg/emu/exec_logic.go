@@ -232,6 +232,27 @@ func (e *executor) execCSNEG(inst arm64asm.Inst) error {
 	return nil
 }
 
+func (e *executor) execCNEG(inst arm64asm.Inst) error {
+	is32 := is32bit(inst.Args[0])
+	cond := inst.Args[2].(arm64asm.Cond)
+	val := e.readOperandVal(inst.Args[1], is32)
+	var result uint64
+	if e.regs.EvalCond(cond) {
+		result = val
+	} else {
+		if is32 {
+			result = mask32(uint64(-int32(val)))
+		} else {
+			result = uint64(-int64(val))
+		}
+	}
+	if is32 {
+		result = mask32(result)
+	}
+	e.writeGPR(inst.Args[0], result)
+	return nil
+}
+
 func (e *executor) execCSET(inst arm64asm.Inst) error {
 	// CSET Rd, cond — decoded form. Cond is in Args[1].
 	cond := inst.Args[1].(arm64asm.Cond)
