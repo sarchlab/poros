@@ -3117,6 +3117,149 @@ func parsecAll() []Benchmark {
 		return em
 	}
 
+	// --- Fluidanimate benchmark ---
+	setupFluidanimateEmu := func() *emu.Emulator {
+		numParticles := 16
+		n := numParticles
+		hVal := 1.0
+
+		// Particle positions in a 4x4 grid within smoothing radius
+		pxData := make([]float64, n)
+		pyData := make([]float64, n)
+		pzData := make([]float64, n)
+		for i := 0; i < n; i++ {
+			pxData[i] = float64(i%4) * 0.3
+			pyData[i] = float64(i/4) * 0.3
+			pzData[i] = 0.0
+		}
+
+		// Particle velocities
+		vxData := make([]float64, n)
+		vyData := make([]float64, n)
+		vzData := make([]float64, n)
+		for i := 0; i < n; i++ {
+			vxData[i] = 0.1 * float64(1-2*(i%2))
+			vyData[i] = 0.1 * float64(1-2*((i/2)%2))
+			vzData[i] = 0.0
+		}
+
+		massVal := 1.0
+		rho0Val := 1000.0
+		kVal := 3.0
+		muVal := 3.5
+
+		code := []uint32{
+			0xb9401be8, 0x7100051f, 0x5400130b, 0xd280000c,
+			0xd285a30a, 0xf2aa888a, 0xf2c43f6a, 0xf2e8012a,
+			0x9e670145, 0xd2d0000a, 0xf2f808ca, 0x9e670146,
+			0xd2d0000a, 0xf2e808ca, 0x9e670147, 0xd285a30a,
+			0xf2aa888a, 0xf2c43f6a, 0xf2e80d2a, 0x9e670150,
+			0xd2d6000a, 0xf2e80e6a, 0x9e670151, 0xa940a7ea,
+			0xf94003eb, 0x1e650805, 0x1e6008a5, 0x1e6008a5,
+			0x1e6008a5, 0x1e6008a5, 0x1e6008b2, 0x1e7218c5,
+			0x1e7218e6, 0x1e600807, 0x1e700810, 0x1e600a10,
+			0x1e600a10, 0x1e600a10, 0x1e600a10, 0x1e600a10,
+			0x1e600a10, 0x1e600a10, 0x1e600a10, 0x1e701a30,
+			0x1e610a10, 0xfc6c7811, 0xfc6c7833, 0x2f00e412,
+			0xaa0803ed, 0xfc6c7854, 0xaa0003ee, 0xaa0103ef,
+			0xaa0203f0, 0xfc4085d5, 0x1e753a35, 0xfc4085f6,
+			0xfc408617, 0x1e763a76, 0x1e773a97, 0x1e760ad6,
+			0x1f555ab5, 0x1f5756f5, 0x1e7538f6, 0x1e760a17,
+			0x1e770ad7, 0x1f564af6, 0x1e6722a0, 0x1e724ed2,
+			0xf10005ad, 0x54fffe01, 0xfc2c78d2, 0x1e623a51,
+			0x1e630a31, 0xfc2c78f1, 0x9100058c, 0xeb08019f,
+			0x54fffc21, 0x7100051f, 0x5400098b, 0xd280000c,
+			0xd280000d, 0x1e614022, 0x1e640821, 0xd37d7d0e,
+			0xd29d422f, 0xf2b025af, 0xf2d2f32f, 0xf2e7ae2f,
+			0x14000008, 0xfc2d7963, 0xfc2d7944, 0xfc2d7930,
+			0x910005ad, 0x9100218c, 0xeb0801bf, 0x54000760,
+			0xd2800010, 0x2f00e403, 0x2f00e404, 0x2f00e410,
+			0x14000004, 0x91002210, 0xeb1001df, 0x54fffe40,
+			0xeb10019f, 0x54ffff80, 0xfc6d7811, 0xfc706812,
+			0x1e723a31, 0xfc6d7832, 0xfc706833, 0x1e733a52,
+			0xfc6d7853, 0xfc706854, 0x1e743a73, 0x1e720a54,
+			0x1f515234, 0x1f535274, 0x1e672280, 0x9e6701f5,
+			0x1e754684, 0x54fffd8d, 0x1e61c294, 0x1e743815,
+			0xfc6d78f6, 0xfc7068f7, 0x1e772ad6, 0x1e620ad6,
+			0xfc7068d7, 0x1e772af8, 0x1e781ad6, 0x1e7508b8,
+			0x1e780ab8, 0x1e760b16, 0x1e741ad4, 0x1f510e83,
+			0x1f521284, 0x1f534290, 0x1e771831, 0x1e7508d2,
+			0x1e710a51, 0xfc706872, 0xfc6d7873, 0x1e733a52,
+			0x1f520e23, 0xfc706892, 0xfc6d7893, 0x1e733a52,
+			0x1f521224, 0xfc7068b2, 0xfc6d78b3, 0x1e733a52,
+			0x1f524230, 0x17ffffcc, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x1000)
+		pxBase := uint64(0x100000)
+		pyBase := pxBase + uint64(n)*8
+		pzBase := pyBase + uint64(n)*8
+		vxBase := pzBase + uint64(n)*8
+		vyBase := vxBase + uint64(n)*8
+		vzBase := vyBase + uint64(n)*8
+		densityBase := vzBase + uint64(n)*8
+		pressureBase := densityBase + uint64(n)*8
+		fxBase := pressureBase + uint64(n)*8
+		fyBase := fxBase + uint64(n)*8
+		fzBase := fyBase + uint64(n)*8
+		stackBase := uint64(0x800000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+
+		em.LoadProgram(codeBase, EncodeInsts(code))
+
+		writeF64 := func(base uint64, data []float64) {
+			buf := make([]byte, len(data)*8)
+			for i, v := range data {
+				binary.LittleEndian.PutUint64(buf[i*8:], math.Float64bits(v))
+			}
+			em.LoadProgram(base, buf)
+		}
+
+		writeF64(pxBase, pxData)
+		writeF64(pyBase, pyData)
+		writeF64(pzBase, pzData)
+		writeF64(vxBase, vxData)
+		writeF64(vyBase, vyData)
+		writeF64(vzBase, vzData)
+		writeF64(densityBase, make([]float64, n))
+		writeF64(pressureBase, make([]float64, n))
+		writeF64(fxBase, make([]float64, n))
+		writeF64(fyBase, make([]float64, n))
+		writeF64(fzBase, make([]float64, n))
+
+		// Stack with arguments
+		stackBuf := make([]byte, 8192)
+		sp := stackBase + uint64(4096)
+		binary.LittleEndian.PutUint64(stackBuf[4096:], fxBase)
+		binary.LittleEndian.PutUint64(stackBuf[4096+8:], fyBase)
+		binary.LittleEndian.PutUint64(stackBuf[4096+16:], fzBase)
+		binary.LittleEndian.PutUint32(stackBuf[4096+24:], uint32(n))
+		em.LoadProgram(stackBase, stackBuf)
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, pxBase)
+		em.Regs.WriteX(1, pyBase)
+		em.Regs.WriteX(2, pzBase)
+		em.Regs.WriteX(3, vxBase)
+		em.Regs.WriteX(4, vyBase)
+		em.Regs.WriteX(5, vzBase)
+		em.Regs.WriteX(6, densityBase)
+		em.Regs.WriteX(7, pressureBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = sp
+		em.Regs.WriteD(0, hVal)
+		em.Regs.WriteD(1, massVal)
+		em.Regs.WriteD(2, rho0Val)
+		em.Regs.WriteD(3, kVal)
+		em.Regs.WriteD(4, muVal)
+		em.SetHaltPC(haltPC)
+
+		return em
+	}
+
 	// NativeTime values measured on Apple M2 (3.49 GHz).
 	//
 	// Methodology: P-core times measured with 501-run median using
@@ -3143,6 +3286,11 @@ func parsecAll() []Benchmark {
 		{Name: "canneal", Suite: "parsec", Setup: setupCannealEmu, NativeTime: 1.528e-05, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 8192 * 2 * 4}, // netlist (int32)
 			{Addr: 0x200000, Size: 512 * 2 * 4},  // locations (int32)
+		}},
+		{Name: "fluidanimate", Suite: "parsec", Setup: setupFluidanimateEmu, NativeTime: 1e-05, Regions: []DataRegion{
+			{Addr: 0x1000, Size: 155 * 4},          // code
+			{Addr: 0x100000, Size: 16 * 8 * 11},    // particle data (11 arrays × 16 particles × 8 bytes)
+			{Addr: 0x800000, Size: 8192},            // stack
 		}},
 	}
 }
