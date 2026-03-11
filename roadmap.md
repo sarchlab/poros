@@ -319,18 +319,43 @@ The simulator consists of:
 
 ## Phase 2: Multi-Core + PARSEC Milestones
 
-*Status: PLANNING — Research underway (issue #120)*
+*Research complete (Iris report, issue #120). 4 feasible PARSEC benchmarks identified. Function-level emulation avoids pthread complexity.*
 
-### M10: PARSEC Research + Multi-Core Architecture Design
-**Status:** IN PLANNING
-**Budget:** TBD (after research)
+### M10: Single-Core PARSEC Foundation
+**Status:** IN PROGRESS
+**Budget:** 4 cycles
 **Scope:**
-- Research PARSEC benchmarks: what they are, which are feasible
-- Define multi-core architecture: thread scheduler, shared cache design
-- Identify new ARM64 instructions needed for PARSEC
-- Define acceptance tests for multi-core accuracy
-- Produce architecture decision record (ADR) for multi-core implementation
+- Add 3 missing ARM64 instructions: FNMUL, FNMADD, CNEG/CSNEG
+- Implement BL-intercept mechanism for math library calls (exp, log, erfc, pow) with cycle cost modeling
+- Write 2 PARSEC scalar kernel test functions: blackscholes and swaptions (same pattern as polybench_*_test.go)
+- Add latency entries for new instructions
+- Run both through OoO pipeline, produce correct output, measure sim cycles
+- Establish native timing references on M2 for both kernels
 
-### M11–M14: TBD
-*To be defined after M10 research completes.*
+### M11: PARSEC Expansion + Multi-Core Pipeline
+**Status:** PLANNED
+**Budget:** 4 cycles
+**Scope:**
+- Add 2 more PARSEC kernels: streamcluster and canneal
+- Implement MultiCorePipeline wrapper (N independent OoOPipelines sharing L2 cache)
+- Refactor cache model: per-core private L1 + shared L2
+- Run 4 PARSEC benchmarks in multi-core mode (4 cores)
+- Multi-core simulated time = max(per-core cycles)
+
+### M12: PARSEC Calibration
+**Status:** PLANNED
+**Budget:** 4 cycles
+**Scope:**
+- Calibrate PARSEC benchmarks to ≤20% avg error, ≤50% max error
+- Per-benchmark parameter tuning (same methodology as M8.1r/M8.2)
+- Math function cycle cost tuning (exp, log, erfc latency constants)
+- Ensure PolyBench accuracy is not regressed (still ≤20% avg, ≤50% max)
+
+### M13: Final Integration + Verification
+**Status:** PLANNED
+**Budget:** 2 cycles
+**Scope:**
+- Combined ComparisonTable: all 30 PolyBench + 4 PARSEC benchmarks
+- README update with multi-core architecture and PARSEC results
+- Final verification: all benchmarks ≤20% avg, ≤50% max
 
