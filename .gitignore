@@ -1,0 +1,2 @@
+parsec/kernels/*.o
+parsec/kernels/blackscholes_native

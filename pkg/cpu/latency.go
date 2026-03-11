@@ -24,11 +24,11 @@ func ExecuteLatency(op arm64asm.Op) int {
 		return 3
 
 	// FP multiply (standalone)
-	case arm64asm.FMUL:
+	case arm64asm.FMUL, arm64asm.FNMUL:
 		return 4
 
-	// FP multiply-accumulate (FMADD/FMSUB: multiply + accumulate pipeline stages)
-	case arm64asm.FMADD, arm64asm.FMSUB:
+	// FP multiply-accumulate (FMADD/FMSUB/FNMADD: multiply + accumulate pipeline stages)
+	case arm64asm.FMADD, arm64asm.FMSUB, arm64asm.FNMADD:
 		return 7
 
 	// FP divide (M2 double-precision: ~22 cycles)

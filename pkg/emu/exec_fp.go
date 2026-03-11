@@ -148,6 +148,38 @@ func (e *executor) execFABS(inst arm64asm.Inst) error {
 	return nil
 }
 
+func (e *executor) execFNMUL(inst arm64asm.Inst) error {
+	if isFPDouble(inst.Args[0]) {
+		di := dRegIndex(inst.Args[0].(arm64asm.Reg))
+		a := e.regs.ReadD(dRegIndex(inst.Args[1].(arm64asm.Reg)))
+		b := e.regs.ReadD(dRegIndex(inst.Args[2].(arm64asm.Reg)))
+		e.regs.WriteD(di, -(a * b))
+	} else {
+		si := sRegIndex(inst.Args[0].(arm64asm.Reg))
+		a := e.regs.ReadS(sRegIndex(inst.Args[1].(arm64asm.Reg)))
+		b := e.regs.ReadS(sRegIndex(inst.Args[2].(arm64asm.Reg)))
+		e.regs.WriteS(si, -(a * b))
+	}
+	return nil
+}
+
+func (e *executor) execFNMADD(inst arm64asm.Inst) error {
+	if isFPDouble(inst.Args[0]) {
+		di := dRegIndex(inst.Args[0].(arm64asm.Reg))
+		n := e.regs.ReadD(dRegIndex(inst.Args[1].(arm64asm.Reg)))
+		m := e.regs.ReadD(dRegIndex(inst.Args[2].(arm64asm.Reg)))
+		a := e.regs.ReadD(dRegIndex(inst.Args[3].(arm64asm.Reg)))
+		e.regs.WriteD(di, -(n*m + a))
+	} else {
+		si := sRegIndex(inst.Args[0].(arm64asm.Reg))
+		n := e.regs.ReadS(sRegIndex(inst.Args[1].(arm64asm.Reg)))
+		m := e.regs.ReadS(sRegIndex(inst.Args[2].(arm64asm.Reg)))
+		a := e.regs.ReadS(sRegIndex(inst.Args[3].(arm64asm.Reg)))
+		e.regs.WriteS(si, -(n*m + a))
+	}
+	return nil
+}
+
 func (e *executor) execFMOV(inst arm64asm.Inst) error {
 	dst := inst.Args[0]
 	src := inst.Args[1]

@@ -74,6 +74,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execCSEL(inst)
 	case arm64asm.CSINC:
 		return false, e.execCSINC(inst)
+	case arm64asm.CSNEG:
+		return false, e.execCSNEG(inst)
 	case arm64asm.CSET:
 		return false, e.execCSET(inst)
 	case arm64asm.CINC:
@@ -218,6 +220,10 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execFNEG(inst)
 	case arm64asm.FABS:
 		return false, e.execFABS(inst)
+	case arm64asm.FNMUL:
+		return false, e.execFNMUL(inst)
+	case arm64asm.FNMADD:
+		return false, e.execFNMADD(inst)
 
 	// SIMD scalar move / widen
 	case arm64asm.MOVI:

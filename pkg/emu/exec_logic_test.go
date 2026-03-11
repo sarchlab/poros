@@ -125,6 +125,32 @@ func TestCSEL_NotTaken(t *testing.T) {
 	assertX(t, em, 0, 200) // EQ is false, so select X4
 }
 
+func TestCSNEG_CondTrue(t *testing.T) {
+	// CMP X3, X4                => 0xEB04007F
+	// CSNEG X0, X1, X2, EQ     => 0xDA820420
+	em := newTestEmulator(0xEB04007F, 0xDA820420)
+	em.Regs.WriteX(3, 42)
+	em.Regs.WriteX(4, 42) // equal, so EQ is true
+	em.Regs.WriteX(1, 100)
+	em.Regs.WriteX(2, 200)
+	stepN(t, em, 2)
+	assertX(t, em, 0, 100) // cond true: Rn
+}
+
+func TestCSNEG_CondFalse(t *testing.T) {
+	// CMP X3, X4                => 0xEB04007F
+	// CSNEG X0, X1, X2, EQ     => 0xDA820420
+	em := newTestEmulator(0xEB04007F, 0xDA820420)
+	em.Regs.WriteX(3, 42)
+	em.Regs.WriteX(4, 99) // not equal, so EQ is false
+	em.Regs.WriteX(1, 100)
+	em.Regs.WriteX(2, 5)
+	stepN(t, em, 2)
+	// cond false: -Rm = -5
+	want := ^uint64(5) + 1 // two's complement of 5
+	assertX(t, em, 0, want)
+}
+
 func TestLSL_Imm(t *testing.T) {
 	// LSL X0, X1, #4 => UBFM X0, X1, #60, #59 => 0xD37CEC20
 	enc := uint32(0xD37CEC20)

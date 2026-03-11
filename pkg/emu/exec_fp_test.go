@@ -298,6 +298,50 @@ func TestSXTL_2D_2S(t *testing.T) {
 	}
 }
 
+func TestFNMUL_D(t *testing.T) {
+	// FNMUL D0, D1, D2 => 0x1E628820
+	enc := uint32(0x1E628820)
+	verifyDecode(t, enc, arm64asm.FNMUL)
+
+	em := newTestEmulator(enc)
+	em.Regs.WriteD(1, 3.0)
+	em.Regs.WriteD(2, 5.0)
+	stepN(t, em, 1)
+	if got := em.Regs.ReadD(0); got != -15.0 {
+		t.Errorf("D0 = %f, want -15.0", got)
+	}
+}
+
+func TestFNMUL_S(t *testing.T) {
+	// FNMUL S0, S1, S2 => 0x1E228820
+	enc := uint32(0x1E228820)
+	verifyDecode(t, enc, arm64asm.FNMUL)
+
+	em := newTestEmulator(enc)
+	em.Regs.WriteS(1, 2.0)
+	em.Regs.WriteS(2, 4.0)
+	stepN(t, em, 1)
+	if got := em.Regs.ReadS(0); got != -8.0 {
+		t.Errorf("S0 = %f, want -8.0", got)
+	}
+}
+
+func TestFNMADD_D(t *testing.T) {
+	// FNMADD D0, D1, D2, D3 => 0x1F620C20
+	enc := uint32(0x1F620C20)
+	verifyDecode(t, enc, arm64asm.FNMADD)
+
+	em := newTestEmulator(enc)
+	em.Regs.WriteD(1, 2.0)
+	em.Regs.WriteD(2, 3.0)
+	em.Regs.WriteD(3, 10.0)
+	stepN(t, em, 1)
+	// FNMADD: -(Rn*Rm + Ra) = -(2*3 + 10) = -16
+	if got := em.Regs.ReadD(0); got != -16.0 {
+		t.Errorf("D0 = %f, want -16.0", got)
+	}
+}
+
 func TestMOVI_2D_Zero(t *testing.T) {
 	// MOVI V0.2D, #0 => 0x6F00E400
 	enc := uint32(0x6F00E400)

@@ -2,7 +2,10 @@ package emu
 
 import (
 	"encoding/binary"
+	"math"
 	"testing"
+
+	"golang.org/x/arch/arm64/arm64asm"
 )
 
 func TestEmulatorArraySum(t *testing.T) {
@@ -205,4 +208,151 @@ func TestEmulatorFibonacci(t *testing.T) {
 		t.Errorf("fibonacci(10) = %d, want 55", result)
 	}
 	t.Logf("Fibonacci executed in %d instructions", em.InstCount)
+}
+
+func TestBLIntercept_Run(t *testing.T) {
+	// Program at 0x1000:
+	//   0x1000: FMOV D0, D1         ; set up input (D0 = D1)
+	//   0x1004: BL #0x1000          ; call hook at 0x2004 (offset = 0x2004 - 0x1004 = 0x1000)
+	//   0x1008: RET                 ; return
+
+	// BL encoding: imm26 = offset/4 = 0x1000/4 = 0x400
+	// BL: 1001_01 imm26 => 0x94000400
+	blEnc := uint32(0x94000400)
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], blEnc)
+	inst, err := arm64asm.Decode(buf[:])
+	if err != nil {
+		t.Fatalf("decode BL: %v", err)
+	}
+	if inst.Op != arm64asm.BL {
+		t.Fatalf("expected BL, got %s", inst.Op)
+	}
+
+	program := []uint32{
+		0x1E604020, // FMOV D0, D1 (copy D1 to D0)
+		blEnc,      // BL #0x1000 → target = 0x1004 + 0x1000 = 0x2004
+		0xD65F03C0, // RET
+	}
+
+	codeBase := uint64(0x1000)
+	haltAddr := uint64(0xFFFF0000)
+
+	em := NewEmulator()
+	em.MaxInst = 100
+	codeBuf := make([]byte, len(program)*4)
+	for i, inst := range program {
+		binary.LittleEndian.PutUint32(codeBuf[i*4:], inst)
+	}
+	em.LoadProgram(codeBase, codeBuf)
+
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(30, haltAddr) // LR
+	em.SetHaltPC(haltAddr)
+
+	// Set D1 = 2.0 (the input for exp)
+	em.Regs.WriteD(1, 2.0)
+
+	// Register hook at 0x2004: exp(D0) → D0
+	hookAddr := uint64(0x2004) // target of BL at 0x1004
+	hookCalled := false
+	em.RegisterFuncHook(hookAddr, func(em *Emulator) {
+		hookCalled = true
+		input := em.Regs.ReadD(0)
+		em.Regs.WriteD(0, math.Exp(input))
+	})
+
+	if err := em.Run(); err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	if !hookCalled {
+		t.Fatal("hook was not called")
+	}
+	if !em.Halted {
+		t.Fatal("emulator should have halted")
+	}
+
+	got := em.Regs.ReadD(0)
+	want := math.Exp(2.0)
+	if math.Abs(got-want) > 1e-10 {
+		t.Errorf("D0 = %f, want %f (exp(2.0))", got, want)
+	}
+}
+
+func TestBLIntercept_StepDetailed(t *testing.T) {
+	// Same program as above, but use StepDetailed().
+	blEnc := uint32(0x94000400) // BL #0x1000
+
+	program := []uint32{
+		0x1E604020, // FMOV D0, D1
+		blEnc,      // BL → 0x2004
+		0xD65F03C0, // RET
+	}
+
+	codeBase := uint64(0x1000)
+	haltAddr := uint64(0xFFFF0000)
+
+	em := NewEmulator()
+	em.MaxInst = 100
+	codeBuf := make([]byte, len(program)*4)
+	for i, inst := range program {
+		binary.LittleEndian.PutUint32(codeBuf[i*4:], inst)
+	}
+	em.LoadProgram(codeBase, codeBuf)
+
+	em.Regs.PC = codeBase
+	em.Regs.WriteX(30, haltAddr)
+	em.SetHaltPC(haltAddr)
+	em.Regs.WriteD(1, 1.0) // exp(1.0) = e ≈ 2.71828
+
+	hookAddr := uint64(0x2004)
+	hookCalled := false
+	em.RegisterFuncHook(hookAddr, func(em *Emulator) {
+		hookCalled = true
+		input := em.Regs.ReadD(0)
+		em.Regs.WriteD(0, math.Exp(input))
+	})
+
+	// Step 1: FMOV D0, D1
+	inst1, branched1, err := em.StepDetailed()
+	if err != nil {
+		t.Fatalf("step 1: %v", err)
+	}
+	if inst1.Op != arm64asm.FMOV {
+		t.Errorf("step 1: expected FMOV, got %s", inst1.Op)
+	}
+	if branched1 {
+		t.Error("step 1: should not branch")
+	}
+
+	// Step 2: BL (intercepted)
+	inst2, branched2, err := em.StepDetailed()
+	if err != nil {
+		t.Fatalf("step 2: %v", err)
+	}
+	if inst2.Op != arm64asm.BL {
+		t.Errorf("step 2: expected BL, got %s", inst2.Op)
+	}
+	if !hookCalled {
+		t.Fatal("hook was not called during StepDetailed")
+	}
+	// After hook: PC should be LR (the return address after BL), which is 0x1008
+	// The BL sets LR = PC+4 = 0x1008, then hook runs, PC = LR = 0x1008
+	// branched should be false since PC = pcBefore + 4 = 0x1004 + 4 = 0x1008
+	if branched2 {
+		t.Error("step 2: intercepted BL should not appear as branched (PC = next inst)")
+	}
+
+	// Step 3: RET → halts
+	_, _, err = em.StepDetailed()
+	if err != nil {
+		t.Fatalf("step 3: %v", err)
+	}
+
+	got := em.Regs.ReadD(0)
+	want := math.Exp(1.0)
+	if math.Abs(got-want) > 1e-10 {
+		t.Errorf("D0 = %f, want %f (exp(1.0))", got, want)
+	}
 }

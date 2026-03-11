@@ -7237,3 +7237,250 @@ func TestOoO_RegisterReadinessAfterDrain(t *testing.T) {
 	t.Logf("RegisterReadiness: %d instructions, %d cycles, CPI=%.2f",
 		p.InstDone, p.Cycles, p.CPI())
 }
+
+func TestOoO_Swaptions(t *testing.T) {
+	// End-to-end test: PARSEC Swaptions (Cholesky + HJM step) through OoO pipeline.
+	//
+	// Phase 1: Run Cholesky decomposition on an 8×8 SPD matrix.
+	//          Uses FSQRT instruction, no BL hooks needed.
+	// Phase 2: Run HJM step using the Cholesky factor.
+	//          Uses BL to exp(), with FuncHookCycles for cycle cost.
+
+	n := 8
+	r := 0.05
+	dt := 0.25
+
+	// Build a positive-definite matrix: A = B*B^T + n*I
+	Bmat := make([]float64, n*n)
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			Bmat[i*n+j] = float64((i*3+j*7+1)%(n+1)) / float64(n+1)
+		}
+	}
+	A := make([]float64, n*n)
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			for k := 0; k < n; k++ {
+				A[i*n+j] += Bmat[i*n+k] * Bmat[j*n+k]
+			}
+		}
+		A[i*n+i] += float64(n)
+	}
+
+	// Golden Cholesky
+	L := make([]float64, n*n)
+	copy(L, A)
+	for j := 0; j < n; j++ {
+		sum := 0.0
+		for k := 0; k < j; k++ {
+			sum += L[j*n+k] * L[j*n+k]
+		}
+		L[j*n+j] = math.Sqrt(L[j*n+j] - sum)
+		for i := j + 1; i < n; i++ {
+			sum = 0.0
+			for k := 0; k < j; k++ {
+				sum += L[i*n+k] * L[j*n+k]
+			}
+			L[i*n+j] = (L[i*n+j] - sum) / L[j*n+j]
+		}
+	}
+
+	// Z vector
+	Z := make([]float64, n)
+	for i := 0; i < n; i++ {
+		Z[i] = float64(i*3-n) * 0.2
+	}
+
+	// Golden HJM step
+	discount := math.Exp(-r * dt)
+	expectedDF := make([]float64, n)
+	for i := 0; i < n; i++ {
+		sum := 0.0
+		for j := 0; j <= i; j++ {
+			sum += L[i*n+j] * Z[j]
+		}
+		expectedDF[i] = sum * discount
+	}
+
+	// --- Phase 1: Cholesky through OoO pipeline ---
+	cholCode := []uint32{
+		0x7100043f, 0x5400072b, 0xd280000c, 0x2a0103e8,
+		0xd37d7c29, 0x8b09000a, 0x5280002b, 0xaa0003ed,
+		0x14000007, 0x9100056b, 0x8b0901ad, 0x8b09014a,
+		0xaa0e03ec, 0xeb0801df, 0x54000580, 0xb400012c,
+		0xd280000e, 0x2f00e400, 0xfc6e79a1, 0x1f410020,
+		0x910005ce, 0xeb0e019f, 0x54ffff81, 0x14000002,
+		0x2f00e400, 0x1b017d8f, 0x8b0c0c10, 0xfc6f5a01,
+		0x1e603820, 0x1e61c000, 0xfc2f5a00, 0x9100058e,
+		0xeb0801df, 0x54fffd02, 0xaa0a03f1, 0xaa0b03e2,
+		0x1400000c, 0x2f00e400, 0x9b087c43, 0xfc637a01,
+		0x1e603820, 0xfc6f5a01, 0x1e611800, 0xfc237a00,
+		0x91000442, 0x8b090231, 0xeb08005f, 0x54fffb40,
+		0xb4fffeac, 0xd2800003, 0x2f00e400, 0xfc637a21,
+		0xfc6379a2, 0x1f420020, 0x91000463, 0xeb03019f,
+		0x54ffff61, 0x17ffffed, 0xd65f03c0,
+	}
+
+	cholBase := uint64(0x10000)
+	aBase := uint64(0x100000)
+	dfBase := uint64(0x200000)
+	zBase := uint64(0x300000)
+	stackBase := uint64(0x400000)
+	haltPC := uint64(0xFFFF0000)
+
+	em := emu.NewEmulator()
+	em.MaxInst = 10_000_000
+	em.LoadProgram(cholBase, encodeInsts(cholCode))
+
+	aBuf := make([]byte, n*n*8)
+	for i, v := range A {
+		binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(v))
+	}
+	em.LoadProgram(aBase, aBuf)
+	em.LoadProgram(stackBase, make([]byte, 8192))
+
+	em.Regs.PC = cholBase
+	em.Regs.WriteX(0, aBase)
+	em.Regs.WriteX(1, uint64(n))
+	em.Regs.WriteX(30, haltPC)
+	em.Regs.SP = stackBase + 8192
+	em.SetHaltPC(haltPC)
+
+	p := runOoOPipeline(t, em)
+
+	if !em.Halted {
+		t.Fatal("Cholesky: emulator should have halted")
+	}
+
+	// Verify Cholesky result against golden L.
+	cholMaxRelErr := 0.0
+	for i := 0; i < n*n; i++ {
+		bits := em.Mem.ReadU64(aBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := L[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > cholMaxRelErr {
+			cholMaxRelErr = relErr
+		}
+		if relErr > 1e-10 {
+			row, col := i/n, i%n
+			t.Errorf("cholesky A[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+
+	t.Logf("swaptions_cholesky: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		p.InstDone, p.Cycles, p.CPI(), cholMaxRelErr)
+
+	// --- Phase 2: HJM step through OoO pipeline ---
+	hjmCode := []uint32{
+		0xa9bd57f6, 0xa9014ff4, 0xa9027bfd, 0x910083fd,
+		0xaa0303f6, 0xaa0203f3, 0xaa0103f4, 0xaa0003f5,
+		0x1e618800, // fnmul d0, d0, d1
+		0x94000000, // BL _exp (will be patched)
+		0x710006df, 0x5400028b,
+		0xd2800008, 0xd37d7ec9, 0x5280002a, 0x2a1603eb,
+		0xd280000c, 0x2f00e401, 0xfc6c7a82, 0xfc6c7a63,
+		0x1f430441, 0x9100058c, 0xeb0c015f, 0x54ffff61,
+		0x1e610801, 0xfc287aa1, 0x91000508, 0x9100054a,
+		0x8b090294, 0xeb0b011f, 0x54fffe41, 0xa9427bfd,
+		0xa9414ff4, 0xa8c357f6, 0xd65f03c0,
+	}
+
+	hjmBase := uint64(0x50000)
+	expHookAddr := uint64(0x60000)
+
+	// Patch BL at index 9 to target expHookAddr
+	blPC := hjmBase + 9*4
+	blOffset := int64(expHookAddr) - int64(blPC)
+	imm26 := uint32(blOffset/4) & 0x03FFFFFF
+	hjmCode[9] = 0x94000000 | imm26
+
+	em2 := emu.NewEmulator()
+	em2.MaxInst = 10_000_000
+	em2.LoadProgram(hjmBase, encodeInsts(hjmCode))
+
+	// Copy Cholesky result (L) from first emulator to second as L input.
+	lBuf := make([]byte, n*n*8)
+	for i := 0; i < n*n; i++ {
+		binary.LittleEndian.PutUint64(lBuf[i*8:], em.Mem.ReadU64(aBase+uint64(i)*8))
+	}
+	lBase := uint64(0x100000)
+	em2.LoadProgram(lBase, lBuf)
+
+	// Load Z vector.
+	zBuf := make([]byte, n*8)
+	for i, v := range Z {
+		binary.LittleEndian.PutUint64(zBuf[i*8:], math.Float64bits(v))
+	}
+	em2.LoadProgram(zBase, zBuf)
+
+	// Load dF output (zero).
+	em2.LoadProgram(dfBase, make([]byte, n*8))
+
+	// Allocate stack.
+	em2.LoadProgram(stackBase, make([]byte, 8192))
+
+	// Set registers: X0=dF, X1=L, X2=Z, D0=r, D1=dt, X3=n.
+	em2.Regs.PC = hjmBase
+	em2.Regs.WriteX(0, dfBase)
+	em2.Regs.WriteX(1, lBase)
+	em2.Regs.WriteX(2, zBase)
+	em2.Regs.WriteD(0, r)
+	em2.Regs.WriteD(1, dt)
+	em2.Regs.WriteX(3, uint64(n))
+	em2.Regs.WriteX(30, haltPC)
+	em2.Regs.SP = stackBase + 8192
+	em2.SetHaltPC(haltPC)
+
+	// Register BL hook for exp.
+	em2.RegisterFuncHook(expHookAddr, func(em *emu.Emulator) {
+		input := em.Regs.ReadD(0)
+		em.Regs.WriteD(0, math.Exp(input))
+	})
+
+	// Run OoO pipeline with FuncHookCycles for exp (25 cycles).
+	engine := sim.NewSerialEngine()
+	p2 := NewOoOPipeline("TestOoO", engine, 3490*sim.MHz, em2)
+	p2.FuncHookCycles = map[uint64]int{
+		expHookAddr: 25,
+	}
+	p2.TickLater()
+	if err := engine.Run(); err != nil {
+		t.Fatalf("engine.Run() failed: %v", err)
+	}
+	if p2.Err != nil {
+		t.Fatalf("pipeline error: %v", p2.Err)
+	}
+
+	if !em2.Halted {
+		t.Fatal("HJM: emulator should have halted")
+	}
+
+	// Verify dF[] matches golden reference.
+	hjmMaxRelErr := 0.0
+	for i := 0; i < n; i++ {
+		bits := em2.Mem.ReadU64(dfBase + uint64(i)*8)
+		got := math.Float64frombits(bits)
+		want := expectedDF[i]
+
+		denom := math.Max(1.0, math.Abs(want))
+		relErr := math.Abs(got-want) / denom
+		if relErr > hjmMaxRelErr {
+			hjmMaxRelErr = relErr
+		}
+		if relErr > 1e-10 {
+			t.Errorf("dF[%d] = %g, want %g (relErr=%e)", i, got, want, relErr)
+		}
+	}
+
+	t.Logf("swaptions_hjm_step: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
+		p2.InstDone, p2.Cycles, p2.CPI(), hjmMaxRelErr)
+
+	// Print combined summary.
+	totalInsts := p.InstDone + p2.InstDone
+	totalCycles := p.Cycles + p2.Cycles
+	t.Logf("swaptions_combined: total %d instructions, %d cycles, overall CPI=%.2f",
+		totalInsts, totalCycles, float64(totalCycles)/float64(totalInsts))
+}

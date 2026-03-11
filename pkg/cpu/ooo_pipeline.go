@@ -76,6 +76,11 @@ type OoOPipeline struct {
 	// Frontend.
 	frontendReady uint64 // cycle when frontend can fetch next batch
 
+	// FuncHookCycles maps hooked function addresses to their cycle cost.
+	// When the emulator intercepts a BL to a hooked address, the pipeline
+	// uses this value as the execute latency instead of the default 1.
+	FuncHookCycles map[uint64]int
+
 	// Statistics.
 	Cycles   uint64
 	InstDone uint64
@@ -258,7 +263,7 @@ func (p *OoOPipeline) fetchAndProcess() {
 			latency = 5
 		} else {
 			var miss bool
-			latency, miss = p.instrLatency(inst)
+			latency, miss = p.instrLatencyWithPC(inst, pc)
 			// MSHR: if load missed L1, acquire an MSHR slot (may stall).
 			if miss {
 				mshrIdx, mshrCycle := p.acquireMSHR(issueCycle)
@@ -395,6 +400,7 @@ func classifyUnit(op arm64asm.Op) unitType {
 	switch op {
 	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FMUL,
 		arm64asm.FMADD, arm64asm.FMSUB,
+		arm64asm.FNMUL, arm64asm.FNMADD,
 		arm64asm.FDIV, arm64asm.FSQRT,
 		arm64asm.FCMP, arm64asm.FMOV, arm64asm.FCSEL,
 		arm64asm.SCVTF, arm64asm.UCVTF,
@@ -458,6 +464,21 @@ func (p *OoOPipeline) markUnitBusy(ut unitType, idx int, issueCycle uint64, op a
 	case unitLDST:
 		p.ldstUnits[idx] = busyUntil
 	}
+}
+
+// instrLatencyWithPC computes the execution latency for an instruction,
+// using the PC to check for hooked BL instructions.
+func (p *OoOPipeline) instrLatencyWithPC(inst arm64asm.Inst, pc uint64) (latency uint64, l1Miss bool) {
+	// Check for hooked BL instruction.
+	if inst.Op == arm64asm.BL && p.FuncHookCycles != nil {
+		if pcrel, ok := inst.Args[0].(arm64asm.PCRel); ok {
+			target := uint64(int64(pc) + int64(pcrel))
+			if cycles, ok := p.FuncHookCycles[target]; ok {
+				return uint64(cycles), false
+			}
+		}
+	}
+	return p.instrLatency(inst)
 }
 
 // instrLatency computes the execution latency for an instruction.
