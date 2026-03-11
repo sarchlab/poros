@@ -6831,6 +6831,9 @@ func comparisonKernels() []setupFunc {
 }
 
 func TestOoO_ComparisonTable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ComparisonTable in short mode (runs all kernels 3x, needs >5m)")
+	}
 	const freq = 3.49e9 // M2 Avalanche core frequency
 
 	type kernelResult struct {
