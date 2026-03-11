@@ -8,13 +8,14 @@ import (
 
 // Emulator is an ARM64 functional emulator.
 type Emulator struct {
-	Regs     *Registers
-	Mem      *Memory
-	exec     executor
+	Regs      *Registers
+	Mem       *Memory
+	exec      executor
 	InstCount uint64
 	MaxInst   uint64 // Max instructions before stopping (default 10M)
-	haltPC   uint64  // Stop when PC equals this value
-	Halted   bool
+	haltPC    uint64 // Stop when PC equals this value
+	Halted    bool
+	FuncHooks map[uint64]func(em *Emulator) // address → Go function hook
 }
 
 // NewEmulator creates a new emulator with empty state.
@@ -55,6 +56,24 @@ func (em *Emulator) Run() error {
 		if err != nil {
 			return fmt.Errorf("decode error at PC=%#x: %w (bytes: %02x %02x %02x %02x)",
 				em.Regs.PC, err, buf[0], buf[1], buf[2], buf[3])
+		}
+
+		// BL intercept: check if target is a hooked function.
+		// The hook simulates the entire call+return sequence. LR is set
+		// temporarily for the hook's benefit, then restored to preserve
+		// the caller's link register.
+		if inst.Op == arm64asm.BL && em.FuncHooks != nil {
+			target := blTarget(em.Regs.PC, inst)
+			if hook, ok := em.FuncHooks[target]; ok {
+				retAddr := em.Regs.PC + 4
+				savedLR := em.Regs.ReadX(30)
+				em.Regs.WriteX(30, retAddr) // LR = PC + 4 (visible to hook)
+				hook(em)
+				em.Regs.WriteX(30, savedLR) // restore caller's LR
+				em.Regs.PC = retAddr        // PC = return address
+				em.InstCount++
+				continue
+			}
 		}
 
 		// Execute
@@ -122,6 +141,28 @@ func (em *Emulator) StepDetailed() (arm64asm.Inst, bool, error) {
 			"decode error at PC=%#x: %w", em.Regs.PC, err)
 	}
 
+	// BL intercept: check if target is a hooked function.
+	if inst.Op == arm64asm.BL && em.FuncHooks != nil {
+		target := blTarget(em.Regs.PC, inst)
+		if hook, ok := em.FuncHooks[target]; ok {
+			retAddr := em.Regs.PC + 4
+			savedLR := em.Regs.ReadX(30)
+			em.Regs.WriteX(30, retAddr) // LR = PC + 4 (visible to hook)
+			hook(em)
+			em.Regs.WriteX(30, savedLR) // restore caller's LR
+			em.Regs.PC = retAddr        // PC = return address
+			em.InstCount++
+
+			// Check halt after hook execution.
+			if em.Regs.PC == em.haltPC && em.InstCount > 0 {
+				em.Halted = true
+			}
+
+			branched := em.Regs.PC != pcBefore+4
+			return inst, branched, nil
+		}
+	}
+
 	execBranched, err := em.exec.execute(inst)
 	if err != nil {
 		return inst, false, fmt.Errorf(
@@ -140,6 +181,23 @@ func (em *Emulator) StepDetailed() (arm64asm.Inst, bool, error) {
 
 	branched := em.Regs.PC != pcBefore+4
 	return inst, branched, nil
+}
+
+// RegisterFuncHook registers a Go function to be called when a BL to the
+// given address is encountered. The hook reads arguments from registers and
+// writes results. After the hook executes, PC is set to LR (X30).
+func (em *Emulator) RegisterFuncHook(addr uint64, fn func(em *Emulator)) {
+	if em.FuncHooks == nil {
+		em.FuncHooks = make(map[uint64]func(em *Emulator))
+	}
+	em.FuncHooks[addr] = fn
+}
+
+// blTarget computes the target address for a BL instruction decoded at the
+// given PC.
+func blTarget(pc uint64, inst arm64asm.Inst) uint64 {
+	offset := int64(inst.Args[0].(arm64asm.PCRel))
+	return uint64(int64(pc) + offset)
 }
 
 // LoadProgram loads program bytes at the specified address.
