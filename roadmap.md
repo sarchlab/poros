@@ -333,28 +333,25 @@ The simulator consists of:
 - Establish native timing references on M2 for both kernels
 
 ### M10.5: CLI Tool — Make m2sim Usable (from human issue #126)
-**Status:** PLANNED
-**Budget:** 4 cycles
+**Status:** COMPLETE (4 cycles)
+**Budget:** 4 cycles | **Actual:** 4 cycles
 **Scope:**
-- Refactor benchmark definitions from `pkg/cpu/ooo_pipeline_test.go` into a reusable `pkg/benchmark` package
-- Each benchmark becomes a struct with: name, setup function, native time, data regions, dataset size info
-- Build CLI tool in `cmd/m2sim/main.go` with subcommands:
-  - `m2sim list` — list available benchmarks
-  - `m2sim run <benchmark>` — run a single benchmark, show results
-  - `m2sim run --all` — run all benchmarks, show comparison table
-  - `m2sim eval` — run quick 6-benchmark evaluation
-- Output format matches existing ComparisonTable (instructions, CPI, sim time, native time, ratio, error)
-- Tests still use the same benchmark definitions (import from pkg/benchmark)
-- No functional changes to the simulator — purely a usability improvement
+- Refactored benchmark definitions from `pkg/cpu/ooo_pipeline_test.go` into `pkg/benchmark` package
+- Built CLI tool in `cmd/m2sim/main.go` with list/run/eval subcommands
+- `comparisonKernels()` calls `benchmark.All()`, deleting ~2525 lines of duplication
+- All tests pass, CLI works correctly
+- PR #25 merged to main
 
-### M11: PARSEC Expansion + Multi-Core Pipeline
-**Status:** PLANNED
-**Budget:** 4 cycles
+### M11: Multi-Core Pipeline + PARSEC Expansion
+**Status:** IN PROGRESS
+**Budget:** 6 cycles
 **Scope:**
-- Add 2 more PARSEC kernels: streamcluster and canneal
-- Implement MultiCorePipeline wrapper (N independent OoOPipelines sharing L2 cache)
 - Refactor cache model: per-core private L1 + shared L2
-- Run 4 PARSEC benchmarks in multi-core mode (4 cores)
+- Implement MultiCorePipeline wrapper (N independent OoOPipelines sharing L2)
+- Add 2 more PARSEC kernels: streamcluster and canneal
+- Run all 4 PARSEC benchmarks in multi-core mode (4 cores)
+- Establish native timing references for 4-thread PARSEC execution
+- CLI integration: `--cores N` flag for multi-core mode
 - Multi-core simulated time = max(per-core cycles)
 
 ### M12: PARSEC Calibration
