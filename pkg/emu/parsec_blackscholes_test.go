@@ -48,6 +48,9 @@ func TestParsecBlackScholes(t *testing.T) {
 	// Compiled with: clang -target arm64-apple-macos -O1 -fno-vectorize
 	//                -fno-slp-vectorize -fno-unroll-loops
 	//
+	// Native timing reference (M2, -O1, 16 options, median of 7 runs):
+	//   322 ns/iteration, 16 × 322ns = 5152ns = 5.152e-06 seconds total
+	//
 	// ARM64 ABI:
 	//   X0=prices, X1=S, X2=X, X3=r, X4=v, X5=T, X6=otype, W7=numOptions
 

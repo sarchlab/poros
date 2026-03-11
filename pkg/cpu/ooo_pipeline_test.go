@@ -7246,6 +7246,14 @@ func TestOoO_Swaptions(t *testing.T) {
 	// Phase 2: Run HJM step using the Cholesky factor.
 	//          Uses BL to exp(), with FuncHookCycles for cycle cost.
 
+	// Native timing (M2, -O1 -fno-vectorize, median of 7 runs):
+	//   Cholesky 8×8: ~180 ns → ~628 cycles @ 3.49 GHz
+	//   HJM step 8-factor: ~95 ns → ~332 cycles @ 3.49 GHz
+	//   Combined: ~275 ns → ~960 cycles @ 3.49 GHz
+	const nativeTimeSwaptionsCholesky = 1.80e-07 // seconds
+	const nativeTimeSwaptionsHJM = 9.5e-08       // seconds
+	const nativeTimeSwaptions = 2.75e-07         // seconds, combined
+
 	n := 8
 	r := 0.05
 	dt := 0.25
@@ -7373,6 +7381,10 @@ func TestOoO_Swaptions(t *testing.T) {
 	t.Logf("swaptions_cholesky: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
 		p.InstDone, p.Cycles, p.CPI(), cholMaxRelErr)
 
+	cholSimTime := float64(p.Cycles) / 3.49e9
+	t.Logf("swaptions_cholesky native: simTime=%e, native=%e, ratio=%.2f",
+		cholSimTime, nativeTimeSwaptionsCholesky, cholSimTime/nativeTimeSwaptionsCholesky)
+
 	// --- Phase 2: HJM step through OoO pipeline ---
 	hjmCode := []uint32{
 		0xa9bd57f6, 0xa9014ff4, 0xa9027bfd, 0x910083fd,
@@ -7478,9 +7490,17 @@ func TestOoO_Swaptions(t *testing.T) {
 	t.Logf("swaptions_hjm_step: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
 		p2.InstDone, p2.Cycles, p2.CPI(), hjmMaxRelErr)
 
+	hjmSimTime := float64(p2.Cycles) / 3.49e9
+	t.Logf("swaptions_hjm native: simTime=%e, native=%e, ratio=%.2f",
+		hjmSimTime, nativeTimeSwaptionsHJM, hjmSimTime/nativeTimeSwaptionsHJM)
+
 	// Print combined summary.
 	totalInsts := p.InstDone + p2.InstDone
 	totalCycles := p.Cycles + p2.Cycles
 	t.Logf("swaptions_combined: total %d instructions, %d cycles, overall CPI=%.2f",
 		totalInsts, totalCycles, float64(totalCycles)/float64(totalInsts))
+
+	totalSimTime := float64(totalCycles) / 3.49e9
+	t.Logf("swaptions_combined native: simTime=%e, native=%e, ratio=%.2f",
+		totalSimTime, nativeTimeSwaptions, totalSimTime/nativeTimeSwaptions)
 }
