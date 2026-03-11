@@ -93,7 +93,7 @@ func TestCannealCorrectness(t *testing.T) {
 	}
 
 	// Compute expected routing cost using the same algorithm as the kernel
-	n, m := 128, 64
+	n, m := 8192, 512
 	netlist := make([]int32, n*2)
 	for i := 0; i < n*2; i++ {
 		netlist[i] = int32(i % m)
@@ -139,7 +139,7 @@ func TestStreamclusterCorrectness(t *testing.T) {
 		t.Fatalf("emulator error: %v", err)
 	}
 
-	npoints, dim := 32, 16
+	npoints, dim := 512, 32
 	totalCoords := npoints * dim
 
 	p1 := make([]float64, totalCoords)

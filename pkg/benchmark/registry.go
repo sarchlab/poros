@@ -2532,7 +2532,7 @@ func All() []Benchmark {
 // parsecAll returns the PARSEC benchmark definitions.
 func parsecAll() []Benchmark {
 	setupSwaptionsEmu := func() *emu.Emulator {
-		n := 8
+		n := 50
 		r := 0.05
 		dt := 0.25
 
@@ -2809,31 +2809,21 @@ func parsecAll() []Benchmark {
 
 	// --- Black-Scholes benchmark ---
 	setupBlackScholesEmu := func() *emu.Emulator {
-		numOptions := 16
+		numOptions := 1024
 
-		stockPrices := []float64{
-			42.0, 100.0, 50.0, 80.0, 120.0, 30.0, 95.0, 70.0,
-			55.0, 110.0, 45.0, 85.0, 60.0, 75.0, 90.0, 65.0,
-		}
-		strikePrices := []float64{
-			40.0, 105.0, 48.0, 82.0, 115.0, 32.0, 100.0, 68.0,
-			52.0, 108.0, 50.0, 80.0, 58.0, 72.0, 88.0, 70.0,
-		}
-		riskFreeRate := []float64{
-			0.05, 0.04, 0.06, 0.03, 0.05, 0.04, 0.05, 0.06,
-			0.03, 0.05, 0.04, 0.06, 0.05, 0.03, 0.04, 0.05,
-		}
-		volatility := []float64{
-			0.20, 0.25, 0.30, 0.15, 0.22, 0.35, 0.18, 0.28,
-			0.25, 0.20, 0.30, 0.22, 0.25, 0.18, 0.20, 0.32,
-		}
-		timeToExp := []float64{
-			0.50, 1.00, 0.25, 0.75, 1.50, 0.30, 0.80, 0.60,
-			1.00, 0.50, 0.75, 1.25, 0.40, 0.90, 1.00, 0.50,
-		}
-		optionType := []int32{
-			0, 1, 0, 1, 0, 1, 0, 1,
-			0, 1, 0, 1, 0, 1, 0, 1,
+		stockPrices := make([]float64, numOptions)
+		strikePrices := make([]float64, numOptions)
+		riskFreeRate := make([]float64, numOptions)
+		volatility := make([]float64, numOptions)
+		timeToExp := make([]float64, numOptions)
+		optionType := make([]int32, numOptions)
+		for i := 0; i < numOptions; i++ {
+			stockPrices[i] = 30.0 + float64(i%80)*1.25
+			strikePrices[i] = 28.0 + float64(i%80)*1.25
+			riskFreeRate[i] = 0.03 + float64(i%10)*0.005
+			volatility[i] = 0.15 + float64(i%20)*0.02
+			timeToExp[i] = 0.25 + float64(i%8)*0.25
+			optionType[i] = int32(i % 2)
 		}
 
 		code := []uint32{
@@ -2955,7 +2945,7 @@ func parsecAll() []Benchmark {
 
 	// --- Streamcluster benchmark ---
 	setupStreamclusterEmu := func() *emu.Emulator {
-		npoints, dim := 32, 16
+		npoints, dim := 512, 32
 		totalCoords := npoints * dim
 
 		p1 := make([]float64, totalCoords)
@@ -3038,7 +3028,7 @@ func parsecAll() []Benchmark {
 
 	// --- Canneal benchmark ---
 	setupCannealEmu := func() *emu.Emulator {
-		n, m := 128, 64
+		n, m := 8192, 512
 
 		netlist := make([]int32, n*2)
 		for i := 0; i < n*2; i++ {
@@ -3128,22 +3118,22 @@ func parsecAll() []Benchmark {
 	}
 
 	return []Benchmark{
-		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 2.75e-07, Regions: []DataRegion{
-			{Addr: 0x100000, Size: 512}, {Addr: 0x200000, Size: 64}, {Addr: 0x300000, Size: 64}, {Addr: 0x400000, Size: 8192},
+		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 1e-4, Regions: []DataRegion{
+			{Addr: 0x100000, Size: 50 * 50 * 8}, {Addr: 0x200000, Size: 50 * 8}, {Addr: 0x300000, Size: 50 * 8}, {Addr: 0x400000, Size: 8192},
 		}, FuncHookCycles: map[uint64]int{0x40000: 25}},
-		{Name: "blackscholes", Suite: "parsec", Setup: setupBlackScholesEmu, NativeTime: 5.152e-06, Regions: []DataRegion{
-			{Addr: 0x1000, Size: 173 * 4}, {Addr: 0x100000, Size: 128}, {Addr: 0x200000, Size: 128},
-			{Addr: 0x300000, Size: 128}, {Addr: 0x400000, Size: 128}, {Addr: 0x500000, Size: 128},
-			{Addr: 0x600000, Size: 128}, {Addr: 0x700000, Size: 64}, {Addr: 0x800000, Size: 8192},
+		{Name: "blackscholes", Suite: "parsec", Setup: setupBlackScholesEmu, NativeTime: 1e-4, Regions: []DataRegion{
+			{Addr: 0x1000, Size: 173 * 4}, {Addr: 0x100000, Size: 1024 * 8}, {Addr: 0x200000, Size: 1024 * 8},
+			{Addr: 0x300000, Size: 1024 * 8}, {Addr: 0x400000, Size: 1024 * 8}, {Addr: 0x500000, Size: 1024 * 8},
+			{Addr: 0x600000, Size: 1024 * 8}, {Addr: 0x700000, Size: 1024 * 4}, {Addr: 0x800000, Size: 8192},
 		}, FuncHookCycles: map[uint64]int{0xF000: 20, 0xF100: 25}},
-		{Name: "streamcluster", Suite: "parsec", Setup: setupStreamclusterEmu, NativeTime: 1e-6, Regions: []DataRegion{
-			{Addr: 0x100000, Size: 32 * 16 * 8},
-			{Addr: 0x200000, Size: 32 * 16 * 8},
-			{Addr: 0x300000, Size: 32 * 8},
+		{Name: "streamcluster", Suite: "parsec", Setup: setupStreamclusterEmu, NativeTime: 1e-4, Regions: []DataRegion{
+			{Addr: 0x100000, Size: 512 * 32 * 8},
+			{Addr: 0x200000, Size: 512 * 32 * 8},
+			{Addr: 0x300000, Size: 512 * 8},
 		}},
-		{Name: "canneal", Suite: "parsec", Setup: setupCannealEmu, NativeTime: 1e-6, Regions: []DataRegion{
-			{Addr: 0x100000, Size: 128 * 2 * 4}, // netlist (int32)
-			{Addr: 0x200000, Size: 64 * 2 * 4},  // locations (int32)
+		{Name: "canneal", Suite: "parsec", Setup: setupCannealEmu, NativeTime: 1e-4, Regions: []DataRegion{
+			{Addr: 0x100000, Size: 8192 * 2 * 4}, // netlist (int32)
+			{Addr: 0x200000, Size: 512 * 2 * 4},  // locations (int32)
 		}},
 	}
 }
