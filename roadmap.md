@@ -322,7 +322,7 @@ The simulator consists of:
 *Research complete (Iris report, issue #120). 4 feasible PARSEC benchmarks identified. Function-level emulation avoids pthread complexity.*
 
 ### M10: Single-Core PARSEC Foundation
-**Status:** IN PROGRESS
+**Status:** COMPLETE (3 cycles)
 **Budget:** 4 cycles
 **Scope:**
 - Add 3 missing ARM64 instructions: FNMUL, FNMADD, CNEG/CSNEG
@@ -331,6 +331,21 @@ The simulator consists of:
 - Add latency entries for new instructions
 - Run both through OoO pipeline, produce correct output, measure sim cycles
 - Establish native timing references on M2 for both kernels
+
+### M10.5: CLI Tool — Make m2sim Usable (from human issue #126)
+**Status:** PLANNED
+**Budget:** 4 cycles
+**Scope:**
+- Refactor benchmark definitions from `pkg/cpu/ooo_pipeline_test.go` into a reusable `pkg/benchmark` package
+- Each benchmark becomes a struct with: name, setup function, native time, data regions, dataset size info
+- Build CLI tool in `cmd/m2sim/main.go` with subcommands:
+  - `m2sim list` — list available benchmarks
+  - `m2sim run <benchmark>` — run a single benchmark, show results
+  - `m2sim run --all` — run all benchmarks, show comparison table
+  - `m2sim eval` — run quick 6-benchmark evaluation
+- Output format matches existing ComparisonTable (instructions, CPI, sim time, native time, ratio, error)
+- Tests still use the same benchmark definitions (import from pkg/benchmark)
+- No functional changes to the simulator — purely a usability improvement
 
 ### M11: PARSEC Expansion + Multi-Core Pipeline
 **Status:** PLANNED

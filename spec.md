@@ -16,6 +16,13 @@ You run on an Apple M2 machine, so you can run locally to measure.
 - Introduce the PARSEC benchmark suite for multi-threaded workload evaluation
 - All benchmarks (PolyBench and PARSEC) must meet ≤20% average error, ≤50% max error targets
 
+## CLI Tool Requirement (from human issue #126)
+
+- `/cmd/m2sim/main.go` must be a usable command-line tool, not just a placeholder
+- The tool should allow users to run benchmarks, view results, and interact with the simulator without writing test code
+- Must support running PolyBench and PARSEC benchmarks from the command line
+- Should provide clear usage instructions and help text
+
 ## Constraints
 
 - Built on Akita v4 framework in Go
