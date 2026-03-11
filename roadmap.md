@@ -1,13 +1,17 @@
 # M2Sim Roadmap
 
 ## Project Goal
-Build a cycle-accurate, execution-driven Apple M2 CPU simulator on Akita (Go) that runs the full PolyBench/C suite with ≤20% average time estimation error (max 50% per benchmark).
+Build a cycle-accurate, execution-driven Apple M2 CPU simulator on Akita (Go) that runs the full PolyBench/C suite AND the PARSEC benchmark suite with ≤20% average time estimation error (max 50% per benchmark).
+
+**Phase 1 (COMPLETE):** PolyBench single-core — avg 13.1%, max 36.0% ✓
+**Phase 2 (IN PROGRESS):** Multi-core support + PARSEC benchmarks
 
 ## Architecture Overview
 
 The simulator consists of:
-1. **Functional Emulator**: ARM64 instruction decoder + interpreter (subset sufficient for PolyBench)
+1. **Functional Emulator**: ARM64 instruction decoder + interpreter (subset sufficient for PolyBench + PARSEC)
 2. **Timing Model**: Akita-based cycle-accurate pipeline, OoO engine, memory hierarchy, branch predictor
+3. **Multi-Core Model**: Thread scheduler, shared L2 cache with coherency, inter-core synchronization
 3. **Benchmark Harness**: PolyBench compilation, native reference timing, comparison framework
 
 ## Milestones
@@ -310,3 +314,23 @@ The simulator consists of:
 3. **Akita learning curve**: No existing CPU simulator on Akita — we're pioneering.
 4. **Simulation speed**: Cycle-accurate simulation of LARGE dataset benchmarks may be too slow. May need to use MINI/SMALL datasets.
 5. **Calibration difficulty**: Many microarchitectural parameters are estimates from reverse engineering.
+
+---
+
+## Phase 2: Multi-Core + PARSEC Milestones
+
+*Status: PLANNING — Research underway (issue #120)*
+
+### M10: PARSEC Research + Multi-Core Architecture Design
+**Status:** IN PLANNING
+**Budget:** TBD (after research)
+**Scope:**
+- Research PARSEC benchmarks: what they are, which are feasible
+- Define multi-core architecture: thread scheduler, shared cache design
+- Identify new ARM64 instructions needed for PARSEC
+- Define acceptance tests for multi-core accuracy
+- Produce architecture decision record (ADR) for multi-core implementation
+
+### M11–M14: TBD
+*To be defined after M10 research completes.*
+
