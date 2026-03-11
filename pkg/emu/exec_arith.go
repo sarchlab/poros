@@ -141,6 +141,17 @@ func (e *executor) execSMADDL(inst arm64asm.Inst) error {
 	return nil
 }
 
+func (e *executor) execUMADDL(inst arm64asm.Inst) error {
+	// UMADDL Xd, Wn, Wm, Xa — Xd = Xa + (zext(Wn) * zext(Wm))
+	dst := inst.Args[0]
+	op1 := uint64(uint32(e.readOperandVal(inst.Args[1], true)))
+	op2 := uint64(uint32(e.readOperandVal(inst.Args[2], true)))
+	addend := e.readOperandVal(inst.Args[3], false)
+	result := addend + op1*op2
+	e.writeGPR(dst, result)
+	return nil
+}
+
 func (e *executor) execUMULH(inst arm64asm.Inst) error {
 	// UMULH Xd, Xn, Xm — 64x64→128, return high 64 bits
 	dst := inst.Args[0]

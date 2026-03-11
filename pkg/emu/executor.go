@@ -38,6 +38,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execSMULL(inst)
 	case arm64asm.SMADDL:
 		return false, e.execSMADDL(inst)
+	case arm64asm.UMADDL:
+		return false, e.execUMADDL(inst)
 	case arm64asm.UMULH:
 		return false, e.execUMULH(inst)
 	case arm64asm.NEG:
@@ -70,6 +72,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execCMN(inst)
 	case arm64asm.CCMP:
 		return false, e.execCCMP(inst)
+	case arm64asm.CCMN:
+		return false, e.execCCMN(inst)
 	case arm64asm.CSEL:
 		return false, e.execCSEL(inst)
 	case arm64asm.CSINC:
@@ -128,6 +132,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execSBFX(inst)
 	case arm64asm.BFM:
 		return false, e.execBFM(inst)
+	case arm64asm.BFI:
+		return false, e.execBFI(inst)
 	case arm64asm.EXTR:
 		return false, e.execEXTR(inst)
 	case arm64asm.CLZ:

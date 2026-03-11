@@ -176,6 +176,51 @@ func (e *executor) execCCMP(inst arm64asm.Inst) error {
 	return nil
 }
 
+func (e *executor) execCCMN(inst arm64asm.Inst) error {
+	// CCMN Rn, #imm, #nzcv, cond — conditional compare negative (adds operands)
+	is32 := is32bit(inst.Args[0])
+	cond := inst.Args[3].(arm64asm.Cond)
+
+	if e.regs.EvalCond(cond) {
+		op1 := e.readOperandVal(inst.Args[0], is32)
+		op2 := e.readOperandVal(inst.Args[1], is32)
+		if is32 {
+			_, n, z, c, v := addWithCarry32(uint32(op1), uint32(op2), 0)
+			e.regs.N, e.regs.Z, e.regs.C, e.regs.V = n, z, c, v
+		} else {
+			_, n, z, c, v := addWithCarry64(op1, op2, 0)
+			e.regs.N, e.regs.Z, e.regs.C, e.regs.V = n, z, c, v
+		}
+	} else {
+		nzcv := resolveImm(inst.Args[2])
+		e.regs.N = (nzcv>>3)&1 != 0
+		e.regs.Z = (nzcv>>2)&1 != 0
+		e.regs.C = (nzcv>>1)&1 != 0
+		e.regs.V = nzcv&1 != 0
+	}
+	return nil
+}
+
+func (e *executor) execBFI(inst arm64asm.Inst) error {
+	// BFI Rd, Rn, #lsb, #width — insert lowest 'width' bits of Rn into Rd at position 'lsb'
+	is32 := is32bit(inst.Args[0])
+	dst := e.readOperandVal(inst.Args[0], is32)
+	src := e.readOperandVal(inst.Args[1], is32)
+	lsb := resolveImm(inst.Args[2])
+	width := resolveImm(inst.Args[3])
+
+	mask := (uint64(1) << width) - 1
+	bits := src & mask
+	dstMask := mask << lsb
+	result := (dst &^ dstMask) | (bits << lsb)
+
+	if is32 {
+		result = mask32(result)
+	}
+	e.writeGPR(inst.Args[0], result)
+	return nil
+}
+
 func (e *executor) execCSEL(inst arm64asm.Inst) error {
 	is32 := is32bit(inst.Args[0])
 	cond := inst.Args[3].(arm64asm.Cond)
