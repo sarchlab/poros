@@ -1,3 +1,4 @@
 parsec/kernels/*.o
-parsec/kernels/blackscholes_native
+parsec/kernels/*_native
 m2sim
+simulation_results.txt

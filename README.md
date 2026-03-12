@@ -1,12 +1,12 @@
 # M2Sim
 
-M2Sim is a cycle-accurate, execution-driven Apple M2 CPU simulator built on the [Akita](https://github.com/sarchlab/akita) discrete-event simulation framework in Go. It models the M2's Avalanche (P-core) out-of-order superscalar pipeline with multi-core support. It runs 34 benchmarks across two suites — [PolyBench/C](https://web.cse.ohio-state.edu/~pouchet.2/software/polybench/) (30 numerical kernels) and [PARSEC](https://parsec.cs.princeton.edu/) (4 parallel workloads) — with high accuracy.
+M2Sim is a cycle-accurate, execution-driven Apple M2 CPU simulator built on the [Akita](https://github.com/sarchlab/akita) discrete-event simulation framework in Go. It models the M2's Avalanche (P-core) out-of-order superscalar pipeline with multi-core support. It runs 41 benchmarks across two suites — [PolyBench/C](https://web.cse.ohio-state.edu/~pouchet.2/software/polybench/) (30 numerical kernels) and [PARSEC](https://parsec.cs.princeton.edu/) (11 parallel workloads) — with high accuracy.
 
 ## Accuracy Results
 
-- **Average error: 14.6%** (target: ≤20%)
+- **Average error: 15.8%** (target: ≤20%)
 - **Maximum error: 42.5%** on `swaptions` (target: ≤50%)
-- All 34 benchmarks pass the ≤50% error threshold
+- All 41 benchmarks pass the ≤50% error threshold
 
 Error is calculated as `|sim_time - native_time| / min(sim_time, native_time)`.
 
@@ -45,14 +45,23 @@ Error is calculated as `|sim_time - native_time| / min(sim_time, native_time)`.
 | seidel2d | 26.5% |
 | deriche | 10.9% |
 
-### PARSEC Results
+### PARSEC Results (11 benchmarks)
 
 | Benchmark | Description | Error |
 |-----------|-------------|------:|
 | blackscholes | Option pricing via Black-Scholes PDE | 17.1% |
+| bodytrack | Particle filter body tracking (vision) | 20.4% |
 | canneal | Simulated annealing for chip routing | 7.6% |
+| facesim | FEM tetrahedron force computation | 38.6% |
+| ferret | k-NN similarity search | 24.0% |
+| fluidanimate | SPH fluid dynamics simulation | 39.3% |
+| raytrace | BVH ray-triangle intersection | 1.6% |
 | streamcluster | Online clustering of streaming data | 36.0% |
 | swaptions | Interest-rate derivative pricing (HJM) | 42.5% |
+| vips | 2D image convolution | 10.0% |
+| x264 | H.264 motion estimation (integer SAD/SATD) | 19.3% |
+
+**Skipped benchmarks:** `dedup` (pipeline parallelism incompatible with function-level emulation) and `freqmine` (pointer-chasing tree traversal not representable in flat-memory emulator).
 
 ## Build and Run
 
@@ -65,7 +74,7 @@ go test ./pkg/cpu    # Run all tests
 ### CLI Usage
 
 ```bash
-# List all 34 benchmarks
+# List all 41 benchmarks
 m2sim list
 
 # Run a single benchmark
@@ -91,8 +100,8 @@ m2sim eval
 ### Testing
 
 ```bash
-# Full comparison table (all 34 benchmarks, ~25 min)
-go test -v -run TestOoO_ComparisonTable ./pkg/cpu -timeout 30m
+# Full comparison table (all 41 benchmarks, ~10 min)
+go test -v -run TestOoO_ComparisonTable ./pkg/cpu -timeout 20m
 
 # Quick evaluation (6 benchmarks, ~2 min)
 go test -v -run TestOoO_QuickEval ./pkg/cpu -timeout 10m
@@ -158,6 +167,8 @@ pkg/mem/       — Cache hierarchy (L1, shared L2, DRAM)
 pkg/benchmark/ — Benchmark definitions and kernel registry
 pkg/loader/    — Mach-O binary loader
 polybench/     — PolyBench/C benchmark suite and native timing data
+parsec/        — PARSEC benchmark kernels (C source, .o files, native timing)
+scripts/       — Build and run scripts (compile_all.sh, run_simulation.sh)
 cmd/m2sim/     — Main simulator entry point (CLI)
 cmd/disasm/    — ARM64 disassembler tool
 ```
