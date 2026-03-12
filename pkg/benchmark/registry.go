@@ -3472,6 +3472,82 @@ func parsecAll() []Benchmark {
 		return em
 	}
 
+	// --- Ferret benchmark (k-NN distance computation) ---
+	setupFerretEmu := func() *emu.Emulator {
+		nQueries, nDB, dim, k := 16, 128, 16, 4
+
+		queries := make([]float64, nQueries*dim)
+		for i := range queries {
+			queries[i] = float64(i)*0.1 + 0.5
+		}
+		database := make([]float64, nDB*dim)
+		for i := range database {
+			database[i] = float64(i%17)*0.2 - 1.0
+		}
+
+		code := []uint32{
+			0x7100047f, 0x5400098b, 0xa9bd5ff8, 0xa90157f6,
+			0xa9024ff4, 0xd2800008, 0x93407cc9, 0x510008ca,
+			0x2a0303eb, 0x2a0603ec, 0x2a0403ed, 0x937d7cce,
+			0x937d7caf, 0xd2919d50, 0xf2a73410, 0xf2c7cb30,
+			0xf2e8c530, 0xaa0003f1, 0x2a0503e3, 0x14000006,
+			0x91000508, 0x8b0e0231, 0x8b0f0021, 0xeb0b011f,
+			0x54000640, 0xaa0c03e7, 0xaa1103f3, 0x710004df,
+			0x5400008b, 0xf8008670, 0xf10004e7, 0x54ffffc1,
+			0x7100049f, 0x54fffe6b, 0xd2800007, 0x9b097d13,
+			0x8b130c13, 0xd1002273, 0xaa0203f4, 0x14000005,
+			0x910004e7, 0x8b0f0294, 0xeb0d00ff, 0x54fffd20,
+			0x2f00e400, 0x710004bf, 0x5400014b, 0xaa0303f5,
+			0xaa0103f6, 0xaa1403f7, 0xfc4086c1, 0xfc4086e2,
+			0x1e623821, 0x1f410020, 0xf10006b5, 0x54ffff61,
+			0xfc697a61, 0x1e612000, 0x54fffdc5, 0xfc297a60,
+			0x710008df, 0x54fffd6b, 0xaa0a03f5, 0x8b150e36,
+			0x6d4006c0, 0x1e612000, 0x54fffccd, 0xfc357a21,
+			0xfd0006c0, 0xd10006b6, 0xf10002bf, 0xaa1603f5,
+			0x54fffeec, 0x17ffffdf, 0xa9424ff4, 0xa94157f6,
+			0xa8c35ff8, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		resultsBase := uint64(0x100000)
+		queriesBase := uint64(0x200000)
+		databaseBase := uint64(0x300000)
+		stackBase := uint64(0x400000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 100_000_000
+		em.LoadProgram(codeBase, EncodeInsts(code))
+
+		qBuf := make([]byte, nQueries*dim*8)
+		for i, v := range queries {
+			binary.LittleEndian.PutUint64(qBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(queriesBase, qBuf)
+
+		dbBuf := make([]byte, nDB*dim*8)
+		for i, v := range database {
+			binary.LittleEndian.PutUint64(dbBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(databaseBase, dbBuf)
+
+		em.LoadProgram(resultsBase, make([]byte, nQueries*k*8))
+		em.LoadProgram(stackBase, make([]byte, 8192))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, resultsBase)
+		em.Regs.WriteX(1, queriesBase)
+		em.Regs.WriteX(2, databaseBase)
+		em.Regs.WriteX(3, uint64(nQueries))
+		em.Regs.WriteX(4, uint64(nDB))
+		em.Regs.WriteX(5, uint64(dim))
+		em.Regs.WriteX(6, uint64(k))
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 8192
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
 	// NativeTime values measured on Apple M2 (3.49 GHz).
 	//
 	// Methodology: P-core times measured with 501-run median using
@@ -3518,6 +3594,12 @@ func parsecAll() []Benchmark {
 			{Addr: 0x100000, Size: 64 * 64 * 8}, // output
 			{Addr: 0x200000, Size: 64 * 64 * 8}, // input
 			{Addr: 0x300000, Size: 3 * 3 * 8},   // kernel
+		}},
+		{Name: "ferret", Suite: "parsec", Setup: setupFerretEmu, NativeTime: 1e-5, Regions: []DataRegion{
+			{Addr: 0x100000, Size: 16 * 4 * 8},    // results (nQueries*k*8)
+			{Addr: 0x200000, Size: 16 * 16 * 8},   // queries (nQueries*dim*8)
+			{Addr: 0x300000, Size: 128 * 16 * 8},  // database (nDB*dim*8)
+			{Addr: 0x400000, Size: 8192},           // stack
 		}},
 	}
 }
