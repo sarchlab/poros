@@ -4,7 +4,8 @@
 Build a cycle-accurate, execution-driven Apple M2 CPU simulator on Akita (Go) that runs the full PolyBench/C suite AND the PARSEC benchmark suite with ≤20% average time estimation error (max 50% per benchmark).
 
 **Phase 1 (COMPLETE):** PolyBench single-core — avg 13.1%, max 36.0% ✓
-**Phase 2 (IN PROGRESS):** Multi-core support + PARSEC benchmarks
+**Phase 2 (COMPLETE):** Multi-core support + initial PARSEC — avg 14.6%, max 42.5% ✓
+**Phase 3 (IN PROGRESS):** Whole PARSEC support (all 13 benchmarks)
 
 ## Architecture Overview
 
@@ -420,20 +421,16 @@ Phase 2 results:
 **Plan: Support 11 of 13 PARSEC benchmarks.** Skip dedup (pipeline parallelism). Attempt freqmine but skip if accuracy is unachievable.
 
 ### M15: New Instructions + First 3 PARSEC Kernels (fluidanimate, raytrace, vips)
-**Status:** NOT STARTED
-**Budget:** 6 cycles
+**Status:** COMPLETE (verified by Apollo)
+**Budget:** 6 cycles | **Actual:** 1 cycle
 **Scope:**
-- Implement 3 new ARM64 instructions: FCCMP, FMAXNM, FMINNM (~30 lines)
-- Write C kernel source files for fluidanimate, raytrace, vips in parsec/kernels/
-- Compile to ARM64 object files, extract machine code
-- Add Go test functions (parsec_*_test.go) with golden reference validation
-- Add benchmark registry entries with setup functions
-- Measure native timing references on M2
-- Run through OoO pipeline, verify correct output and reasonable accuracy
-- Write _main.c wrappers for native timing
+- FCCMP, FMAXNM, FMINNM: 17 unit tests, all pass
+- fluidanimate (SPH), raytrace (BVH ray-tri), vips (2D conv) — all correct output
+- 37 benchmarks total (30 PolyBench + 7 PARSEC)
+- Combined accuracy: avg 14.8% ≤ 20%, max 42.5% ≤ 50% — PASS
 
 ### M16: Next 4 PARSEC Kernels (bodytrack, facesim, ferret, x264) + freqmine attempt
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
 **Budget:** 6 cycles
 **Scope:**
 - Write C kernel source files for bodytrack, facesim, ferret, x264, freqmine in parsec/kernels/
