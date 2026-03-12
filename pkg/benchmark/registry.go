@@ -3472,6 +3472,122 @@ func parsecAll() []Benchmark {
 		return em
 	}
 
+	// --- Bodytrack benchmark ---
+	setupBodytrackEmu := func() *emu.Emulator {
+		nParticles := 64
+		stateDim := 6
+		obsDim := 8
+
+		// Initialize states
+		states := make([]float64, nParticles*stateDim)
+		for p := 0; p < nParticles; p++ {
+			for j := 0; j < stateDim; j++ {
+				states[p*stateDim+j] = 0.1*float64(p+1) + 0.05*float64(j)
+			}
+		}
+
+		// Initialize observations
+		observations := make([]float64, obsDim)
+		for i := 0; i < obsDim; i++ {
+			observations[i] = 1.0 + 0.5*float64(i)
+		}
+
+		// Initialize projection matrix
+		projMatrix := make([]float64, obsDim*stateDim)
+		for i := 0; i < obsDim; i++ {
+			for j := 0; j < stateDim; j++ {
+				projMatrix[i*stateDim+j] = float64((i+j)%5+1) * 0.1
+			}
+		}
+
+		// Machine code: 71 instructions from compiled bodytrack_likelihood.
+		// BL _exp at offset 0x06c patched to target hook at 0xF100.
+		// BL at PC = 0x1006c, target = 0xF100
+		code := []uint32{
+			0xd10203ff, 0x6d0123e9, 0xa9026ffc, 0xa90367fa,
+			0xa9045ff8, 0xa90557f6, 0xa9064ff4, 0xa9077bfd,
+			0x9101c3fd, 0xb9000fe6, 0xf90003e3, 0x7100049f,
+			0x5400064b, 0xaa0503f4, 0xaa0203f6, 0xaa0103f7,
+			0xaa0003f8, 0xd2800019, 0x2a0503fa, 0x2a0403fb,
+			0xd37d7e9c, 0x937d7e95, 0x1e7c1008, 0xb9400fe8,
+			0x2a0803f3, 0x14000008, 0x1e680800, 0x97fffc25,
+			0xfc397b00, 0x91000739, 0x8b1502f7, 0xeb1b033f,
+			0x540003c0, 0xb9400fe8, 0x7100051f, 0x5400030b,
+			0xd2800008, 0x2f00e400, 0xf94003e9, 0x14000008,
+			0xfc687ac2, 0x1e623821, 0x1f410020, 0x91000508,
+			0x8b1c0129, 0xeb13011f, 0x54fffd80, 0x2f00e401,
+			0x7100069f, 0x54fffeeb, 0xaa1a03ea, 0xaa1703eb,
+			0xaa0903ec, 0xfc408582, 0xfc408563, 0x1f430441,
+			0xf100054a, 0x54ffff81, 0x17ffffee, 0xd2f00008,
+			0x9e670100, 0x17ffffde, 0xa9477bfd, 0xa9464ff4,
+			0xa94557f6, 0xa9445ff8, 0xa94367fa, 0xa9426ffc,
+			0x6d4123e9, 0x910203ff, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		expHookAddr := uint64(0xF100)
+
+		likelihoodBase := uint64(0x100000)
+		statesBase := uint64(0x200000)
+		obsBase := uint64(0x300000)
+		projBase := uint64(0x400000)
+		stackBase := uint64(0x500000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 10_000_000
+
+		em.LoadProgram(codeBase, EncodeInsts(code))
+
+		// Load states
+		statesBuf := make([]byte, nParticles*stateDim*8)
+		for i, v := range states {
+			binary.LittleEndian.PutUint64(statesBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(statesBase, statesBuf)
+
+		// Load observations
+		obsBuf := make([]byte, obsDim*8)
+		for i, v := range observations {
+			binary.LittleEndian.PutUint64(obsBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(obsBase, obsBuf)
+
+		// Load projection matrix
+		projBuf := make([]byte, obsDim*stateDim*8)
+		for i, v := range projMatrix {
+			binary.LittleEndian.PutUint64(projBuf[i*8:], math.Float64bits(v))
+		}
+		em.LoadProgram(projBase, projBuf)
+
+		// Output buffer (zeros)
+		em.LoadProgram(likelihoodBase, make([]byte, nParticles*8))
+
+		// Stack
+		em.LoadProgram(stackBase, make([]byte, 8192))
+
+		// Set registers
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, likelihoodBase)
+		em.Regs.WriteX(1, statesBase)
+		em.Regs.WriteX(2, obsBase)
+		em.Regs.WriteX(3, projBase)
+		em.Regs.WriteX(4, uint64(nParticles))
+		em.Regs.WriteX(5, uint64(stateDim))
+		em.Regs.WriteX(6, uint64(obsDim))
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 8192
+		em.SetHaltPC(haltPC)
+
+		// Register exp function hook
+		em.RegisterFuncHook(expHookAddr, func(emInner *emu.Emulator) {
+			x := emInner.Regs.ReadD(0)
+			emInner.Regs.WriteD(0, math.Exp(x))
+		})
+
+		return em
+	}
+
 	// NativeTime values measured on Apple M2 (3.49 GHz).
 	//
 	// Methodology: P-core times measured with 501-run median using
@@ -3519,6 +3635,13 @@ func parsecAll() []Benchmark {
 			{Addr: 0x200000, Size: 64 * 64 * 8}, // input
 			{Addr: 0x300000, Size: 3 * 3 * 8},   // kernel
 		}},
+		{Name: "bodytrack", Suite: "parsec", Setup: setupBodytrackEmu, NativeTime: 1e-05, Regions: []DataRegion{
+			{Addr: 0x100000, Size: 64 * 8},      // likelihood output
+			{Addr: 0x200000, Size: 64 * 6 * 8},  // states
+			{Addr: 0x300000, Size: 8 * 8},        // observations
+			{Addr: 0x400000, Size: 8 * 6 * 8},    // projMatrix
+			{Addr: 0x500000, Size: 8192},          // stack
+		}, FuncHookCycles: map[uint64]int{0xF100: 25}},
 	}
 }
 
