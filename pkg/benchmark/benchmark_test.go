@@ -8,8 +8,8 @@ import (
 // TestAllBenchmarkCount verifies that All() returns at least 34 benchmarks.
 func TestAllBenchmarkCount(t *testing.T) {
 	all := All()
-	if len(all) < 37 {
-		t.Errorf("All() returned %d benchmarks, want >= 37", len(all))
+	if len(all) < 41 {
+		t.Errorf("All() returned %d benchmarks, want >= 41", len(all))
 	}
 }
 
@@ -46,11 +46,11 @@ func TestBySuitePolybench(t *testing.T) {
 	}
 }
 
-// TestBySuiteParsec verifies that BySuite("parsec") returns exactly 7 benchmarks.
+// TestBySuiteParsec verifies that BySuite("parsec") returns exactly 11 benchmarks.
 func TestBySuiteParsec(t *testing.T) {
 	parsec := BySuite("parsec")
-	if len(parsec) != 7 {
-		t.Errorf("BySuite(\"parsec\") returned %d, want 7", len(parsec))
+	if len(parsec) != 11 {
+		t.Errorf("BySuite(\"parsec\") returned %d, want 11", len(parsec))
 	}
 }
 
