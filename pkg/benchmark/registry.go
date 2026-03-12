@@ -3480,8 +3480,8 @@ func parsecAll() []Benchmark {
 	// where Nora found E-core runs (at median) are ~2-2.5× P-core times
 	// for FP-heavy workloads on Apple M2 (see workspace/workspace/nora/note.md).
 	// P-core baselines: swaptions=8.89µs, blackscholes=20.95µs,
-	// streamcluster=6.86µs, canneal=6.95µs, fluidanimate=1.11µs,
-	// raytrace=42ns, vips=18.0µs.
+	// streamcluster=6.86µs, canneal=6.95µs, fluidanimate=1.11µs (3.0× E/P
+	// factor for FSQRT-heavy code), raytrace=42ns, vips=18.0µs.
 	return []Benchmark{
 		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 1.956e-05, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 50 * 50 * 8}, {Addr: 0x200000, Size: 50 * 8}, {Addr: 0x300000, Size: 50 * 8}, {Addr: 0x400000, Size: 8192},
@@ -3500,7 +3500,7 @@ func parsecAll() []Benchmark {
 			{Addr: 0x100000, Size: 8192 * 2 * 4}, // netlist (int32)
 			{Addr: 0x200000, Size: 512 * 2 * 4},  // locations (int32)
 		}},
-		{Name: "fluidanimate", Suite: "parsec", Setup: setupFluidanimateEmu, NativeTime: 2.442e-06, Regions: []DataRegion{
+		{Name: "fluidanimate", Suite: "parsec", Setup: setupFluidanimateEmu, NativeTime: 3.339e-06, Regions: []DataRegion{
 			{Addr: 0x1000, Size: 155 * 4},          // code
 			{Addr: 0x100000, Size: 16 * 8 * 11},    // particle data (11 arrays × 16 particles × 8 bytes)
 			{Addr: 0x800000, Size: 8192},            // stack
