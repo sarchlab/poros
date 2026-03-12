@@ -157,6 +157,7 @@ func TestParsecX264(t *testing.T) {
 
 	// Reference frame: shift the current block by (2, -1)
 	// Copy the current macroblock to ref at offset (curOffY-1, curOffX+2)
+	// Add small noise so SAD > 0 and SATD > 0 (exercises abs/Hadamard paths)
 	copy(refFrame, curFrame) // start with same data
 	bestMxExpected := 2
 	bestMyExpected := -1
@@ -164,7 +165,9 @@ func TestParsecX264(t *testing.T) {
 		for x := 0; x < 16; x++ {
 			srcIdx := (curOffY+y)*frameW + (curOffX + x)
 			dstIdx := (curOffY+bestMyExpected+y)*frameW + (curOffX + bestMxExpected + x)
-			refFrame[dstIdx] = curFrame[srcIdx]
+			// Add small deterministic noise: +/- 1 or 2
+			noise := byte((y*3 + x*7) % 5)
+			refFrame[dstIdx] = curFrame[srcIdx] + noise
 		}
 	}
 
