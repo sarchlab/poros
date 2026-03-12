@@ -3966,7 +3966,13 @@ func parsecAll() []Benchmark {
 	// P-core baselines: swaptions=8.89µs, blackscholes=20.95µs,
 	// streamcluster=6.86µs, canneal=6.95µs, fluidanimate=1.11µs (3.0× E/P
 	// factor for FSQRT-heavy code), raytrace=42ns, vips=18.0µs,
-	// facesim=507ns (32 tets, 20 verts).
+	// facesim=507ns (32 tets, 20 verts), bodytrack=1583ns (64 particles),
+	// ferret=14917ns (16 queries, 128 DB, dim=16, k=4),
+	// x264=26875ns (128×128 frame, range=8).
+	// freqmine: SKIPPED — tree-traversal kernel has pointer-chasing access
+	// patterns and recursive data structures that cannot be faithfully
+	// represented in the flat-memory emulator model (LOW feasibility, see
+	// workspace/workspace/iris/note.md for analysis).
 	return []Benchmark{
 		{Name: "swaptions", Suite: "parsec", Setup: setupSwaptionsEmu, NativeTime: 1.956e-05, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 50 * 50 * 8}, {Addr: 0x200000, Size: 50 * 8}, {Addr: 0x300000, Size: 50 * 8}, {Addr: 0x400000, Size: 8192},
@@ -4004,7 +4010,7 @@ func parsecAll() []Benchmark {
 			{Addr: 0x200000, Size: 64 * 64 * 8}, // input
 			{Addr: 0x300000, Size: 3 * 3 * 8},   // kernel
 		}},
-		{Name: "bodytrack", Suite: "parsec", Setup: setupBodytrackEmu, NativeTime: 1e-05, Regions: []DataRegion{
+		{Name: "bodytrack", Suite: "parsec", Setup: setupBodytrackEmu, NativeTime: 3.483e-06, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 64 * 8},      // likelihood output
 			{Addr: 0x200000, Size: 64 * 6 * 8},  // states
 			{Addr: 0x300000, Size: 8 * 8},        // observations
@@ -4019,13 +4025,13 @@ func parsecAll() []Benchmark {
 			{Addr: 0x500000, Size: 32 * 8},       // restVolume
 			{Addr: 0x600000, Size: 8192},          // stack
 		}, FuncHookCycles: map[uint64]int{0xF000: 20}},
-		{Name: "ferret", Suite: "parsec", Setup: setupFerretEmu, NativeTime: 1e-5, Regions: []DataRegion{
+		{Name: "ferret", Suite: "parsec", Setup: setupFerretEmu, NativeTime: 3.282e-05, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 16 * 4 * 8},    // results (nQueries*k*8)
 			{Addr: 0x200000, Size: 16 * 16 * 8},   // queries (nQueries*dim*8)
 			{Addr: 0x300000, Size: 128 * 16 * 8},  // database (nDB*dim*8)
 			{Addr: 0x400000, Size: 8192},           // stack
 		}},
-		{Name: "x264", Suite: "parsec", Setup: setupX264Emu, NativeTime: 1e-5, Regions: []DataRegion{
+		{Name: "x264", Suite: "parsec", Setup: setupX264Emu, NativeTime: 5.913e-05, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 128 * 128},    // current frame (uint8)
 			{Addr: 0x200000, Size: 128 * 128},    // reference frame (uint8)
 			{Addr: 0x300000, Size: 64},            // output area
