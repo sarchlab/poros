@@ -3472,6 +3472,99 @@ func parsecAll() []Benchmark {
 		return em
 	}
 
+	// --- x264 benchmark ---
+	setupX264Emu := func() *emu.Emulator {
+		// 128x128 frame with 16x16 macroblock, search range 8
+		frameW := 128
+		searchRange := 8
+
+		// Position the current macroblock at center with enough border
+		// for the search range (need 16 + range on each side)
+		curOffY := 48
+		curOffX := 48
+		curOff := curOffY*frameW + curOffX
+
+		frameSize := frameW * frameW
+		curFrame := make([]byte, frameSize)
+		refFrame := make([]byte, frameSize)
+
+		// Fill with pseudo-random data
+		for i := 0; i < frameSize; i++ {
+			curFrame[i] = byte((i*73 + 17) % 256)
+		}
+
+		// Copy cur to ref with a shift of (3, -2) and small noise
+		copy(refFrame, curFrame)
+		shiftMx, shiftMy := 3, -2
+		for y := 0; y < 16; y++ {
+			for x := 0; x < 16; x++ {
+				srcIdx := (curOffY+y)*frameW + (curOffX + x)
+				dstIdx := (curOffY+shiftMy+y)*frameW + (curOffX + shiftMx + x)
+				noise := byte((y*3 + x*7) % 5)
+				refFrame[dstIdx] = curFrame[srcIdx] + noise
+			}
+		}
+
+		// Machine code (156 instructions) compiled from parsec/kernels/x264.c
+		// with: clang -target arm64-apple-macos -O1 -fno-vectorize
+		//       -fno-slp-vectorize -fno-unroll-loops -fno-stack-protector
+		// CNEG conditions patched for emulator: mi -> pl
+		code := []uint32{
+			0xd10283ff, 0xa90667fa, 0xa9075ff8, 0xa90857f6, 0xa9094ff4, 0x37f805a3, 0x52800009, 0x52800008,
+			0x4b0303eb, 0xaa0203ea, 0x93407d4a, 0x93407d6b, 0x1100046c, 0xaa2a03ed, 0x9b2305ad, 0x12b0000e,
+			0xaa0b03ef, 0xaa0d03f0, 0xaa0b03f1, 0xd2800007, 0x52800003, 0xaa0003f3, 0xaa1003f4, 0xd2800015,
+			0x38756a76, 0x38756a97, 0x6b1702d6, 0x5a9646d6, 0x0b0302c3, 0x910006b5, 0xf10042bf, 0x54ffff21,
+			0x910004e7, 0x8b0a0294, 0x8b0a0273, 0xf10040ff, 0x54fffe61, 0x6b0e007f, 0x1a88b1e8, 0x1a89b229,
+			0x1a8eb06e, 0x91000631, 0x91000610, 0x6b11019f, 0x54fffce1, 0x910005ef, 0x8b0a01ad, 0x6b0f019f,
+			0x54fffc21, 0x14000003, 0x52800008, 0x52800009, 0xd280000b, 0x5280000a, 0x93407c4c, 0x9b22050d,
+			0x8b29c1ad, 0x937e7c4e, 0x910083ef, 0x910103f0, 0x910003f1, 0xd2800001, 0xaa0003e2, 0xaa0d03e3,
+			0xd2800007, 0x910083f3, 0xaa0203f4, 0xaa0303f5, 0xd2800016, 0x38766a97, 0x38766ab8, 0x4b1802f7,
+			0x78367a77, 0x910006d6, 0xf10012df, 0x54ffff41, 0x910004e7, 0x91002273, 0x8b0c02b5, 0x8b0c0294,
+			0xf10010ff, 0x54fffe61, 0xd2800007, 0x8b0701f3, 0x79400274, 0x79400675, 0x79400a76, 0x79400e73,
+			0x0b1402b7, 0x4b150294, 0x0b160275, 0x0b1702b8, 0x8b070219, 0x79000338, 0x4b1302d3, 0x0b140276,
+			0x79000736, 0x4b1502f5, 0x79000b35, 0x4b130293, 0x79000f33, 0x910020e7, 0xf10080ff, 0x54fffd81,
+			0x928000e7, 0x8b070213, 0x79401274, 0x79402275, 0x79403276, 0x79404273, 0x0b1402b7, 0x4b150294,
+			0x0b160275, 0x0b1702b8, 0x8b070239, 0x79001338, 0x4b1302d3, 0x0b140276, 0x79002336, 0x4b1502f5,
+			0x79003335, 0x4b130293, 0x79004333, 0xb10008e7, 0x54fffda1, 0xd2800013, 0x78f36a34, 0x7100029f,
+			0x5a944694, 0x0b1400e7, 0x91000a73, 0xf100827f, 0x54ffff41, 0x110004e7, 0x0b47054a, 0x91001027,
+			0x91001063, 0x91001042, 0xf100303f, 0xaa0703e1, 0x54fff683, 0x91001161, 0x8b0e01ad, 0x8b0e0000,
+			0xf100317f, 0xaa0103eb, 0x54fff563, 0xb900008a, 0xb90000a9, 0xb90000c8, 0xa9494ff4, 0xa94857f6,
+			0xa9475ff8, 0xa94667fa, 0x910283ff, 0xd65f03c0,
+		}
+
+		codeBase := uint64(0x10000)
+		curBase := uint64(0x100000)
+		refBase := uint64(0x200000)
+		outCostBase := uint64(0x300000)
+		outMxBase := uint64(0x300010)
+		outMyBase := uint64(0x300020)
+		stackBase := uint64(0x400000)
+		haltPC := uint64(0xFFFF0000)
+
+		em := emu.NewEmulator()
+		em.MaxInst = 100_000_000
+		em.LoadProgram(codeBase, EncodeInsts(code))
+		em.LoadProgram(curBase, curFrame)
+		em.LoadProgram(refBase, refFrame)
+		em.LoadProgram(outCostBase, make([]byte, 64))
+		em.LoadProgram(outMxBase, make([]byte, 64))
+		em.LoadProgram(outMyBase, make([]byte, 64))
+		em.LoadProgram(stackBase, make([]byte, 8192))
+
+		em.Regs.PC = codeBase
+		em.Regs.WriteX(0, curBase+uint64(curOff))
+		em.Regs.WriteX(1, refBase+uint64(curOff))
+		em.Regs.WriteX(2, uint64(frameW))
+		em.Regs.WriteX(3, uint64(searchRange))
+		em.Regs.WriteX(4, outCostBase)
+		em.Regs.WriteX(5, outMxBase)
+		em.Regs.WriteX(6, outMyBase)
+		em.Regs.WriteX(30, haltPC)
+		em.Regs.SP = stackBase + 8192
+		em.SetHaltPC(haltPC)
+		return em
+	}
+
 	// NativeTime values measured on Apple M2 (3.49 GHz).
 	//
 	// Methodology: P-core times measured with 501-run median using
@@ -3518,6 +3611,12 @@ func parsecAll() []Benchmark {
 			{Addr: 0x100000, Size: 64 * 64 * 8}, // output
 			{Addr: 0x200000, Size: 64 * 64 * 8}, // input
 			{Addr: 0x300000, Size: 3 * 3 * 8},   // kernel
+		}},
+		{Name: "x264", Suite: "parsec", Setup: setupX264Emu, NativeTime: 1e-5, Regions: []DataRegion{
+			{Addr: 0x100000, Size: 128 * 128},    // current frame (uint8)
+			{Addr: 0x200000, Size: 128 * 128},    // reference frame (uint8)
+			{Addr: 0x300000, Size: 64},            // output area
+			{Addr: 0x400000, Size: 8192},          // stack
 		}},
 	}
 }
