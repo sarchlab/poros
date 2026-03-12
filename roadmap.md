@@ -430,7 +430,7 @@ Phase 2 results:
 - Combined accuracy: avg 14.8% ≤ 20%, max 42.5% ≤ 50% — PASS
 
 ### M16: Next 4 PARSEC Kernels (bodytrack, facesim, ferret, x264) + freqmine attempt
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 **Budget:** 6 cycles
 **Scope:**
 - Write C kernel source files for bodytrack, facesim, ferret, x264, freqmine in parsec/kernels/
@@ -442,7 +442,7 @@ Phase 2 results:
 - freqmine: attempt but document as skipped if accuracy > 50%
 
 ### M17: Scripts + Accuracy Tuning + Final Deliverables
-**Status:** NOT STARTED
+**Status:** COMPLETE (1 cycle)
 **Budget:** 4 cycles
 **Scope:**
 - Create parsec/build.sh — compile all PARSEC kernel C files to ARM64
