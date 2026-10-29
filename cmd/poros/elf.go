@@ -12,6 +12,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/sarchlab/poros/pkg/elfsim"
 	"github.com/sarchlab/poros/pkg/linuxuser"
 	"github.com/sarchlab/poros/pkg/loader"
 )
@@ -27,6 +28,8 @@ func (e *environmentFlags) Set(s string) error { *e = append(*e, s); return nil 
 func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	fs := flag.NewFlagSet("elf", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
+	mode := fs.String("mode", "functional", "functional, inorder or ooo")
+	hz := fs.Float64("frequency-hz", 3.49e9, "assumed timing frequency, not measured")
 	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
 	timeout := fs.Duration("timeout", 2*time.Second, "host execution timeout")
 	output := fs.Int("max-output", 1<<20, "combined stdout/stderr byte budget")
@@ -61,7 +64,17 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 		fmt.Fprintln(diagnostics, err)
 		return 2
 	}
-	result, err := p.Run(context.Background(), linuxuser.RunOptions{MaxInstructions: *steps, Timeout: *timeout, MaxOutput: *output})
+	var result linuxuser.Result
+	var timingStats *elfsim.Statistics
+	limits := linuxuser.RunOptions{MaxInstructions: *steps, Timeout: *timeout, MaxOutput: *output}
+	if *mode == "functional" {
+		result, err = p.Run(context.Background(), limits)
+	} else {
+		var timed elfsim.Result
+		timed, err = elfsim.Run(context.Background(), p, elfsim.Options{Model: *mode, FrequencyHz: *hz, Limits: limits})
+		result = timed.Result
+		timingStats = &timed.Timing
+	}
 	if err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 2
@@ -78,13 +91,14 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 		}
 	}
 	report := struct {
-		Schema       int               `json:"schema"`
-		BinarySHA256 string            `json:"binary_sha256"`
-		Args         []string          `json:"args"`
-		Env          []string          `json:"env"`
-		Build        map[string]string `json:"build"`
+		Schema       int                `json:"schema"`
+		BinarySHA256 string             `json:"binary_sha256"`
+		Args         []string           `json:"args"`
+		Env          []string           `json:"env"`
+		Build        map[string]string  `json:"build"`
+		Timing       *elfsim.Statistics `json:"timing,omitempty"`
 		linuxuser.Result
-	}{1, hex.EncodeToString(sum[:]), options.Args, append([]string{}, options.Env...), build, result}
+	}{1, hex.EncodeToString(sum[:]), options.Args, append([]string{}, options.Env...), build, timingStats, result}
 	if err := json.NewEncoder(out).Encode(report); err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 2

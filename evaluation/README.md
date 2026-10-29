@@ -141,14 +141,14 @@ exclusive execution. Preserve raw observations rather than applying a P/E factor
 Simulation time is `cycles / Spec.Freq` seconds (default3.49GHz), explicitly an assumed frequency.
 The same Spec frequency determines engine tick period and reported assumed_hz.
 It is not engine integer-picosecond elapsed time and not the measured native clock.
-For positive reference time, report absolute percentage error as
-`100 * abs(simulated - reference) / reference`. This differs from the historical
-CLI's minimum-denominator formula; do not compare their summary errors directly.
+For finite positive simulated and reference times, report absolute percentage error as
+`100 * abs(simulated - reference) / min(simulated, reference)`. New reports identify formula `absolute-difference-over-min-v2`; older stored
+reference-denominator derived errors retain their historical meaning.
 
 The pilot does not pass/fail on timing error. Its pass means code identity,
 execution completion and independent functional checks passed and samples were
-collected. M0's proposed future accuracy targets (mean <=20%, P90 <=30%, later
-10%/20%) are not enabled gates or achieved results. Before calibration, freeze
+collected. Previous reference-denominator percentage targets do not carry over
+to v2; no numeric accuracy threshold is enabled or claimed achieved. Before calibration, freeze
 hardware profile, workload/size split, aggregation weights, measurement quality
 rules and target thresholds. Report per-case errors/outliers as well as summary;
 missing references cannot be replaced by another size/profile's time.
@@ -244,3 +244,7 @@ energy gradients. The separate emulator test also rejects nonfinite values.
 Only Facesim's initial-state fingerprint and two output digests changed; its
 8166 instructions and 5392 cycles per core remain unchanged. This corrects an
 invalid workload, not NaN payload portability or general ARM floating-point rules.
+
+Whole-program user CPU measurement and mandatory PR base/head reports are defined
+in [usertime/README.md](usertime/README.md). Old accuracy thresholds are not enabled
+for the new symmetric formula.

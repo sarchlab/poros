@@ -97,3 +97,38 @@ func TestIndependentPipelineState(t *testing.T) {
 		}
 	}
 }
+
+// A decoded but unsupported legacy instruction must terminate, not retry forever.
+func TestLegacyExecutionErrorStops(t *testing.T) {
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	em := emu.NewEmulator()
+	em.Mem.TrackAccesses = true
+	em.Regs.PC = 0x1000
+	em.Mem.WriteU32(0x1000, 0xd4000001) // SVC, unsupported by the legacy executor.
+	c := modeling.MakeBuilder[*Comp](DefaultSpec()).WithSimulation(s).WithResources(Resources{Emu: em}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		if !c.Middlewares.Pipeline.Handle(nil) {
+			break
+		}
+	}
+	if !c.State.Done || c.State.Err == "" || c.State.InstDone != 0 {
+		t.Fatalf("fault did not stop without retirement: %+v", c.State)
+	}
+}
+func TestAmbiguousExecutionResourcesRejected(t *testing.T) {
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	em := emu.NewEmulator()
+	em.Mem.TrackAccesses = true
+	modeling.MakeBuilder[*Comp](DefaultSpec()).WithSimulation(s).WithResources(Resources{Emu: em, Execution: em}).Build("CPU")
+	defer func() {
+		if recover() == nil {
+			t.Fatal("ambiguous backend accepted")
+		}
+	}()
+	s.Initialize()
+}

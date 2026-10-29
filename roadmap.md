@@ -247,14 +247,14 @@ confirmed core identity do not validate a specific core type. VM application
 wall time is not automatically a bare-metal CPU-cycle reference. A Darwin ABI
 or Mach-O application runtime is not required by the initial roadmap.
 
-**Proposed accuracy gates, to finalize in M0/H0:** for the fixed held-out CPU ROI
-set, mean absolute percentage error <=20% and P90 <=30% initially; later tighten
-to 10% and 20%. Define per-case error as abs(simulated-reference)/reference for
-positive reference times, with explicit aggregation and exclusion rules. Publish
-all cases, maxima, outliers, repetitions, and measurement uncertainty. These are
-proposals, not achieved results or permission to adjust thresholds after fitting.
-The historical report uses a different error denominator; its 15.8% figure is
-not evidence of satisfying these new gates.
+**Accuracy contract:** use complete-program user CPU time initially, with per-case
+error `abs(simulated-reference)/min(simulated,reference)` for finite positive
+qualified samples. Version the formula and publish direction, every case,
+calibration/held-out coverage and aggregates, outliers and measurement uncertainty.
+Previous reference-denominator percentage targets do not carry over. No numeric
+accuracy threshold is enabled or claimed achieved; establish valid hardware
+references and agree thresholds before calibration. The historical 15.8% figure
+uses a different denominator and does not validate this contract.
 
 ## Common release gates and rollback policy
 
@@ -288,3 +288,13 @@ complete Linux ELF execution, and BusyBox/zstd/SQLite. M0 discussion should sett
 manifest/report schemas, reference sources, initial workload versions/builds,
 CI tiers and budgets, and accuracy methodology. This roadmap itself does not
 implement those decisions.
+
+## ELF timing implementation contract (#47)
+
+The next stage measures complete-program user CPU time, not mandatory kernel ROIs.
+Functional and timing modes share process/ISA semantics; native child-user-time
+records are retained and every PR emits a source-bound base/head accuracy report.
+The formula is versioned diff/min (absolute difference divided by the smaller
+positive time). Earlier percentage targets require a fresh decision under this
+formula and are not enabled gates. VM samples and unknown-core measurements stay
+unverified for bare-metal hardware accuracy. See evaluation/usertime/README.md.
