@@ -1,4 +1,4 @@
-package cpu
+package inst
 
 import "golang.org/x/arch/arm64/arm64asm"
 

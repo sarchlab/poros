@@ -5,7 +5,10 @@ import (
 	"math"
 	"testing"
 
-	"github.com/sarchlab/akita/v4/sim"
+	"github.com/sarchlab/akita/v5/sim"
+	"github.com/sarchlab/akita/v5/sim/modeling"
+	"github.com/sarchlab/akita/v5/sim/timing"
+	"github.com/sarchlab/poros/pkg/cpu/ooo"
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/mem"
 )
@@ -210,19 +213,18 @@ func TestOoO_BlackScholes(t *testing.T) {
 	// Run through OoO pipeline with cache and function hook cycle costs.
 	cache := mem.NewCache(mem.DefaultCacheConfig())
 
-	engine := sim.NewSerialEngine()
-	p := NewOoOPipeline("TestOoO", engine, 3490*sim.MHz, em)
-	p.Cache = cache
-	p.FuncHookCycles = map[uint64]int{
+	simulation := sim.MakeBuilder().Build()
+	em.Mem.TrackAccesses = true
+	pSpec := ooo.DefaultSpec()
+	pSpec.Freq = 3490 * timing.MHz
+	pSpec.FuncHookCycles = HookCycleSpec(map[uint64]int{
 		expAddr: 25, // exp() costs 25 cycles
 		logAddr: 20, // log() costs 20 cycles
-	}
-	p.TickLater()
-	if err := engine.Run(); err != nil {
-		t.Fatalf("engine.Run() failed: %v", err)
-	}
-	if p.Err != nil {
-		t.Fatalf("pipeline error: %v", p.Err)
+	})
+	p := modeling.MakeBuilder[*ooo.Comp](pSpec).WithSimulation(simulation).WithResources(ooo.Resources{Emu: em, Cache: cache}).Build("TestOoO")
+	runTestSimulation(t, simulation, p)
+	if p.State.Err != "" {
+		t.Fatalf("pipeline error: %v", p.State.Err)
 	}
 
 	if !em.Halted {
@@ -247,9 +249,9 @@ func TestOoO_BlackScholes(t *testing.T) {
 	}
 
 	t.Logf("BlackScholes: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 
-	simTime := float64(p.Cycles) / 3.49e9
+	simTime := float64(p.State.Cycles) / 3.49e9
 	ratio := simTime / nativeTimeBlackScholes
 	t.Logf("BlackScholes native comparison: simTime=%e, native=%e, ratio=%.2f",
 		simTime, nativeTimeBlackScholes, ratio)

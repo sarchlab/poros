@@ -6,7 +6,11 @@ import (
 	"math"
 	"testing"
 
-	"github.com/sarchlab/akita/v4/sim"
+	"github.com/sarchlab/akita/v5/sim"
+	"github.com/sarchlab/akita/v5/sim/modeling"
+	"github.com/sarchlab/akita/v5/sim/timing"
+	"github.com/sarchlab/poros/pkg/cpu/inorder"
+	instinfo "github.com/sarchlab/poros/pkg/cpu/internal/inst"
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/mem"
 	"golang.org/x/arch/arm64/arm64asm"
@@ -33,32 +37,31 @@ func setupEmu(code []uint32, codeBase, haltPC uint64) *emu.Emulator {
 }
 
 // helper: run pipeline to completion.
-func runPipeline(t *testing.T, em *emu.Emulator) *Pipeline {
+func runPipeline(t *testing.T, em *emu.Emulator) *inorder.Comp {
 	t.Helper()
-	engine := sim.NewSerialEngine()
-	p := NewPipeline("TestPipeline", engine, 3490*sim.MHz, em)
-	p.TickLater()
-	if err := engine.Run(); err != nil {
-		t.Fatalf("engine.Run() failed: %v", err)
-	}
-	if p.Err != nil {
-		t.Fatalf("pipeline error: %v", p.Err)
+	simulation := sim.MakeBuilder().Build()
+	em.Mem.TrackAccesses = true
+	pSpec := inorder.DefaultSpec()
+	pSpec.Freq = 3490 * timing.MHz
+	p := modeling.MakeBuilder[*inorder.Comp](pSpec).WithSimulation(simulation).WithResources(inorder.Resources{Emu: em, Cache: nil}).Build("TestPipeline")
+	runTestSimulation(t, simulation, p)
+	if p.State.Err != "" {
+		t.Fatalf("pipeline error: %v", p.State.Err)
 	}
 	return p
 }
 
 // helper: run pipeline with a cache model.
-func runPipelineWithCache(t *testing.T, em *emu.Emulator, cache *mem.Cache) *Pipeline {
+func runPipelineWithCache(t *testing.T, em *emu.Emulator, cache *mem.Cache) *inorder.Comp {
 	t.Helper()
-	engine := sim.NewSerialEngine()
-	p := NewPipeline("TestPipeline", engine, 3490*sim.MHz, em)
-	p.Cache = cache
-	p.TickLater()
-	if err := engine.Run(); err != nil {
-		t.Fatalf("engine.Run() failed: %v", err)
-	}
-	if p.Err != nil {
-		t.Fatalf("pipeline error: %v", p.Err)
+	simulation := sim.MakeBuilder().Build()
+	em.Mem.TrackAccesses = true
+	pSpec := inorder.DefaultSpec()
+	pSpec.Freq = 3490 * timing.MHz
+	p := modeling.MakeBuilder[*inorder.Comp](pSpec).WithSimulation(simulation).WithResources(inorder.Resources{Emu: em, Cache: cache}).Build("TestPipeline")
+	runTestSimulation(t, simulation, p)
+	if p.State.Err != "" {
+		t.Fatalf("pipeline error: %v", p.State.Err)
 	}
 	return p
 }
@@ -83,7 +86,7 @@ func TestPipeline_SimpleSequence(t *testing.T) {
 		t.Error("emulator should have halted")
 	}
 	t.Logf("SimpleSequence: %d instructions, %d cycles, CPI=%.2f",
-		p.InstDone, p.Cycles, p.CPI())
+		p.State.InstDone, p.State.Cycles, p.State.CPI())
 }
 
 func TestPipeline_DataHazardStall(t *testing.T) {
@@ -112,9 +115,9 @@ func TestPipeline_DataHazardStall(t *testing.T) {
 	// Without stall, 3 instructions in a 5-stage pipeline take 7 cycles (5 + 2).
 	// With data hazard stall on X1, should take more.
 	t.Logf("DataHazard: %d instructions, %d cycles, CPI=%.2f",
-		p.InstDone, p.Cycles, p.CPI())
+		p.State.InstDone, p.State.Cycles, p.State.CPI())
 
-	if p.CPI() <= 1.0 {
+	if p.State.CPI() <= 1.0 {
 		t.Error("expected CPI > 1.0 due to data hazard stall")
 	}
 }
@@ -145,12 +148,12 @@ func TestPipeline_BranchFlush(t *testing.T) {
 	}
 
 	t.Logf("BranchFlush: %d instructions, %d cycles, CPI=%.2f",
-		p.InstDone, p.Cycles, p.CPI())
+		p.State.InstDone, p.State.Cycles, p.State.CPI())
 
 	// The taken branch should cause a pipeline flush, adding penalty cycles.
 	// 3 instructions executed: B, MOV #42, RET (MOV #99 is skipped).
-	if p.InstDone != 3 {
-		t.Errorf("expected 3 instructions completed, got %d", p.InstDone)
+	if p.State.InstDone != 3 {
+		t.Errorf("expected 3 instructions completed, got %d", p.State.InstDone)
 	}
 }
 
@@ -259,7 +262,7 @@ func TestPipeline_PolyBenchAtax(t *testing.T) {
 	}
 
 	t.Logf("kernel_atax: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestPipeline_PolyBenchMvt(t *testing.T) {
@@ -410,7 +413,7 @@ func TestPipeline_PolyBenchMvt(t *testing.T) {
 	}
 
 	t.Logf("kernel_mvt: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestPipeline_PolyBenchGemm(t *testing.T) {
@@ -543,7 +546,7 @@ func TestPipeline_PolyBenchGemm(t *testing.T) {
 	}
 
 	t.Logf("kernel_gemm: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestPipeline_PolyBench2mm(t *testing.T) {
@@ -721,7 +724,7 @@ func TestPipeline_PolyBench2mm(t *testing.T) {
 	}
 
 	t.Logf("kernel_2mm: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestPipeline_PolyBench3mm(t *testing.T) {
@@ -929,7 +932,7 @@ func TestPipeline_PolyBench3mm(t *testing.T) {
 	}
 
 	t.Logf("kernel_3mm: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestPipeline_PolyBenchBicg(t *testing.T) {
@@ -1078,7 +1081,7 @@ func TestPipeline_PolyBenchBicg(t *testing.T) {
 	}
 
 	t.Logf("kernel_bicg: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		pip.InstDone, pip.Cycles, pip.CPI(), maxRelErr)
+		pip.State.InstDone, pip.State.Cycles, pip.State.CPI(), maxRelErr)
 }
 
 func TestPipeline_ComparisonTable(t *testing.T) {
@@ -1167,7 +1170,7 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 		stats := cache.Stats()
 		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
 		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
-		results = append(results, kernelResult{"atax", p.InstDone, p.Cycles, p.CPI(), 0.000008, l1Hit, l2Hit})
+		results = append(results, kernelResult{"atax", p.State.InstDone, p.State.Cycles, p.State.CPI(), 0.000008, l1Hit, l2Hit})
 	}
 
 	// --- kernel_mvt ---
@@ -1263,7 +1266,7 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 		stats := cache.Stats()
 		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
 		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
-		results = append(results, kernelResult{"mvt", p.InstDone, p.Cycles, p.CPI(), 0.000004, l1Hit, l2Hit})
+		results = append(results, kernelResult{"mvt", p.State.InstDone, p.State.Cycles, p.State.CPI(), 0.000004, l1Hit, l2Hit})
 	}
 
 	// --- kernel_gemm ---
@@ -1360,7 +1363,7 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 		stats := cache.Stats()
 		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
 		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
-		results = append(results, kernelResult{"gemm", p.InstDone, p.Cycles, p.CPI(), 0.000016, l1Hit, l2Hit})
+		results = append(results, kernelResult{"gemm", p.State.InstDone, p.State.Cycles, p.State.CPI(), 0.000016, l1Hit, l2Hit})
 	}
 
 	// --- kernel_2mm ---
@@ -1490,7 +1493,7 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 		stats := cache.Stats()
 		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
 		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
-		results = append(results, kernelResult{"2mm", p.InstDone, p.Cycles, p.CPI(), 0.000020, l1Hit, l2Hit})
+		results = append(results, kernelResult{"2mm", p.State.InstDone, p.State.Cycles, p.State.CPI(), 0.000020, l1Hit, l2Hit})
 	}
 
 	// --- kernel_3mm ---
@@ -1646,7 +1649,7 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 		stats := cache.Stats()
 		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
 		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
-		results = append(results, kernelResult{"3mm", p.InstDone, p.Cycles, p.CPI(), 0.000030, l1Hit, l2Hit})
+		results = append(results, kernelResult{"3mm", p.State.InstDone, p.State.Cycles, p.State.CPI(), 0.000030, l1Hit, l2Hit})
 	}
 
 	// --- kernel_bicg ---
@@ -1744,7 +1747,7 @@ func TestPipeline_ComparisonTable(t *testing.T) {
 		stats := cache.Stats()
 		l1Hit := float64(stats.L1Hits) / float64(stats.L1Hits+stats.L1Misses)
 		l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses)
-		results = append(results, kernelResult{"bicg", pip.InstDone, pip.Cycles, pip.CPI(), 0.000006, l1Hit, l2Hit})
+		results = append(results, kernelResult{"bicg", pip.State.InstDone, pip.State.Cycles, pip.State.CPI(), 0.000006, l1Hit, l2Hit})
 	}
 
 	// Print comparison table.
@@ -1797,24 +1800,24 @@ func TestPipeline_ScoreboardFlushNoNegative(t *testing.T) {
 	p := runPipeline(t, em)
 
 	// After pipeline drains, all scoreboard counters must be >= 0.
-	for i, cnt := range p.gprPending {
+	for i, cnt := range p.State.GprPending {
 		if cnt < 0 {
 			t.Errorf("gprPending[%d] = %d, want >= 0", i, cnt)
 		}
 	}
-	for i, cnt := range p.fpPending {
+	for i, cnt := range p.State.FpPending {
 		if cnt < 0 {
 			t.Errorf("fpPending[%d] = %d, want >= 0", i, cnt)
 		}
 	}
 
 	// All counters should be exactly 0 after full drain.
-	for i, cnt := range p.gprPending {
+	for i, cnt := range p.State.GprPending {
 		if cnt != 0 {
 			t.Errorf("gprPending[%d] = %d, want 0 after drain", i, cnt)
 		}
 	}
-	for i, cnt := range p.fpPending {
+	for i, cnt := range p.State.FpPending {
 		if cnt != 0 {
 			t.Errorf("fpPending[%d] = %d, want 0 after drain", i, cnt)
 		}
@@ -1825,7 +1828,7 @@ func TestPipeline_ScoreboardFlushNoNegative(t *testing.T) {
 	}
 
 	t.Logf("ScoreboardFlush: %d instructions, %d cycles, CPI=%.2f",
-		p.InstDone, p.Cycles, p.CPI())
+		p.State.InstDone, p.State.Cycles, p.State.CPI())
 }
 
 func TestLatency_KnownOps(t *testing.T) {
@@ -1844,9 +1847,26 @@ func TestLatency_KnownOps(t *testing.T) {
 		{arm64asm.LDR, 1}, // execute latency; load latency is in Memory stage
 	}
 	for _, tc := range tests {
-		got := ExecuteLatency(tc.op)
+		got := instinfo.ExecuteLatency(tc.op)
 		if got != tc.want {
-			t.Errorf("ExecuteLatency(%s) = %d, want %d", tc.op, got, tc.want)
+			t.Errorf("instinfo.ExecuteLatency(%s) = %d, want %d", tc.op, got, tc.want)
 		}
+	}
+}
+
+// Keep one simulation alive per run, including the comparison-table loops.
+func runTestSimulation(t *testing.T, s *sim.Simulation, c interface{ TickLater() }) {
+	t.Helper()
+	defer func() {
+		if err := s.Terminate(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	c.TickLater()
+	if err := s.Run(); err != nil {
+		t.Fatal(err)
 	}
 }
