@@ -25,4 +25,6 @@ fixture from the migrated model to make a regression pass.
 same pre-migration commit. It records exact instruction/cycle counts and the same
 architectural digest for raytrace, blackscholes, atax, and gemm in the in-order
 and OoO-without-branch-prediction modes. `TestV4PipelineVariants` enforces these
-values, in addition to comparing the full CLI's 41-kernel report.
+values in eight automated cases. Separately, the migration validation runs the
+full CLI 41-kernel report and compares its output byte-for-byte with the frozen
+v4 report; that CLI comparison is not performed by TestV4PipelineVariants.

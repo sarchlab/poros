@@ -155,7 +155,7 @@ go test -v -run TestOoO_PolyBenchAtax ./pkg/cpu
 - Per-core private L1 caches (128 KB each)
 - Shared L2 cache (16 MB, 16-way) across all cores
 - Configurable core count via `--cores` flag
-- All cores driven by a single Akita `SerialEngine` (deterministic simulation)
+- All cores share one Akita `sim.Simulation` using its default serial engine (deterministic simulation)
 
 ## Dependencies
 
