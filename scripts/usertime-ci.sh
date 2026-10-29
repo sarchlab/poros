@@ -6,7 +6,8 @@ output=${2:-evaluation-results/usertime}
 mkdir -p "$output"
 rm -f "$output/report.json" "$output/report.md"
 base=$(git rev-parse "$base^{commit}")
-git merge-base --is-ancestor "$base" HEAD
+# The target branch may have advanced since this branch diverged. Compare
+# its exact supplied revision, without requiring ancestry.
 head_binary=$(mktemp /tmp/poros-user-head.XXXXXX)
 base_binary=$(mktemp /tmp/poros-user-base.XXXXXX)
 base_tree=$(mktemp -d /tmp/poros-user-base-tree.XXXXXX)
