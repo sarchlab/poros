@@ -234,3 +234,49 @@ func FuzzParseELF(f *testing.F) {
 		}
 	})
 }
+
+func TestELFAcceptedHeaderEdges(t *testing.T) {
+	u := binary.LittleEndian
+	t.Run("128-headers-with-null-and-note", func(t *testing.T) {
+		b := fixtureELF(t)
+		u.PutUint16(b[56:], 128)
+		// Expand the first mapping to hold the larger program-header table;
+		// relocate later mappings so the page ranges remain distinct.
+		u.PutUint64(b[64+32:], 0x2000)
+		u.PutUint64(b[64+40:], 0x2000)
+		u.PutUint64(b[120+16:], 0x402000)
+		u.PutUint64(b[120+48:], 4096)
+		u.PutUint64(b[176+16:], 0x403000)
+		u.PutUint64(b[176+48:], 4096)
+		clear(b[288 : 64+128*56])
+		u.PutUint32(b[288:], uint32(elf.PT_NOTE))
+		image, e := ParseELF(b)
+		if e != nil || image.ProgramHeaderCount != 128 {
+			t.Fatal(image, e)
+		}
+		u.PutUint16(b[56:], 129)
+		if image, e := ParseELF(b); image != nil || e == nil {
+			t.Fatal("129 headers accepted")
+		}
+	})
+	t.Run("zero-memsz-load", func(t *testing.T) {
+		b := fixtureELF(t)
+		u.PutUint64(b[176+32:], 0)
+		u.PutUint64(b[176+40:], 0)
+		image, e := ParseELF(b)
+		if e != nil || len(image.Segments) != 2 {
+			t.Fatal(image, e)
+		}
+	})
+	t.Run("64KiB-alignment", func(t *testing.T) {
+		b := fixtureELF(t)
+		u.PutUint64(b[120+16:], 0x411000)
+		u.PutUint64(b[176+16:], 0x412000)
+		for _, off := range []int{64, 120, 176} {
+			u.PutUint64(b[off+48:], 65536)
+		}
+		if _, e := ParseELF(b); e != nil {
+			t.Fatal(e)
+		}
+	})
+}

@@ -21,7 +21,9 @@ type mappedRegion struct {
 // cover the entire request before copying, so failed writes are atomic.
 type AddressSpace struct{ regions []mappedRegion }
 
-// MemoryError reports the address and access type of a rejected request.
+// MemoryError reports a rejected request. Address is the first faulting byte
+// for unmapped/permission faults, or the original start for address overflow.
+// Size is the original requested length, not the remaining length at Address.
 type MemoryError struct {
 	Address        uint64
 	Size           int

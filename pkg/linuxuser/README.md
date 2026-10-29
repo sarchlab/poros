@@ -42,7 +42,9 @@ including x0 (no dynamic-linker cleanup function). An eventual execution backend
 must also initialize FP/SIMD state to zero. Arguments are on the stack, not in
 x0/x1. Memory holds argc, argv pointers + NULL, envp pointers + NULL, auxv +
 AT_NULL, and NUL-terminated strings. Empty Args becomes a single empty argv[0],
-as modern Linux execve does. Environment is exactly the supplied list. Each
+as modern Linux execve does. Environment is exactly the supplied list. `Load` defaults EXECFN to the supplied
+file path; set `Options.ExecName` to the same explicit guest name when identical
+startup bytes across host paths are required. `Parse` defaults it to "program". Each
 list is bounded to 4096 entries and the combined NUL-terminated string payload
 (including executable name) to 128 KiB. Embedded NUL and stack overflow fail.
 

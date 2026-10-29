@@ -18,6 +18,30 @@ const (
 	MaxArgumentCount        = 4096
 )
 
+// Linux uapi/linux/auxvec.h tags. Keep these local to startup construction;
+// tests use independent numeric ABI values.
+const (
+	atNull       uint64 = 0
+	atPHDR       uint64 = 3
+	atPHENT      uint64 = 4
+	atPHNUM      uint64 = 5
+	atPageSize   uint64 = 6
+	atBase       uint64 = 7
+	atFlags      uint64 = 8
+	atEntry      uint64 = 9
+	atUID        uint64 = 11
+	atEUID       uint64 = 12
+	atGID        uint64 = 13
+	atEGID       uint64 = 14
+	atPlatform   uint64 = 15
+	atHWCap      uint64 = 16
+	atClockTicks uint64 = 17
+	atSecure     uint64 = 23
+	atRandom     uint64 = 25
+	atHWCap2     uint64 = 26
+	atExecName   uint64 = 31
+)
+
 // Options describes deterministic simulated startup inputs. Random supplies the
 // sixteen AT_RANDOM bytes; the default all-zero seed is reproducible, not entropy.
 // Empty Args becomes one empty argument, matching Linux execve normalization.
@@ -148,7 +172,24 @@ func start(image *loader.ELFImage, o Options) (*Process, error) {
 	}
 	// Numeric tags follow Linux uapi/linux/auxvec.h. No vDSO or unsupported CPU
 	// capabilities are advertised. Identity is a fixed nonprivileged simulation.
-	aux := [][2]uint64{{3, image.ProgramHeaderAddress}, {4, 56}, {5, uint64(image.ProgramHeaderCount)}, {6, loader.ELFPageSize}, {7, 0}, {8, 0}, {9, image.Entry}, {11, 1000}, {12, 1000}, {13, 1000}, {14, 1000}, {15, platform}, {16, 0}, {17, 100}, {23, 0}, {25, random}, {26, 0}, {31, execName}, {0, 0}}
+	aux := [][2]uint64{
+		{atPHDR, image.ProgramHeaderAddress},
+		{atPHENT, 56},
+		{atPHNUM, uint64(image.ProgramHeaderCount)},
+		{atPageSize, loader.ELFPageSize},
+		{atBase, 0},
+		{atFlags, 0},
+		{atEntry, image.Entry},
+		{atUID, 1000}, {atEUID, 1000}, {atGID, 1000}, {atEGID, 1000},
+		{atPlatform, platform},
+		{atHWCap, 0},
+		{atClockTicks, 100},
+		{atSecure, 0},
+		{atRandom, random},
+		{atHWCap2, 0},
+		{atExecName, execName},
+		{atNull, 0},
+	}
 	words := []uint64{uint64(len(argPtrs))}
 	words = append(words, argPtrs...)
 	words = append(words, 0)

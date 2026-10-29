@@ -120,8 +120,8 @@ func ParseELF(b []byte) (*ELFImage, error) {
 			if phdr != nil || len(image.Segments) > 0 {
 				return nil, elfError("malformed", "PHDR must be unique and precede load segments")
 			}
-			copy := p
-			phdr = &copy
+			header := p
+			phdr = &header
 			continue
 		case elf.PT_NULL, elf.PT_NOTE:
 			continue
