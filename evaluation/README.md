@@ -121,7 +121,8 @@ within one tick, not a free clock. A median shorter than ten times the greater o
 observed clock delta and overhead is flagged roi-too-short-relative-to-clock;
 batch-mean P90-P10 spread above20% is also flagged. These diagnostics do not
 qualify the run as hardware ground truth. The initial CLOCK_MONOTONIC evidence
-was found to be microsecond-quantized and is retained as rejected timing evidence.
+was found to be microsecond-quantized and discarded; only corrected high-resolution
+evidence is retained in the final tree.
 
 The simulator warms data tags in allocation order, then resets cache statistics
 before the kernel. Native traversal/reset and model tag warming are not proven
