@@ -11,6 +11,7 @@ import (
 
 // This fixture defines inputs, not correct outputs. It was captured before
 // initializer canonicalization on Go 1.27/darwin/arm64 at commit 9269bca.
+// Only Facesim was replaced with the corrected finite M0 input; see testdata/README.md.
 // Contract: SHA256(JSON(initial registers) || declared data-region bytes in
 // registry order), with no execution, hook calls, or timing-model involvement.
 func TestInitialStateIdentity(t *testing.T) {

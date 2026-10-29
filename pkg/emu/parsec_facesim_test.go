@@ -66,11 +66,11 @@ func TestParsecFacesim(t *testing.T) {
 	// Precompute DmInv and restVolume for each tet
 	DmInv := make([]float64, nTets*9)
 	restVolume := make([]float64, nTets)
-	for t := 0; t < nTets; t++ {
-		i0 := tetIndices[t*4+0]
-		i1 := tetIndices[t*4+1]
-		i2 := tetIndices[t*4+2]
-		i3 := tetIndices[t*4+3]
+	for tet := 0; tet < nTets; tet++ {
+		i0 := tetIndices[tet*4+0]
+		i1 := tetIndices[tet*4+1]
+		i2 := tetIndices[tet*4+2]
+		i3 := tetIndices[tet*4+3]
 
 		x0 := refPos[i0*3]
 		y0 := refPos[i0*3+1]
@@ -101,19 +101,22 @@ func TestParsecFacesim(t *testing.T) {
 			dm01*(dm10*dm22-dm12*dm20) +
 			dm02*(dm10*dm21-dm11*dm20)
 
-		restVolume[t] = math.Abs(det) / 6.0
+		if math.IsNaN(det) || math.IsInf(det, 0) || math.Abs(det) < 1e-12 {
+			t.Fatalf("tet%d invalid rest determinant %g", tet, det)
+		}
+		restVolume[tet] = math.Abs(det) / 6.0
 
 		// Inverse of Dm (3x3)
 		invDet := 1.0 / det
-		DmInv[t*9+0] = (dm11*dm22 - dm12*dm21) * invDet
-		DmInv[t*9+1] = (dm02*dm21 - dm01*dm22) * invDet
-		DmInv[t*9+2] = (dm01*dm12 - dm02*dm11) * invDet
-		DmInv[t*9+3] = (dm12*dm20 - dm10*dm22) * invDet
-		DmInv[t*9+4] = (dm00*dm22 - dm02*dm20) * invDet
-		DmInv[t*9+5] = (dm02*dm10 - dm00*dm12) * invDet
-		DmInv[t*9+6] = (dm10*dm21 - dm11*dm20) * invDet
-		DmInv[t*9+7] = (dm01*dm20 - dm00*dm21) * invDet
-		DmInv[t*9+8] = (dm00*dm11 - dm01*dm10) * invDet
+		DmInv[tet*9+0] = (dm11*dm22 - dm12*dm21) * invDet
+		DmInv[tet*9+1] = (dm02*dm21 - dm01*dm22) * invDet
+		DmInv[tet*9+2] = (dm01*dm12 - dm02*dm11) * invDet
+		DmInv[tet*9+3] = (dm12*dm20 - dm10*dm22) * invDet
+		DmInv[tet*9+4] = (dm00*dm22 - dm02*dm20) * invDet
+		DmInv[tet*9+5] = (dm02*dm10 - dm00*dm12) * invDet
+		DmInv[tet*9+6] = (dm10*dm21 - dm11*dm20) * invDet
+		DmInv[tet*9+7] = (dm01*dm20 - dm00*dm21) * invDet
+		DmInv[tet*9+8] = (dm00*dm11 - dm01*dm10) * invDet
 	}
 
 	mu := 1000.0
@@ -121,11 +124,11 @@ func TestParsecFacesim(t *testing.T) {
 
 	// Golden reference computation in Go
 	goldenForces := make([]float64, nVerts*3)
-	for t := 0; t < nTets; t++ {
-		i0 := int(tetIndices[t*4+0])
-		i1 := int(tetIndices[t*4+1])
-		i2 := int(tetIndices[t*4+2])
-		i3 := int(tetIndices[t*4+3])
+	for tet := 0; tet < nTets; tet++ {
+		i0 := int(tetIndices[tet*4+0])
+		i1 := int(tetIndices[tet*4+1])
+		i2 := int(tetIndices[tet*4+2])
+		i3 := int(tetIndices[tet*4+3])
 
 		x0 := positions[i0*3]
 		y0 := positions[i0*3+1]
@@ -150,7 +153,7 @@ func TestParsecFacesim(t *testing.T) {
 		ds21 := z2 - z0
 		ds22 := z3 - z0
 
-		dm := DmInv[t*9 : t*9+9]
+		dm := DmInv[tet*9 : tet*9+9]
 
 		// F = Ds * DmInv
 		f00 := ds00*dm[0] + ds01*dm[3] + ds02*dm[6]
@@ -167,6 +170,9 @@ func TestParsecFacesim(t *testing.T) {
 			f01*(f10*f22-f12*f20) +
 			f02*(f10*f21-f11*f20)
 
+		if math.IsNaN(J) || math.IsInf(J, 0) || J <= 0 {
+			t.Fatalf("tet%d invalid deformation determinant %g", tet, J)
+		}
 		logJ := math.Log(J)
 
 		// Cofactor
@@ -192,7 +198,7 @@ func TestParsecFacesim(t *testing.T) {
 		p21 := mu*f21 + coeff*c21
 		p22 := mu*f22 + coeff*c22
 
-		V := restVolume[t]
+		V := restVolume[tet]
 		h00 := -V * (p00*dm[0] + p01*dm[1] + p02*dm[2])
 		h01 := -V * (p00*dm[3] + p01*dm[4] + p02*dm[5])
 		h02 := -V * (p00*dm[6] + p01*dm[7] + p02*dm[8])
@@ -347,7 +353,7 @@ func TestParsecFacesim(t *testing.T) {
 		if math.Abs(want) > 1e-10 {
 			relDiff = diff / math.Abs(want)
 		}
-		if relDiff > tol && diff > tol {
+		if math.IsNaN(got) || math.IsInf(got, 0) || math.IsNaN(want) || math.IsInf(want, 0) || (relDiff > tol && diff > tol) {
 			t.Errorf("forces[%d]: got %g, want %g (diff=%g, rel=%g)", i, got, want, diff, relDiff)
 		}
 	}

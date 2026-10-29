@@ -85,6 +85,7 @@ func logFor(t *testing.T, root string, required map[string]bool, omit string, ac
 		}
 		enc.Encode(map[string]string{"Action": action, "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": id})
 	}
+	enc.Encode(map[string]string{"Action": "pass", "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": "TestRegistryFacesimNumericalReference"})
 	return b.Bytes()
 }
 func TestRegressionCoverage(t *testing.T) {
@@ -128,8 +129,40 @@ func TestPortableHookRequiresNumericalReference(t *testing.T) {
 				if (err == nil) != (action == "pass") {
 					t.Fatalf("status %s: %v", action, err)
 				}
-				if len(report.Cases) != 90 || len(report.IndependentChecks) != 1 || report.IndependentChecks[0].Status != action {
+				if len(report.Cases) != 90 || len(report.IndependentChecks) != 2 || report.IndependentChecks[0].Status != action {
 					t.Fatalf("incorrect coverage: %+v", report)
+				}
+			})
+		}
+	}
+}
+
+func TestFacesimReferenceRequired(t *testing.T) {
+	root := repo(t)
+	for _, tier := range []string{"short", "full"} {
+		req, err := RequiredCases(root, tier)
+		if err != nil {
+			t.Fatal(err)
+		}
+		good := logFor(t, root, req, "", "pass")
+		lines := bytes.Split(good, []byte("\n"))
+		var without bytes.Buffer
+		for _, line := range lines {
+			if len(line) > 0 && !bytes.Contains(line, []byte("TestRegistryFacesimNumericalReference")) {
+				without.Write(line)
+				without.WriteByte('\n')
+			}
+		}
+		for _, action := range []string{"missing", "skip", "fail", "pass"} {
+			t.Run(tier+"/"+action, func(t *testing.T) {
+				var log bytes.Buffer
+				log.Write(without.Bytes())
+				if action != "missing" {
+					json.NewEncoder(&log).Encode(map[string]string{"Action": action, "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": "TestRegistryFacesimNumericalReference"})
+				}
+				_, err := Regression(root, tier, "test", &log)
+				if (err == nil) != (action == "pass") {
+					t.Fatalf("action%s error%v", action, err)
 				}
 			})
 		}
@@ -168,7 +201,7 @@ func TestPilotBounds(t *testing.T) {
 func TestFixtureIdentity(t *testing.T) {
 	root := repo(t)
 	for path, want := range map[string]string{
-		"akita-v4-baseline.jsonl": "80f257d33ddeb9e2a10ccf3f310e2b3aaa09b0f2417e2c3d6950214b88ad344f", "pipeline-v4-baseline.jsonl": "2834a614b5147b0500cb000e7437e879e594af59339a8ee487bda13476d9820a",
+		"akita-v4-baseline.jsonl": "7336f0d234ca7c15bda91e28bec1ae4e56b3ef51fb43f584714840c95c66b529", "pipeline-v4-baseline.jsonl": "2834a614b5147b0500cb000e7437e879e594af59339a8ee487bda13476d9820a",
 	} {
 		b, e := os.ReadFile(filepath.Join(root, "pkg/cpu/testdata", path))
 		if e != nil {

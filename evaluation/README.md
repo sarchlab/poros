@@ -10,12 +10,14 @@ Apple Silicon macOS and Apple's clang command-line tools.
 
 Three different claims must remain separate:
 
-1. **Legacy behavior regression:** all 41 current functions at their original
-   inputs, on one/two independent emulators (82 cases), plus eight in-order/no-BP
-   cases. Exact retired instructions/cycles match historical data. Digests
-   match the frozen ARM64 data except for the audited Black-Scholes host-math
-   case on non-ARM64: that case compares whole state with same-host functional
-   execution, linked to a separate all-1024-option mathematical reference. These are not shared-memory multicore tests.
+1. **Behavior regression:** 40 historical kernels plus the corrected finite
+   Facesim workload, on one/two independent emulators (82 cases), plus eight
+   in-order/no-BP cases. Facesim's two invalid historical output digests were
+   replaced after independent force validation; the other 88 cases retain their
+   fixtures. Black-Scholes and Bodytrack on non-ARM64 compare whole state with
+   same-host functional execution and require separate all-output mathematical
+   checks. Facesim's 60-force mathematical check is required on every tier.
+   These are not shared-memory multicore tests.
 2. **Independent functional correctness:** complete MVT output arrays from native
    execution and simulation each match a direct Go mathematical reference within
    `1e-12 + 1e-12 * abs(reference)`. Every element is checked, not only a sum.
@@ -186,7 +188,8 @@ with identical instruction/cycle counts. A diagnostic translation of Go's AMD64
 Exp algorithm changed65/1024 prices by at most1.25e-14 on the ARM host while
 retaining106565 instructions; this isolates an actual rounding sensitivity, not
 a guessed new Linux golden. Black-Scholes and Bodytrack are the explicit allowlist for the alternative
-non-ARM64 check. The fixtures remain byte-identical. Independent numerical checks
+non-ARM64 check. Except for the separately corrected Facesim rows, fixtures retain their original
+values. Independent numerical checks
 cover all1024 option outputs; exact same-host whole-state digest equality links
 those functional outputs to timing-mode executions. Other workloads keep frozen
 digests unless separately audited. Each case report records which digest mode
@@ -210,8 +213,8 @@ The Linux AMD64 full run exposed host-dependent fusion in the legacy binary64
 FMADD/FMSUB/FNMADD emulator implementation: Go contracted arithmetic on ARM64
 but emitted separate multiply/add on AMD64. These three double-precision paths
 now explicitly use single-rounded math.FMA with ARM operand signs. Exact tests
-cover cancellation, intermediate overflow and signed zero; the original fixtures
-remain unchanged. This narrow semantic repair does not implement full FPCR/FPSR,
+cover cancellation, intermediate overflow and signed zero; this arithmetic repair
+did not change fixtures (the separate Facesim input correction did). This narrow semantic repair does not implement full FPCR/FPSR,
 NaN payload handling or single-precision FMA portability. Those remain limitations,
 so passing legacy kernels is not a claim of full ARM floating-point conformance.
 
@@ -219,13 +222,25 @@ Bodytrack was separately audited after canonicalizing its inputs: translating
 Go's AMD64 Exp path changed 7 of 64 hook results and the final state digest on
 identical inputs. Its companion checks all 64 likelihoods against the mathematical
 projection/squared-error/Exp formula using actual registry inputs, with relative
-error at most 1e-10 and finite checks. Swaptions and Facesim retain frozen digests:
-the same audit did not change their final state digests. These are bounded workload
+error at most 1e-10 and finite checks. Swaptions retains its historical digest.
+Facesim uses the corrected finite M0 digest and has no host-math exception. These are bounded workload
 checks, not a claim that host math is correctly rounded or universally portable.
 
 Registry initialization now specifies FMA grouping at 32 compiler-proven source
-lines, preserving the original ARM64 input bytes on all 41 kernels. The fast
+lines. Forty kernels preserve their original ARM64 input bytes; Facesim uses
+the corrected finite input. The fast
 `TestInitialStateIdentity` fixture hashes initial register JSON followed by declared
 data-region bytes in registry order, before any execution. It defines input
-identity, not correct outputs; it was captured on clean pre-change commit 9269bca.
+identity, not correct outputs; the original rows were captured on clean pre-change
+commit 9269bca, then only the invalid Facesim input identity was replaced.
 This prevents host compiler contraction from silently changing the workload itself.
+
+Facesim's old fixture contained degenerate tetrahedra: 16/32 log arguments were
+zero and 54/60 forces were NaN. Its replacement uses 32 fixed nondegenerate
+four-vertex tuples covering all 20 vertices. Degenerate rest geometry now fails
+setup. The independent registry test verifies rest inverses, positive finite
+deformation determinants, all 60 finite forces, force balance and finite-difference
+energy gradients. The separate emulator test also rejects nonfinite values.
+Only Facesim's initial-state fingerprint and two output digests changed; its
+8166 instructions and 5392 cycles per core remain unchanged. This corrects an
+invalid workload, not NaN payload portability or general ARM floating-point rules.

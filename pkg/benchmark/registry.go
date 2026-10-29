@@ -3611,24 +3611,49 @@ func parsecAll() []Benchmark {
 			positions[i*3+2] = math.FMA(float64((i*13)%5), 0.01, bz)
 		}
 
-		// Generate non-degenerate tet indices by cycling through a predefined pattern
+		// Use a fixed, validated tetrahedron inventory.
 		tetIndices := make([]int32, nTets*4)
 		// Use groups of 4 vertices that form proper tetrahedra
+		// Fixed nondegenerate grid tetrahedra; every vertex participates.
 		tetBase := [][4]int{
-			{0, 1, 3, 9}, {1, 2, 4, 10}, {3, 4, 6, 12}, {4, 5, 7, 13},
-			{0, 1, 4, 3}, {1, 2, 5, 4}, {3, 4, 7, 6}, {4, 5, 8, 7},
-			{9, 10, 12, 0}, {10, 11, 13, 1}, {12, 13, 15, 3}, {13, 14, 16, 4},
-			{9, 10, 13, 12}, {10, 11, 14, 13}, {12, 13, 16, 15}, {13, 14, 17, 16},
-			{0, 3, 9, 1}, {1, 4, 10, 2}, {3, 6, 12, 4}, {4, 7, 13, 5},
-			{0, 9, 10, 3}, {1, 10, 11, 4}, {3, 12, 13, 6}, {4, 13, 14, 7},
-			{9, 0, 1, 10}, {10, 1, 2, 11}, {12, 3, 4, 13}, {13, 4, 5, 14},
-			{0, 1, 9, 10}, {1, 2, 10, 11}, {3, 4, 12, 13}, {4, 5, 13, 14},
+			{0, 1, 3, 9},
+			{1, 2, 4, 10},
+			{1, 2, 5, 11},
+			{3, 4, 6, 12},
+			{3, 4, 7, 13},
+			{4, 5, 8, 14},
+			{3, 6, 7, 15},
+			{4, 6, 7, 16},
+			{5, 7, 8, 17},
+			{9, 10, 12, 18},
+			{9, 10, 13, 19},
+			{0, 1, 4, 10},
+			{0, 3, 4, 12},
+			{0, 4, 10, 12},
+			{0, 9, 10, 12},
+			{1, 3, 4, 13},
+			{1, 3, 9, 13},
+			{1, 4, 5, 13},
+			{1, 5, 11, 13},
+			{1, 9, 10, 13},
+			{1, 10, 11, 13},
+			{2, 4, 5, 14},
+			{2, 4, 10, 14},
+			{2, 10, 11, 14},
+			{3, 7, 13, 15},
+			{3, 9, 12, 13},
+			{3, 12, 13, 15},
+			{4, 5, 7, 13},
+			{4, 6, 12, 16},
+			{4, 7, 8, 16},
+			{4, 8, 14, 16},
+			{4, 10, 12, 13},
 		}
 		for t := 0; t < nTets; t++ {
 			for j := 0; j < 4; j++ {
 				idx := tetBase[t][j]
-				if idx >= nVerts {
-					idx = idx % nVerts
+				if idx < 0 || idx >= nVerts {
+					panic("invalid Facesim vertex index")
 				}
 				tetIndices[t*4+j] = int32(idx)
 			}
@@ -3659,8 +3684,8 @@ func parsecAll() []Benchmark {
 			minor2 := math.FMA(-dm11, dm20, float64(dm10*dm21))
 			det := math.FMA(dm02, minor2, math.FMA(-dm01, minor1, float64(dm00*minor0)))
 
-			if math.Abs(det) < 1e-12 {
-				det = 1.0
+			if math.IsNaN(det) || math.IsInf(det, 0) || math.Abs(det) < 1e-12 {
+				panic("degenerate Facesim rest tetrahedron")
 			}
 			restVolume[t] = math.Abs(det) / 6.0
 

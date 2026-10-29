@@ -30,7 +30,8 @@ type baselineRecord struct {
 	Digest               []string
 }
 
-// TestV4Baseline checks all registered kernels against the frozen v4 checkout.
+// TestV4Baseline checks historical v4 fixtures, except the two Facesim rows
+// corrected in M0 after independent validation of finite, nondegenerate inputs.
 // Long mode tests one and two cores; short mode keeps a small functional/timing
 // regression and a repeated run so routine tests still exercise this contract.
 func TestV4Baseline(t *testing.T) {

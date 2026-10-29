@@ -157,6 +157,7 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 	numericalTests := map[string]string{
 		"blackscholes": "TestRegistryBlackScholesNumericalReference",
 		"bodytrack":    "TestRegistryBodytrackNumericalReference",
+		"facesim":      "TestRegistryFacesimNumericalReference",
 	}
 	numericalStatus := map[string]string{}
 	for _, name := range numericalTests {
@@ -218,11 +219,19 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		mode := modes[id]
 		if mode == "" {
 			mode = "frozen ARM64 architectural digest"
+			if containsCase(id, "facesim") {
+				mode = "corrected finite Facesim fixture (M0), not historical v4"
+			}
 		}
-		report.Cases = append(report.Cases, Case{id, status, "exact historical instructions/cycles; " + mode})
+		evidence := "exact historical instructions/cycles; " + mode
+		if containsCase(id, "facesim") {
+			evidence = "exact corrected Facesim instructions/cycles; " + mode
+		}
+		report.Cases = append(report.Cases, Case{id, status, evidence})
 	}
-	for _, workload := range []string{"blackscholes", "bodytrack"} {
-		needed := false
+	for _, workload := range []string{"blackscholes", "bodytrack", "facesim"} {
+		// Corrected Facesim inputs require numerical validation on every tier.
+		needed := workload == "facesim"
 		for id := range modes {
 			if containsCase(id, workload) {
 				needed = true
