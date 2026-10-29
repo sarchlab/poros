@@ -2923,14 +2923,20 @@ func TestOoO_PolyBenchCorrelation(t *testing.T) {
 func TestOoO_PolyBenchGramschmidt(t *testing.T) {
 	// End-to-end PolyBench kernel_gramschmidt through the OoO pipeline.
 	// Modified Gram-Schmidt orthogonalization.
-	m, n := 20, 30
+	// Tall, well-conditioned input: the leading square block is identity plus
+	// a perturbation with infinity norm < 0.08, hence nonsingular. The old
+	// 20x30 repeated-column input could not have 30 orthonormal columns.
+	m, n := 30, 20
 
 	A := make([]float64, m*n)
 	R := make([]float64, n*n)
 	Q := make([]float64, m*n)
 	for i := 0; i < m; i++ {
 		for j := 0; j < n; j++ {
-			A[i*n+j] = (float64((i*j)%m)/float64(m))*100 + 10
+			A[i*n+j] = float64((i*7+j*3)%9-4) / 1024
+			if i == j {
+				A[i*n+j] += 1
+			}
 			Q[i*n+j] = 0.0
 		}
 	}
@@ -3037,7 +3043,7 @@ func TestOoO_PolyBenchGramschmidt(t *testing.T) {
 		if relErr > maxRelErr {
 			maxRelErr = relErr
 		}
-		if relErr > 1e-10 {
+		if math.IsNaN(got) || math.IsInf(got, 0) || math.IsNaN(want) || math.IsInf(want, 0) || relErr > 1e-10 {
 			row, col := i/n, i%n
 			t.Errorf("R[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
 		}
@@ -3052,9 +3058,46 @@ func TestOoO_PolyBenchGramschmidt(t *testing.T) {
 		if relErr > maxRelErr {
 			maxRelErr = relErr
 		}
-		if relErr > 1e-10 {
+		if math.IsNaN(got) || math.IsInf(got, 0) || math.IsNaN(want) || math.IsInf(want, 0) || relErr > 1e-10 {
 			row, col := i/n, i%n
 			t.Errorf("Q[%d][%d] = %g, want %g (relErr=%e)", row, col, got, want, relErr)
+		}
+	}
+
+	// Independent mathematical invariants, not the reference's operation order.
+	// These also reject silent NaN success in floating-point comparisons.
+	gotQ := make([]float64, m*n)
+	gotR := make([]float64, n*n)
+	for i := range gotQ {
+		gotQ[i] = math.Float64frombits(em.Mem.ReadU64(qBase + uint64(i)*8))
+	}
+	for i := range gotR {
+		gotR[i] = math.Float64frombits(em.Mem.ReadU64(rBase + uint64(i)*8))
+	}
+	for i := 0; i < m; i++ {
+		for j := 0; j < n; j++ {
+			reconstructed := 0.0
+			for k := 0; k < n; k++ {
+				reconstructed += gotQ[i*n+k] * gotR[k*n+j]
+			}
+			residual := math.Abs(reconstructed - A[i*n+j])
+			if math.IsNaN(residual) || math.IsInf(residual, 0) || residual > 1e-10 {
+				t.Errorf("QR residual[%d,%d]=%g", i, j, residual)
+			}
+		}
+	}
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			dot := 0.0
+			for k := 0; k < m; k++ {
+				dot += gotQ[k*n+i] * gotQ[k*n+j]
+			}
+			if i == j {
+				dot -= 1
+			}
+			if math.IsNaN(dot) || math.IsInf(dot, 0) || math.Abs(dot) > 1e-10 {
+				t.Errorf("Q^T Q - I[%d,%d]=%g", i, j, dot)
+			}
 		}
 	}
 
