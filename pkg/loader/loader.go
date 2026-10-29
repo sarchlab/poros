@@ -1,5 +1,5 @@
 // Package loader provides functionality for loading and disassembling
-// ARM64 Mach-O binaries.
+// ARM64 Mach-O code sections and static AArch64 Linux ELF images.
 package loader
 
 import (

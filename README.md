@@ -173,7 +173,8 @@ pkg/cpu/internal/inst/ — Shared instruction dependency and latency helpers
 pkg/emu/       — ARM64 functional emulator
 pkg/mem/       — Cache hierarchy (L1, shared L2, DRAM)
 pkg/benchmark/ — Benchmark definitions and kernel registry
-pkg/loader/    — Mach-O binary loader
+pkg/loader/    — Mach-O extraction/disassembly and static AArch64 ELF image loading
+pkg/linuxuser/ — Checked static Linux AArch64 startup, execution and captured syscalls
 polybench/     — PolyBench/C benchmark suite and native timing data
 parsec/        — PARSEC benchmark kernels (C source, .o files, native timing)
 scripts/       — Build and run scripts (compile_all.sh, run_simulation.sh)

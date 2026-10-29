@@ -3,3 +3,6 @@ parsec/kernels/*_native
 /poros
 simulation_results.txt
 /evaluation-results/
+
+# Python tooling bytecode must not dirty exact-head evaluation checkouts.
+__pycache__/

@@ -1,0 +1,96 @@
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"runtime/debug"
+	"time"
+
+	"github.com/sarchlab/poros/pkg/linuxuser"
+	"github.com/sarchlab/poros/pkg/loader"
+)
+
+type environmentFlags []string
+
+func (e *environmentFlags) String() string     { return fmt.Sprint([]string(*e)) }
+func (e *environmentFlags) Set(s string) error { *e = append(*e, s); return nil }
+
+// runELF emits one JSON result. Guest bytes are base64 fields, never mixed with
+// host diagnostics. CLI exit 0 means guest exit 0; 1 means guest failure and 2
+// means configuration/load failure. The full guest exit value stays in JSON.
+func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
+	fs := flag.NewFlagSet("elf", flag.ContinueOnError)
+	fs.SetOutput(diagnostics)
+	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
+	timeout := fs.Duration("timeout", 2*time.Second, "host execution timeout")
+	output := fs.Int("max-output", 1<<20, "combined stdout/stderr byte budget")
+	argv0 := fs.String("argv0", "program", "guest argv[0] and AT_EXECFN")
+	var env environmentFlags
+	fs.Var(&env, "env", "guest KEY=VALUE (repeatable; no inherited environment)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() < 1 {
+		fmt.Fprintln(diagnostics, "usage: poros elf [options] file.elf [guest arguments...]")
+		return 2
+	}
+	path := fs.Arg(0)
+	f, err := os.Open(path)
+	if err != nil {
+		fmt.Fprintln(diagnostics, err)
+		return 2
+	}
+	b, err := io.ReadAll(io.LimitReader(f, loader.MaxELFFileBytes+1))
+	closeErr := f.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		fmt.Fprintln(diagnostics, err)
+		return 2
+	}
+	options := linuxuser.Options{Args: append([]string{*argv0}, fs.Args()[1:]...), Env: []string(env), ExecName: *argv0}
+	p, err := linuxuser.Parse(b, options)
+	if err != nil {
+		fmt.Fprintln(diagnostics, err)
+		return 2
+	}
+	result, err := p.Run(context.Background(), linuxuser.RunOptions{MaxInstructions: *steps, Timeout: *timeout, MaxOutput: *output})
+	if err != nil {
+		fmt.Fprintln(diagnostics, err)
+		return 2
+	}
+	sum := sha256.Sum256(b)
+	build := map[string]string{}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		build["go_version"] = info.GoVersion
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision", "vcs.modified", "vcs.time", "GOOS", "GOARCH":
+				build[setting.Key] = setting.Value
+			}
+		}
+	}
+	report := struct {
+		Schema       int               `json:"schema"`
+		BinarySHA256 string            `json:"binary_sha256"`
+		Args         []string          `json:"args"`
+		Env          []string          `json:"env"`
+		Build        map[string]string `json:"build"`
+		linuxuser.Result
+	}{1, hex.EncodeToString(sum[:]), options.Args, append([]string{}, options.Env...), build, result}
+	if err := json.NewEncoder(out).Encode(report); err != nil {
+		fmt.Fprintln(diagnostics, err)
+		return 2
+	}
+	if result.Termination == "exit" && result.ExitStatus != nil && *result.ExitStatus == 0 {
+		return 0
+	}
+	return 1
+}

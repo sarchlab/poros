@@ -64,6 +64,29 @@ jobs:
         with:
           name: ${{ matrix.os }}-${{ matrix.tier }}
           path: evaluation-results/
+  elf-functional:
+    name: Linux ELF functional and QEMU differential
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+      - run: sudo apt-get update && sudo apt-get install -y qemu-user
+      - run: |
+          mkdir -p evaluation-results
+          go build -o /tmp/poros ./cmd/poros
+          go test -count=1 ./pkg/loader ./pkg/linuxuser ./pkg/emu ./cmd/poros
+          python3 scripts/elf-differential_test.py
+          python3 scripts/elf-differential.py --require-clean --poros /tmp/poros --output evaluation-results/elf-differential.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: elf-functional-differential
+          path: evaluation-results/
   diagnostics:
     name: Extended CLI diagnostics
     if: github.event_name == 'workflow_dispatch'

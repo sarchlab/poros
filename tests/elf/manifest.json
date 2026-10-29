@@ -1,0 +1,272 @@
+{
+  "schema": 1,
+  "toolchain": {
+    "compiler": "aarch64-linux-musl-gcc (GCC) 14.2.0",
+    "linker": "GNU ld (GNU Binutils) 2.44"
+  },
+  "sources": {
+    "start.S": "0236d9d08552be0c4f3776988b5f23ae2576dd07e635dde12c0b8dcea2a4aab6",
+    "guest.c": "fe89091b47c164954ca55c0e03e69317f24c4b866a724861056e4a31b40b7b05",
+    "layout.ld": "9d942ff9006b4a5269475b6a0b455837d1c82c8b2bd5d5ee8f898f782129b5e9",
+    "build.sh": "d43a1c636966d468237cdeed66093a76bf425dcc7a6b34a5d1fb138b7acd62b3"
+  },
+  "cases": [
+    {
+      "name": "hello",
+      "file": "hello.elf",
+      "sha256": "14c514d2e160beeed342cb1486eadca97806cc24c228250a01d65e4edf3fde51",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "exit",
+      "exit_status": 0,
+      "stdout_hex": "68656c6c6f2c20454c460a",
+      "stderr_hex": "7374646572720a",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": 0,
+      "reference_stdout_hex": "68656c6c6f2c20454c460a",
+      "reference_stderr_hex": "7374646572720a"
+    },
+    {
+      "name": "startup",
+      "file": "startup.elf",
+      "sha256": "4ae5d6decdfdc9cc9ffff0d076dbb20d14e561cf0137175fa424647f01cd7761",
+      "args": [
+        "fixture",
+        "alpha",
+        "beta"
+      ],
+      "env": [
+        "MODE=test"
+      ],
+      "termination": "exit",
+      "exit_status": 0,
+      "stdout_hex": "616c7068612062657461204d4f44453d746573740a",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": 0,
+      "reference_stdout_hex": "616c7068612062657461204d4f44453d746573740a",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "memory",
+      "file": "memory.elf",
+      "sha256": "8cc328783690f100ffbf72b804f4f545e33b3f49d206287677cf95ed03c632a4",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "exit",
+      "exit_status": 0,
+      "stdout_hex": "f020000000000000",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": 0,
+      "reference_stdout_hex": "f020000000000000",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "compute",
+      "file": "compute.elf",
+      "sha256": "2dd5c65874b44a29563099d4becf647bf95907a7d048cd691c17c5761f56e023",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "exit",
+      "exit_status": 0,
+      "stdout_hex": "60000000000000000000000000000a40000000000000ec3f00000000000090bc9a9999999999b93f",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": 0,
+      "reference_stdout_hex": "60000000000000000000000000000a40000000000000ec3f00000000000090bc9a9999999999b93f",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "syscall-errors",
+      "file": "syscall-errors.elf",
+      "sha256": "f8a6a35e6176e8184b7670896f3d59fce8973e70e2b2ae86537203466a3b3f99",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "exit",
+      "exit_status": 0,
+      "stdout_hex": "580000000000000000f7fffffffffffffff2ffffffffffffff0100000000000000",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": 0,
+      "reference_stdout_hex": "580000000000000000f7fffffffffffffff2ffffffffffffff0100000000000000",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "bad-load",
+      "file": "bad-load.elf",
+      "sha256": "efbbf972c378d99a738aa3aaaa3bdcf5ddb06e0b1a7111039b987db6c718470b",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "memory_fault",
+      "exit_status": null,
+      "stdout_hex": "",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": -11,
+      "reference_stdout_hex": "",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "bad-store",
+      "file": "bad-store.elf",
+      "sha256": "136d1a46f11e63e5ae329c43dd08eb6878a70fa5f7b1b718e2857bd38ea5a71d",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "memory_fault",
+      "exit_status": null,
+      "stdout_hex": "",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": -11,
+      "reference_stdout_hex": "",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "nx",
+      "file": "nx.elf",
+      "sha256": "c8e9c1be52055698db720f37f66a3c135699c0425f224e4dfc3ff49bc0e38717",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "memory_fault",
+      "exit_status": null,
+      "stdout_hex": "",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": -11,
+      "reference_stdout_hex": "",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "unsupported-syscall",
+      "file": "unsupported-syscall.elf",
+      "sha256": "5e4e2b72b56e4d5b4c9b094baaf951325aa06a32fe54dc4f6a8c11c75840bcaf",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "unsupported_syscall",
+      "exit_status": null,
+      "stdout_hex": "",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": 0,
+      "reference_stdout_hex": "",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "unsupported-instruction",
+      "file": "unsupported-instruction.elf",
+      "sha256": "93bcae10201bf40686ca9bef5b93c51fc38957dfdc21995320602e36ea4787ab",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "unsupported_instruction",
+      "exit_status": null,
+      "stdout_hex": "",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": -4,
+      "reference_stdout_hex": "",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "loop",
+      "file": "loop.elf",
+      "sha256": "3d3acd7750d288433f05c96a719e1917bdc165b18b42d7093f94b2b28d6c2e59",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "instruction_limit",
+      "exit_status": null,
+      "stdout_hex": "",
+      "stderr_hex": "",
+      "max_instructions": 100,
+      "max_output": 1048576,
+      "reference_exit": null,
+      "reference_stdout_hex": "",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "output-limit",
+      "file": "output-limit.elf",
+      "sha256": "f06fd07e070677850e9ba1b4306404347d2029457afbb09a1b4b176eede77288",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "output_limit",
+      "exit_status": null,
+      "stdout_hex": "",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 4,
+      "reference_exit": 0,
+      "reference_stdout_hex": "6f7574707574206c696d69740a",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "exit-status",
+      "file": "exit-status.elf",
+      "sha256": "3c0a82a23238ccb2113fcd05f17dc3c1050643e01ee3ba0f3c4c3e079dc5a1e8",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "termination": "exit",
+      "exit_status": 35,
+      "stdout_hex": "",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": 35,
+      "reference_stdout_hex": "",
+      "reference_stderr_hex": ""
+    },
+    {
+      "name": "arithmetic-loop",
+      "file": "arithmetic-loop.elf",
+      "sha256": "3911d213761ef414209c82f315ffdd8f83f66ecb041e40e46510b677bab44c15",
+      "args": [
+        "fixture",
+        "1000"
+      ],
+      "env": [],
+      "termination": "exit",
+      "exit_status": 0,
+      "stdout_hex": "2c9f070000000000",
+      "stderr_hex": "",
+      "max_instructions": 100000,
+      "max_output": 1048576,
+      "reference_exit": 0,
+      "reference_stdout_hex": "2c9f070000000000",
+      "reference_stderr_hex": ""
+    }
+  ]
+}

@@ -1,0 +1,417 @@
+{
+  "schema": 1,
+  "platform": "Linux-6.12.76-linuxkit-aarch64-with-glibc2.39",
+  "samples_per_case": 5,
+  "scope": "host wall time includes process startup; not guest CPU calibration",
+  "qemu_version": "qemu-aarch64 version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+  "poros_binary_sha256": "1d95d6a7acc20fa15770b3e6a4f2be3f949f74695d6c85598c3e9e8ea9f551d1",
+  "provenance": {
+    "git_sha": "c878100a46020d11d43f2f8940a7723c42173029",
+    "git_dirty": true,
+    "poros_binary_sha256": "1d95d6a7acc20fa15770b3e6a4f2be3f949f74695d6c85598c3e9e8ea9f551d1",
+    "sources": {
+      "cmd/poros/elf.go": "da510f98de10e9b424f5ab7ad102ee6f1937c98992ba4576790afa6536bf36e0",
+      "cmd/poros/elf_test.go": "5f14feb941082b1643bcf6403da63ae89d36295326c3e77130728c50ac688c53",
+      "cmd/poros/main.go": "de197929f6ff520b9a2623e1a8b1ebc7647e410c5504d1c7e6c2270f971d0b9c",
+      "pkg/emu/accessor.go": "58d75dd92b845764ba48379a514ea8e4c1444deff06048ea756ba96305bc669b",
+      "pkg/emu/checked.go": "36701f2b58f29506aeb3446e7bd632e4be05fcad31d7ac4a00f92dd9c368cd83",
+      "pkg/emu/emulator.go": "d1391381c329d338d60c4f59d29513a52fd03cedf5c858d3057015a2bfd64470",
+      "pkg/emu/emulator_test.go": "8613615c9c87b9e946d4ad6bc1b90714afe8dd33ca28a77fe7181e6a577a56b4",
+      "pkg/emu/exec_arith.go": "a4bcd3b5609518d137eea133e6fcef551b71e9c35b2e964109e418e68d522bda",
+      "pkg/emu/exec_arith_test.go": "4ce8b51c1bd6938c92c2bb4b604289e67f1f278a1df844a3ae4f688cb5e5ca78",
+      "pkg/emu/exec_branch.go": "434bce3739d8433eeeda225cb8164a3a285a82ab64bb15a5317855c03d309b92",
+      "pkg/emu/exec_branch_test.go": "251019083846fd0cbe979930ef9e5c27fc9bb59188e484cd0ce4ed8fa7892be9",
+      "pkg/emu/exec_fp.go": "b530b6f1c1a78e7c283c85187b6c663a4ca34511d01c3cc8e64ba59c6535e0d3",
+      "pkg/emu/exec_fp_new_test.go": "3abe846e49cbd37beb1183d161e6f03ee3549a6911611eee4f76078b2f4d064d",
+      "pkg/emu/exec_fp_test.go": "49df0b2068ef61426c2e8aafb99ea03e8e148e1124b4ec7e4f0c83b4b95dcd66",
+      "pkg/emu/exec_logic.go": "e41449fd11f6486db65eacca2f64ed31483c743113362f520998984b1cf7f475",
+      "pkg/emu/exec_logic_test.go": "c552f2fa046c707fbb2006d4bcad709f851ee0b765ebd225f31cb3ebd6d1f573",
+      "pkg/emu/exec_mem.go": "89c471e6b4916e8d0b87dfe4db44f488093be9c1adfe9923bb4ed899d6bad28e",
+      "pkg/emu/exec_mem_test.go": "f9cb2dd635254a2b2c43901c30605abe3182fbe8f9140f7261772f7c6a641856",
+      "pkg/emu/executor.go": "191f2a197c753a17ffcd88c9e82de32acec906cf0b3221e8c56d66302cf44e43",
+      "pkg/emu/memory.go": "5bbc7ba24d985821a8502696b8fdc653c806a6bd73b3daf68ba7f3bc2929a303",
+      "pkg/emu/memory_test.go": "c74d2505905671bdf21af5339b2e136f485e5a798a47f056600076d1f8621e89",
+      "pkg/emu/parsec_blackscholes_test.go": "286d4b422164142c8112efbc9934439c3875c45a3e30a7635e366b553f2efb9b",
+      "pkg/emu/parsec_bodytrack_test.go": "b0dba7f2c3eaafc44d42638cf2c9bcbead9c4ca560af510ec46eed249aa8aeb1",
+      "pkg/emu/parsec_facesim_test.go": "53745bb862380f68a5f990107675f8645e62dd59a8cdda39c37cb73c8e558636",
+      "pkg/emu/parsec_ferret_test.go": "37a12a43e0f147448b02b511885087055dd84adda6d5c8b4993e9b56d865d56f",
+      "pkg/emu/parsec_fluidanimate_test.go": "558299acfe26acad16ce68921d15f3fdfd93a8f768d7f0829973817e55f83fb0",
+      "pkg/emu/parsec_raytrace_test.go": "c9ee5d0cec74c01a3af0a259c98c04a5181d6d1c09433075a5a2a1625559177b",
+      "pkg/emu/parsec_swaptions_test.go": "c1a8ea839e93cefef63556ae87451a12b1f8fb5600e53fdc2c6fb034ce8a9432",
+      "pkg/emu/parsec_vips_test.go": "c96aaab8173c4e96d278eca9c205db48e0b934f46e967974df5d68518d009774",
+      "pkg/emu/parsec_x264_test.go": "0fa6ed696c9a9a9d12b689ca749adad7471a0c8b29521be01d979627aa4ca718",
+      "pkg/emu/polybench_2mm_test.go": "93dcfbf8977652ada95f436951f9ca05ec29c8de04847aa5dab960e79928c156",
+      "pkg/emu/polybench_3mm_test.go": "80c36dc698a85c7663d1ef3efc765cf269c935d4123cc3cbb9acbfa21aab4916",
+      "pkg/emu/polybench_bicg_test.go": "fe90fcc575975de4f558ade0e566f4c920a4690712abf33a5d77cc1b5a7fa9ee",
+      "pkg/emu/polybench_gemm_test.go": "a79fefdd8ac94dc33d1e605c1c637fff91596e06ed284baf85e60bc1f9ebd64c",
+      "pkg/emu/polybench_mvt_test.go": "15eba20da205368b2453e826ed38ab9258182b596bc49002f7d5a2c0d2d98f43",
+      "pkg/emu/polybench_test.go": "04e2f8a8953a4b8acd4c7e61726a372c47a46e2321865a98cb94c33d698ee543",
+      "pkg/emu/registers.go": "91f76212bda79bbfeca55d3948ae4744b14deeb3680f8b479b4d1378f73f2d36",
+      "pkg/emu/registers_test.go": "458e500686c7da753ce841bcfe2b55b12c2d6eade9ef769373a9bf2edc20a4b0",
+      "pkg/emu/test_helpers_test.go": "f0bf8ea21e6b228a114f342196120ba150867632f12bfe07327e60b1092bd0cc",
+      "pkg/linuxuser/memory.go": "046ad366b409a9be1b3ebc99ea56ae8a669a3d831e626f863c707c9cb8fef58d",
+      "pkg/linuxuser/process.go": "44c5d6488fb5325ed2fd094d49f1a89a63a1c4deccae38ac415f08c6842e2a1e",
+      "pkg/linuxuser/process_test.go": "b018e95ec1990749214f37c3564b7a50b83a5799c5e244f7fa4558ff56de9672",
+      "pkg/linuxuser/run.go": "a136b2bb23804d3cf96c986c23ff4b94d635c6701939fa29329ac29c5cd2e771",
+      "pkg/linuxuser/run_test.go": "fa2cd8eeb6b8f33767ca613b7ef8824954486e6c6c1fd421da6551e4e9f2c79a",
+      "pkg/linuxuser/step_test.go": "1974f1d6a68b2ab2c1057724725b22110e437093e817a9e8e4f0f466a8841b37",
+      "pkg/loader/disasm.go": "e188c4b8d81add2949fd9efb9d893dd8ac7695c44b1fdbe6c6e1e77b96beeebc",
+      "pkg/loader/elf.go": "ebd65aedc578333293e62fffa1bdf1263c933061ea492bedb246f02c5d042865",
+      "pkg/loader/elf_test.go": "adfcdfdab687dff752c735e6df551dd822d82027924aee9552d41cb7851cb763",
+      "pkg/loader/loader.go": "9fa9373a800757bc22245d3606fe576957cc2435398ccca6428ad912b7c27a72",
+      "pkg/loader/loader_test.go": "817e61e0c96be0d9bdc99c11c21a42056c7d32dc885d3f97bf5b6f09d85fadf4",
+      "scripts/elf-backend-measure.py": "2a997097823f1400f8f99b10ef8863d6d2ebfa9ca711f3c87a534f1bfb103a72",
+      "scripts/elf-differential.py": "2514c9fac0181c2e2852ebf92912cd2b463a8bf65340390f3e70a0b432fc9feb",
+      "scripts/elf-differential_test.py": "c5da287cb11e1314e41d75e934c0008084d52eb68ef78f289f1818cfc6d43956",
+      "tests/elf/build.sh": "d43a1c636966d468237cdeed66093a76bf425dcc7a6b34a5d1fb138b7acd62b3",
+      "tests/elf/guest.c": "fe89091b47c164954ca55c0e03e69317f24c4b866a724861056e4a31b40b7b05",
+      "tests/elf/layout.ld": "9d942ff9006b4a5269475b6a0b455837d1c82c8b2bd5d5ee8f898f782129b5e9",
+      "tests/elf/manifest.json": "09882ebccec58e869b22f46f533d6b39b918f2f9b12485ac4cdd3d52a988c79f",
+      "tests/elf/start.S": "0236d9d08552be0c4f3776988b5f23ae2576dd07e635dde12c0b8dcea2a4aab6"
+    }
+  },
+  "measurements": [
+    {
+      "case": "hello",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "fixture_sha256": "14c514d2e160beeed342cb1486eadca97806cc24c228250a01d65e4edf3fde51",
+      "backend": "poros",
+      "command": [
+        "/evidence/poros-elf46-linux",
+        "elf",
+        "--argv0",
+        "fixture",
+        "--timeout",
+        "10s",
+        "/repo/tests/elf/hello.elf"
+      ],
+      "instructions": 51,
+      "wall_ns": [
+        4895042,
+        4317250,
+        4468458,
+        4150542,
+        4044041
+      ],
+      "median_wall_ns": 4317250
+    },
+    {
+      "case": "hello",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "fixture_sha256": "14c514d2e160beeed342cb1486eadca97806cc24c228250a01d65e4edf3fde51",
+      "backend": "qemu",
+      "command": [
+        "qemu-aarch64",
+        "-0",
+        "fixture",
+        "/repo/tests/elf/hello.elf"
+      ],
+      "instructions": null,
+      "wall_ns": [
+        3439000,
+        3208208,
+        2857750,
+        3245333,
+        3195917
+      ],
+      "median_wall_ns": 3208208
+    },
+    {
+      "case": "hello",
+      "args": [
+        "fixture"
+      ],
+      "env": [],
+      "fixture_sha256": "14c514d2e160beeed342cb1486eadca97806cc24c228250a01d65e4edf3fde51",
+      "backend": "qemu-tb-trace",
+      "command": [
+        "qemu-aarch64",
+        "-0",
+        "fixture",
+        "-d",
+        "exec,nochain",
+        "-D",
+        "/dev/null",
+        "/repo/tests/elf/hello.elf"
+      ],
+      "instructions": null,
+      "wall_ns": [
+        3157667,
+        2975167,
+        3080166,
+        3176208,
+        3169666
+      ],
+      "median_wall_ns": 3157667
+    },
+    {
+      "case": "arithmetic-loop",
+      "args": [
+        "fixture",
+        "100"
+      ],
+      "env": [],
+      "fixture_sha256": "3911d213761ef414209c82f315ffdd8f83f66ecb041e40e46510b677bab44c15",
+      "backend": "poros",
+      "command": [
+        "/evidence/poros-elf46-linux",
+        "elf",
+        "--argv0",
+        "fixture",
+        "--timeout",
+        "10s",
+        "/repo/tests/elf/arithmetic-loop.elf",
+        "100"
+      ],
+      "instructions": 659,
+      "wall_ns": [
+        5766208,
+        4286834,
+        4182708,
+        5647375,
+        5622458
+      ],
+      "median_wall_ns": 5622458
+    },
+    {
+      "case": "arithmetic-loop",
+      "args": [
+        "fixture",
+        "100"
+      ],
+      "env": [],
+      "fixture_sha256": "3911d213761ef414209c82f315ffdd8f83f66ecb041e40e46510b677bab44c15",
+      "backend": "qemu",
+      "command": [
+        "qemu-aarch64",
+        "-0",
+        "fixture",
+        "/repo/tests/elf/arithmetic-loop.elf",
+        "100"
+      ],
+      "instructions": null,
+      "wall_ns": [
+        2902083,
+        3018667,
+        3145875,
+        3188500,
+        2612333
+      ],
+      "median_wall_ns": 3018667
+    },
+    {
+      "case": "arithmetic-loop",
+      "args": [
+        "fixture",
+        "100"
+      ],
+      "env": [],
+      "fixture_sha256": "3911d213761ef414209c82f315ffdd8f83f66ecb041e40e46510b677bab44c15",
+      "backend": "qemu-tb-trace",
+      "command": [
+        "qemu-aarch64",
+        "-0",
+        "fixture",
+        "-d",
+        "exec,nochain",
+        "-D",
+        "/dev/null",
+        "/repo/tests/elf/arithmetic-loop.elf",
+        "100"
+      ],
+      "instructions": null,
+      "wall_ns": [
+        3166375,
+        2855958,
+        3280875,
+        3147750,
+        3183000
+      ],
+      "median_wall_ns": 3166375
+    },
+    {
+      "case": "arithmetic-loop",
+      "args": [
+        "fixture",
+        "10000"
+      ],
+      "env": [],
+      "fixture_sha256": "3911d213761ef414209c82f315ffdd8f83f66ecb041e40e46510b677bab44c15",
+      "backend": "poros",
+      "command": [
+        "/evidence/poros-elf46-linux",
+        "elf",
+        "--argv0",
+        "fixture",
+        "--timeout",
+        "10s",
+        "/repo/tests/elf/arithmetic-loop.elf",
+        "10000"
+      ],
+      "instructions": 60079,
+      "wall_ns": [
+        26672375,
+        26413875,
+        25804959,
+        26287000,
+        26206041
+      ],
+      "median_wall_ns": 26287000
+    },
+    {
+      "case": "arithmetic-loop",
+      "args": [
+        "fixture",
+        "10000"
+      ],
+      "env": [],
+      "fixture_sha256": "3911d213761ef414209c82f315ffdd8f83f66ecb041e40e46510b677bab44c15",
+      "backend": "qemu",
+      "command": [
+        "qemu-aarch64",
+        "-0",
+        "fixture",
+        "/repo/tests/elf/arithmetic-loop.elf",
+        "10000"
+      ],
+      "instructions": null,
+      "wall_ns": [
+        3462208,
+        3247625,
+        2971500,
+        3291375,
+        3213292
+      ],
+      "median_wall_ns": 3247625
+    },
+    {
+      "case": "arithmetic-loop",
+      "args": [
+        "fixture",
+        "10000"
+      ],
+      "env": [],
+      "fixture_sha256": "3911d213761ef414209c82f315ffdd8f83f66ecb041e40e46510b677bab44c15",
+      "backend": "qemu-tb-trace",
+      "command": [
+        "qemu-aarch64",
+        "-0",
+        "fixture",
+        "-d",
+        "exec,nochain",
+        "-D",
+        "/dev/null",
+        "/repo/tests/elf/arithmetic-loop.elf",
+        "10000"
+      ],
+      "instructions": null,
+      "wall_ns": [
+        6875209,
+        6498041,
+        6716417,
+        6435333,
+        6474084
+      ],
+      "median_wall_ns": 6498041
+    },
+    {
+      "case": "arithmetic-loop",
+      "args": [
+        "fixture",
+        "100000"
+      ],
+      "env": [],
+      "fixture_sha256": "3911d213761ef414209c82f315ffdd8f83f66ecb041e40e46510b677bab44c15",
+      "backend": "poros",
+      "command": [
+        "/evidence/poros-elf46-linux",
+        "elf",
+        "--argv0",
+        "fixture",
+        "--timeout",
+        "10s",
+        "/repo/tests/elf/arithmetic-loop.elf",
+        "100000"
+      ],
+      "instructions": 600089,
+      "wall_ns": [
+        200244333,
+        203339083,
+        213906875,
+        203335417,
+        203918167
+      ],
+      "median_wall_ns": 203339083
+    },
+    {
+      "case": "arithmetic-loop",
+      "args": [
+        "fixture",
+        "100000"
+      ],
+      "env": [],
+      "fixture_sha256": "3911d213761ef414209c82f315ffdd8f83f66ecb041e40e46510b677bab44c15",
+      "backend": "qemu",
+      "command": [
+        "qemu-aarch64",
+        "-0",
+        "fixture",
+        "/repo/tests/elf/arithmetic-loop.elf",
+        "100000"
+      ],
+      "instructions": null,
+      "wall_ns": [
+        3597708,
+        3496333,
+        3410417,
+        3193917,
+        3352792
+      ],
+      "median_wall_ns": 3410417
+    },
+    {
+      "case": "arithmetic-loop",
+      "args": [
+        "fixture",
+        "100000"
+      ],
+      "env": [],
+      "fixture_sha256": "3911d213761ef414209c82f315ffdd8f83f66ecb041e40e46510b677bab44c15",
+      "backend": "qemu-tb-trace",
+      "command": [
+        "qemu-aarch64",
+        "-0",
+        "fixture",
+        "-d",
+        "exec,nochain",
+        "-D",
+        "/dev/null",
+        "/repo/tests/elf/arithmetic-loop.elf",
+        "100000"
+      ],
+      "instructions": null,
+      "wall_ns": [
+        38934500,
+        38514667,
+        39069458,
+        38093500,
+        38558334
+      ],
+      "median_wall_ns": 38558334
+    }
+  ],
+  "poros_build": {
+    "GOARCH": "arm64",
+    "GOOS": "linux",
+    "go_version": "go1.27.0",
+    "vcs.modified": "true",
+    "vcs.revision": "c878100a46020d11d43f2f8940a7723c42173029",
+    "vcs.time": "2026-10-29T19:59:00Z"
+  }
+}
