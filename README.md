@@ -248,3 +248,10 @@ cycle counts, register values, and benchmark data-region contents. See
 [pkg/cpu/testdata/README.md](pkg/cpu/testdata/README.md) for fixture provenance.
 All three component packages also check that Akita's static inspector agrees with
 the runtime component schema and defaults.
+
+## Evaluation and calibration
+
+See [the M0 evaluation contract](evaluation/README.md) for the versioned workload
+inventory, regression CI, and fresh M2 multi-size timing pilot. Historical
+regression data and provisional native measurements are different evidence
+classes; neither alone establishes a validated CPU model.

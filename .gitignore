@@ -2,3 +2,4 @@ parsec/kernels/*.o
 parsec/kernels/*_native
 /poros
 simulation_results.txt
+/evaluation-results/
