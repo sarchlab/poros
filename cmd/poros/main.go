@@ -7,24 +7,24 @@ import (
 	"os"
 
 	"github.com/sarchlab/akita/v4/sim"
-	"github.com/sarchlab/m2sim3/pkg/benchmark"
-	"github.com/sarchlab/m2sim3/pkg/cpu"
-	"github.com/sarchlab/m2sim3/pkg/mem"
+	"github.com/sarchlab/poros/pkg/benchmark"
+	"github.com/sarchlab/poros/pkg/cpu"
+	"github.com/sarchlab/poros/pkg/mem"
 )
 
 const freq = 3.49e9 // M2 Avalanche core frequency
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `m2sim: Apple M2 cycle-accurate simulator
+	fmt.Fprintf(os.Stderr, `poros: Apple M2 cycle-accurate simulator
 
 Usage:
-  m2sim list                            List all available benchmarks
-  m2sim run <name>                      Run a single benchmark
-  m2sim run <name> --cores N            Run a benchmark on N cores
-  m2sim run --all                       Run all benchmarks (full comparison table)
-  m2sim run --suite <suite>             Run all benchmarks in a suite
-  m2sim run --suite <suite> --cores N   Run suite benchmarks on N cores
-  m2sim eval                            Quick 6-benchmark evaluation
+  poros list                            List all available benchmarks
+  poros run <name>                      Run a single benchmark
+  poros run --cores N <name>            Run a benchmark on N cores
+  poros run --all                       Run all benchmarks (full comparison table)
+  poros run --suite <suite>             Run all benchmarks in a suite
+  poros run --suite <suite> --cores N   Run suite benchmarks on N cores
+  poros eval                            Quick 6-benchmark evaluation
 `)
 	os.Exit(1)
 }
@@ -130,7 +130,7 @@ func runSingle(b benchmark.Benchmark) {
 	benchmark.WarmCache(cache, b.Regions)
 
 	engine := sim.NewSerialEngine()
-	p := cpu.NewOoOPipeline("M2sim", engine, 3490*sim.MHz, em)
+	p := cpu.NewOoOPipeline("Poros", engine, 3490*sim.MHz, em)
 	p.Cache = cache
 	if b.FuncHookCycles != nil {
 		p.FuncHookCycles = b.FuncHookCycles
@@ -187,7 +187,7 @@ func runMultiCore(b benchmark.Benchmark, nCores int) {
 	}
 
 	engine := sim.NewSerialEngine()
-	mc := cpu.NewMultiCorePipeline("M2sim", engine, 3490*sim.MHz, configs)
+	mc := cpu.NewMultiCorePipeline("Poros", engine, 3490*sim.MHz, configs)
 
 	// Warm caches for each core.
 	for _, core := range mc.Cores {
@@ -235,7 +235,7 @@ func runMultiCoreAll(benchmarks []benchmark.Benchmark, nCores int) {
 		}
 
 		engine := sim.NewSerialEngine()
-		mc := cpu.NewMultiCorePipeline("M2sim", engine, 3490*sim.MHz, configs)
+		mc := cpu.NewMultiCorePipeline("Poros", engine, 3490*sim.MHz, configs)
 		for _, core := range mc.Cores {
 			benchmark.WarmCache(core.Cache, b.Regions)
 		}
@@ -276,7 +276,7 @@ func runComparisonTable(benchmarks []benchmark.Benchmark) {
 		cacheIO := mem.NewCache(mem.DefaultCacheConfig())
 		benchmark.WarmCache(cacheIO, b.Regions)
 		engineIO := sim.NewSerialEngine()
-		pIO := cpu.NewPipeline("M2sim", engineIO, 3490*sim.MHz, emIO)
+		pIO := cpu.NewPipeline("Poros", engineIO, 3490*sim.MHz, emIO)
 		pIO.Cache = cacheIO
 		pIO.TickLater()
 		if err := engineIO.Run(); err != nil {
@@ -293,7 +293,7 @@ func runComparisonTable(benchmarks []benchmark.Benchmark) {
 		cacheOoO := mem.NewCache(mem.DefaultCacheConfig())
 		benchmark.WarmCache(cacheOoO, b.Regions)
 		engineOoO := sim.NewSerialEngine()
-		pOoO := cpu.NewOoOPipeline("M2sim", engineOoO, 3490*sim.MHz, emOoO)
+		pOoO := cpu.NewOoOPipeline("Poros", engineOoO, 3490*sim.MHz, emOoO)
 		pOoO.Cache = cacheOoO
 		if b.FuncHookCycles != nil {
 			pOoO.FuncHookCycles = b.FuncHookCycles
@@ -319,7 +319,7 @@ func runComparisonTable(benchmarks []benchmark.Benchmark) {
 		cacheNoBP := mem.NewCache(mem.DefaultCacheConfig())
 		benchmark.WarmCache(cacheNoBP, b.Regions)
 		engineNoBP := sim.NewSerialEngine()
-		pNoBP := cpu.NewOoOPipeline("M2sim", engineNoBP, 3490*sim.MHz, emNoBP)
+		pNoBP := cpu.NewOoOPipeline("Poros", engineNoBP, 3490*sim.MHz, emNoBP)
 		pNoBP.Cache = cacheNoBP
 		if b.FuncHookCycles != nil {
 			pNoBP.FuncHookCycles = b.FuncHookCycles
@@ -458,7 +458,7 @@ func cmdEval() {
 		benchmark.WarmCache(cache, k.Regions)
 
 		engine := sim.NewSerialEngine()
-		p := cpu.NewOoOPipeline("M2sim", engine, 3490*sim.MHz, em)
+		p := cpu.NewOoOPipeline("Poros", engine, 3490*sim.MHz, em)
 		p.Cache = cache
 		if k.FuncHookCycles != nil {
 			p.FuncHookCycles = k.FuncHookCycles

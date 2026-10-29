@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/sarchlab/akita/v4/sim"
-	"github.com/sarchlab/m2sim3/pkg/benchmark"
-	"github.com/sarchlab/m2sim3/pkg/emu"
-	"github.com/sarchlab/m2sim3/pkg/mem"
+	"github.com/sarchlab/poros/pkg/benchmark"
+	"github.com/sarchlab/poros/pkg/emu"
+	"github.com/sarchlab/poros/pkg/mem"
 )
 
 // helper: run OoO pipeline to completion.

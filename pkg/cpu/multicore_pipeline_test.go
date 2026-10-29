@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/sarchlab/akita/v4/sim"
-	"github.com/sarchlab/m2sim3/pkg/benchmark"
-	"github.com/sarchlab/m2sim3/pkg/emu"
+	"github.com/sarchlab/poros/pkg/benchmark"
+	"github.com/sarchlab/poros/pkg/emu"
 )
 
 // TestMultiCore_Basic verifies that 2 cores running simple programs both
@@ -115,7 +115,7 @@ func runMultiCoreParsec(t *testing.T, name string, nCores int) *MultiCorePipelin
 	}
 
 	engine := sim.NewSerialEngine()
-	mc := NewMultiCorePipeline("M2sim", engine, 3490*sim.MHz, configs)
+	mc := NewMultiCorePipeline("Poros", engine, 3490*sim.MHz, configs)
 
 	// Warm caches for each core.
 	for _, core := range mc.Cores {

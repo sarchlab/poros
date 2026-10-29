@@ -1,4 +1,4 @@
 parsec/kernels/*.o
 parsec/kernels/*_native
-m2sim
+/poros
 simulation_results.txt

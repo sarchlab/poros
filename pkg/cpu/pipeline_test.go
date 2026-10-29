@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/sarchlab/akita/v4/sim"
-	"github.com/sarchlab/m2sim3/pkg/emu"
-	"github.com/sarchlab/m2sim3/pkg/mem"
+	"github.com/sarchlab/poros/pkg/emu"
+	"github.com/sarchlab/poros/pkg/mem"
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
