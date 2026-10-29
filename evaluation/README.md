@@ -204,3 +204,12 @@ report also requires `TestRegistryBlackScholesNumericalReference` to pass and
 records it in `independent_checks`, separately from the 90 legacy cases. Missing,
 skipped, or failed numerical checks fail coverage. This reference is independent
 of the simulated instruction stream, but shares the host math implementation.
+
+The Linux AMD64 full run exposed host-dependent fusion in the legacy binary64
+FMADD/FMSUB/FNMADD emulator implementation: Go contracted arithmetic on ARM64
+but emitted separate multiply/add on AMD64. These three double-precision paths
+now explicitly use single-rounded math.FMA with ARM operand signs. Exact tests
+cover cancellation, intermediate overflow and signed zero; the original fixtures
+remain unchanged. This narrow semantic repair does not implement full FPCR/FPSR,
+NaN payload handling or single-precision FMA portability. Those remain limitations,
+so passing legacy kernels is not a claim of full ARM floating-point conformance.
