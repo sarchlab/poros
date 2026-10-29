@@ -1,0 +1,837 @@
+{
+  "schema_version": 1,
+  "split_version": "m0-v1",
+  "split_limitation": "Legacy kernels were previously used in development; validation-legacy is held out from future fitting only, not an independent historical validation set. Patched CNEG forms exist in legacy kernels. Unknown historical build details remain unknown.",
+  "workloads": [
+    {
+      "id": "atax",
+      "status": "legacy",
+      "role": "calibration",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {
+            "m": 390,
+            "n": 410
+          },
+          "working_set_bytes": 1288880,
+          "status": "legacy",
+          "constraint": "Data arrays only, excludes code/stack. Fixed legacy registry layout; historical compiler provenance unknown."
+        },
+        {
+          "id": "planned-0",
+          "dimensions": {
+            "m": 8,
+            "n": 9
+          },
+          "working_set_bytes": 784,
+          "status": "planned",
+          "constraint": "Requires size-aware setup and independent reference before execution."
+        },
+        {
+          "id": "planned-1",
+          "dimensions": {
+            "m": 127,
+            "n": 129
+          },
+          "working_set_bytes": 134144,
+          "status": "planned",
+          "constraint": "Requires size-aware setup and independent reference before execution."
+        },
+        {
+          "id": "planned-2",
+          "dimensions": {
+            "m": 1536,
+            "n": 1537
+          },
+          "working_set_bytes": 18923536,
+          "status": "planned",
+          "constraint": "Requires size-aware setup and independent reference before execution."
+        }
+      ]
+    },
+    {
+      "id": "mvt",
+      "status": "legacy",
+      "role": "calibration",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {
+            "n": 400
+          },
+          "working_set_bytes": 1292800,
+          "status": "legacy",
+          "constraint": "Data arrays only, excludes code/stack. Fixed legacy registry layout; historical compiler provenance unknown."
+        },
+        {
+          "id": "n8",
+          "dimensions": {
+            "n": 8
+          },
+          "working_set_bytes": 768,
+          "status": "pilot",
+          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+        },
+        {
+          "id": "n63",
+          "dimensions": {
+            "n": 63
+          },
+          "working_set_bytes": 33768,
+          "status": "pilot",
+          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+        },
+        {
+          "id": "n120",
+          "dimensions": {
+            "n": 120
+          },
+          "working_set_bytes": 119040,
+          "status": "pilot",
+          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+        },
+        {
+          "id": "n129",
+          "dimensions": {
+            "n": 129
+          },
+          "working_set_bytes": 137256,
+          "status": "pilot",
+          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+        },
+        {
+          "id": "n400",
+          "dimensions": {
+            "n": 400
+          },
+          "working_set_bytes": 1292800,
+          "status": "pilot",
+          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+        },
+        {
+          "id": "n1536",
+          "dimensions": {
+            "n": 1536
+          },
+          "working_set_bytes": 18923520,
+          "status": "pilot",
+          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+        }
+      ]
+    },
+    {
+      "id": "gemm",
+      "status": "legacy",
+      "role": "calibration",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {
+            "ni": 60,
+            "nj": 70,
+            "nk": 80
+          },
+          "working_set_bytes": 116800,
+          "status": "legacy",
+          "constraint": "Data arrays only, excludes code/stack. Fixed legacy registry layout; historical compiler provenance unknown."
+        },
+        {
+          "id": "planned-0",
+          "dimensions": {
+            "ni": 8,
+            "nj": 9,
+            "nk": 7
+          },
+          "working_set_bytes": 1528,
+          "status": "planned",
+          "constraint": "Requires size-aware setup and independent reference before execution."
+        },
+        {
+          "id": "planned-1",
+          "dimensions": {
+            "ni": 64,
+            "nj": 65,
+            "nk": 63
+          },
+          "working_set_bytes": 98296,
+          "status": "planned",
+          "constraint": "Requires size-aware setup and independent reference before execution."
+        },
+        {
+          "id": "planned-2",
+          "dimensions": {
+            "ni": 1024,
+            "nj": 1025,
+            "nk": 1023
+          },
+          "working_set_bytes": 25165816,
+          "status": "planned",
+          "constraint": "Requires size-aware setup and independent reference before execution."
+        }
+      ]
+    },
+    {
+      "id": "2mm",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "3mm",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "bicg",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "gesummv",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "gemver",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "doitgen",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "trisolv",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "durbin",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "jacobi1d",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "syrk",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "syr2k",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "trmm",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "symm",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "cholesky",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "lu",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "floydwarshall",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "covariance",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "correlation",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "gramschmidt",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "ludcmp",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "nussinov",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "adi",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "fdtd2d",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "heat3d",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "jacobi2d",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "seidel2d",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "deriche",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "swaptions",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "blackscholes",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "streamcluster",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "canneal",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "fluidanimate",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "raytrace",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "vips",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "bodytrack",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "facesim",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "ferret",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "x264",
+      "status": "legacy",
+      "role": "validation-legacy",
+      "execution": "embedded-function",
+      "source": "pkg/benchmark/registry.go",
+      "sizes": [
+        {
+          "id": "legacy-default",
+          "dimensions": {},
+          "working_set_bytes": null,
+          "status": "legacy",
+          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+        }
+      ]
+    },
+    {
+      "id": "busybox",
+      "status": "planned",
+      "role": "validation",
+      "execution": "linux-elf",
+      "source": "",
+      "sizes": []
+    },
+    {
+      "id": "zstd",
+      "status": "planned",
+      "role": "validation",
+      "execution": "linux-elf",
+      "source": "",
+      "sizes": []
+    },
+    {
+      "id": "sqlite",
+      "status": "planned",
+      "role": "validation",
+      "execution": "linux-elf",
+      "source": "",
+      "sizes": []
+    },
+    {
+      "id": "pointer-chasing",
+      "status": "planned",
+      "role": "calibration",
+      "execution": "function",
+      "source": "",
+      "sizes": []
+    },
+    {
+      "id": "stream",
+      "status": "planned",
+      "role": "calibration",
+      "execution": "function",
+      "source": "",
+      "sizes": []
+    },
+    {
+      "id": "branch",
+      "status": "planned",
+      "role": "calibration",
+      "execution": "function",
+      "source": "",
+      "sizes": []
+    }
+  ]
+}

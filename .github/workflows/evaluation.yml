@@ -1,0 +1,86 @@
+name: Evaluation
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: evaluation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  static:
+    name: Linux static and manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+      - run: scripts/evaluation-ci.sh static
+        env:
+          FORMAT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: manifest
+          path: evaluation-results/
+  tests:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux short regression
+            os: ubuntu-24.04
+            tier: short
+          - name: Linux full regression
+            os: ubuntu-24.04
+            tier: full
+          - name: macOS compatibility
+            os: macos-15
+            tier: short
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+      - name: Assert native pilot platform
+        if: runner.os == 'macOS'
+        run: test "$(uname -m)" = arm64 && command -v clang
+      - run: go build ./cmd/...
+      - run: scripts/evaluation-ci.sh ${{ matrix.tier }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.os }}-${{ matrix.tier }}
+          path: evaluation-results/
+  diagnostics:
+    name: Extended CLI diagnostics
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+      - run: |
+          mkdir -p evaluation-results
+          go run ./cmd/poros run --all >evaluation-results/cli-comparison.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extended-cli
+          path: evaluation-results/

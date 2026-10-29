@@ -81,7 +81,8 @@ func (e *executor) execFMADD(inst arm64asm.Inst) error {
 		n := e.regs.ReadD(dRegIndex(inst.Args[1].(arm64asm.Reg)))
 		m := e.regs.ReadD(dRegIndex(inst.Args[2].(arm64asm.Reg)))
 		a := e.regs.ReadD(dRegIndex(inst.Args[3].(arm64asm.Reg)))
-		e.regs.WriteD(di, a+n*m)
+		// Go may otherwise fuse this expression only on some host architectures.
+		e.regs.WriteD(di, math.FMA(n, m, a))
 	} else {
 		si := sRegIndex(inst.Args[0].(arm64asm.Reg))
 		n := e.regs.ReadS(sRegIndex(inst.Args[1].(arm64asm.Reg)))
@@ -98,7 +99,7 @@ func (e *executor) execFMSUB(inst arm64asm.Inst) error {
 		n := e.regs.ReadD(dRegIndex(inst.Args[1].(arm64asm.Reg)))
 		m := e.regs.ReadD(dRegIndex(inst.Args[2].(arm64asm.Reg)))
 		a := e.regs.ReadD(dRegIndex(inst.Args[3].(arm64asm.Reg)))
-		e.regs.WriteD(di, a-n*m)
+		e.regs.WriteD(di, math.FMA(-n, m, a))
 	} else {
 		si := sRegIndex(inst.Args[0].(arm64asm.Reg))
 		n := e.regs.ReadS(sRegIndex(inst.Args[1].(arm64asm.Reg)))
@@ -169,7 +170,8 @@ func (e *executor) execFNMADD(inst arm64asm.Inst) error {
 		n := e.regs.ReadD(dRegIndex(inst.Args[1].(arm64asm.Reg)))
 		m := e.regs.ReadD(dRegIndex(inst.Args[2].(arm64asm.Reg)))
 		a := e.regs.ReadD(dRegIndex(inst.Args[3].(arm64asm.Reg)))
-		e.regs.WriteD(di, -(n*m + a))
+		// Negate operands before the fused operation, including signed zeros.
+		e.regs.WriteD(di, math.FMA(-n, m, -a))
 	} else {
 		si := sRegIndex(inst.Args[0].(arm64asm.Reg))
 		n := e.regs.ReadS(sRegIndex(inst.Args[1].(arm64asm.Reg)))
@@ -441,8 +443,8 @@ func (e *executor) execSXTL(inst arm64asm.Inst) error {
 
 	// Read source: two 32-bit lanes packed in the low 64 bits
 	srcLo, _ := e.regs.ReadQ(si)
-	lane0 := int32(uint32(srcLo))         // bits [31:0]
-	lane1 := int32(uint32(srcLo >> 32))    // bits [63:32]
+	lane0 := int32(uint32(srcLo))       // bits [31:0]
+	lane1 := int32(uint32(srcLo >> 32)) // bits [63:32]
 
 	// Write dest: two 64-bit lanes (sign-extended)
 	e.regs.WriteQ(di, uint64(int64(lane0)), uint64(int64(lane1)))

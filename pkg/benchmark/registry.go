@@ -8,6 +8,8 @@ import (
 )
 
 // All returns the complete set of benchmark kernel definitions.
+// Explicit FMA operations in initializers pin the original Go 1.27 ARM64 input
+// arithmetic, rather than letting host compiler contraction change input bytes.
 func All() []Benchmark {
 	// setupAtaxEmu creates a fresh emulator configured for the atax kernel.
 	// MEDIUM dataset: M=390, N=410
@@ -1377,7 +1379,7 @@ func All() []Benchmark {
 		for t := 0; t < n; t++ {
 			for r := 0; r < n; r++ {
 				for s := 0; s < n; s++ {
-					B[r*n+s] += A0[r*n+t] * A0[s*n+t]
+					B[r*n+s] = math.FMA(A0[r*n+t], A0[s*n+t], B[r*n+s])
 				}
 			}
 		}
@@ -1439,7 +1441,7 @@ func All() []Benchmark {
 		for t := 0; t < n; t++ {
 			for r := 0; r < n; r++ {
 				for s := 0; s < n; s++ {
-					B[r*n+s] += A0[r*n+t] * A0[s*n+t]
+					B[r*n+s] = math.FMA(A0[r*n+t], A0[s*n+t], B[r*n+s])
 				}
 			}
 		}
@@ -1719,7 +1721,7 @@ func All() []Benchmark {
 		A := make([]float64, m*n)
 		for i := 0; i < m; i++ {
 			for j := 0; j < n; j++ {
-				A[i*n+j] = (float64((i*j)%m)/float64(m))*100 + 10
+				A[i*n+j] = math.FMA(float64((i*j)%m)/float64(m), 100, 10)
 			}
 		}
 
@@ -1786,7 +1788,7 @@ func All() []Benchmark {
 		A0 := make([]float64, n*n)
 		b := make([]float64, n)
 		for i := 0; i < n; i++ {
-			b[i] = float64(i+1)/fn/2.0 + 4
+			b[i] = math.FMA(float64(i+1)/fn, 0.5, 4)
 		}
 		for i := 0; i < n; i++ {
 			for j := 0; j <= i; j++ {
@@ -1801,7 +1803,7 @@ func All() []Benchmark {
 		for tt := 0; tt < n; tt++ {
 			for r := 0; r < n; r++ {
 				for s := 0; s < n; s++ {
-					B[r*n+s] += A0[r*n+tt] * A0[s*n+tt]
+					B[r*n+s] = math.FMA(A0[r*n+tt], A0[s*n+tt], B[r*n+s])
 				}
 			}
 		}
@@ -2547,7 +2549,7 @@ func parsecAll() []Benchmark {
 		for i := 0; i < n; i++ {
 			for j := 0; j < n; j++ {
 				for k := 0; k < n; k++ {
-					A[i*n+j] += Bmat[i*n+k] * Bmat[j*n+k]
+					A[i*n+j] = math.FMA(Bmat[i*n+k], Bmat[j*n+k], A[i*n+j])
 				}
 			}
 			A[i*n+i] += float64(n)
@@ -2640,9 +2642,9 @@ func parsecAll() []Benchmark {
 		// MOVZ X30, #0 + MOVK to encode haltPC = 0xFFFF0000
 		// haltPC = 0xFFFF_0000 → MOVZ X30, #0 ; MOVK X30, #0xFFFF, LSL#16
 		trampolineCode = append(trampolineCode,
-			0xd280001e,                             // MOVZ X30, #0
-			0xf2bfffe0|0x1e,                        // MOVK X30, #0xFFFF, LSL#16
-			0xd2900000|0x1f,                         // MOVZ SP, #0x8000 (32768 = stackBase+8192 low bits if we use full addr)
+			0xd280001e,      // MOVZ X30, #0
+			0xf2bfffe0|0x1e, // MOVK X30, #0xFFFF, LSL#16
+			0xd2900000|0x1f, // MOVZ SP, #0x8000 (32768 = stackBase+8192 low bits if we use full addr)
 		)
 		// Actually, SP setup is tricky. Let me just set SP from the data area too.
 		// Rewrite: use a simpler trampoline approach.
@@ -2656,15 +2658,15 @@ func parsecAll() []Benchmark {
 		// dataBase = 0x500000
 		// MOVZ X8, #0x0000 ; MOVK X8, #0x50, LSL#16
 		trampolineCode = []uint32{
-			0xd2800008,          // MOVZ X8, #0
-			0xf2a00a08,          // MOVK X8, #0x50, LSL#16
-			0xf9400100,          // LDR X0, [X8, #0]    -> dfBase
-			0xf9400501,          // LDR X1, [X8, #8]    -> aBase
-			0xf9400902,          // LDR X2, [X8, #16]   -> zBase
-			0xf9400d03,          // LDR X3, [X8, #24]   -> n
-			0xfd401100,          // LDR D0, [X8, #32]   -> r
-			0xfd401501,          // LDR D1, [X8, #40]   -> dt
-			0xf9401900,          // LDR X0_temp, [X8, #48] -> SP value, load into X0 temp
+			0xd2800008, // MOVZ X8, #0
+			0xf2a00a08, // MOVK X8, #0x50, LSL#16
+			0xf9400100, // LDR X0, [X8, #0]    -> dfBase
+			0xf9400501, // LDR X1, [X8, #8]    -> aBase
+			0xf9400902, // LDR X2, [X8, #16]   -> zBase
+			0xf9400d03, // LDR X3, [X8, #24]   -> n
+			0xfd401100, // LDR D0, [X8, #32]   -> r
+			0xfd401501, // LDR D1, [X8, #40]   -> dt
+			0xf9401900, // LDR X0_temp, [X8, #48] -> SP value, load into X0 temp
 		}
 		// Hmm, this is getting complicated. Let me use a much simpler approach.
 
@@ -2682,13 +2684,13 @@ func parsecAll() []Benchmark {
 		for j := 0; j < n; j++ {
 			sum := 0.0
 			for k := 0; k < j; k++ {
-				sum += L[j*n+k] * L[j*n+k]
+				sum = math.FMA(L[j*n+k], L[j*n+k], sum)
 			}
 			L[j*n+j] = math.Sqrt(L[j*n+j] - sum)
 			for i := j + 1; i < n; i++ {
 				sum = 0.0
 				for k := 0; k < j; k++ {
-					sum += L[i*n+k] * L[j*n+k]
+					sum = math.FMA(L[i*n+k], L[j*n+k], sum)
 				}
 				L[i*n+j] = (L[i*n+j] - sum) / L[j*n+j]
 			}
@@ -2818,11 +2820,11 @@ func parsecAll() []Benchmark {
 		timeToExp := make([]float64, numOptions)
 		optionType := make([]int32, numOptions)
 		for i := 0; i < numOptions; i++ {
-			stockPrices[i] = 30.0 + float64(i%80)*1.25
-			strikePrices[i] = 28.0 + float64(i%80)*1.25
-			riskFreeRate[i] = 0.03 + float64(i%10)*0.005
-			volatility[i] = 0.15 + float64(i%20)*0.02
-			timeToExp[i] = 0.25 + float64(i%8)*0.25
+			stockPrices[i] = math.FMA(float64(i%80), 1.25, 30)
+			strikePrices[i] = math.FMA(float64(i%80), 1.25, 28)
+			riskFreeRate[i] = math.FMA(float64(i%10), 0.005, 0.03)
+			volatility[i] = math.FMA(float64(i%20), 0.02, 0.15)
+			timeToExp[i] = math.FMA(float64(i%8), 0.25, 0.25)
 			optionType[i] = int32(i % 2)
 		}
 
@@ -2951,8 +2953,8 @@ func parsecAll() []Benchmark {
 		p1 := make([]float64, totalCoords)
 		p2 := make([]float64, totalCoords)
 		for i := 0; i < totalCoords; i++ {
-			p1[i] = 1.0 + float64(i)*0.01
-			p2[i] = 2.0 - float64(i)*0.02
+			p1[i] = math.FMA(float64(i), 0.01, 1)
+			p2[i] = math.FMA(-float64(i), 0.02, 2)
 		}
 
 		// ARM64 machine code for distance computation kernel:
@@ -3460,12 +3462,12 @@ func parsecAll() []Benchmark {
 		em.LoadProgram(stackBase, make([]byte, 8192))
 
 		em.Regs.PC = codeBase
-		em.Regs.WriteX(0, outputBase)  // output
-		em.Regs.WriteX(1, inputBase)   // input
-		em.Regs.WriteX(2, kernelBase)  // kernel
-		em.Regs.WriteX(3, uint64(W))   // width
-		em.Regs.WriteX(4, uint64(H))   // height
-		em.Regs.WriteX(5, uint64(K))   // ksize
+		em.Regs.WriteX(0, outputBase) // output
+		em.Regs.WriteX(1, inputBase)  // input
+		em.Regs.WriteX(2, kernelBase) // kernel
+		em.Regs.WriteX(3, uint64(W))  // width
+		em.Regs.WriteX(4, uint64(H))  // height
+		em.Regs.WriteX(5, uint64(K))  // ksize
 		em.Regs.WriteX(30, haltPC)
 		em.Regs.SP = stackBase + 8192
 		em.SetHaltPC(haltPC)
@@ -3482,14 +3484,14 @@ func parsecAll() []Benchmark {
 		states := make([]float64, nParticles*stateDim)
 		for p := 0; p < nParticles; p++ {
 			for j := 0; j < stateDim; j++ {
-				states[p*stateDim+j] = 0.1*float64(p+1) + 0.05*float64(j)
+				states[p*stateDim+j] = math.FMA(0.05, float64(j), float64(0.1*float64(p+1)))
 			}
 		}
 
 		// Initialize observations
 		observations := make([]float64, obsDim)
 		for i := 0; i < obsDim; i++ {
-			observations[i] = 1.0 + 0.5*float64(i)
+			observations[i] = math.FMA(0.5, float64(i), 1)
 		}
 
 		// Initialize projection matrix
@@ -3604,29 +3606,54 @@ func parsecAll() []Benchmark {
 			refPos[i*3+1] = by
 			refPos[i*3+2] = bz
 			// Slightly perturbed (deformed) positions
-			positions[i*3+0] = bx + float64((i*7)%5)*0.01
-			positions[i*3+1] = by + float64((i*11)%5)*0.01
-			positions[i*3+2] = bz + float64((i*13)%5)*0.01
+			positions[i*3+0] = math.FMA(float64((i*7)%5), 0.01, bx)
+			positions[i*3+1] = math.FMA(float64((i*11)%5), 0.01, by)
+			positions[i*3+2] = math.FMA(float64((i*13)%5), 0.01, bz)
 		}
 
-		// Generate non-degenerate tet indices by cycling through a predefined pattern
+		// Use a fixed, validated tetrahedron inventory.
 		tetIndices := make([]int32, nTets*4)
 		// Use groups of 4 vertices that form proper tetrahedra
+		// Fixed nondegenerate grid tetrahedra; every vertex participates.
 		tetBase := [][4]int{
-			{0, 1, 3, 9}, {1, 2, 4, 10}, {3, 4, 6, 12}, {4, 5, 7, 13},
-			{0, 1, 4, 3}, {1, 2, 5, 4}, {3, 4, 7, 6}, {4, 5, 8, 7},
-			{9, 10, 12, 0}, {10, 11, 13, 1}, {12, 13, 15, 3}, {13, 14, 16, 4},
-			{9, 10, 13, 12}, {10, 11, 14, 13}, {12, 13, 16, 15}, {13, 14, 17, 16},
-			{0, 3, 9, 1}, {1, 4, 10, 2}, {3, 6, 12, 4}, {4, 7, 13, 5},
-			{0, 9, 10, 3}, {1, 10, 11, 4}, {3, 12, 13, 6}, {4, 13, 14, 7},
-			{9, 0, 1, 10}, {10, 1, 2, 11}, {12, 3, 4, 13}, {13, 4, 5, 14},
-			{0, 1, 9, 10}, {1, 2, 10, 11}, {3, 4, 12, 13}, {4, 5, 13, 14},
+			{0, 1, 3, 9},
+			{1, 2, 4, 10},
+			{1, 2, 5, 11},
+			{3, 4, 6, 12},
+			{3, 4, 7, 13},
+			{4, 5, 8, 14},
+			{3, 6, 7, 15},
+			{4, 6, 7, 16},
+			{5, 7, 8, 17},
+			{9, 10, 12, 18},
+			{9, 10, 13, 19},
+			{0, 1, 4, 10},
+			{0, 3, 4, 12},
+			{0, 4, 10, 12},
+			{0, 9, 10, 12},
+			{1, 3, 4, 13},
+			{1, 3, 9, 13},
+			{1, 4, 5, 13},
+			{1, 5, 11, 13},
+			{1, 9, 10, 13},
+			{1, 10, 11, 13},
+			{2, 4, 5, 14},
+			{2, 4, 10, 14},
+			{2, 10, 11, 14},
+			{3, 7, 13, 15},
+			{3, 9, 12, 13},
+			{3, 12, 13, 15},
+			{4, 5, 7, 13},
+			{4, 6, 12, 16},
+			{4, 7, 8, 16},
+			{4, 8, 14, 16},
+			{4, 10, 12, 13},
 		}
 		for t := 0; t < nTets; t++ {
 			for j := 0; j < 4; j++ {
 				idx := tetBase[t][j]
-				if idx >= nVerts {
-					idx = idx % nVerts
+				if idx < 0 || idx >= nVerts {
+					panic("invalid Facesim vertex index")
 				}
 				tetIndices[t*4+j] = int32(idx)
 			}
@@ -3651,25 +3678,27 @@ func parsecAll() []Benchmark {
 			dm21 := refPos[i2*3+2] - refPos[i0*3+2]
 			dm22 := refPos[i3*3+2] - refPos[i0*3+2]
 
-			det := dm00*(dm11*dm22-dm12*dm21) -
-				dm01*(dm10*dm22-dm12*dm20) +
-				dm02*(dm10*dm21-dm11*dm20)
+			// Preserve the original ARM64 contraction grouping explicitly.
+			minor0 := math.FMA(-dm12, dm21, float64(dm11*dm22))
+			minor1 := math.FMA(-dm12, dm20, float64(dm10*dm22))
+			minor2 := math.FMA(-dm11, dm20, float64(dm10*dm21))
+			det := math.FMA(dm02, minor2, math.FMA(-dm01, minor1, float64(dm00*minor0)))
 
-			if math.Abs(det) < 1e-12 {
-				det = 1.0
+			if math.IsNaN(det) || math.IsInf(det, 0) || math.Abs(det) < 1e-12 {
+				panic("degenerate Facesim rest tetrahedron")
 			}
 			restVolume[t] = math.Abs(det) / 6.0
 
 			invDet := 1.0 / det
-			dmInv[t*9+0] = (dm11*dm22 - dm12*dm21) * invDet
-			dmInv[t*9+1] = (dm02*dm21 - dm01*dm22) * invDet
-			dmInv[t*9+2] = (dm01*dm12 - dm02*dm11) * invDet
-			dmInv[t*9+3] = (dm12*dm20 - dm10*dm22) * invDet
-			dmInv[t*9+4] = (dm00*dm22 - dm02*dm20) * invDet
-			dmInv[t*9+5] = (dm02*dm10 - dm00*dm12) * invDet
-			dmInv[t*9+6] = (dm10*dm21 - dm11*dm20) * invDet
-			dmInv[t*9+7] = (dm01*dm20 - dm00*dm21) * invDet
-			dmInv[t*9+8] = (dm00*dm11 - dm01*dm10) * invDet
+			dmInv[t*9+0] = math.FMA(-dm12, dm21, float64(dm11*dm22)) * invDet
+			dmInv[t*9+1] = math.FMA(-dm01, dm22, float64(dm02*dm21)) * invDet
+			dmInv[t*9+2] = math.FMA(-dm02, dm11, float64(dm01*dm12)) * invDet
+			dmInv[t*9+3] = math.FMA(-dm10, dm22, float64(dm12*dm20)) * invDet
+			dmInv[t*9+4] = math.FMA(-dm02, dm20, float64(dm00*dm22)) * invDet
+			dmInv[t*9+5] = math.FMA(-dm00, dm12, float64(dm02*dm10)) * invDet
+			dmInv[t*9+6] = math.FMA(-dm11, dm20, float64(dm10*dm21)) * invDet
+			dmInv[t*9+7] = math.FMA(-dm00, dm21, float64(dm01*dm20)) * invDet
+			dmInv[t*9+8] = math.FMA(-dm01, dm10, float64(dm00*dm11)) * invDet
 		}
 
 		muVal := 1000.0
@@ -3793,11 +3822,11 @@ func parsecAll() []Benchmark {
 
 		queries := make([]float64, nQueries*dim)
 		for i := range queries {
-			queries[i] = float64(i)*0.1 + 0.5
+			queries[i] = math.FMA(float64(i), 0.1, 0.5)
 		}
 		database := make([]float64, nDB*dim)
 		for i := range database {
-			database[i] = float64(i%17)*0.2 - 1.0
+			database[i] = math.FMA(float64(i%17), 0.2, -1)
 		}
 
 		code := []uint32{
@@ -3992,18 +4021,18 @@ func parsecAll() []Benchmark {
 			{Addr: 0x200000, Size: 512 * 2 * 4},  // locations (int32)
 		}},
 		{Name: "fluidanimate", Suite: "parsec", Setup: setupFluidanimateEmu, NativeTime: 3.339e-06, Regions: []DataRegion{
-			{Addr: 0x1000, Size: 155 * 4},          // code
-			{Addr: 0x100000, Size: 16 * 8 * 11},    // particle data (11 arrays × 16 particles × 8 bytes)
-			{Addr: 0x800000, Size: 8192},            // stack
+			{Addr: 0x1000, Size: 155 * 4},       // code
+			{Addr: 0x100000, Size: 16 * 8 * 11}, // particle data (11 arrays × 16 particles × 8 bytes)
+			{Addr: 0x800000, Size: 8192},        // stack
 		}},
 		{Name: "raytrace", Suite: "parsec", Setup: setupRaytraceEmu, NativeTime: 1.38e-07, Regions: []DataRegion{
-			{Addr: 0x10000, Size: 164 * 4},         // code
-			{Addr: 0x100000, Size: 6 * 8},           // ray data
-			{Addr: 0x200000, Size: 7 * 6 * 8},       // bbox
-			{Addr: 0x300000, Size: 7 * 2 * 4},       // children
-			{Addr: 0x400000, Size: 4 * 9 * 8},       // tri_verts
-			{Addr: 0x500000, Size: 7 * 4},            // tri_idx
-			{Addr: 0x600000, Size: 16384},            // stack
+			{Addr: 0x10000, Size: 164 * 4},    // code
+			{Addr: 0x100000, Size: 6 * 8},     // ray data
+			{Addr: 0x200000, Size: 7 * 6 * 8}, // bbox
+			{Addr: 0x300000, Size: 7 * 2 * 4}, // children
+			{Addr: 0x400000, Size: 4 * 9 * 8}, // tri_verts
+			{Addr: 0x500000, Size: 7 * 4},     // tri_idx
+			{Addr: 0x600000, Size: 16384},     // stack
 		}},
 		{Name: "vips", Suite: "parsec", Setup: setupVipsEmu, NativeTime: 3.960e-05, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 64 * 64 * 8}, // output
@@ -4011,31 +4040,31 @@ func parsecAll() []Benchmark {
 			{Addr: 0x300000, Size: 3 * 3 * 8},   // kernel
 		}},
 		{Name: "bodytrack", Suite: "parsec", Setup: setupBodytrackEmu, NativeTime: 3.483e-06, Regions: []DataRegion{
-			{Addr: 0x100000, Size: 64 * 8},      // likelihood output
-			{Addr: 0x200000, Size: 64 * 6 * 8},  // states
-			{Addr: 0x300000, Size: 8 * 8},        // observations
-			{Addr: 0x400000, Size: 8 * 6 * 8},    // projMatrix
-			{Addr: 0x500000, Size: 8192},          // stack
+			{Addr: 0x100000, Size: 64 * 8},     // likelihood output
+			{Addr: 0x200000, Size: 64 * 6 * 8}, // states
+			{Addr: 0x300000, Size: 8 * 8},      // observations
+			{Addr: 0x400000, Size: 8 * 6 * 8},  // projMatrix
+			{Addr: 0x500000, Size: 8192},       // stack
 		}, FuncHookCycles: map[uint64]int{0xF100: 25}},
 		{Name: "facesim", Suite: "parsec", Setup: setupFacesimEmu, NativeTime: 1.115e-06, Regions: []DataRegion{
-			{Addr: 0x100000, Size: 20 * 3 * 8},  // forces output
-			{Addr: 0x200000, Size: 20 * 3 * 8},  // positions
-			{Addr: 0x300000, Size: 32 * 4 * 4},  // tetIndices (int32)
-			{Addr: 0x400000, Size: 32 * 9 * 8},  // DmInv
-			{Addr: 0x500000, Size: 32 * 8},       // restVolume
-			{Addr: 0x600000, Size: 8192},          // stack
+			{Addr: 0x100000, Size: 20 * 3 * 8}, // forces output
+			{Addr: 0x200000, Size: 20 * 3 * 8}, // positions
+			{Addr: 0x300000, Size: 32 * 4 * 4}, // tetIndices (int32)
+			{Addr: 0x400000, Size: 32 * 9 * 8}, // DmInv
+			{Addr: 0x500000, Size: 32 * 8},     // restVolume
+			{Addr: 0x600000, Size: 8192},       // stack
 		}, FuncHookCycles: map[uint64]int{0xF000: 20}},
 		{Name: "ferret", Suite: "parsec", Setup: setupFerretEmu, NativeTime: 3.282e-05, Regions: []DataRegion{
-			{Addr: 0x100000, Size: 16 * 4 * 8},    // results (nQueries*k*8)
-			{Addr: 0x200000, Size: 16 * 16 * 8},   // queries (nQueries*dim*8)
-			{Addr: 0x300000, Size: 128 * 16 * 8},  // database (nDB*dim*8)
-			{Addr: 0x400000, Size: 8192},           // stack
+			{Addr: 0x100000, Size: 16 * 4 * 8},   // results (nQueries*k*8)
+			{Addr: 0x200000, Size: 16 * 16 * 8},  // queries (nQueries*dim*8)
+			{Addr: 0x300000, Size: 128 * 16 * 8}, // database (nDB*dim*8)
+			{Addr: 0x400000, Size: 8192},         // stack
 		}},
 		{Name: "x264", Suite: "parsec", Setup: setupX264Emu, NativeTime: 5.913e-05, Regions: []DataRegion{
-			{Addr: 0x100000, Size: 128 * 128},    // current frame (uint8)
-			{Addr: 0x200000, Size: 128 * 128},    // reference frame (uint8)
-			{Addr: 0x300000, Size: 64},            // output area
-			{Addr: 0x400000, Size: 8192},          // stack
+			{Addr: 0x100000, Size: 128 * 128}, // current frame (uint8)
+			{Addr: 0x200000, Size: 128 * 128}, // reference frame (uint8)
+			{Addr: 0x300000, Size: 64},        // output area
+			{Addr: 0x400000, Size: 8192},      // stack
 		}},
 	}
 }
@@ -4080,4 +4109,3 @@ func QuickEval() []Benchmark {
 	}
 	return result
 }
-

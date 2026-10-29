@@ -280,8 +280,8 @@ func TestSXTL_2D_2S(t *testing.T) {
 	// Pack two int32 values into V1: lane0=-5 (0xFFFFFFFB), lane1=42 (0x2A)
 	var neg5 int32 = -5
 	var pos42 int32 = 42
-	lane0 := uint64(uint32(neg5))    // 0xFFFFFFFB
-	lane1 := uint64(uint32(pos42))   // 0x0000002A
+	lane0 := uint64(uint32(neg5))  // 0xFFFFFFFB
+	lane1 := uint64(uint32(pos42)) // 0x0000002A
 	em.Regs.WriteQ(1, lane0|(lane1<<32), 0)
 	stepN(t, em, 1)
 
@@ -355,5 +355,45 @@ func TestMOVI_2D_Zero(t *testing.T) {
 	lo, hi := em.Regs.ReadQ(0)
 	if lo != 0 || hi != 0 {
 		t.Errorf("V0 = (%#x, %#x), want (0, 0)", lo, hi)
+	}
+}
+
+// Exact expected bits derive from binary arithmetic, not a second math.FMA call.
+// Native M2 FMADD/FMSUB/FNMADD instructions also reproduce these results.
+func TestFusedDoubleRounding(t *testing.T) {
+	cases := []struct {
+		name          string
+		n, m, a       float64
+		add, sub, neg uint64
+	}{
+		// (1+2^-27)*(1-2^-27) = 1-2^-54 exactly; separate rounding loses the residual.
+		{"cancellation", 0x1.0000002p0, 0x1.ffffffcp-1, -1, 0xbc90000000000000, 0x3c90000000000000, 0x3c90000000000000},
+		// The exact product overflows binary64, but the fused sum is +/-MaxFloat64.
+		{"intermediate-overflow", math.MaxFloat64, 2, -math.MaxFloat64, 0x7fefffffffffffff, 0xffefffffffffffff, 0xffefffffffffffff},
+		{"exact-zero", 1, 1, -1, 0, 0, 0},
+		{"signed-zero", 0, 1, 0, 0, 0x8000000000000000, 0x8000000000000000},
+	}
+	for _, c := range cases {
+		for _, op := range []struct {
+			name string
+			enc  uint32
+			a    float64
+			want uint64
+		}{
+			{"FMADD", 0x1f420c20, c.a, c.add},
+			{"FMSUB", 0x1f428c20, -c.a, c.sub},
+			{"FNMADD", 0x1f620c20, c.a, c.neg},
+		} {
+			t.Run(c.name+"/"+op.name, func(t *testing.T) {
+				em := newTestEmulator(op.enc)
+				em.Regs.WriteD(1, c.n)
+				em.Regs.WriteD(2, c.m)
+				em.Regs.WriteD(3, op.a)
+				stepN(t, em, 1)
+				if got := math.Float64bits(em.Regs.ReadD(0)); got != op.want {
+					t.Fatalf("got %016x, want %016x", got, op.want)
+				}
+			})
+		}
 	}
 }
