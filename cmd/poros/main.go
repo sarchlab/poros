@@ -1,14 +1,19 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"math"
 	"os"
 
-	"github.com/sarchlab/akita/v4/sim"
+	"github.com/sarchlab/akita/v5/sim"
+	"github.com/sarchlab/akita/v5/sim/modeling"
+	"github.com/sarchlab/akita/v5/sim/timing"
 	"github.com/sarchlab/poros/pkg/benchmark"
 	"github.com/sarchlab/poros/pkg/cpu"
+	"github.com/sarchlab/poros/pkg/cpu/inorder"
+	"github.com/sarchlab/poros/pkg/cpu/ooo"
 	"github.com/sarchlab/poros/pkg/mem"
 )
 
@@ -129,19 +134,18 @@ func runSingle(b benchmark.Benchmark) {
 	cache := mem.NewCache(mem.DefaultCacheConfig())
 	benchmark.WarmCache(cache, b.Regions)
 
-	engine := sim.NewSerialEngine()
-	p := cpu.NewOoOPipeline("Poros", engine, 3490*sim.MHz, em)
-	p.Cache = cache
-	if b.FuncHookCycles != nil {
-		p.FuncHookCycles = b.FuncHookCycles
-	}
-	p.TickLater()
-	if err := engine.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: engine.Run() failed: %v\n", err)
+	simulation := sim.MakeBuilder().Build()
+	em.Mem.TrackAccesses = true
+	pSpec := ooo.DefaultSpec()
+	pSpec.Freq = 3490 * timing.MHz
+	pSpec.FuncHookCycles = cpu.HookCycleSpec(b.FuncHookCycles)
+	p := modeling.MakeBuilder[*ooo.Comp](pSpec).WithSimulation(simulation).WithResources(ooo.Resources{Emu: em, Cache: cache}).Build("Poros")
+	if err := runSimulation(simulation, p); err != nil {
+		fmt.Fprintf(os.Stderr, "error: simulation.Run() failed: %v\n", err)
 		os.Exit(1)
 	}
-	if p.Err != nil {
-		fmt.Fprintf(os.Stderr, "error: pipeline error: %v\n", p.Err)
+	if p.State.Err != "" {
+		fmt.Fprintf(os.Stderr, "error: pipeline error: %v\n", p.State.Err)
 		os.Exit(1)
 	}
 	if !em.Halted {
@@ -149,7 +153,7 @@ func runSingle(b benchmark.Benchmark) {
 		os.Exit(1)
 	}
 
-	simTime := float64(p.Cycles) / freq
+	simTime := float64(p.State.Cycles) / freq
 	ratio := simTime / b.NativeTime
 	minVal := math.Min(simTime, b.NativeTime)
 	errVal := math.Abs(simTime-b.NativeTime) / minVal
@@ -159,14 +163,14 @@ func runSingle(b benchmark.Benchmark) {
 	l2Hit := float64(stats.L2Hits) / float64(stats.L2Hits+stats.L2Misses) * 100
 
 	var bpAcc float64
-	if p.BranchPred != nil && p.BranchPred.Predictions > 0 {
-		bpAcc = float64(p.BranchPred.Hits) / float64(p.BranchPred.Predictions) * 100
+	if p.Spec.BranchPrediction && p.State.Predictor.Predictions > 0 {
+		bpAcc = float64(p.State.Predictor.Hits) / float64(p.State.Predictor.Predictions) * 100
 	}
 
 	fmt.Printf("Benchmark: %s\n", b.Name)
-	fmt.Printf("  Instructions:  %d\n", p.InstDone)
-	fmt.Printf("  Cycles:        %d\n", p.Cycles)
-	fmt.Printf("  CPI:           %.2f\n", p.CPI())
+	fmt.Printf("  Instructions:  %d\n", p.State.InstDone)
+	fmt.Printf("  Cycles:        %d\n", p.State.Cycles)
+	fmt.Printf("  CPI:           %.2f\n", p.State.CPI())
 	fmt.Printf("  Sim Time:      %e s\n", simTime)
 	fmt.Printf("  Native Time:   %e s\n", b.NativeTime)
 	fmt.Printf("  Ratio:         %.1f\n", ratio)
@@ -186,21 +190,21 @@ func runMultiCore(b benchmark.Benchmark, nCores int) {
 		}
 	}
 
-	engine := sim.NewSerialEngine()
-	mc := cpu.NewMultiCorePipeline("Poros", engine, 3490*sim.MHz, configs)
+	simulation := sim.MakeBuilder().Build()
+	mc := cpu.NewMultiCorePipeline("Poros", simulation, 3490*timing.MHz, configs)
 
 	// Warm caches for each core.
 	for _, core := range mc.Cores {
-		benchmark.WarmCache(core.Cache, b.Regions)
+		benchmark.WarmCache(core.Resources.Cache, b.Regions)
 	}
 
-	if err := mc.Run(); err != nil {
+	if err := runMultiCoreSimulation(mc); err != nil {
 		fmt.Fprintf(os.Stderr, "error: multi-core Run() failed: %v\n", err)
 		os.Exit(1)
 	}
 
 	for i, core := range mc.Cores {
-		if !core.Emu.Halted {
+		if !core.Resources.Emu.Halted {
 			fmt.Fprintf(os.Stderr, "error: core %d did not halt\n", i)
 			os.Exit(1)
 		}
@@ -214,7 +218,7 @@ func runMultiCore(b benchmark.Benchmark, nCores int) {
 	fmt.Printf("  Sim Time:           %e s\n", simTime)
 	for i, core := range mc.Cores {
 		fmt.Printf("  Core %d:  %d insts, %d cycles, CPI=%.2f\n",
-			i, core.InstDone, core.Cycles, core.CPI())
+			i, core.State.InstDone, core.State.Cycles, core.State.CPI())
 	}
 }
 
@@ -234,13 +238,13 @@ func runMultiCoreAll(benchmarks []benchmark.Benchmark, nCores int) {
 			}
 		}
 
-		engine := sim.NewSerialEngine()
-		mc := cpu.NewMultiCorePipeline("Poros", engine, 3490*sim.MHz, configs)
+		simulation := sim.MakeBuilder().Build()
+		mc := cpu.NewMultiCorePipeline("Poros", simulation, 3490*timing.MHz, configs)
 		for _, core := range mc.Cores {
-			benchmark.WarmCache(core.Cache, b.Regions)
+			benchmark.WarmCache(core.Resources.Cache, b.Regions)
 		}
 
-		if err := mc.Run(); err != nil {
+		if err := runMultiCoreSimulation(mc); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s multi-core Run() failed: %v\n", b.Name, err)
 			continue
 		}
@@ -275,16 +279,17 @@ func runComparisonTable(benchmarks []benchmark.Benchmark) {
 		emIO := b.Setup()
 		cacheIO := mem.NewCache(mem.DefaultCacheConfig())
 		benchmark.WarmCache(cacheIO, b.Regions)
-		engineIO := sim.NewSerialEngine()
-		pIO := cpu.NewPipeline("Poros", engineIO, 3490*sim.MHz, emIO)
-		pIO.Cache = cacheIO
-		pIO.TickLater()
-		if err := engineIO.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s in-order engine.Run() failed: %v\n", b.Name, err)
+		simulationIO := sim.MakeBuilder().Build()
+		emIO.Mem.TrackAccesses = true
+		pIOSpec := inorder.DefaultSpec()
+		pIOSpec.Freq = 3490 * timing.MHz
+		pIO := modeling.MakeBuilder[*inorder.Comp](pIOSpec).WithSimulation(simulationIO).WithResources(inorder.Resources{Emu: emIO, Cache: cacheIO}).Build("Poros")
+		if err := runSimulation(simulationIO, pIO); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s in-order simulation.Run() failed: %v\n", b.Name, err)
 			os.Exit(1)
 		}
-		if pIO.Err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s in-order pipeline error: %v\n", b.Name, pIO.Err)
+		if pIO.State.Err != "" {
+			fmt.Fprintf(os.Stderr, "error: %s in-order pipeline error: %v\n", b.Name, pIO.State.Err)
 			os.Exit(1)
 		}
 
@@ -292,46 +297,44 @@ func runComparisonTable(benchmarks []benchmark.Benchmark) {
 		emOoO := b.Setup()
 		cacheOoO := mem.NewCache(mem.DefaultCacheConfig())
 		benchmark.WarmCache(cacheOoO, b.Regions)
-		engineOoO := sim.NewSerialEngine()
-		pOoO := cpu.NewOoOPipeline("Poros", engineOoO, 3490*sim.MHz, emOoO)
-		pOoO.Cache = cacheOoO
-		if b.FuncHookCycles != nil {
-			pOoO.FuncHookCycles = b.FuncHookCycles
-		}
-		pOoO.TickLater()
-		if err := engineOoO.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s OoO engine.Run() failed: %v\n", b.Name, err)
+		simulationOoO := sim.MakeBuilder().Build()
+		emOoO.Mem.TrackAccesses = true
+		pOoOSpec := ooo.DefaultSpec()
+		pOoOSpec.Freq = 3490 * timing.MHz
+		pOoOSpec.FuncHookCycles = cpu.HookCycleSpec(b.FuncHookCycles)
+		pOoO := modeling.MakeBuilder[*ooo.Comp](pOoOSpec).WithSimulation(simulationOoO).WithResources(ooo.Resources{Emu: emOoO, Cache: cacheOoO}).Build("Poros")
+		if err := runSimulation(simulationOoO, pOoO); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s OoO simulation.Run() failed: %v\n", b.Name, err)
 			os.Exit(1)
 		}
-		if pOoO.Err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s OoO pipeline error: %v\n", b.Name, pOoO.Err)
+		if pOoO.State.Err != "" {
+			fmt.Fprintf(os.Stderr, "error: %s OoO pipeline error: %v\n", b.Name, pOoO.State.Err)
 			os.Exit(1)
 		}
 
 		// Capture branch prediction stats.
 		var bpAcc float64
-		if pOoO.BranchPred != nil && pOoO.BranchPred.Predictions > 0 {
-			bpAcc = float64(pOoO.BranchPred.Hits) / float64(pOoO.BranchPred.Predictions) * 100
+		if pOoO.Spec.BranchPrediction && pOoO.State.Predictor.Predictions > 0 {
+			bpAcc = float64(pOoO.State.Predictor.Hits) / float64(pOoO.State.Predictor.Predictions) * 100
 		}
 
 		// Run OoO pipeline without branch predictor.
 		emNoBP := b.Setup()
 		cacheNoBP := mem.NewCache(mem.DefaultCacheConfig())
 		benchmark.WarmCache(cacheNoBP, b.Regions)
-		engineNoBP := sim.NewSerialEngine()
-		pNoBP := cpu.NewOoOPipeline("Poros", engineNoBP, 3490*sim.MHz, emNoBP)
-		pNoBP.Cache = cacheNoBP
-		if b.FuncHookCycles != nil {
-			pNoBP.FuncHookCycles = b.FuncHookCycles
-		}
-		pNoBP.BranchPred = nil
-		pNoBP.TickLater()
-		if err := engineNoBP.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s no-BP engine.Run() failed: %v\n", b.Name, err)
+		simulationNoBP := sim.MakeBuilder().Build()
+		emNoBP.Mem.TrackAccesses = true
+		pNoBPSpec := ooo.DefaultSpec()
+		pNoBPSpec.Freq = 3490 * timing.MHz
+		pNoBPSpec.BranchPrediction = false
+		pNoBPSpec.FuncHookCycles = cpu.HookCycleSpec(b.FuncHookCycles)
+		pNoBP := modeling.MakeBuilder[*ooo.Comp](pNoBPSpec).WithSimulation(simulationNoBP).WithResources(ooo.Resources{Emu: emNoBP, Cache: cacheNoBP}).Build("Poros")
+		if err := runSimulation(simulationNoBP, pNoBP); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s no-BP simulation.Run() failed: %v\n", b.Name, err)
 			os.Exit(1)
 		}
-		if pNoBP.Err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s no-BP pipeline error: %v\n", b.Name, pNoBP.Err)
+		if pNoBP.State.Err != "" {
+			fmt.Fprintf(os.Stderr, "error: %s no-BP pipeline error: %v\n", b.Name, pNoBP.State.Err)
 			os.Exit(1)
 		}
 
@@ -341,13 +344,13 @@ func runComparisonTable(benchmarks []benchmark.Benchmark) {
 
 		results = append(results, kernelResult{
 			name:          b.Name,
-			insts:         pOoO.InstDone,
-			iooCycles:     pIO.Cycles,
-			iooCPI:        pIO.CPI(),
-			oooCycles:     pOoO.Cycles,
-			oooCPI:        pOoO.CPI(),
-			oooNoBPCycles: pNoBP.Cycles,
-			oooNoBPCPI:    pNoBP.CPI(),
+			insts:         pOoO.State.InstDone,
+			iooCycles:     pIO.State.Cycles,
+			iooCPI:        pIO.State.CPI(),
+			oooCycles:     pOoO.State.Cycles,
+			oooCPI:        pOoO.State.CPI(),
+			oooNoBPCycles: pNoBP.State.Cycles,
+			oooNoBPCPI:    pNoBP.State.CPI(),
 			bpAccuracy:    bpAcc,
 			native:        b.NativeTime,
 			l1HitRate:     l1Hit,
@@ -457,19 +460,18 @@ func cmdEval() {
 		cache := mem.NewCache(mem.DefaultCacheConfig())
 		benchmark.WarmCache(cache, k.Regions)
 
-		engine := sim.NewSerialEngine()
-		p := cpu.NewOoOPipeline("Poros", engine, 3490*sim.MHz, em)
-		p.Cache = cache
-		if k.FuncHookCycles != nil {
-			p.FuncHookCycles = k.FuncHookCycles
-		}
-		p.TickLater()
-		if err := engine.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s engine.Run() failed: %v\n", k.Name, err)
+		simulation := sim.MakeBuilder().Build()
+		em.Mem.TrackAccesses = true
+		pSpec := ooo.DefaultSpec()
+		pSpec.Freq = 3490 * timing.MHz
+		pSpec.FuncHookCycles = cpu.HookCycleSpec(k.FuncHookCycles)
+		p := modeling.MakeBuilder[*ooo.Comp](pSpec).WithSimulation(simulation).WithResources(ooo.Resources{Emu: em, Cache: cache}).Build("Poros")
+		if err := runSimulation(simulation, p); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s simulation.Run() failed: %v\n", k.Name, err)
 			os.Exit(1)
 		}
-		if p.Err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s pipeline error: %v\n", k.Name, p.Err)
+		if p.State.Err != "" {
+			fmt.Fprintf(os.Stderr, "error: %s pipeline error: %v\n", k.Name, p.State.Err)
 			os.Exit(1)
 		}
 		if !em.Halted {
@@ -477,16 +479,16 @@ func cmdEval() {
 			os.Exit(1)
 		}
 
-		simTime := float64(p.Cycles) / freq
+		simTime := float64(p.State.Cycles) / freq
 		ratio := simTime / k.NativeTime
 		minVal := math.Min(simTime, k.NativeTime)
 		errVal := math.Abs(simTime-k.NativeTime) / minVal
 
 		results = append(results, quickResult{
 			name:    k.Name,
-			insts:   p.InstDone,
-			cycles:  p.Cycles,
-			cpi:     p.CPI(),
+			insts:   p.State.InstDone,
+			cycles:  p.State.Cycles,
+			cpi:     p.State.CPI(),
 			simTime: simTime,
 			native:  k.NativeTime,
 			ratio:   ratio,
@@ -518,4 +520,21 @@ func cmdEval() {
 	fmt.Printf("\nQuickEval Summary (%d benchmarks):\n", n)
 	fmt.Printf("  Avg Error: %6.1f%%\n", avgError*100)
 	fmt.Printf("  Max Error: %6.1f%% (%s)\n", maxError*100, maxErrorName)
+}
+
+// Each helper bounds the simulation lifetime to one run, including failures.
+func runSimulation(s *sim.Simulation, c interface{ TickLater() }) (err error) {
+	defer func() { err = errors.Join(err, s.Terminate()) }()
+	if err = s.Initialize(); err != nil {
+		return err
+	}
+	c.TickLater()
+	return s.Run()
+}
+func runMultiCoreSimulation(mc *cpu.MultiCorePipeline) (err error) {
+	defer func() { err = errors.Join(err, mc.Simulation.Terminate()) }()
+	if err = mc.Simulation.Initialize(); err != nil {
+		return err
+	}
+	return mc.Run()
 }

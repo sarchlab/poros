@@ -4,7 +4,8 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/sarchlab/akita/v4/sim"
+	"github.com/sarchlab/akita/v5/sim"
+	"github.com/sarchlab/akita/v5/sim/timing"
 	"github.com/sarchlab/poros/pkg/benchmark"
 	"github.com/sarchlab/poros/pkg/emu"
 )
@@ -44,11 +45,20 @@ func TestMultiCore_Basic(t *testing.T) {
 		0xd65f03c0, // RET
 	}
 
-	engine := sim.NewSerialEngine()
-	mc := NewMultiCorePipeline("Test", engine, 3490*sim.MHz, []CoreConfig{
+	simulation := sim.MakeBuilder().Build()
+	mc := NewMultiCorePipeline("Test", simulation, 3490*timing.MHz, []CoreConfig{
 		{Emulator: makeEmu(code0)},
 		{Emulator: makeEmu(code1)},
 	})
+
+	if err := simulation.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := simulation.Terminate(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	err := mc.Run()
 	if err != nil {
@@ -56,18 +66,18 @@ func TestMultiCore_Basic(t *testing.T) {
 	}
 
 	// Both cores should have completed.
-	if !mc.Cores[0].Emu.Halted {
+	if !mc.Cores[0].Resources.Emu.Halted {
 		t.Error("core 0 did not halt")
 	}
-	if !mc.Cores[1].Emu.Halted {
+	if !mc.Cores[1].Resources.Emu.Halted {
 		t.Error("core 1 did not halt")
 	}
 
 	// Check results.
-	if got := mc.Cores[0].Emu.Regs.ReadX(0); got != 42 {
+	if got := mc.Cores[0].Resources.Emu.Regs.ReadX(0); got != 42 {
 		t.Errorf("core 0: X0 = %d, want 42", got)
 	}
-	if got := mc.Cores[1].Emu.Regs.ReadX(0); got != 106 {
+	if got := mc.Cores[1].Resources.Emu.Regs.ReadX(0); got != 106 {
 		t.Errorf("core 1: X0 = %d, want 106", got)
 	}
 
@@ -75,24 +85,24 @@ func TestMultiCore_Basic(t *testing.T) {
 	if mc.TotalCycles == 0 {
 		t.Error("TotalCycles should be > 0")
 	}
-	max := mc.Cores[0].Cycles
-	if mc.Cores[1].Cycles > max {
-		max = mc.Cores[1].Cycles
+	max := mc.Cores[0].State.Cycles
+	if mc.Cores[1].State.Cycles > max {
+		max = mc.Cores[1].State.Cycles
 	}
 	if mc.TotalCycles != max {
 		t.Errorf("TotalCycles = %d, want max(%d, %d) = %d",
-			mc.TotalCycles, mc.Cores[0].Cycles, mc.Cores[1].Cycles, max)
+			mc.TotalCycles, mc.Cores[0].State.Cycles, mc.Cores[1].State.Cycles, max)
 	}
 
 	// TotalInstructions = sum.
-	sum := mc.Cores[0].InstDone + mc.Cores[1].InstDone
+	sum := mc.Cores[0].State.InstDone + mc.Cores[1].State.InstDone
 	if mc.TotalInstructions != sum {
 		t.Errorf("TotalInstructions = %d, want %d", mc.TotalInstructions, sum)
 	}
 
 	t.Logf("Core0: %d insts, %d cycles; Core1: %d insts, %d cycles; Total: %d cycles, %d insts",
-		mc.Cores[0].InstDone, mc.Cores[0].Cycles,
-		mc.Cores[1].InstDone, mc.Cores[1].Cycles,
+		mc.Cores[0].State.InstDone, mc.Cores[0].State.Cycles,
+		mc.Cores[1].State.InstDone, mc.Cores[1].State.Cycles,
 		mc.TotalCycles, mc.TotalInstructions)
 }
 
@@ -114,13 +124,22 @@ func runMultiCoreParsec(t *testing.T, name string, nCores int) *MultiCorePipelin
 		}
 	}
 
-	engine := sim.NewSerialEngine()
-	mc := NewMultiCorePipeline("Poros", engine, 3490*sim.MHz, configs)
+	simulation := sim.MakeBuilder().Build()
+	mc := NewMultiCorePipeline("Poros", simulation, 3490*timing.MHz, configs)
 
 	// Warm caches for each core.
 	for _, core := range mc.Cores {
-		benchmark.WarmCache(core.Cache, b.Regions)
+		benchmark.WarmCache(core.Resources.Cache, b.Regions)
 	}
+
+	if err := simulation.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := simulation.Terminate(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	err := mc.Run()
 	if err != nil {
@@ -129,18 +148,18 @@ func runMultiCoreParsec(t *testing.T, name string, nCores int) *MultiCorePipelin
 
 	// Verify all cores halted.
 	for i, core := range mc.Cores {
-		if !core.Emu.Halted {
+		if !core.Resources.Emu.Halted {
 			t.Errorf("%s core %d did not halt", name, i)
 		}
-		if core.Err != nil {
-			t.Errorf("%s core %d error: %v", name, i, core.Err)
+		if core.State.Err != "" {
+			t.Errorf("%s core %d error: %v", name, i, core.State.Err)
 		}
 	}
 
 	t.Logf("%s %d-core: %d total insts, %d max cycles (per-core: %d, %d, %d, %d)",
 		name, nCores, mc.TotalInstructions, mc.TotalCycles,
-		mc.Cores[0].Cycles, mc.Cores[1].Cycles,
-		mc.Cores[2].Cycles, mc.Cores[3].Cycles)
+		mc.Cores[0].State.Cycles, mc.Cores[1].State.Cycles,
+		mc.Cores[2].State.Cycles, mc.Cores[3].State.Cycles)
 
 	return mc
 }

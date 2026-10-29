@@ -73,7 +73,7 @@ The old module and command paths are no longer provided by this checkout.
 ```bash
 go mod tidy          # Download dependencies
 go build ./cmd/poros # Build simulator
-go test ./pkg/cpu    # Run all tests
+go test ./... -timeout 45m # Run all tests (including long regressions)
 ```
 
 ### CLI Usage
@@ -151,22 +151,25 @@ go test -v -run TestOoO_PolyBenchAtax ./pkg/cpu
 
 ### Multi-Core Support
 
-- `MultiCorePipeline` wraps N independent `OoOPipeline` instances
+- `MultiCorePipeline` wraps N independent `ooo.Comp` instances
 - Per-core private L1 caches (128 KB each)
 - Shared L2 cache (16 MB, 16-way) across all cores
 - Configurable core count via `--cores` flag
-- All cores driven by a single Akita `SerialEngine` (deterministic simulation)
+- All cores share one Akita `sim.Simulation` using its default serial engine (deterministic simulation)
 
 ## Dependencies
 
-- Go 1.25+
-- [github.com/sarchlab/akita/v4](https://github.com/sarchlab/akita) — Discrete-event simulation framework
+- Go 1.27+
+- [github.com/sarchlab/akita/v5](https://github.com/sarchlab/akita) — Discrete-event simulation framework, pinned to v5.0.0
 - [golang.org/x/arch](https://pkg.go.dev/golang.org/x/arch) — ARM64 instruction decoder
 
 ## Project Structure
 
 ```
-pkg/cpu/       — OoO pipeline, multi-core pipeline, branch predictor, instruction latencies
+pkg/cpu/       — Multi-core assembly and regression tests
+pkg/cpu/inorder/ — In-order Akita v5 ticking component
+pkg/cpu/ooo/     — OoO Akita v5 ticking component and branch predictor
+pkg/cpu/internal/inst/ — Shared instruction dependency and latency helpers
 pkg/emu/       — ARM64 functional emulator
 pkg/mem/       — Cache hierarchy (L1, shared L2, DRAM)
 pkg/benchmark/ — Benchmark definitions and kernel registry
@@ -177,3 +180,71 @@ scripts/       — Build and run scripts (compile_all.sh, run_simulation.sh)
 cmd/poros/     — Main simulator entry point (CLI)
 cmd/disasm/    — ARM64 disassembler tool
 ```
+
+## Akita v5 integration
+
+Poros pins **Akita v5.0.0** and requires **Go 1.27.0 or newer**. The migration
+preserves the M2 timing parameters, functional emulator, synchronous cache model,
+benchmark definitions, and stored native baselines. It does not introduce new CPU
+models, asynchronous memory, or CPU–GPU offload.
+
+The in-order, OoO, and demo components each use the v5
+`Spec` / `State` / `Resources` / `Ports` / `Middlewares` model and declare
+`Comp` and `DefaultSpec()`. The demo uses `modeling.None` for Resources.
+Configuration is supplied before
+Build, runtime pipeline and predictor data lives in State, and middlewares contain
+only component references and immutable configuration-derived lookups. The old
+`cpu.NewPipeline` / `cpu.NewOoOPipeline` constructors are replaced by the Akita
+model builder. For example:
+
+```go
+simulation := sim.MakeBuilder().Build()
+defer func() {
+    if err := simulation.Terminate(); err != nil { panic(err) }
+}()
+b := benchmark.ByName("raytrace")
+spec := ooo.DefaultSpec()
+spec.FuncHookCycles = cpu.HookCycleSpec(b.FuncHookCycles)
+em := b.Setup()
+em.Mem.TrackAccesses = true
+cache := mem.NewCache(mem.DefaultCacheConfig())
+benchmark.WarmCache(cache, b.Regions)
+core := modeling.MakeBuilder[*ooo.Comp](spec).
+    WithSimulation(simulation).
+    WithResources(ooo.Resources{Emu: em, Cache: cache}).
+    Build("CPU")
+if err := simulation.Initialize(); err != nil { panic(err) }
+core.TickLater()
+if err := simulation.Run(); err != nil { panic(err) }
+// Results are core.State.Cycles, core.State.InstDone, and core.State.CPI().
+// A functional execution error is reported in core.State.Err (empty on success).
+```
+
+The imports are `github.com/sarchlab/poros/pkg/benchmark`,
+`github.com/sarchlab/akita/v5/sim`, `.../sim/modeling`, and Poros's `pkg/cpu`,
+`pkg/cpu/ooo`, and `pkg/mem`. Set memory tracking and warm caches during setup.
+Initialize once after all components have been built. Multi-core assembly accepts
+the shared `*sim.Simulation` and enables memory-access tracking on each supplied
+emulator during setup. Call its `Initialize()` before `MultiCorePipeline.Run()`
+and `Terminate()` afterwards. All cores use the same default serial simulation,
+with the existing core registration order. Recording remains off by default.
+
+Akita v5 schedules using integer picoseconds: at 3.49 GHz its period is truncated
+to **286 ps**. The CLI continues to report simulated seconds as `cycles / 3.49e9`,
+exactly as before; it does not substitute the quantized engine clock. This preserves
+the cycle-based comparison with stored native times.
+
+The component State is serializable, including in-flight fetched instruction
+encodings and branch-predictor tables. **Whole-system checkpoint/resume is not
+supported by this migration:** functional emulator registers/memory/hooks and the
+synchronous cache hierarchy remain external live Resources and are not saved by
+component checkpoints. Restoring pipeline State alone cannot resume a workload.
+
+`go test ./... -timeout 45m` includes the long existing benchmark tests and the
+v4 regression fixture. `go test -short ./...` retains representative baseline and
+determinism checks while skipping the full sweep. `TestV4Baseline` compares every
+registered kernel on one and two cores against pre-migration instruction counts,
+cycle counts, register values, and benchmark data-region contents. See
+[pkg/cpu/testdata/README.md](pkg/cpu/testdata/README.md) for fixture provenance.
+All three component packages also check that Akita's static inspector agrees with
+the runtime component schema and defaults.

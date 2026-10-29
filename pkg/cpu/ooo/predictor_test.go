@@ -1,4 +1,4 @@
-package cpu
+package ooo
 
 import (
 	"testing"
@@ -230,28 +230,29 @@ func TestBranchPred_BTBTargetUpdate(t *testing.T) {
 }
 
 func TestBranchPred_ConfigurableSizes(t *testing.T) {
-	bp := &BranchPredictor{
+	bp := &predictor{PredictorState: &PredictorState{}, spec: PredictorSpec{
 		BimodalSize:     256,
 		TaggedTableSize: 128,
 		BTBSize:         64,
 		BTBWays:         2,
 		RASSize:         8,
 		TaggedHistLen:   32,
-	}
+	}}
+
 	bp.init()
 
 	// Verify tables were allocated with correct sizes.
-	if len(bp.bimodal) != 256 {
-		t.Errorf("bimodal size %d, want 256", len(bp.bimodal))
+	if len(bp.Bimodal) != 256 {
+		t.Errorf("bimodal size %d, want 256", len(bp.Bimodal))
 	}
-	if len(bp.tagged) != 128 {
-		t.Errorf("tagged size %d, want 128", len(bp.tagged))
+	if len(bp.Tagged) != 128 {
+		t.Errorf("tagged size %d, want 128", len(bp.Tagged))
 	}
-	if len(bp.btb) != 64 {
-		t.Errorf("btb size %d, want 64", len(bp.btb))
+	if len(bp.Btb) != 64 {
+		t.Errorf("btb size %d, want 64", len(bp.Btb))
 	}
-	if len(bp.ras) != 8 {
-		t.Errorf("ras size %d, want 8", len(bp.ras))
+	if len(bp.Ras) != 8 {
+		t.Errorf("ras size %d, want 8", len(bp.Ras))
 	}
 
 	// Run predictions to verify no panics.
@@ -312,4 +313,10 @@ func TestBranchPred_Accuracy90PercentLoop(t *testing.T) {
 	if accuracy <= 0.90 {
 		t.Errorf("double loop accuracy %.2f%% <= 90%%", accuracy*100)
 	}
+}
+
+func NewBranchPredictor() *predictor {
+	p := &predictor{PredictorState: &PredictorState{}, spec: DefaultSpec().Predictor}
+	p.init()
+	return p
 }

@@ -6,39 +6,41 @@ import (
 	"math"
 	"testing"
 
-	"github.com/sarchlab/akita/v4/sim"
+	"github.com/sarchlab/akita/v5/sim"
+	"github.com/sarchlab/akita/v5/sim/modeling"
+	"github.com/sarchlab/akita/v5/sim/timing"
 	"github.com/sarchlab/poros/pkg/benchmark"
+	"github.com/sarchlab/poros/pkg/cpu/ooo"
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/mem"
 )
 
 // helper: run OoO pipeline to completion.
-func runOoOPipeline(t *testing.T, em *emu.Emulator) *OoOPipeline {
+func runOoOPipeline(t *testing.T, em *emu.Emulator) *ooo.Comp {
 	t.Helper()
-	engine := sim.NewSerialEngine()
-	p := NewOoOPipeline("TestOoO", engine, 3490*sim.MHz, em)
-	p.TickLater()
-	if err := engine.Run(); err != nil {
-		t.Fatalf("engine.Run() failed: %v", err)
-	}
-	if p.Err != nil {
-		t.Fatalf("pipeline error: %v", p.Err)
+	simulation := sim.MakeBuilder().Build()
+	em.Mem.TrackAccesses = true
+	pSpec := ooo.DefaultSpec()
+	pSpec.Freq = 3490 * timing.MHz
+	p := modeling.MakeBuilder[*ooo.Comp](pSpec).WithSimulation(simulation).WithResources(ooo.Resources{Emu: em, Cache: nil}).Build("TestOoO")
+	runTestSimulation(t, simulation, p)
+	if p.State.Err != "" {
+		t.Fatalf("pipeline error: %v", p.State.Err)
 	}
 	return p
 }
 
 // helper: run OoO pipeline with a cache model.
-func runOoOPipelineWithCache(t *testing.T, em *emu.Emulator, cache *mem.Cache) *OoOPipeline {
+func runOoOPipelineWithCache(t *testing.T, em *emu.Emulator, cache *mem.Cache) *ooo.Comp {
 	t.Helper()
-	engine := sim.NewSerialEngine()
-	p := NewOoOPipeline("TestOoO", engine, 3490*sim.MHz, em)
-	p.Cache = cache
-	p.TickLater()
-	if err := engine.Run(); err != nil {
-		t.Fatalf("engine.Run() failed: %v", err)
-	}
-	if p.Err != nil {
-		t.Fatalf("pipeline error: %v", p.Err)
+	simulation := sim.MakeBuilder().Build()
+	em.Mem.TrackAccesses = true
+	pSpec := ooo.DefaultSpec()
+	pSpec.Freq = 3490 * timing.MHz
+	p := modeling.MakeBuilder[*ooo.Comp](pSpec).WithSimulation(simulation).WithResources(ooo.Resources{Emu: em, Cache: cache}).Build("TestOoO")
+	runTestSimulation(t, simulation, p)
+	if p.State.Err != "" {
+		t.Fatalf("pipeline error: %v", p.State.Err)
 	}
 	return p
 }
@@ -63,7 +65,7 @@ func TestOoO_SimpleSequence(t *testing.T) {
 		t.Error("emulator should have halted")
 	}
 	t.Logf("SimpleSequence: %d instructions, %d cycles, CPI=%.2f",
-		p.InstDone, p.Cycles, p.CPI())
+		p.State.InstDone, p.State.Cycles, p.State.CPI())
 }
 
 func TestOoO_DataHazardStall(t *testing.T) {
@@ -90,14 +92,14 @@ func TestOoO_DataHazardStall(t *testing.T) {
 	}
 
 	t.Logf("DataHazard: %d instructions, %d cycles, CPI=%.2f",
-		p.InstDone, p.Cycles, p.CPI())
+		p.State.InstDone, p.State.Cycles, p.State.CPI())
 
 	// The OoO pipeline with 8-wide fetch can issue multiple instructions per
 	// cycle, so CPI may be < 1.0 even with a data dependency. The dependency
 	// on X1 delays the second ADD but doesn't prevent superscalar throughput.
 	// Just verify that the pipeline completed all 3 instructions correctly.
-	if p.InstDone != 3 {
-		t.Errorf("expected 3 instructions completed, got %d", p.InstDone)
+	if p.State.InstDone != 3 {
+		t.Errorf("expected 3 instructions completed, got %d", p.State.InstDone)
 	}
 }
 
@@ -127,12 +129,12 @@ func TestOoO_BranchFlush(t *testing.T) {
 	}
 
 	t.Logf("BranchFlush: %d instructions, %d cycles, CPI=%.2f",
-		p.InstDone, p.Cycles, p.CPI())
+		p.State.InstDone, p.State.Cycles, p.State.CPI())
 
 	// The taken branch should cause a pipeline flush, adding penalty cycles.
 	// 3 instructions executed: B, MOV #42, RET (MOV #99 is skipped).
-	if p.InstDone != 3 {
-		t.Errorf("expected 3 instructions completed, got %d", p.InstDone)
+	if p.State.InstDone != 3 {
+		t.Errorf("expected 3 instructions completed, got %d", p.State.InstDone)
 	}
 }
 
@@ -241,7 +243,7 @@ func TestOoO_PolyBenchAtax(t *testing.T) {
 	}
 
 	t.Logf("kernel_atax: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchMvt(t *testing.T) {
@@ -392,7 +394,7 @@ func TestOoO_PolyBenchMvt(t *testing.T) {
 	}
 
 	t.Logf("kernel_mvt: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchGemm(t *testing.T) {
@@ -525,7 +527,7 @@ func TestOoO_PolyBenchGemm(t *testing.T) {
 	}
 
 	t.Logf("kernel_gemm: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBench2mm(t *testing.T) {
@@ -703,7 +705,7 @@ func TestOoO_PolyBench2mm(t *testing.T) {
 	}
 
 	t.Logf("kernel_2mm: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBench3mm(t *testing.T) {
@@ -911,7 +913,7 @@ func TestOoO_PolyBench3mm(t *testing.T) {
 	}
 
 	t.Logf("kernel_3mm: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchBicg(t *testing.T) {
@@ -1060,7 +1062,7 @@ func TestOoO_PolyBenchBicg(t *testing.T) {
 	}
 
 	t.Logf("kernel_bicg: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		pip.InstDone, pip.Cycles, pip.CPI(), maxRelErr)
+		pip.State.InstDone, pip.State.Cycles, pip.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchGesummv(t *testing.T) {
@@ -1182,7 +1184,7 @@ func TestOoO_PolyBenchGesummv(t *testing.T) {
 	}
 
 	t.Logf("kernel_gesummv: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchGemver(t *testing.T) {
@@ -1353,7 +1355,7 @@ func TestOoO_PolyBenchGemver(t *testing.T) {
 	}
 
 	t.Logf("kernel_gemver: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchDoitgen(t *testing.T) {
@@ -1478,7 +1480,7 @@ func TestOoO_PolyBenchDoitgen(t *testing.T) {
 	}
 
 	t.Logf("kernel_doitgen: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchTrisolv(t *testing.T) {
@@ -1578,7 +1580,7 @@ func TestOoO_PolyBenchTrisolv(t *testing.T) {
 	}
 
 	t.Logf("kernel_trisolv: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchDurbin(t *testing.T) {
@@ -1693,7 +1695,7 @@ func TestOoO_PolyBenchDurbin(t *testing.T) {
 	}
 
 	t.Logf("kernel_durbin: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchJacobi1d(t *testing.T) {
@@ -1793,7 +1795,7 @@ func TestOoO_PolyBenchJacobi1d(t *testing.T) {
 	}
 
 	t.Logf("kernel_jacobi_1d: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		pip.InstDone, pip.Cycles, pip.CPI(), maxRelErr)
+		pip.State.InstDone, pip.State.Cycles, pip.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchSyrk(t *testing.T) {
@@ -1912,7 +1914,7 @@ func TestOoO_PolyBenchSyrk(t *testing.T) {
 	}
 
 	t.Logf("kernel_syrk: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchSyr2k(t *testing.T) {
@@ -2044,7 +2046,7 @@ func TestOoO_PolyBenchSyr2k(t *testing.T) {
 	}
 
 	t.Logf("kernel_syr2k: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchTrmm(t *testing.T) {
@@ -2159,7 +2161,7 @@ func TestOoO_PolyBenchTrmm(t *testing.T) {
 	}
 
 	t.Logf("kernel_trmm: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchSymm(t *testing.T) {
@@ -2295,7 +2297,7 @@ func TestOoO_PolyBenchSymm(t *testing.T) {
 	}
 
 	t.Logf("kernel_symm: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchCholesky(t *testing.T) {
@@ -2409,7 +2411,7 @@ func TestOoO_PolyBenchCholesky(t *testing.T) {
 	}
 
 	t.Logf("kernel_cholesky: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchLU(t *testing.T) {
@@ -2526,7 +2528,7 @@ func TestOoO_PolyBenchLU(t *testing.T) {
 	}
 
 	t.Logf("kernel_lu: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchFloydWarshall(t *testing.T) {
@@ -2619,7 +2621,7 @@ func TestOoO_PolyBenchFloydWarshall(t *testing.T) {
 	}
 
 	t.Logf("kernel_floyd_warshall: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchCovariance(t *testing.T) {
@@ -2747,7 +2749,7 @@ func TestOoO_PolyBenchCovariance(t *testing.T) {
 	}
 
 	t.Logf("kernel_covariance: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchCorrelation(t *testing.T) {
@@ -2915,7 +2917,7 @@ func TestOoO_PolyBenchCorrelation(t *testing.T) {
 	}
 
 	t.Logf("kernel_correlation: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchGramschmidt(t *testing.T) {
@@ -3057,7 +3059,7 @@ func TestOoO_PolyBenchGramschmidt(t *testing.T) {
 	}
 
 	t.Logf("kernel_gramschmidt: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchLudcmp(t *testing.T) {
@@ -3228,7 +3230,7 @@ func TestOoO_PolyBenchLudcmp(t *testing.T) {
 	}
 
 	t.Logf("kernel_ludcmp: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchNussinov(t *testing.T) {
@@ -3359,7 +3361,7 @@ func TestOoO_PolyBenchNussinov(t *testing.T) {
 	}
 
 	t.Logf("kernel_nussinov: %d instructions, %d cycles, CPI=%.2f, maxErr=%d",
-		p.InstDone, p.Cycles, p.CPI(), maxErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxErr)
 }
 
 func TestOoO_PolyBenchAdi(t *testing.T) {
@@ -3532,7 +3534,7 @@ func TestOoO_PolyBenchAdi(t *testing.T) {
 	}
 
 	t.Logf("kernel_adi: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		pipe.InstDone, pipe.Cycles, pipe.CPI(), maxRelErr)
+		pipe.State.InstDone, pipe.State.Cycles, pipe.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchFdtd2d(t *testing.T) {
@@ -3714,7 +3716,7 @@ func TestOoO_PolyBenchFdtd2d(t *testing.T) {
 	}
 
 	t.Logf("kernel_fdtd_2d: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		pipe.InstDone, pipe.Cycles, pipe.CPI(), maxRelErr)
+		pipe.State.InstDone, pipe.State.Cycles, pipe.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchHeat3d(t *testing.T) {
@@ -3857,7 +3859,7 @@ func TestOoO_PolyBenchHeat3d(t *testing.T) {
 	}
 
 	t.Logf("kernel_heat_3d: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		pipe.InstDone, pipe.Cycles, pipe.CPI(), maxRelErr)
+		pipe.State.InstDone, pipe.State.Cycles, pipe.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchJacobi2d(t *testing.T) {
@@ -3976,7 +3978,7 @@ func TestOoO_PolyBenchJacobi2d(t *testing.T) {
 	}
 
 	t.Logf("kernel_jacobi_2d: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchSeidel2d(t *testing.T) {
@@ -4074,7 +4076,7 @@ func TestOoO_PolyBenchSeidel2d(t *testing.T) {
 	}
 
 	t.Logf("kernel_seidel_2d: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 func TestOoO_PolyBenchDeriche(t *testing.T) {
@@ -4282,7 +4284,7 @@ func TestOoO_PolyBenchDeriche(t *testing.T) {
 	}
 
 	t.Logf("kernel_deriche: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), maxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), maxRelErr)
 }
 
 // dataRegion describes a contiguous memory region to warm in the cache.
@@ -4344,18 +4346,18 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	const freq = 3.49e9 // M2 Avalanche core frequency
 
 	type kernelResult struct {
-		name         string
-		insts        uint64
-		iooCycles    uint64  // in-order cycles
-		iooCPI       float64 // in-order CPI
-		oooCycles    uint64  // OoO cycles
-		oooCPI       float64 // OoO CPI
+		name          string
+		insts         uint64
+		iooCycles     uint64  // in-order cycles
+		iooCPI        float64 // in-order CPI
+		oooCycles     uint64  // OoO cycles
+		oooCPI        float64 // OoO CPI
 		oooNoBPCycles uint64  // OoO cycles without branch predictor
-		oooNoBPCPI   float64 // OoO CPI without branch predictor
-		bpAccuracy   float64 // branch prediction accuracy (Hits/Predictions * 100)
-		native       float64 // native time in seconds
-		l1HitRate    float64
-		l2HitRate    float64
+		oooNoBPCPI    float64 // OoO CPI without branch predictor
+		bpAccuracy    float64 // branch prediction accuracy (Hits/Predictions * 100)
+		native        float64 // native time in seconds
+		l1HitRate     float64
+		l2HitRate     float64
 	}
 
 	kernels := comparisonKernels()
@@ -4383,24 +4385,23 @@ func TestOoO_ComparisonTable(t *testing.T) {
 
 		// Capture branch prediction stats.
 		var bpAcc float64
-		if pOoO.BranchPred != nil && pOoO.BranchPred.Predictions > 0 {
-			bpAcc = float64(pOoO.BranchPred.Hits) / float64(pOoO.BranchPred.Predictions) * 100
+		if pOoO.Spec.BranchPrediction && pOoO.State.Predictor.Predictions > 0 {
+			bpAcc = float64(pOoO.State.Predictor.Hits) / float64(pOoO.State.Predictor.Predictions) * 100
 		}
 
 		// Run OoO pipeline without branch predictor.
 		emNoBP := k.setup()
 		cacheNoBP := mem.NewCache(mem.DefaultCacheConfig())
 		warmCache(cacheNoBP, k.regions)
-		engineNoBP := sim.NewSerialEngine()
-		pNoBP := NewOoOPipeline("TestOoO", engineNoBP, 3490*sim.MHz, emNoBP)
-		pNoBP.Cache = cacheNoBP
-		pNoBP.BranchPred = nil
-		pNoBP.TickLater()
-		if err := engineNoBP.Run(); err != nil {
-			t.Fatalf("%s: no-BP engine.Run() failed: %v", k.name, err)
-		}
-		if pNoBP.Err != nil {
-			t.Fatalf("%s: no-BP pipeline error: %v", k.name, pNoBP.Err)
+		simulationNoBP := sim.MakeBuilder().Build()
+		emNoBP.Mem.TrackAccesses = true
+		pNoBPSpec := ooo.DefaultSpec()
+		pNoBPSpec.Freq = 3490 * timing.MHz
+		pNoBPSpec.BranchPrediction = false
+		pNoBP := modeling.MakeBuilder[*ooo.Comp](pNoBPSpec).WithSimulation(simulationNoBP).WithResources(ooo.Resources{Emu: emNoBP, Cache: cacheNoBP}).Build("TestOoO")
+		runTestSimulation(t, simulationNoBP, pNoBP)
+		if pNoBP.State.Err != "" {
+			t.Fatalf("%s: no-BP pipeline error: %v", k.name, pNoBP.State.Err)
 		}
 		if !emNoBP.Halted {
 			t.Fatalf("%s: no-BP emulator should have halted", k.name)
@@ -4412,13 +4413,13 @@ func TestOoO_ComparisonTable(t *testing.T) {
 
 		results = append(results, kernelResult{
 			name:          k.name,
-			insts:         pOoO.InstDone,
-			iooCycles:     pIO.Cycles,
-			iooCPI:        pIO.CPI(),
-			oooCycles:     pOoO.Cycles,
-			oooCPI:        pOoO.CPI(),
-			oooNoBPCycles: pNoBP.Cycles,
-			oooNoBPCPI:    pNoBP.CPI(),
+			insts:         pOoO.State.InstDone,
+			iooCycles:     pIO.State.Cycles,
+			iooCPI:        pIO.State.CPI(),
+			oooCycles:     pOoO.State.Cycles,
+			oooCPI:        pOoO.State.CPI(),
+			oooNoBPCycles: pNoBP.State.Cycles,
+			oooNoBPCPI:    pNoBP.State.CPI(),
 			bpAccuracy:    bpAcc,
 			native:        k.native,
 			l1HitRate:     l1Hit,
@@ -4435,9 +4436,9 @@ func TestOoO_ComparisonTable(t *testing.T) {
 	var totalError float64
 	var maxError float64
 	var maxErrorName string
-	countInRange := 0    // ratio in [0.67, 1.50]
-	countLE20 := 0       // error <= 0.20
-	countLE50 := 0       // error <= 0.50
+	countInRange := 0 // ratio in [0.67, 1.50]
+	countLE20 := 0    // error <= 0.20
+	countLE50 := 0    // error <= 0.50
 
 	for _, r := range results {
 		simTime := float64(r.oooCycles) / freq
@@ -4580,16 +4581,16 @@ func TestOoO_QuickEval(t *testing.T) {
 			t.Fatalf("%s: emulator should have halted", k.name)
 		}
 
-		simTime := float64(p.Cycles) / freq
+		simTime := float64(p.State.Cycles) / freq
 		ratio := simTime / k.native
 		minVal := math.Min(simTime, k.native)
 		errVal := math.Abs(simTime-k.native) / minVal
 
 		results = append(results, quickResult{
 			name:    k.name,
-			insts:   p.InstDone,
-			cycles:  p.Cycles,
-			cpi:     p.CPI(),
+			insts:   p.State.InstDone,
+			cycles:  p.State.Cycles,
+			cpi:     p.State.CPI(),
 			simTime: simTime,
 			native:  k.native,
 			ratio:   ratio,
@@ -4671,16 +4672,16 @@ func TestOoO_All30(t *testing.T) {
 			t.Fatalf("%s: emulator should have halted", k.name)
 		}
 
-		simTime := float64(p.Cycles) / freq
+		simTime := float64(p.State.Cycles) / freq
 		ratio := simTime / k.native
 		minVal := math.Min(simTime, k.native)
 		errVal := math.Abs(simTime-k.native) / minVal
 
 		results = append(results, result{
 			name:    k.name,
-			insts:   p.InstDone,
-			cycles:  p.Cycles,
-			cpi:     p.CPI(),
+			insts:   p.State.InstDone,
+			cycles:  p.State.Cycles,
+			cpi:     p.State.CPI(),
 			simTime: simTime,
 			native:  k.native,
 			ratio:   ratio,
@@ -4735,14 +4736,14 @@ func TestOoO_RegisterReadinessAfterDrain(t *testing.T) {
 	p := runOoOPipeline(t, em)
 
 	// After pipeline drains, all register readiness values must be <= Cycles.
-	for i, ready := range p.gprReady {
-		if ready > p.Cycles {
-			t.Errorf("gprReady[%d] = %d, exceeds final cycle count %d", i, ready, p.Cycles)
+	for i, ready := range p.State.GprReady {
+		if ready > p.State.Cycles {
+			t.Errorf("gprReady[%d] = %d, exceeds final cycle count %d", i, ready, p.State.Cycles)
 		}
 	}
-	for i, ready := range p.fpReady {
-		if ready > p.Cycles {
-			t.Errorf("fpReady[%d] = %d, exceeds final cycle count %d", i, ready, p.Cycles)
+	for i, ready := range p.State.FpReady {
+		if ready > p.State.Cycles {
+			t.Errorf("fpReady[%d] = %d, exceeds final cycle count %d", i, ready, p.State.Cycles)
 		}
 	}
 
@@ -4751,7 +4752,7 @@ func TestOoO_RegisterReadinessAfterDrain(t *testing.T) {
 	}
 
 	t.Logf("RegisterReadiness: %d instructions, %d cycles, CPI=%.2f",
-		p.InstDone, p.Cycles, p.CPI())
+		p.State.InstDone, p.State.Cycles, p.State.CPI())
 }
 
 func TestOoO_Swaptions(t *testing.T) {
@@ -4895,9 +4896,9 @@ func TestOoO_Swaptions(t *testing.T) {
 	}
 
 	t.Logf("swaptions_cholesky: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p.InstDone, p.Cycles, p.CPI(), cholMaxRelErr)
+		p.State.InstDone, p.State.Cycles, p.State.CPI(), cholMaxRelErr)
 
-	cholSimTime := float64(p.Cycles) / 3.49e9
+	cholSimTime := float64(p.State.Cycles) / 3.49e9
 	t.Logf("swaptions_cholesky native: simTime=%e, native=%e, ratio=%.2f",
 		cholSimTime, nativeTimeSwaptionsCholesky, cholSimTime/nativeTimeSwaptionsCholesky)
 
@@ -4969,17 +4970,17 @@ func TestOoO_Swaptions(t *testing.T) {
 	})
 
 	// Run OoO pipeline with FuncHookCycles for exp (25 cycles).
-	engine := sim.NewSerialEngine()
-	p2 := NewOoOPipeline("TestOoO", engine, 3490*sim.MHz, em2)
-	p2.FuncHookCycles = map[uint64]int{
+	simulation := sim.MakeBuilder().Build()
+	em2.Mem.TrackAccesses = true
+	p2Spec := ooo.DefaultSpec()
+	p2Spec.Freq = 3490 * timing.MHz
+	p2Spec.FuncHookCycles = HookCycleSpec(map[uint64]int{
 		expHookAddr: 25,
-	}
-	p2.TickLater()
-	if err := engine.Run(); err != nil {
-		t.Fatalf("engine.Run() failed: %v", err)
-	}
-	if p2.Err != nil {
-		t.Fatalf("pipeline error: %v", p2.Err)
+	})
+	p2 := modeling.MakeBuilder[*ooo.Comp](p2Spec).WithSimulation(simulation).WithResources(ooo.Resources{Emu: em2, Cache: nil}).Build("TestOoO")
+	runTestSimulation(t, simulation, p2)
+	if p2.State.Err != "" {
+		t.Fatalf("pipeline error: %v", p2.State.Err)
 	}
 
 	if !em2.Halted {
@@ -5004,15 +5005,15 @@ func TestOoO_Swaptions(t *testing.T) {
 	}
 
 	t.Logf("swaptions_hjm_step: %d instructions, %d cycles, CPI=%.2f, maxRelErr=%e",
-		p2.InstDone, p2.Cycles, p2.CPI(), hjmMaxRelErr)
+		p2.State.InstDone, p2.State.Cycles, p2.State.CPI(), hjmMaxRelErr)
 
-	hjmSimTime := float64(p2.Cycles) / 3.49e9
+	hjmSimTime := float64(p2.State.Cycles) / 3.49e9
 	t.Logf("swaptions_hjm native: simTime=%e, native=%e, ratio=%.2f",
 		hjmSimTime, nativeTimeSwaptionsHJM, hjmSimTime/nativeTimeSwaptionsHJM)
 
 	// Print combined summary.
-	totalInsts := p.InstDone + p2.InstDone
-	totalCycles := p.Cycles + p2.Cycles
+	totalInsts := p.State.InstDone + p2.State.InstDone
+	totalCycles := p.State.Cycles + p2.State.Cycles
 	t.Logf("swaptions_combined: total %d instructions, %d cycles, overall CPI=%.2f",
 		totalInsts, totalCycles, float64(totalCycles)/float64(totalInsts))
 
