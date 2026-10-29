@@ -119,6 +119,9 @@ func run(args []string) error {
 		r, check := evaluation.Regression(*root, *tier, commit, bytes.NewReader(data))
 		if *capture != "" {
 			r.Tested, e = evaluation.ReadCapture(*capture, data)
+			if e == nil {
+				e = evaluation.MatchCapture(*root, r.Tested)
+			}
 			if e != nil {
 				r.Status = "fail"
 				r.Acceptance = "fail"

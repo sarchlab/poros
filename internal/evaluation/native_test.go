@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,8 +40,8 @@ func TestPilotCancellationAndBudget(t *testing.T) {
 	}
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if e := simulate(ctx, code, &PilotCase{N: 1, MedianNS: 1}); e == nil {
-		t.Fatal("ignored cycle budget")
+	if e := simulate(ctx, code, &PilotCase{N: 1, MedianNS: 1}); e == nil || !strings.Contains(e.Error(), "cycle budget") {
+		t.Fatalf("expected cycle budget error, got %v", e)
 	}
 }
 func TestFunctionExtractionFailures(t *testing.T) {

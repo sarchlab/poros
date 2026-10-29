@@ -84,8 +84,10 @@ and a separate planned inventory. Current analyzer metadata is explicitly named
 analysis_*; it never identifies the source of an imported test log. The runner
 captures commit, complete tracked/unignored source hashes, Go and platform before
 testing, verifies they have not changed afterward, and seals the sidecar with
-log SHA-256 and process exit code. Importing with -capture checks that binding;
-without it tested_provenance is null, provenance_status is unknown and
+log SHA-256 and process exit code. Importing with -capture checks that binding
+and requires the tested commit and complete source hashes to match the current clean committed tree; dirty or
+cross-tree imports fail acceptance.
+Without it tested_provenance is null, provenance_status is unknown and
 acceptance_status stays unverified, even if coverage_status passes. Invalid
 sidecars produce a failed report. Store capture/output directories outside the
 checkout or under a git-ignored directory (the default evaluation-results is
@@ -189,3 +191,16 @@ cover all1024 option outputs; exact same-host whole-state digest equality links
 those functional outputs to timing-mode executions. Other workloads keep frozen
 digests unless separately audited. Each case report records which digest mode
 was actually exercised, using the test's explicit evidence marker.
+
+The current MVT function extractor trims the symbol range at its last ARM64 RET
+instruction to remove alignment padding. This is a limitation for future compiler
+layouts with executable blocks after the last RET. The current measured bytes are
+pinned by hash and checked against the linked executable; a truncated future kernel
+must still pass full output checks and bounded simulation (otherwise the pilot
+fails). This is not a general-purpose executable loader.
+
+When a regression case uses the non-ARM64 Black-Scholes digest substitute, the
+report also requires `TestRegistryBlackScholesNumericalReference` to pass and
+records it in `independent_checks`, separately from the 90 legacy cases. Missing,
+skipped, or failed numerical checks fail coverage. This reference is independent
+of the simulated instruction stream, but shares the host math implementation.

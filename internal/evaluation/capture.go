@@ -128,3 +128,16 @@ func CheckCapturePath(root, path string) error {
 	}
 	return nil
 }
+
+// MatchCapture requires final acceptance to use the same clean source tree as tests.
+// Platform/toolchain remain the tested provenance and may differ during analysis.
+func MatchCapture(root string, c *Capture) error {
+	now, err := BeginCapture(root)
+	if err != nil {
+		return err
+	}
+	if c == nil || c.Dirty || now.Dirty || c.Commit != now.Commit || !reflect.DeepEqual(c.Sources, now.Sources) {
+		return fmt.Errorf("tested provenance does not match the current clean committed source tree")
+	}
+	return nil
+}

@@ -107,6 +107,33 @@ func TestRegressionCoverage(t *testing.T) {
 		t.Fatal("accepted invalid JSON")
 	}
 }
+func TestPortableHookRequiresNumericalReference(t *testing.T) {
+	root := repo(t)
+	req, err := RequiredCases(root, "full")
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := logFor(t, root, req, "", "pass")
+	for _, action := range []string{"missing", "skip", "fail", "pass"} {
+		t.Run(action, func(t *testing.T) {
+			var log bytes.Buffer
+			log.Write(good)
+			enc := json.NewEncoder(&log)
+			enc.Encode(map[string]string{"Action": "output", "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": "TestV4Baseline/blackscholes/1", "Output": "nonportable host-math hook reference:"})
+			if action != "missing" {
+				enc.Encode(map[string]string{"Action": action, "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": "TestRegistryBlackScholesNumericalReference"})
+			}
+			report, err := Regression(root, "full", "test", &log)
+			if (err == nil) != (action == "pass") {
+				t.Fatalf("status %s: %v", action, err)
+			}
+			if len(report.Cases) != 90 || len(report.IndependentChecks) != 1 || report.IndependentChecks[0].Status != action {
+				t.Fatalf("incorrect coverage: %+v", report)
+			}
+		})
+	}
+}
+
 func TestReferenceRejectsWrongOutput(t *testing.T) {
 	n := 8
 	x1, x2, y1, y2, a := InitialMVT(n)
@@ -228,6 +255,23 @@ func TestCaptureLifecycle(t *testing.T) {
 	if _, e = ReadCapture(path, []byte("log")); e != nil {
 		t.Fatal(e)
 	}
+	if e = MatchCapture(root, &sealed); e != nil {
+		t.Fatal(e)
+	}
+	for _, mutation := range []string{"source", "commit", "dirty"} {
+		other := sealed
+		switch mutation {
+		case "source":
+			other.Sources = map[string]string{"source.txt": "different"}
+		case "commit":
+			other.Commit = "different"
+		case "dirty":
+			other.Dirty = true
+		}
+		if e = MatchCapture(root, &other); e == nil {
+			t.Fatalf("accepted %s mismatch", mutation)
+		}
+	}
 	if e = SaveCapture(path, c); e != nil {
 		t.Fatal(e)
 	}
@@ -237,8 +281,14 @@ func TestCaptureLifecycle(t *testing.T) {
 	if _, e = SealCapture(root, path, log, 0); e == nil {
 		t.Fatal("source mutation accepted")
 	}
+	if e = MatchCapture(root, &sealed); e == nil {
+		t.Fatal("accepted dirty analysis tree")
+	}
 	git("add", "source.txt")
 	git("-c", "user.name=Evaluation Test", "-c", "user.email=evaluation@example.invalid", "commit", "-qm", "changed")
+	if e = MatchCapture(root, &sealed); e == nil {
+		t.Fatal("accepted changed analysis commit")
+	}
 	if _, e = SealCapture(root, path, log, 0); e == nil {
 		t.Fatal("commit mutation accepted")
 	}

@@ -20,23 +20,24 @@ type Case struct {
 	Evidence string `json:"evidence"`
 }
 type RegressionReport struct {
-	Acceptance       string            `json:"acceptance_status"`
-	Provenance       string            `json:"provenance_status"`
-	ProvenanceError  string            `json:"provenance_error,omitempty"`
-	Tested           *Capture          `json:"tested_provenance"`
-	Dirty            bool              `json:"analysis_working_tree_dirty"`
-	Hashes           map[string]string `json:"sha256"`
-	RequiredPackages []string          `json:"required_packages"`
-	Profile          string            `json:"profile"`
-	SchemaVersion    int               `json:"schema_version"`
-	Commit           string            `json:"analysis_commit"`
-	GoVersion        string            `json:"analysis_go_version"`
-	Platform         string            `json:"analysis_platform"`
-	Tier             string            `json:"tier"`
-	Status           string            `json:"coverage_status"`
-	Evidence         string            `json:"evidence"`
-	Cases            []Case            `json:"cases"`
-	Planned          []string          `json:"planned"`
+	Acceptance        string            `json:"acceptance_status"`
+	Provenance        string            `json:"provenance_status"`
+	ProvenanceError   string            `json:"provenance_error,omitempty"`
+	Tested            *Capture          `json:"tested_provenance"`
+	Dirty             bool              `json:"analysis_working_tree_dirty"`
+	Hashes            map[string]string `json:"sha256"`
+	RequiredPackages  []string          `json:"required_packages"`
+	Profile           string            `json:"profile"`
+	SchemaVersion     int               `json:"schema_version"`
+	Commit            string            `json:"analysis_commit"`
+	GoVersion         string            `json:"analysis_go_version"`
+	Platform          string            `json:"analysis_platform"`
+	Tier              string            `json:"tier"`
+	Status            string            `json:"coverage_status"`
+	Evidence          string            `json:"evidence"`
+	Cases             []Case            `json:"cases"`
+	IndependentChecks []Case            `json:"independent_checks"`
+	Planned           []string          `json:"planned"`
 }
 type fixture struct {
 	Name, Mode           string
@@ -93,13 +94,7 @@ func RequiredCases(root, tier string) (map[string]bool, error) {
 	}
 	if tier == "short" {
 		for id := range required {
-			keep := false
-			for _, name := range []string{"raytrace", "blackscholes"} {
-				if len(id) > 0 && (containsCase(id, name)) {
-					keep = true
-				}
-			}
-			if !keep {
+			if !containsCase(id, "raytrace") && !containsCase(id, "blackscholes") {
 				delete(required, id)
 			}
 		}
@@ -159,6 +154,8 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 	packagePass := map[string]bool{}
 	packageRun := map[string]bool{}
 	packageSkip := map[string]bool{}
+	numericalStatus := "missing"
+	const numericalTest = "TestRegistryBlackScholesNumericalReference"
 	failed := false
 	scan := bufio.NewScanner(bytes.NewReader(data))
 	scan.Buffer(make([]byte, 4096), 4<<20)
@@ -167,8 +164,14 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		if e := json.Unmarshal(scan.Bytes(), &ev); e != nil {
 			return report, fmt.Errorf("invalid go test JSON: %w", e)
 		}
-		if required[ev.Test] && strings.Contains(ev.Output, "nonportable host-math hook reference:") {
+		if ev.Package == "github.com/sarchlab/poros/pkg/cpu" && required[ev.Test] && strings.Contains(ev.Output, "nonportable host-math hook reference:") {
 			modes[ev.Test] = "same-host functional architectural digest; independent numerical test required"
+		}
+		if ev.Package == "github.com/sarchlab/poros/pkg/cpu" && ev.Test == numericalTest && (ev.Action == "pass" || ev.Action == "skip" || ev.Action == "fail") {
+			if numericalStatus != "missing" {
+				return report, fmt.Errorf("duplicate result %s", numericalTest)
+			}
+			numericalStatus = ev.Action
 		}
 		if ev.Action == "fail" {
 			failed = true
@@ -211,6 +214,12 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		}
 		report.Cases = append(report.Cases, Case{id, status, "exact historical instructions/cycles; " + mode})
 	}
+	if len(modes) > 0 {
+		report.IndependentChecks = append(report.IndependentChecks, Case{numericalTest, numericalStatus, "all 1024 Black-Scholes prices; reference independent of simulated instructions, shares host math"})
+		if numericalStatus != "pass" {
+			failed = true
+		}
+	}
 	for pkg := range packageRun {
 		if !packagePass[pkg] && !packageSkip[pkg] {
 			failed = true
@@ -220,9 +229,6 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		if !packagePass[pkg] {
 			failed = true
 		}
-	}
-	if !packagePass["github.com/sarchlab/poros/pkg/cpu"] {
-		failed = true
 	}
 	if failed {
 		return report, fmt.Errorf("test failure, incomplete package, missing or skipped required case")
