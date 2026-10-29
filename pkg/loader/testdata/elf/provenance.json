@@ -1,0 +1,11 @@
+{
+  "compiler": "aarch64-linux-musl-gcc (GCC) 14.2.0",
+  "linker": "GNU ld (GNU Binutils) 2.44",
+  "build_host": "darwin/arm64",
+  "sha256": {
+    "start.S": "cd016cd49adf7bb34838493d0994a62baef3c56cabea12ff260347459a4283fb",
+    "layout.ld": "9d942ff9006b4a5269475b6a0b455837d1c82c8b2bd5d5ee8f898f782129b5e9",
+    "build.sh": "614b96a7af6f018d4313eff2eb0484553946d2972d927ff9e665b1cf4deb06d1",
+    "startup.elf": "220a792a19ee92f4812c5ed4203bf90deb0559d1efd5916b23f705ec6a2cabd8"
+  }
+}
