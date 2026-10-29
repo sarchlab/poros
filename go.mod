@@ -1,4 +1,4 @@
-module github.com/sarchlab/m2sim3
+module github.com/sarchlab/poros
 
 go 1.25.6
 

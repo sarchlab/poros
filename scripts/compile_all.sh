@@ -36,8 +36,8 @@ echo ""
 # Step 3: Build simulator
 echo "=== Step 3: Simulator ==="
 cd "$REPO_ROOT"
-echo "Building m2sim..."
-go build -o m2sim ./cmd/m2sim
+echo "Building poros..."
+go build -o poros ./cmd/poros
 echo "OK"
 echo ""
 

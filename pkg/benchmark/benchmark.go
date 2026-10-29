@@ -1,13 +1,13 @@
 // Package benchmark provides reusable benchmark kernel definitions for the
-// m2sim3 simulator. Each benchmark encapsulates the setup logic that creates a
+// Poros simulator. Each benchmark encapsulates the setup logic that creates a
 // configured emulator ready to run through the pipeline models.
 package benchmark
 
 import (
 	"encoding/binary"
 
-	"github.com/sarchlab/m2sim3/pkg/emu"
-	"github.com/sarchlab/m2sim3/pkg/mem"
+	"github.com/sarchlab/poros/pkg/emu"
+	"github.com/sarchlab/poros/pkg/mem"
 )
 
 // DataRegion describes a contiguous memory region to warm in the cache.

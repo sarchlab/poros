@@ -7,7 +7,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/sarchlab/m2sim3/pkg/loader"
+	"github.com/sarchlab/poros/pkg/loader"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"math"
 
-	"github.com/sarchlab/m2sim3/pkg/emu"
+	"github.com/sarchlab/poros/pkg/emu"
 )
 
 // All returns the complete set of benchmark kernel definitions.

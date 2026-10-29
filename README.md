@@ -1,6 +1,6 @@
-# M2Sim
+# Poros
 
-M2Sim is a cycle-accurate, execution-driven Apple M2 CPU simulator built on the [Akita](https://github.com/sarchlab/akita) discrete-event simulation framework in Go. It models the M2's Avalanche (P-core) out-of-order superscalar pipeline with multi-core support. It runs 41 benchmarks across two suites — [PolyBench/C](https://web.cse.ohio-state.edu/~pouchet.2/software/polybench/) (30 numerical kernels) and [PARSEC](https://parsec.cs.princeton.edu/) (11 parallel workloads) — with high accuracy.
+Poros is a cycle-accurate, execution-driven Apple M2 CPU simulator built on the [Akita](https://github.com/sarchlab/akita) discrete-event simulation framework in Go. It models the M2's Avalanche (P-core) out-of-order superscalar pipeline with multi-core support. It runs 41 benchmarks across two suites — [PolyBench/C](https://web.cse.ohio-state.edu/~pouchet.2/software/polybench/) (30 numerical kernels) and [PARSEC](https://parsec.cs.princeton.edu/) (11 parallel workloads) — with high accuracy.
 
 ## Accuracy Results
 
@@ -65,9 +65,14 @@ Error is calculated as `|sim_time - native_time| / min(sim_time, native_time)`.
 
 ## Build and Run
 
+The project has been renamed from M2Sim to Poros. Update Go imports from
+`github.com/sarchlab/m2sim3` to `github.com/sarchlab/poros`, and replace
+`cmd/m2sim` / `m2sim` with `cmd/poros` / `poros` in build and run commands.
+The old module and command paths are no longer provided by this checkout.
+
 ```bash
 go mod tidy          # Download dependencies
-go build ./cmd/m2sim # Build simulator
+go build ./cmd/poros # Build simulator
 go test ./pkg/cpu    # Run all tests
 ```
 
@@ -75,26 +80,26 @@ go test ./pkg/cpu    # Run all tests
 
 ```bash
 # List all 41 benchmarks
-m2sim list
+./poros list
 
 # Run a single benchmark
-m2sim run atax
-m2sim run swaptions
+./poros run atax
+./poros run swaptions
 
 # Run all benchmarks (full comparison table)
-m2sim run --all
+./poros run --all
 
 # Run a specific suite
-m2sim run --suite polybench
-m2sim run --suite parsec
+./poros run --suite polybench
+./poros run --suite parsec
 
 # Multi-core mode (2 cores with shared L2)
-m2sim run gemm --cores 2
-m2sim run --suite parsec --cores 4
-m2sim run --all --cores 2
+./poros run --cores 2 gemm
+./poros run --suite parsec --cores 4
+./poros run --all --cores 2
 
 # Quick evaluation (6 benchmarks, ~2 min)
-m2sim eval
+./poros eval
 ```
 
 ### Testing
@@ -169,6 +174,6 @@ pkg/loader/    — Mach-O binary loader
 polybench/     — PolyBench/C benchmark suite and native timing data
 parsec/        — PARSEC benchmark kernels (C source, .o files, native timing)
 scripts/       — Build and run scripts (compile_all.sh, run_simulation.sh)
-cmd/m2sim/     — Main simulator entry point (CLI)
+cmd/poros/     — Main simulator entry point (CLI)
 cmd/disasm/    — ARM64 disassembler tool
 ```
