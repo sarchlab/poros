@@ -26,15 +26,21 @@ import (
 )
 
 type Native struct {
-	Raw      []uint64  `json:"raw_roi_ns"`
-	N        int       `json:"n"`
-	Batch    int       `json:"batch"`
-	Overhead uint64    `json:"timer_overhead_ns"`
-	Samples  []float64 `json:"samples_ns"`
-	X1       []float64 `json:"x1"`
-	X2       []float64 `json:"x2"`
+	Raw         []uint64  `json:"raw_roi_ticks"`
+	Timer       string    `json:"timer"`
+	Numer       uint32    `json:"timebase_numer"`
+	Denom       uint32    `json:"timebase_denom"`
+	MinPositive uint64    `json:"observed_min_positive_ticks"`
+	N           int       `json:"n"`
+	Batch       int       `json:"batch"`
+	Overhead    float64   `json:"timer_overhead_ns"`
+	Samples     []float64 `json:"samples_ns"`
+	X1          []float64 `json:"x1"`
+	X2          []float64 `json:"x2"`
 }
 type PilotCase struct {
+	SizeID                  string         `json:"size_id"`
+	TimingQuality           []string       `json:"timing_quality_flags"`
 	N                       int            `json:"n"`
 	WorkingSet              uint64         `json:"working_set_bytes"`
 	Status                  string         `json:"status"`
@@ -135,7 +141,7 @@ func FunctionBytes(path string) ([]byte, error) {
 	return append([]byte(nil), b[:last]...), nil
 }
 func Pilot(ctx context.Context, root, commit string, sizes []int, reps int) (PilotReport, error) {
-	r := PilotReport{SchemaVersion: 1, Commit: commit, Created: time.Now().UTC().Format(time.RFC3339), Status: "fail", GoVersion: runtime.Version(), Hardware: map[string]string{"core_type": "unknown", "core_affinity": "not pinned"}, Hashes: map[string]string{}, Profile: ooo.DefaultSpec(), CacheConfig: mem.DefaultCacheConfig(), AssumedHz: 3.49e9,
+	r := PilotReport{SchemaVersion: 1, Commit: commit, Created: time.Now().UTC().Format(time.RFC3339), Status: "fail", GoVersion: runtime.Version(), Hardware: map[string]string{"core_type": "unknown", "core_affinity": "not pinned"}, Hashes: map[string]string{}, Profile: ooo.DefaultSpec(), CacheConfig: mem.DefaultCacheConfig(), AssumedHz: float64(ooo.DefaultSpec().Freq),
 		Policy:      "Function-level MVT, initialized deterministic data; native warm-up traversal then reset outside each individually timed ROI, batches sum ROI times; simulator initializes data and warms tags in allocation order, then clears counters. Times are cycles / assumed frequency. No frequency or P/E correction.",
 		Limitations: []string{"Provisional evaluation pipeline evidence, not a calibrated/validated hardware profile.", "Native core identity and instantaneous frequency are unknown; hardware counters unavailable.", "Native and simulated cache-start states are not proven equivalent, especially above cache capacity.", "Function bytes match, but native and simulated virtual addresses/alignment need not match.", "Legacy MVT informed earlier model development; these are future-calibration cases, not independent holdouts.", "Timer overhead is reported, not subtracted; very short ROIs have limited timing precision."}}
 	dirty, e := WorkingTreeDirty(root)
@@ -186,16 +192,9 @@ func Pilot(ctx context.Context, root, commit string, sizes []int, reps int) (Pil
 	if _, e = command(ctx, "clang", "-O2", driver, obj, "-o", binary); e != nil {
 		return r, e
 	}
-	code, e := FunctionBytes(obj)
+	code, e := matchingFunctionBytes(obj, binary)
 	if e != nil {
 		return r, e
-	}
-	linked, e := FunctionBytes(binary)
-	if e != nil {
-		return r, e
-	}
-	if string(code) != string(linked) {
-		return r, fmt.Errorf("linked/object kernel bytes differ")
 	}
 	r.KernelHex = hex.EncodeToString(code)
 	r.Hashes["executed_kernel"] = hash(code)
@@ -221,20 +220,28 @@ func Pilot(ctx context.Context, root, commit string, sizes []int, reps int) (Pil
 		if e = Decode(strings.NewReader(string(b)), &native); e != nil {
 			return r, e
 		}
-		if native.N != n || len(native.Samples) != reps || native.Batch < 1 || len(native.Raw) != reps*native.Batch {
+		if native.N != n || len(native.Samples) != reps || native.Batch < 1 || len(native.Raw) != reps*native.Batch || native.Timer != "mach_absolute_time" || native.Denom == 0 || native.Numer == 0 || native.MinPositive == 0 {
 			return r, fmt.Errorf("incomplete native samples")
 		}
 		if e = CheckMVT(n, native.X1, native.X2); e != nil {
 			return r, e
 		}
-		for _, v := range native.Samples {
+		for j, v := range native.Samples {
+			var total uint64
+			for _, tick := range native.Raw[j*native.Batch : (j+1)*native.Batch] {
+				total += tick
+			}
+			mean := float64(total) * float64(native.Numer) / float64(native.Denom) / float64(native.Batch)
+			if math.Abs(mean-v) > 1e-9*math.Max(1, v) {
+				return r, fmt.Errorf("raw sample/mean mismatch")
+			}
 			if v <= 0 || math.IsNaN(v) || math.IsInf(v, 0) {
 				return r, fmt.Errorf("invalid timing")
 			}
 		}
 		sorted := append([]float64(nil), native.Samples...)
 		sort.Float64s(sorted)
-		r.Cases = append(r.Cases, PilotCase{N: n, WorkingSet: uint64(8 * (n*n + 4*n)), Native: native, MedianNS: quantile(sorted, .5), P10NS: quantile(sorted, .1), P90NS: quantile(sorted, .9), Status: "pending"})
+		r.Cases = append(r.Cases, PilotCase{SizeID: fmt.Sprintf("n%d", n), N: n, WorkingSet: uint64(8 * (n*n + 4*n)), Native: native, MedianNS: quantile(sorted, .5), P10NS: quantile(sorted, .1), P90NS: quantile(sorted, .9), Status: "pending"})
 	}
 	load, e = command(ctx, "sysctl", "-n", "vm.loadavg")
 	if e != nil {
@@ -242,6 +249,15 @@ func Pilot(ctx context.Context, root, commit string, sizes []int, reps int) (Pil
 	}
 	r.LoadAfter = strings.TrimSpace(string(load))
 	for i := range r.Cases {
+		c := &r.Cases[i]
+		quantum := float64(c.Native.MinPositive) * float64(c.Native.Numer) / float64(c.Native.Denom)
+		if c.MedianNS < 10*math.Max(quantum, c.Native.Overhead) {
+			c.TimingQuality = append(c.TimingQuality, "roi-too-short-relative-to-clock")
+		}
+		if (c.P90NS-c.P10NS)/c.MedianNS > 0.2 {
+			c.TimingQuality = append(c.TimingQuality, "batch-mean-spread-over-20-percent")
+		}
+		c.TimingQuality = append(c.TimingQuality, "core-and-frequency-unconfirmed", "cache-state-not-equivalent")
 		if e = simulate(ctx, code, &r.Cases[i]); e != nil {
 			return r, e
 		}
@@ -342,6 +358,10 @@ func simulate(ctx context.Context, code []byte, c *PilotCase) (err error) {
 	core.TickLater()
 	// Run the initialized serial engine in bounded chunks. This also bounds malformed
 	// kernel execution without modifying the shared timing component.
+	engine, ok := s.Engine().(*timing.SerialEngine)
+	if !ok {
+		return fmt.Errorf("pilot requires serial engine")
+	}
 	limit := uint64(100*n*n + 1000000)
 	for cycle := uint64(100000); ; cycle += 100000 {
 		if err = ctx.Err(); err != nil {
@@ -350,7 +370,7 @@ func simulate(ctx context.Context, code []byte, c *PilotCase) (err error) {
 		if cycle > limit {
 			cycle = limit
 		}
-		if err = s.Engine().(*timing.SerialEngine).RunUntil(timing.VTimeInPicoSec(cycle * 286)); err != nil {
+		if err = engine.RunUntil(timing.VTimeInPicoSec(cycle) * core.Spec.Freq.Period()); err != nil {
 			return err
 		}
 		if core.State.Done {
@@ -373,7 +393,7 @@ func simulate(ctx context.Context, code []byte, c *PilotCase) (err error) {
 	c.Instructions = core.State.InstDone
 	c.Cycles = core.State.Cycles
 	c.CPI = core.State.CPI()
-	c.SimulatedNS = float64(c.Cycles) / 3.49
+	c.SimulatedNS = float64(c.Cycles) * 1e9 / float64(core.Spec.Freq)
 	c.AbsolutePercentageError = 100 * math.Abs(c.SimulatedNS-c.MedianNS) / c.MedianNS
 	c.Cache = cache.Stats()
 	c.BranchPredictions = core.State.Predictor.Predictions
@@ -383,4 +403,19 @@ func simulate(ctx context.Context, code []byte, c *PilotCase) (err error) {
 	c.SimWallSeconds = time.Since(start).Seconds()
 	c.Status = "pass"
 	return nil
+}
+
+func matchingFunctionBytes(object, binary string) ([]byte, error) {
+	code, e := FunctionBytes(object)
+	if e != nil {
+		return nil, e
+	}
+	linked, e := FunctionBytes(binary)
+	if e != nil {
+		return nil, e
+	}
+	if string(code) != string(linked) {
+		return nil, fmt.Errorf("linked/object kernel bytes differ")
+	}
+	return code, nil
 }

@@ -2,14 +2,14 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
+#include <mach/mach_time.h>
 
 extern void kernel_mvt(int, double *, double *, double *, double *, double *);
 
-static uint64_t now(void) {
-    struct timespec t;
-    if (clock_gettime(CLOCK_MONOTONIC, &t)) exit(2);
-    return (uint64_t)t.tv_sec * 1000000000 + t.tv_nsec;
+static mach_timebase_info_data_t timebase;
+static uint64_t now(void) { return mach_absolute_time(); }
+static double ns(uint64_t ticks) {
+    return (double)ticks * timebase.numer / timebase.denom;
 }
 
 static void reset(int n, double *x1, double *x2) {
@@ -21,6 +21,7 @@ static void reset(int n, double *x1, double *x2) {
 
 int main(int argc, char **argv) {
     if (argc != 3) return 2;
+    if (mach_timebase_info(&timebase) != KERN_SUCCESS || !timebase.denom) return 2;
     char *end;
     long dimension = strtol(argv[1], &end, 10);
     if (*end || dimension < 1 || dimension > 1536) return 2;
@@ -41,11 +42,14 @@ int main(int argc, char **argv) {
     reset(n, x1, x2);
     kernel_mvt(n, x1, x2, y1, y2, a);
     uint64_t overhead = UINT64_MAX;
+    uint64_t min_positive = UINT64_MAX;
     for (int i = 0; i < 1000; i++) {
         uint64_t t = now();
         uint64_t dt = now() - t;
         if (dt < overhead) overhead = dt;
+        if (dt && dt < min_positive) min_positive = dt;
     }
+    if (min_positive == UINT64_MAX) return 4;
     int batch = n < 130 ? 100 : 5;
     uint64_t *raw = calloc((size_t)reps * batch, sizeof(uint64_t));
     if (!raw) return 3;
@@ -58,13 +62,13 @@ int main(int argc, char **argv) {
         }
     }
     // Emit only after all timings; retain individual durations and batch means.
-    printf("{\"n\":%d,\"batch\":%d,\"timer_overhead_ns\":%llu,\"samples_ns\":[", n, batch, (unsigned long long)overhead);
+    printf("{\"n\":%d,\"batch\":%d,\"timer\":\"mach_absolute_time\",\"timebase_numer\":%u,\"timebase_denom\":%u,\"observed_min_positive_ticks\":%llu,\"timer_overhead_ns\":%.17g,\"samples_ns\":[", n, batch, timebase.numer, timebase.denom, (unsigned long long)min_positive, ns(overhead));
     for (int r = 0; r < reps; r++) {
         uint64_t total = 0;
         for (int b = 0; b < batch; b++) total += raw[r * batch + b];
-        printf("%s%.17g", r ? "," : "", (double)total / batch);
+        printf("%s%.17g", r ? "," : "", ns(total) / batch);
     }
-    printf("],\"raw_roi_ns\":[");
+    printf("],\"raw_roi_ticks\":[");
     for (int i = 0; i < reps * batch; i++) printf("%s%llu", i ? "," : "", (unsigned long long)raw[i]);
     printf("],\"x1\":[");
     for (int i = 0; i < n; i++) printf("%s%.17g", i ? "," : "", x1[i]);

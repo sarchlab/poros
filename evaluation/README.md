@@ -12,8 +12,10 @@ Three different claims must remain separate:
 
 1. **Legacy behavior regression:** all 41 current functions at their original
    inputs, on one/two independent emulators (82 cases), plus eight in-order/no-BP
-   cases. Exact retired instructions, cycles and architectural digests match the
-   frozen historical data. These are not shared-memory multicore tests.
+   cases. Exact retired instructions/cycles match historical data. Digests
+   match the frozen ARM64 data except for the audited Black-Scholes host-math
+   case on non-ARM64: that case compares whole state with same-host functional
+   execution, linked to a separate all-1024-option mathematical reference. These are not shared-memory multicore tests.
 2. **Independent functional correctness:** complete MVT output arrays from native
    execution and simulation each match a direct Go mathematical reference within
    `1e-12 + 1e-12 * abs(reference)`. Every element is checked, not only a sum.
@@ -38,7 +40,9 @@ calibration diagnostics. `planned` never means pass; no ELF support is implied.
 
 Original inputs remain fixed. Known GEMM/ATAX/MVT dimensions and data-array bytes
 are recorded; other historical dimensions not yet audited are explicitly unknown.
-Unknown source/compiler history is not filled in with guessed versions.
+Unknown source/compiler history is not filled in with guessed versions. Pilot
+defaults are derived from the manifest, and explicit dimensions must belong to
+its declared pilot set; changing the set requires a reviewed manifest change.
 
 MVT's active pilot sizes are 8, 63, 120, 129, 400, and 1536. Data bytes equal
 `8 * (n*n + 4*n)`, excluding code/stack. With the **model's** 128 KiB L1 and
@@ -63,7 +67,7 @@ scripts/evaluation-ci.sh static
 scripts/evaluation-ci.sh short
 scripts/evaluation-ci.sh full
 # Re-evaluate a captured uncached test run:
-go run ./cmd/evaluate regression -tier full -log evaluation-results/go-test.jsonl -out evaluation-results/report.json
+go run ./cmd/evaluate regression -capture evaluation-results/capture.json -tier full -log evaluation-results/go-test.jsonl -out evaluation-results/report.json
 # Run native samples first, then simulate the same function bytes:
 go run ./cmd/evaluate pilot -out /tmp/mvt-pilot.json
 # Small development smoke (not full pilot acceptance):
@@ -76,7 +80,16 @@ eight raytrace/blackscholes cases. A required skip, missing case, failed test,
 missing asset, malformed event, truncated/incomplete package, or invalid manifest
 fails the command. No-test package skips are allowed. Reports include commit,
 dirty-tree state, Go/platform, fixture/source/manifest/log hashes, case outcomes,
-and a separate planned inventory. `go test` process failure is also checked by
+and a separate planned inventory. Current analyzer metadata is explicitly named
+analysis_*; it never identifies the source of an imported test log. The runner
+captures commit, complete tracked/unignored source hashes, Go and platform before
+testing, verifies they have not changed afterward, and seals the sidecar with
+log SHA-256 and process exit code. Importing with -capture checks that binding;
+without it tested_provenance is null, provenance_status is unknown and
+acceptance_status stays unverified, even if coverage_status passes. Invalid
+sidecars produce a failed report. Store capture/output directories outside the
+checkout or under a git-ignored directory (the default evaluation-results is
+ignored), so generating evidence cannot alter the measured source snapshot. `go test` process failure is also checked by
 the shell runner even if a report could otherwise be produced.
 
 Pilot JSON contains exact compiled kernel bytes, source/object/executable hashes,
@@ -97,12 +110,18 @@ those bytes in the emulator. This is still function-level execution; it does not
 load a whole Mach-O or Linux ELF application. The code accepts n at runtime.
 
 Every run initializes the same deterministic formulas, with no random input seed.
-Native timing uses CLOCK_MONOTONIC, an initial warm-up traversal, then reset of
+Native timing uses mach_absolute_time with recorded mach_timebase_info conversion,
+an initial warm-up traversal, then reset of
 x1/x2 outside every timed call. Defaults are 13 batches, 100 calls per batch for
-n<130 and 5 otherwise. It retains every individual raw duration; samples_ns is
+n<130 and 5 otherwise. It retains every individual raw duration in ticks and the exact timebase; samples_ns is
 explicitly a list of per-batch means. P10/median/P90 summarize these means, not
-individual call latency. Minimum observed timer-pair overhead is reported and
-never subtracted. Very short functions can remain timer-noise dominated.
+individual call latency. Minimum observed timer-pair overhead and smallest observed positive timer delta
+are reported; overhead is never subtracted. A zero minimum means two calls fell
+within one tick, not a free clock. A median shorter than ten times the greater of
+observed clock delta and overhead is flagged roi-too-short-relative-to-clock;
+batch-mean P90-P10 spread above20% is also flagged. These diagnostics do not
+qualify the run as hardware ground truth. The initial CLOCK_MONOTONIC evidence
+was found to be microsecond-quantized and is retained as rejected timing evidence.
 
 The simulator warms data tags in allocation order, then resets cache statistics
 before the kernel. Native traversal/reset and model tag warming are not proven
@@ -114,7 +133,8 @@ exclusive execution. Preserve raw observations rather than applying a P/E factor
 
 ## Metrics, error and promotion
 
-Simulation time is `cycles / 3.49e9` seconds, explicitly an assumed frequency.
+Simulation time is `cycles / Spec.Freq` seconds (default3.49GHz), explicitly an assumed frequency.
+The same Spec frequency determines engine tick period and reported assumed_hz.
 It is not engine integer-picosecond elapsed time and not the measured native clock.
 For positive reference time, report absolute percentage error as
 `100 * abs(simulated - reference) / reference`. This differs from the historical
@@ -140,13 +160,31 @@ full tests, and macOS build/short compatibility. Manual dispatch additionally ru
 the full legacy CLI comparison report. Artifacts upload even after failure.
 Formatting applies to evaluator Go files and changed Go files; pre-existing
 formatting debt is not rewritten. Workflow permissions are contents:read and
-obsolete branch runs are canceled. Jobs do not change repository protections;
+obsolete PR runs are canceled; main runs are not canceled by later pushes.
+PR jobs check out the exact pull-request head SHA, not GitHub's synthetic merge commit. Jobs do not change repository protections;
 checks existing in a workflow does not mean GitHub requires them for merging.
 
 Fault tests exercise missing workloads/sources, unknown fields, bad statuses,
+wrong native/simulated function bytes, missing Mach-O symbols, cancellation and
+an infinite-loop cycle budget,
 missing/skipped/failed golden cases, invalid/truncated logs and wrong MVT output.
 The actual frozen CPU tests remain responsible for detecting changed instruction,
 cycle and digest values. Tests and scripts never update goldens. Evidence must be
 collected against committed code for final acceptance; dirty state is explicit
 for development runs. A later data-only evidence commit may reference its exact
 source parent if evaluator/kernel/config content is unchanged.
+
+## Portable hook evidence
+
+The old digest was captured with Go1.27 on darwin/arm64. Go math.Exp and math.Log
+use architecture-specific implementations, so byte hashes of host-hook results
+are not portable. Linux AMD64 initially failed four Black-Scholes baseline cases
+with identical instruction/cycle counts. A diagnostic translation of Go's AMD64
+Exp algorithm changed65/1024 prices by at most1.25e-14 on the ARM host while
+retaining106565 instructions; this isolates an actual rounding sensitivity, not
+a guessed new Linux golden. Only blackscholes is allowlisted for the alternative
+non-ARM64 check. The fixtures remain byte-identical. Independent numerical checks
+cover all1024 option outputs; exact same-host whole-state digest equality links
+those functional outputs to timing-mode executions. Other workloads keep frozen
+digests unless separately audited. Each case report records which digest mode
+was actually exercised, using the test's explicit evidence marker.

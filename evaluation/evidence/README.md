@@ -1,4 +1,10 @@
-# Initial M2 pilot evidence
+# Initial M2 pilot evidence — rejected for timing calibration
+
+Coordinator inspection found that CLOCK_MONOTONIC samples in this run were
+quantized to1000ns, including zero-duration short ROIs. Preserve this dataset
+as historical functional/pipeline evidence only; its timing estimates must not
+be used for fitting or precision claims. A high-resolution replacement is
+collected separately rather than overwriting these observations.
 
 `m2-mvt-2026-10-29.json` was produced with:
 

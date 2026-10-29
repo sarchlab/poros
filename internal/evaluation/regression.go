@@ -20,16 +20,20 @@ type Case struct {
 	Evidence string `json:"evidence"`
 }
 type RegressionReport struct {
-	Dirty            bool              `json:"working_tree_dirty"`
+	Acceptance       string            `json:"acceptance_status"`
+	Provenance       string            `json:"provenance_status"`
+	ProvenanceError  string            `json:"provenance_error,omitempty"`
+	Tested           *Capture          `json:"tested_provenance"`
+	Dirty            bool              `json:"analysis_working_tree_dirty"`
 	Hashes           map[string]string `json:"sha256"`
 	RequiredPackages []string          `json:"required_packages"`
 	Profile          string            `json:"profile"`
 	SchemaVersion    int               `json:"schema_version"`
-	Commit           string            `json:"commit"`
-	GoVersion        string            `json:"go_version"`
-	Platform         string            `json:"platform"`
+	Commit           string            `json:"analysis_commit"`
+	GoVersion        string            `json:"analysis_go_version"`
+	Platform         string            `json:"analysis_platform"`
 	Tier             string            `json:"tier"`
-	Status           string            `json:"status"`
+	Status           string            `json:"coverage_status"`
 	Evidence         string            `json:"evidence"`
 	Cases            []Case            `json:"cases"`
 	Planned          []string          `json:"planned"`
@@ -103,15 +107,11 @@ func RequiredCases(root, tier string) (map[string]bool, error) {
 	return required, nil
 }
 func containsCase(id, name string) bool {
-	for _, prefix := range []string{"TestV4Baseline/", "TestV4PipelineVariants/"} {
-		if len(id) >= len(prefix)+len(name)+1 && id[len(prefix):len(prefix)+len(name)+1] == name+"/" {
-			return true
-		}
-	}
-	return false
+	return strings.HasPrefix(id, "TestV4Baseline/"+name+"/") || strings.HasPrefix(id, "TestV4PipelineVariants/"+name+"/")
 }
+
 func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error) {
-	report := RegressionReport{SchemaVersion: 1, Commit: commit, GoVersion: runtime.Version(), Platform: runtime.GOOS + "/" + runtime.GOARCH, Tier: tier, Status: "fail", Evidence: "legacy-behavior-only"}
+	report := RegressionReport{Acceptance: "unverified", Provenance: "unknown", SchemaVersion: 1, Commit: commit, GoVersion: runtime.Version(), Platform: runtime.GOOS + "/" + runtime.GOARCH, Tier: tier, Status: "fail", Evidence: "legacy-behavior-only"}
 	dirty, e := WorkingTreeDirty(root)
 	if e != nil {
 		return report, e
@@ -155,6 +155,7 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		return report, e
 	}
 	seen := map[string]string{}
+	modes := map[string]string{}
 	packagePass := map[string]bool{}
 	packageRun := map[string]bool{}
 	packageSkip := map[string]bool{}
@@ -165,6 +166,9 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		var ev struct{ Action, Package, Test, Output string }
 		if e := json.Unmarshal(scan.Bytes(), &ev); e != nil {
 			return report, fmt.Errorf("invalid go test JSON: %w", e)
+		}
+		if required[ev.Test] && strings.Contains(ev.Output, "nonportable host-math hook reference:") {
+			modes[ev.Test] = "same-host functional architectural digest; independent numerical test required"
 		}
 		if ev.Action == "fail" {
 			failed = true
@@ -201,7 +205,11 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		if status != "pass" {
 			failed = true
 		}
-		report.Cases = append(report.Cases, Case{id, status, "exact instructions, cycles, architectural digest"})
+		mode := modes[id]
+		if mode == "" {
+			mode = "frozen ARM64 architectural digest"
+		}
+		report.Cases = append(report.Cases, Case{id, status, "exact historical instructions/cycles; " + mode})
 	}
 	for pkg := range packageRun {
 		if !packagePass[pkg] && !packageSkip[pkg] {

@@ -150,3 +150,35 @@ func TestFixtureIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestManifestPilotSelection(t *testing.T) {
+	m, e := LoadManifest(repo(t))
+	if e != nil {
+		t.Fatal(e)
+	}
+	ns, e := m.PilotSizes(nil)
+	if e != nil || len(ns) != 6 || ns[2] != 120 {
+		t.Fatalf("%v %v", ns, e)
+	}
+	if _, e = m.PilotSizes([]int{9}); e == nil {
+		t.Fatal("accepted undeclared size")
+	}
+	if _, e = m.PilotSizes([]int{8, 8}); e == nil {
+		t.Fatal("accepted duplicate size")
+	}
+}
+func TestCaptureLogBinding(t *testing.T) {
+	dir := t.TempDir()
+	code := 0
+	c := Capture{SchemaVersion: 1, Commit: "abc", Started: "before", Finished: "after", Platform: "test", GoVersion: "test", Sources: map[string]string{"a": "b"}, LogSHA: hash([]byte("original")), ExitCode: &code}
+	path := filepath.Join(dir, "capture.json")
+	if e := SaveCapture(path, c); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := ReadCapture(path, []byte("original")); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := ReadCapture(path, []byte("tampered")); e == nil {
+		t.Fatal("accepted wrong log")
+	}
+}

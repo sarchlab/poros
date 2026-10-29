@@ -127,3 +127,36 @@ func (m Manifest) Validate(root string) error {
 	}
 	return nil
 }
+
+func (m Manifest) PilotSizes(requested []int) ([]int, error) {
+	allowed := map[int]bool{}
+	defaults := []int{}
+	for _, w := range m.Workloads {
+		if w.ID == "mvt" {
+			for _, s := range w.Sizes {
+				if s.Status == "pilot" {
+					n := s.Dimensions["n"]
+					if allowed[n] || s.ID != fmt.Sprintf("n%d", n) {
+						return nil, fmt.Errorf("duplicate dimension or mismatched pilot ID")
+					}
+					allowed[n] = true
+					defaults = append(defaults, n)
+				}
+			}
+		}
+	}
+	if len(defaults) == 0 {
+		return nil, fmt.Errorf("manifest has no MVT pilot sizes")
+	}
+	if len(requested) == 0 {
+		return defaults, nil
+	}
+	seen := map[int]bool{}
+	for _, n := range requested {
+		if !allowed[n] || seen[n] {
+			return nil, fmt.Errorf("undeclared or duplicate pilot size %d", n)
+		}
+		seen[n] = true
+	}
+	return requested, nil
+}

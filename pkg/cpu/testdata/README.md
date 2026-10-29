@@ -28,3 +28,14 @@ and OoO-without-branch-prediction modes. `TestV4PipelineVariants` enforces these
 values in eight automated cases. Separately, the migration validation runs the
 full CLI 41-kernel report and compares its output byte-for-byte with the frozen
 v4 report; that CLI comparison is not performed by TestV4PipelineVariants.
+
+## Host-math portability
+
+These digests originate from Go1.27 darwin/arm64. The Black-Scholes kernel invokes
+host math.Exp/Log, whose low-order floating-point bits differ on AMD64. On
+non-ARM64 hosts, that audited workload retains exact historical instruction/cycle
+checks, but its whole-state digest is compared with same-host functional execution.
+A separate mathematical test checks all1024 registry option results, linking to
+pipeline results through the full digest comparison. Test logs and evaluation
+reports identify this alternative explicitly. Other workloads retain frozen
+digests. The JSONL fixtures themselves have not changed.

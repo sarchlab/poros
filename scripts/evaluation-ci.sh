@@ -27,13 +27,16 @@ case "$tier" in
   short|full)
     args=(-json -count=1 -timeout 45m)
     [[ "$tier" == short ]] && args+=(-short)
+    go run ./cmd/evaluate capture -out "$output/capture.json"
     set +e
     go test "${args[@]}" ./... >"$output/go-test.jsonl" 2>"$output/go-test.stderr"
     test_status=$?
-    go run ./cmd/evaluate regression -tier "$tier" -log "$output/go-test.jsonl" -out "$output/report.json"
+    go run ./cmd/evaluate seal -capture "$output/capture.json" -log "$output/go-test.jsonl" -test-exit "$test_status"
+    capture_status=$?
+    go run ./cmd/evaluate regression -capture "$output/capture.json" -tier "$tier" -log "$output/go-test.jsonl" -out "$output/report.json"
     report_status=$?
     set -e
-    if (( test_status != 0 || report_status != 0 )); then
+    if (( test_status != 0 || report_status != 0 || capture_status != 0 )); then
       cat "$output/go-test.stderr"
       echo "Tests failed or coverage incomplete; inspect $output"
       exit 1
