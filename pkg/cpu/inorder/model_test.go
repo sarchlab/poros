@@ -3,7 +3,6 @@ package inorder
 import (
 	"encoding/binary"
 	"encoding/json"
-	"golang.org/x/arch/arm64/arm64asm"
 	"reflect"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/sarchlab/akita/v5/sim/modeling"
 	"github.com/sarchlab/akita/v5/sim/modeling/modelingtest"
 	"github.com/sarchlab/poros/pkg/emu"
+	"golang.org/x/arch/arm64/arm64asm"
 )
 
 func TestModel(t *testing.T) { modelingtest.CheckTicking(t, (*Comp)(nil), DefaultSpec()) }
