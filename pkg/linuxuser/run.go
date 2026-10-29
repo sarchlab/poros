@@ -177,7 +177,9 @@ func (p *Process) Run(ctx context.Context, o RunOptions) (Result, error) {
 	}
 	defer x.Close()
 	for !x.Stopped() {
-		_, _, _ = x.StepDetailed()
+		if _, _, err := x.StepDetailed(); err != nil && !x.Stopped() {
+			return x.Result(), fmt.Errorf("execution error without termination: %w", err)
+		}
 	}
 	return x.Result(), nil
 }

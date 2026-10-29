@@ -3,6 +3,7 @@ package inorder
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -131,4 +132,43 @@ func TestAmbiguousExecutionResourcesRejected(t *testing.T) {
 		}
 	}()
 	s.Initialize()
+}
+
+type nonStoppingExecution struct {
+	*emu.Emulator
+	attempts   int
+	emptyError bool
+}
+
+func (x *nonStoppingExecution) StepDetailed() (arm64asm.Inst, bool, error) {
+	x.attempts++
+	inst, branched, err := x.Emulator.StepDetailed()
+	if err != nil && x.emptyError {
+		err = errors.New("")
+	}
+	return inst, branched, err
+}
+func (x *nonStoppingExecution) Stopped() bool { return false }
+func TestExecutionErrorDrainsWithoutBackendStop(t *testing.T) {
+	for _, emptyError := range []bool{false, true} {
+		s := sim.MakeBuilder().Build()
+		defer s.Terminate()
+		x := &nonStoppingExecution{Emulator: emu.NewEmulator(), emptyError: emptyError}
+		x.Mem.TrackAccesses = true
+		x.Regs.PC = 0x1000
+		x.Mem.WriteU32(0x1000, 0xd2800540) // MOV X0,#42, must retire despite the later fault.
+		x.Mem.WriteU32(0x1004, 0xc85f7c01) // LDXR X1,[X0], decoded but unsupported.
+		c := modeling.MakeBuilder[*Comp](DefaultSpec()).WithSimulation(s).WithResources(Resources{Execution: x}).Build("CPU")
+		if err := s.Initialize(); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 100; i++ {
+			if !c.Middlewares.Pipeline.Handle(nil) {
+				break
+			}
+		}
+		if !c.State.Done || c.State.Err == "" || c.State.InstDone != 1 || x.attempts != 2 || x.Regs.ReadX(0) != 42 {
+			t.Fatalf("fault retry or lost older retirement: attempts=%d state=%+v", x.attempts, c.State)
+		}
+	}
 }

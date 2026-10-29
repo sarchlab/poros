@@ -2,6 +2,8 @@
 package inorder
 
 import (
+	"fmt"
+
 	"github.com/sarchlab/akita/v5/sim/modeling/ticking"
 	"github.com/sarchlab/akita/v5/sim/timing"
 	instinfo "github.com/sarchlab/poros/pkg/cpu/internal/inst"
@@ -18,7 +20,9 @@ type Spec struct {
 
 func DefaultSpec() Spec { return Spec{Freq: 3490 * timing.MHz, LoadLatency: 4} }
 
-// Resources supplies the functional execution backend and optional synchronous cache.
+// Resources selects exactly one execution policy. Emu preserves legacy kernel
+// hooks and termination behavior. Execution drives a checked process: faults
+// drain older work, and SVC serializes the pipeline. Cache is optional.
 // These live objects are not included in component checkpoints.
 type Resources struct {
 	Emu       *emu.Emulator
@@ -159,14 +163,14 @@ func (p *middleware) stageExecute() bool {
 
 	// First cycle: call the emulator for functional execution.
 	if !p.comp.State.Execute.Executed {
-		if p.comp.Resources.Execution != nil && p.comp.State.Execute.Op == arm64asm.SVC && (p.comp.State.Memory.Valid || p.comp.State.Writeback.Valid) {
+		if p.comp.Resources.processMode() && p.comp.State.Execute.Op == arm64asm.SVC && (p.comp.State.Memory.Valid || p.comp.State.Writeback.Valid) {
 			return true
 		}
 
 		inst, branched, err := p.comp.Resources.backend().StepDetailed()
 		if err != nil {
-			p.comp.State.Err = err.Error()
-			if p.comp.Resources.Emu != nil {
+			p.comp.State.Err = fmt.Sprintf("execute: %v", err)
+			if !p.comp.Resources.processMode() {
 				p.comp.State.Done = true
 			}
 			p.comp.State.Execute = stageReg{}
@@ -180,7 +184,7 @@ func (p *middleware) stageExecute() bool {
 
 		// Handle taken branch: flush fetch and decode stages.
 		// This also covers halt (RET to haltPC): flush + pipeline drains.
-		if branched || (p.comp.Resources.Execution != nil && (inst.Op == arm64asm.SVC || p.comp.Resources.backend().Stopped())) {
+		if branched || (p.comp.Resources.processMode() && (inst.Op == arm64asm.SVC || p.comp.Resources.backend().Stopped())) {
 			p.flush()
 		}
 	}
@@ -250,22 +254,25 @@ func (p *middleware) stageDecode() bool {
 }
 
 func (p *middleware) stageFetch() {
+	if p.comp.State.Err != "" {
+		return
+	}
 	if p.comp.State.Decode.Valid {
 		return // decode occupied — stall fetch
 	}
 
 	// Read 4 bytes at fetchPC from emulator memory.
-	if p.comp.Resources.Execution != nil && p.comp.Resources.backend().Stopped() {
+	if p.comp.Resources.processMode() && p.comp.Resources.backend().Stopped() {
 		return
 	}
 	inst, err := p.comp.Resources.backend().Peek(p.comp.State.FetchPC)
 	if err != nil {
 		// Speculative wrong-path fetch faults are discarded. At the current
 		// architectural PC, resolve only once older pipeline work has drained.
-		if p.comp.Resources.Execution != nil && !p.comp.State.Execute.Valid && !p.comp.State.Memory.Valid && !p.comp.State.Writeback.Valid && p.comp.State.FetchPC == p.comp.Resources.backend().CPURegisters().PC {
+		if p.comp.Resources.processMode() && !p.comp.State.Execute.Valid && !p.comp.State.Memory.Valid && !p.comp.State.Writeback.Valid && p.comp.State.FetchPC == p.comp.Resources.backend().CPURegisters().PC {
 			_, _, err = p.comp.Resources.backend().StepDetailed()
 			if err != nil {
-				p.comp.State.Err = err.Error()
+				p.comp.State.Err = fmt.Sprintf("fetch: %v", err)
 			}
 		}
 		return
@@ -331,3 +338,6 @@ func (r Resources) backend() emu.Execution {
 	}
 	return r.Emu
 }
+
+// processMode enables process boundary/fault policy independently of backend state.
+func (r Resources) processMode() bool { return r.Execution != nil }

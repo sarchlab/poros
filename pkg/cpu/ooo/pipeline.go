@@ -2,6 +2,8 @@
 package ooo
 
 import (
+	"fmt"
+
 	"github.com/sarchlab/akita/v5/sim/modeling/ticking"
 	"github.com/sarchlab/akita/v5/sim/timing"
 	instinfo "github.com/sarchlab/poros/pkg/cpu/internal/inst"
@@ -44,8 +46,10 @@ func DefaultSpec() Spec {
 	}
 }
 
-// Resources holds the unchanged functional backend and optional synchronous cache.
-// They are live objects and are not included in component checkpoints.
+// Resources selects exactly one execution policy. Emu preserves legacy kernel
+// hooks and termination behavior. Execution drives a checked process: faults
+// drain older work, and SVC serializes the pipeline. Cache is optional.
+// These live objects are not included in component checkpoints.
 type Resources struct {
 	Emu       *emu.Emulator
 	Execution emu.Execution
@@ -154,7 +158,7 @@ func (p *middleware) Handle(_ timing.Event) bool {
 	p.fetchAndProcess()
 
 	// Check termination: ROB drained and emulator halted.
-	if p.comp.State.RobCount == 0 && p.comp.Resources.backend().Stopped() {
+	if p.comp.State.RobCount == 0 && (p.comp.Resources.backend().Stopped() || p.comp.State.Err != "") {
 		p.comp.State.Done = true
 	}
 
@@ -180,6 +184,9 @@ func (p *middleware) retire() {
 // fetchAndProcess fetches up to FetchWidth instructions, decodes, dispatches,
 // and functionally executes each one.
 func (p *middleware) fetchAndProcess() {
+	if p.comp.State.Err != "" {
+		return
+	}
 	if p.comp.State.Serializing {
 		if p.comp.State.RobCount != 0 {
 			return
@@ -197,20 +204,20 @@ func (p *middleware) fetchAndProcess() {
 		pc := p.comp.Resources.backend().CPURegisters().PC
 		inst, err := p.comp.Resources.backend().Peek(pc)
 		if err != nil {
-			if p.comp.Resources.Execution != nil {
+			if p.comp.Resources.processMode() {
 				// Resolve a checked fetch fault only after older work retires.
 				if p.comp.State.RobCount != 0 {
 					return
 				}
 				_, _, err = p.comp.Resources.backend().StepDetailed()
 				if err != nil {
-					p.comp.State.Err = err.Error()
+					p.comp.State.Err = fmt.Sprintf("fetch: %v", err)
 				}
 				p.comp.State.Done = true
 			}
 			return
 		}
-		if p.comp.Resources.Execution != nil && inst.Op == arm64asm.SVC && p.comp.State.RobCount != 0 {
+		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC && p.comp.State.RobCount != 0 {
 			return
 		}
 
@@ -246,8 +253,8 @@ func (p *middleware) fetchAndProcess() {
 		// 4. Execute functionally (in program order).
 		_, branched, execErr := p.comp.Resources.backend().StepDetailed()
 		if execErr != nil {
-			p.comp.State.Err = execErr.Error()
-			if p.comp.Resources.Emu != nil {
+			p.comp.State.Err = fmt.Sprintf("execute: %v", execErr)
+			if !p.comp.Resources.processMode() {
 				p.comp.State.Done = true
 			}
 			return
@@ -406,9 +413,6 @@ func (p *middleware) fetchAndProcess() {
 			if actualTaken {
 				p.comp.State.FrontendReady = p.comp.State.Cycles + 1 // 0-cycle redirect
 				fetched++
-				if p.comp.Resources.Execution != nil && inst.Op == arm64asm.SVC {
-					return
-				}
 				break
 			}
 		} else if branched {
@@ -418,7 +422,7 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		fetched++
-		if p.comp.Resources.Execution != nil && inst.Op == arm64asm.SVC {
+		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC {
 			p.comp.State.Serializing = true
 			return
 		}
@@ -576,3 +580,6 @@ func (r Resources) backend() emu.Execution {
 	}
 	return r.Emu
 }
+
+// processMode enables process boundary/fault policy independently of backend state.
+func (r Resources) processMode() bool { return r.Execution != nil }
