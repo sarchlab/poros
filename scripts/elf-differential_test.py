@@ -15,6 +15,12 @@ spec.loader.exec_module(gate)
 
 
 class GateTests(unittest.TestCase):
+    def test_clean_gate(self):
+        gate.require_clean_state({"git_dirty": False, "git_sha": "abc"})
+        for state in ({"git_dirty": True, "git_sha": "abc"}, {"git_dirty": False, "git_sha": ""}):
+            with self.assertRaises(ValueError):
+                gate.require_clean_state(state)
+
     def test_required_inventory(self):
         root = gate.ROOT / "tests/elf"
         manifest = json.loads((root / "manifest.json").read_text())

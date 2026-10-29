@@ -31,6 +31,11 @@ def provenance(poros):
             "sources": {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(paths)}}
 
 
+def require_clean_state(state):
+    if state["git_dirty"] or not state["git_sha"]:
+        raise ValueError("required clean checkout is dirty or missing its revision")
+
+
 def inventory(manifest, root):
     cases = manifest["cases"]
     if tuple(c["name"] for c in cases) != REQUIRED:
@@ -104,15 +109,18 @@ def require_complete(results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--poros", required=True)
+    parser.add_argument("--require-clean", action="store_true", help="require clean checkout and matching binary build metadata")
     parser.add_argument("--reference", choices=("native", "qemu"), default="qemu")
     parser.add_argument("--qemu", default="qemu-aarch64")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     root = ROOT / "tests/elf"
     report = {"schema": 1, "status": "fail", "reference": args.reference,
-              "platform": platform.platform(), "cases": []}
+              "platform": platform.platform(), "require_clean": args.require_clean, "cases": []}
     try:
         report["provenance"] = provenance(args.poros)
+        if args.require_clean:
+            require_clean_state(report["provenance"])
         if args.reference == "native" and (platform.system() != "Linux" or platform.machine() not in ("aarch64", "arm64")):
             raise ValueError("native reference requires Linux ARM64")
         if args.reference == "qemu":
@@ -152,6 +160,8 @@ def main():
             validate(case, poros, reference)
             item["status"] = "pass"
         require_complete(report["cases"])
+        if provenance(args.poros) != report["provenance"]:
+            raise ValueError("checkout, source inputs or executable changed during the suite")
         report["status"] = "pass"
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         report["error"] = str(exc)

@@ -11,7 +11,7 @@ CROSS_COMPILE=/opt/homebrew/opt/musl-cross/bin/aarch64-linux-musl- tests/elf/bui
 go test ./pkg/loader ./pkg/linuxuser ./pkg/emu ./cmd/poros
 python3 scripts/elf-differential_test.py
 go build -o /tmp/poros ./cmd/poros
-python3 scripts/elf-differential.py --poros /tmp/poros --output /tmp/elf-report.json
+python3 scripts/elf-differential.py --require-clean --poros /tmp/poros --output /tmp/elf-report.json
 # On native Linux ARM64, also use --reference native.
 ```
 
@@ -21,6 +21,10 @@ recorded toolchain; changing sources requires deliberately updating provenance
 and independent expectations. The Go and Python required inventories are separate
 from the manifest so deleting a manifest case cannot create a false green gate.
 Harness self-tests reject missing, skipped, failed and mismatched references.
+CI/final acceptance use `--require-clean`: a dirty checkout or absent/mismatched
+Go VCS build metadata fails, and source/executable provenance is rechecked after
+the suite. Exploratory dirty-tree runs may omit that flag but cannot attest
+clean-head acceptance.
 
 The 14 required cases cover hello/stdout/stderr; argc/argv/envp/auxv and stack
 alignment; initialized data plus zeroed/writable BSS; integer and binary64 results;

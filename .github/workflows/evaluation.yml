@@ -81,7 +81,7 @@ jobs:
           go build -o /tmp/poros ./cmd/poros
           go test -count=1 ./pkg/loader ./pkg/linuxuser ./pkg/emu ./cmd/poros
           python3 scripts/elf-differential_test.py
-          python3 scripts/elf-differential.py --poros /tmp/poros --output evaluation-results/elf-differential.json
+          python3 scripts/elf-differential.py --require-clean --poros /tmp/poros --output evaluation-results/elf-differential.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
