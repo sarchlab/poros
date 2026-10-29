@@ -78,6 +78,12 @@ class GateTests(unittest.TestCase):
         p = {"termination": "exit", "exit_status": 0, "instructions": 100,
              "stdout_base64": base64.b64encode(bytes.fromhex(case["stdout_hex"])).decode(), "stderr_base64": ""}
         gate.validate(case, p, p)
+        for size in (0, 8, 39, 41, 48):
+            malformed = dict(p, stdout_base64=base64.b64encode(bytes(size)).decode())
+            with self.assertRaisesRegex(ValueError, "exactly 40 bytes"):
+                gate.validate(case, malformed, p)
+            with self.assertRaisesRegex(ValueError, "exactly 40 bytes"):
+                gate.validate(case, p, malformed)
         def altered(value):
             b = struct.pack("<Qdddd", 96, 3.25, .875, -2**-54, value)
             return dict(p, stdout_base64=base64.b64encode(b).decode())

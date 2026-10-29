@@ -98,7 +98,10 @@ def validate(case, poros, reference):
     if case["name"] == "compute":
         # This oracle is independent of both machines and of manifest bytes.
         for result in (poros, reference):
-            integer, fused, ratio, edge, inexact = struct.unpack("<Qdddd", raw(result, "stdout"))
+            payload = raw(result, "stdout")
+            if len(payload) != 40:
+                raise ValueError("compute stdout must contain exactly 40 bytes")
+            integer, fused, ratio, edge, inexact = struct.unpack("<Qdddd", payload)
             if integer != 96 or not all(math.isfinite(x) for x in (fused, ratio, edge, inexact)):
                 raise ValueError("invalid integer/FP result")
             if not math.isclose(fused, 3.25, rel_tol=1e-14, abs_tol=1e-15) or not math.isclose(ratio, .875, rel_tol=1e-14, abs_tol=1e-15):
