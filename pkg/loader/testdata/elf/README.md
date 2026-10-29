@@ -3,8 +3,9 @@
 `startup.elf` is a real GNU-linked AArch64 Linux executable. `start.S` and
 `layout.ld` produce three distinct RX, R and RW load mappings, initialized data
 and a 64-byte BSS. `_start` checks stack alignment and initial BSS before issuing
-Linux exit (syscall 93). This PR tests loading/startup state; it does not execute
-that syscall or claim end-to-end process support.
+Linux exit (syscall 93). This fixture is the loader/startup-layout witness.
+End-to-end process execution is covered separately by [tests/elf](../../../../tests/elf/README.md),
+including its own argv/env/auxv-focused startup executable.
 
 Recorded build toolchain on macOS arm64:
 

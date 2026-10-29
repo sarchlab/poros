@@ -4,6 +4,9 @@ import copy
 import base64
 import math
 import struct
+import os
+import tempfile
+from unittest.mock import patch
 import importlib.util
 import json
 from pathlib import Path
@@ -15,6 +18,18 @@ spec.loader.exec_module(gate)
 
 
 class GateTests(unittest.TestCase):
+    def test_custom_path_resolution_preserves_empty_guest_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "reference-tool"
+            executable.write_text("#!/bin/sh\nprintf '%s' \"${MODE-unset}\"\n")
+            executable.chmod(0o755)
+            with patch.dict(os.environ, {"PATH": directory, "MODE": "host"}):
+                path = gate.resolve_executable("reference-tool")
+                self.assertTrue(Path(path).is_absolute())
+                result = gate.capture([path], env={})
+                self.assertEqual(result["exit_status"], 0)
+                self.assertEqual(gate.raw(result, "stdout"), b"unset")
+
     def test_clean_gate(self):
         gate.require_clean_state({"git_dirty": False, "git_sha": "abc"})
         for state in ({"git_dirty": True, "git_sha": "abc"}, {"git_dirty": False, "git_sha": ""}):

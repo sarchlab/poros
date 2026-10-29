@@ -74,3 +74,83 @@ func TestCheckedSuccessfulPairAndNoMagicReturn(t *testing.T) {
 		t.Fatal("unmapped return address succeeded")
 	}
 }
+
+func instructionMemory(opcode uint32) *AddressSpace {
+	code := make([]byte, 4)
+	binary.LittleEndian.PutUint32(code, opcode)
+	return &AddressSpace{regions: []mappedRegion{{Mapping{0x1000, 0x1004, elf.PF_X}, code}}}
+}
+func TestCheckedRejectsUnsupportedOperandForms(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		opcode uint32
+	}{
+		{"scalar-simd-add", 0x5ee28420}, {"scalar-simd-sub", 0x7ee28420}, {"scalar-simd-neg", 0x7ee0b820},
+		{"svc-immediate", 0xd4000021}, {"simd", 0x4ea28420}, {"half-fp", 0x1ee22820}, {"paciasp-hint", 0xd503233f},
+		{"scvtf-vector-scalar", 0x5e61d800}, {"ucvtf-vector-scalar", 0x7e61d800}, {"fcvtzs-vector-scalar", 0x5ee1b800}, {"fcvtzu-vector-scalar", 0x7ee1b800},
+		{"scvtf-fixed", 0x9e42fc00}, {"ucvtf-fixed", 0x1e03fc00}, {"fcvtzs-fixed", 0x9e58fc00}, {"fcvtzu-fixed", 0x1e19fc00},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			regs := emu.Registers{PC: 0x1000, N: true}
+			regs.GPR[0] = 17
+			regs.WriteD(0, 3.5)
+			regs.WriteD(1, 7)
+			regs.WriteD(2, 11)
+			before := regs
+			_, err := emu.StepChecked(&regs, instructionMemory(tc.opcode))
+			var fault *emu.StepError
+			if !errors.As(err, &fault) || fault.Kind != "unsupported_instruction" {
+				t.Fatalf("wrong rejection: %v", err)
+			}
+			if regs != before {
+				t.Fatal("unsupported instruction modified registers")
+			}
+		})
+	}
+}
+func TestCheckedSupportedScalarConversions(t *testing.T) {
+	regs := emu.Registers{PC: 0x1000}
+	regs.GPR[0] = 17
+	if _, err := emu.StepChecked(&regs, instructionMemory(0x9e620000)); err != nil {
+		t.Fatal(err)
+	}
+	if regs.ReadD(0) != 17 {
+		t.Fatal("SCVTF result")
+	}
+	regs.PC = 0x1000
+	regs.WriteD(0, 3.5)
+	regs.WriteD(1, 7)
+	regs.WriteD(2, 11)
+	if _, err := emu.StepChecked(&regs, instructionMemory(0x9e780000)); err != nil {
+		t.Fatal(err)
+	}
+	if regs.GPR[0] != 3 {
+		t.Fatal("FCVTZS result")
+	}
+}
+func TestCheckedBranchEvent(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		opcode         uint32
+		z              bool
+		x0, lr, wantPC uint64
+		branched       bool
+	}{
+		{"b-eq-untaken", 0x54000040, false, 0, 0, 0x1004, false},
+		{"b-eq-taken", 0x54000040, true, 0, 0, 0x1008, true},
+		{"b-eq-fallthrough-target", 0x54000020, true, 0, 0, 0x1004, false},
+		{"cbz-untaken", 0xb4000040, false, 1, 0, 0x1004, false},
+		{"cbz-taken", 0xb4000040, false, 0, 0, 0x1008, true},
+		{"ret", 0xd65f03c0, false, 0, 0x1020, 0x1020, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			regs := emu.Registers{PC: 0x1000, Z: tc.z}
+			regs.GPR[0] = tc.x0
+			regs.GPR[30] = tc.lr
+			step, err := emu.StepChecked(&regs, instructionMemory(tc.opcode))
+			if err != nil || regs.PC != tc.wantPC || step.Branched != tc.branched {
+				t.Fatalf("PC=%#x branch=%v err=%v", regs.PC, step.Branched, err)
+			}
+		})
+	}
+}

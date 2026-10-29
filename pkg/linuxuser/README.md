@@ -74,18 +74,31 @@ image. Each process owns independent backing storage.
 `Process.Registers` is the authoritative full `emu.Registers`; successful steps
 update it and faulting instructions leave it unchanged. `emu.StepChecked` shares
 ISA handlers with the legacy interpreter, returns the decoded instruction and
-branch/SVC event, and requires atomic checked memory operations. Paired stores
+branch/SVC event (`Branched` means committed PC differs from prior PC+4), and requires atomic checked memory operations. Paired stores
 validate/transfer their complete span; paired loads and address writeback commit
-only after success. Legacy timing access widths/order remain unchanged.
+only after success. Legacy timing access widths/order remain unchanged for previously working forms.
+Single-register Q loads/stores now transfer both halves as two 8-byte accesses;
+literal loads now use PC-relative addresses. These correct previously wrong
+legacy behavior and have explicit functional/access-stream tests.
 Buffers supplied to `CheckedMemory` are ephemeral and must not be retained.
 
 `Run(context, RunOptions)` is one-shot. A repeated call returns an error; final
 registers/memory remain inspectable. There are no application hooks or synthetic
 LR halt: RET to an invalid address faults. Scalar integer/FP instructions supported
-by the interpreter are available, plus pair Q transfers. SIMD arithmetic, unknown
+by the interpreter are available, plus Q transfers. SIMD arithmetic, unknown
 instructions, nonzero SVC immediates, non-NOP HINT instructions and unsupported
 syscalls terminate explicitly. Full FPCR/FPSR emulation is not provided; the
-validated FP profile is the interpreter's default rounding behavior.
+validated FP profile is the interpreter's default rounding behavior. Unscaled
+GPR-to-S/D and S/D-to-GPR conversions are supported; AdvSIMD scalar-register and
+fixed-point conversion forms are explicitly rejected, as are scalar SIMD integer
+forms such as ADD Dd,Dn,Dm. Finite, in-range conversion inputs are the validated
+profile: NaN/out-of-range float-to-integer conversions currently inherit Go's
+host-dependent results rather than ARM saturation/NaN rules. Single-precision
+FMADD/FMSUB/FNMADD may also vary across hosts because Go may fuse their expressions.
+Do not use those inputs/operations for cross-host FP correctness claims. Binary64
+FMA uses explicit single rounding and is covered by the independent ELF edge
+fixture. Full conversion/FP-state fidelity remains separate work; this PR does
+not substitute a double-rounded binary32 workaround.
 
 Linux AArch64 SVC #0 uses x8 for the syscall number, x0–x2 for arguments:
 

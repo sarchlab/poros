@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--qemu", default="qemu-aarch64")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
+    args.qemu = gate.resolve_executable(args.qemu)
     report = {"schema": 1, "platform": platform.platform(), "samples_per_case": 5,
               "scope": "host wall time includes process startup; not guest CPU calibration",
               "qemu_version": subprocess.check_output([args.qemu, "--version"], text=True).splitlines()[0],

@@ -30,7 +30,13 @@ untraced row is not evidence that tracing improves performance. The size sweep
 exposes interpreter work separately from this startup floor. QEMU translation
 amortizes loop execution, while the interpreter decodes and executes each guest
 instruction. Transactional checked steps currently copy the architectural state;
-that cost is included. This is one small kernel, not a general performance claim.
+that cost is included. Escape analysis also confirms that the fetch buffer,
+transactional register copy and local checked executor escape to the host heap
+per checked step. Reusing a stepper may reduce that overhead in later timing work;
+this PR preserves the small explicit interface and records the cost rather than
+rewriting execution architecture. This does not imply guest pages autoallocate,
+and the legacy persistent executor does not incur those per-step allocations.
+This is one small kernel, not a general performance claim.
 
 The trace column uses `-d exec,nochain -D /dev/null`, so formatting and trace
 hooks run without retaining a log. QEMU's `exec` output describes translation
@@ -48,7 +54,9 @@ Reference instruction counts are explicitly `null`; no count was collected.
 
 `emu.StepChecked` deliberately reuses ISA semantics and exposes an explicit event
 boundary. `linuxuser` owns process lifetime, checked mappings, syscall policy and
-budgets. The legacy timing harness still uses its original typed access grouping.
+budgets. The legacy timing harness still uses its original typed access grouping for
+previously working forms. Single-Q and literal loads now have corrected results
+and explicit access-stream regression tests.
 An independent old/current MVT/GEMM probe found identical instruction counts and
 no per-memory-instruction allocation increase after moving transfer scratch space
 into the executor; noisy five-run timings showed no obvious slowdown. The final

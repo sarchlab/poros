@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import platform
 import signal
+import shutil
 import struct
 import subprocess
 import sys
@@ -18,6 +19,13 @@ REQUIRED = ("hello", "startup", "memory", "compute", "syscall-errors", "bad-load
             "bad-store", "nx", "unsupported-syscall", "unsupported-instruction",
             "loop", "output-limit", "exit-status", "arithmetic-loop")
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def resolve_executable(name):
+    path = shutil.which(name)
+    if path is None:
+        raise FileNotFoundError("executable not found: " + name)
+    return str(Path(path).resolve())
 
 
 def provenance(poros):
@@ -124,6 +132,7 @@ def main():
         if args.reference == "native" and (platform.system() != "Linux" or platform.machine() not in ("aarch64", "arm64")):
             raise ValueError("native reference requires Linux ARM64")
         if args.reference == "qemu":
+            args.qemu = resolve_executable(args.qemu)
             report["reference_version"] = subprocess.check_output([args.qemu, "--version"], text=True).splitlines()[0]
         else:
             report["reference_version"] = platform.release()
