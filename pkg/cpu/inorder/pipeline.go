@@ -2,8 +2,6 @@
 package inorder
 
 import (
-	"encoding/binary"
-
 	"github.com/sarchlab/akita/v5/sim/modeling/ticking"
 	"github.com/sarchlab/akita/v5/sim/timing"
 	instinfo "github.com/sarchlab/poros/pkg/cpu/internal/inst"
@@ -30,7 +28,8 @@ type Ports struct{}
 type Middlewares struct{ Pipeline *middleware }
 type Comp = ticking.Component[Spec, State, Resources, Ports, Middlewares]
 
-// State owns all pipeline timing data. Instructions retain their fetched encoding.
+// State owns all pipeline timing data. Instructions retain their fetched encoding
+// and its decoded operand metadata, so stalled stages do not decode repeatedly.
 type State struct {
 	Fetch, Decode, Execute, Memory, Writeback stageReg
 	FetchPC                                   uint64
@@ -40,23 +39,17 @@ type State struct {
 	Err                                       string
 }
 type stageReg struct {
-	Valid              bool
-	PC                 uint64
-	Word               uint32
-	CyclesLeft         int
-	Executed, Branched bool
-	MemLatency         int
+	Valid                              bool
+	PC                                 uint64
+	Word                               uint32
+	Op                                 arm64asm.Op
+	SourceGPRs, SourceFPs              []int
+	DestGPR, DestFP, DestGPR2, DestFP2 int
+	CyclesLeft                         int
+	Executed, Branched                 bool
+	MemLatency                         int
 }
 
-func (s stageReg) instruction() arm64asm.Inst {
-	var b [4]byte
-	binary.LittleEndian.PutUint32(b[:], s.Word)
-	i, err := arm64asm.Decode(b[:])
-	if err != nil {
-		panic(err)
-	}
-	return i
-}
 func (s *State) Initialize(c *Comp) {
 	if c.Resources.Emu == nil {
 		panic("inorder: emulator is required")
@@ -69,9 +62,9 @@ func (s *State) Initialize(c *Comp) {
 	}
 	s.FetchPC = c.Resources.Emu.Regs.PC
 }
-func (m *Middlewares) Initialize(c *Comp) { m.Pipeline = &middleware{Comp: c} }
+func (m *Middlewares) Initialize(c *Comp) { m.Pipeline = &middleware{comp: c} }
 
-type middleware struct{ *Comp }
+type middleware struct{ comp *Comp }
 
 // CPI returns cycles per instruction.
 func (s *State) CPI() float64 {
@@ -81,14 +74,14 @@ func (s *State) CPI() float64 {
 	return float64(s.Cycles) / float64(s.InstDone)
 }
 
-// Tick advances the pipeline by one cycle.
+// Handle advances the pipeline by one cycle.
 // Returns true if the pipeline should continue ticking.
 func (p *middleware) Handle(_ timing.Event) bool {
-	if p.State.Done {
+	if p.comp.State.Done {
 		return false
 	}
 
-	p.State.Cycles++
+	p.comp.State.Cycles++
 
 	// Process stages in reverse order to avoid overwriting.
 	p.stageWriteback()
@@ -102,81 +95,80 @@ func (p *middleware) Handle(_ timing.Event) bool {
 	}
 
 	// If all stages are empty, the pipeline has drained.
-	if !p.State.Fetch.Valid && !p.State.Decode.Valid && !p.State.Execute.Valid &&
-		!p.State.Memory.Valid && !p.State.Writeback.Valid {
-		p.State.Done = true
+	if !p.comp.State.Fetch.Valid && !p.comp.State.Decode.Valid && !p.comp.State.Execute.Valid &&
+		!p.comp.State.Memory.Valid && !p.comp.State.Writeback.Valid {
+		p.comp.State.Done = true
 	}
 
-	return !p.State.Done
+	return !p.comp.State.Done
 }
 
 // --- Stage implementations ---
 
 func (p *middleware) stageWriteback() {
-	if !p.State.Writeback.Valid {
+	if !p.comp.State.Writeback.Valid {
 		return
 	}
 
 	// Clear scoreboard for destination registers.
-	i := p.State.Writeback.instruction()
-	gpr, fp := instinfo.DestRegs(i)
+	gpr, fp := p.comp.State.Writeback.DestGPR, p.comp.State.Writeback.DestFP
 	if gpr >= 0 {
-		p.State.GprPending[gpr]--
+		p.comp.State.GprPending[gpr]--
 	}
 	if fp >= 0 {
-		p.State.FpPending[fp]--
+		p.comp.State.FpPending[fp]--
 	}
-	if gpr2, fp2 := instinfo.DestRegs2(i); gpr2 >= 0 || fp2 >= 0 {
+	if gpr2, fp2 := p.comp.State.Writeback.DestGPR2, p.comp.State.Writeback.DestFP2; gpr2 >= 0 || fp2 >= 0 {
 		if gpr2 >= 0 {
-			p.State.GprPending[gpr2]--
+			p.comp.State.GprPending[gpr2]--
 		}
 		if fp2 >= 0 {
-			p.State.FpPending[fp2]--
+			p.comp.State.FpPending[fp2]--
 		}
 	}
 
-	p.State.InstDone++
-	p.State.Writeback = stageReg{}
+	p.comp.State.InstDone++
+	p.comp.State.Writeback = stageReg{}
 }
 
 func (p *middleware) stageMemory() {
-	if !p.State.Memory.Valid {
+	if !p.comp.State.Memory.Valid {
 		return
 	}
 
-	if p.State.Memory.CyclesLeft > 0 {
-		p.State.Memory.CyclesLeft--
+	if p.comp.State.Memory.CyclesLeft > 0 {
+		p.comp.State.Memory.CyclesLeft--
 		return
 	}
 
 	// Move to writeback if writeback is empty.
-	if p.State.Writeback.Valid {
+	if p.comp.State.Writeback.Valid {
 		return // structural hazard — stall
 	}
 
-	p.State.Writeback = p.State.Memory
-	p.State.Memory = stageReg{}
+	p.comp.State.Writeback = p.comp.State.Memory
+	p.comp.State.Memory = stageReg{}
 }
 
 // stageExecute returns true if downstream is stalled (memory stage busy).
 func (p *middleware) stageExecute() bool {
-	if !p.State.Execute.Valid {
+	if !p.comp.State.Execute.Valid {
 		return false
 	}
 
 	// First cycle: call the emulator for functional execution.
-	if !p.State.Execute.Executed {
-		p.Resources.Emu.Mem.ClearAccesses()
-		inst, branched, err := p.Resources.Emu.StepDetailed()
+	if !p.comp.State.Execute.Executed {
+		p.comp.Resources.Emu.Mem.ClearAccesses()
+		inst, branched, err := p.comp.Resources.Emu.StepDetailed()
 		if err != nil {
-			p.State.Err = err.Error()
-			p.State.Done = true
+			p.comp.State.Err = err.Error()
+			p.comp.State.Done = true
 			return true
 		}
 		_ = inst // The fetched encoding is already stored in the execute stage.
-		p.State.Execute.Executed = true
-		p.State.Execute.Branched = branched
-		p.State.Execute.MemLatency = p.computeMemLatency()
+		p.comp.State.Execute.Executed = true
+		p.comp.State.Execute.Branched = branched
+		p.comp.State.Execute.MemLatency = p.computeMemLatency()
 
 		// Handle taken branch: flush fetch and decode stages.
 		// This also covers halt (RET to haltPC): flush + pipeline drains.
@@ -185,80 +177,79 @@ func (p *middleware) stageExecute() bool {
 		}
 	}
 
-	if p.State.Execute.CyclesLeft > 0 {
-		p.State.Execute.CyclesLeft--
+	if p.comp.State.Execute.CyclesLeft > 0 {
+		p.comp.State.Execute.CyclesLeft--
 		return false
 	}
 
 	// Move to memory if memory is empty.
-	if p.State.Memory.Valid {
+	if p.comp.State.Memory.Valid {
 		return true // stall
 	}
 
-	p.State.Memory = p.State.Execute
-	p.State.Memory.CyclesLeft = p.State.Memory.MemLatency
-	p.State.Execute = stageReg{}
+	p.comp.State.Memory = p.comp.State.Execute
+	p.comp.State.Memory.CyclesLeft = p.comp.State.Memory.MemLatency
+	p.comp.State.Execute = stageReg{}
 	return false
 }
 
 // stageDecode returns true if decode is stalled (data hazard).
 func (p *middleware) stageDecode() bool {
-	if !p.State.Decode.Valid {
+	if !p.comp.State.Decode.Valid {
 		return false
 	}
 
 	// Check scoreboard for source register hazards.
-	i := p.State.Decode.instruction()
-	for _, idx := range instinfo.SourceGPRs(i) {
-		if p.State.GprPending[idx] > 0 {
+	for _, idx := range p.comp.State.Decode.SourceGPRs {
+		if p.comp.State.GprPending[idx] > 0 {
 			return true // stall: data hazard
 		}
 	}
-	for _, idx := range instinfo.SourceFPs(i) {
-		if p.State.FpPending[idx] > 0 {
+	for _, idx := range p.comp.State.Decode.SourceFPs {
+		if p.comp.State.FpPending[idx] > 0 {
 			return true // stall: data hazard
 		}
 	}
 
 	// Move to execute if execute is empty.
-	if p.State.Execute.Valid {
+	if p.comp.State.Execute.Valid {
 		return true // structural hazard
 	}
 
 	// Set execute latency.
-	p.State.Decode.CyclesLeft = instinfo.ExecuteLatency(i.Op) - 1
+	p.comp.State.Decode.CyclesLeft = instinfo.ExecuteLatency(p.comp.State.Decode.Op) - 1
 
 	// Mark destination registers as pending in scoreboard.
-	gpr, fp := instinfo.DestRegs(i)
+	gpr, fp := p.comp.State.Decode.DestGPR, p.comp.State.Decode.DestFP
 	if gpr >= 0 {
-		p.State.GprPending[gpr]++
+		p.comp.State.GprPending[gpr]++
 	}
 	if fp >= 0 {
-		p.State.FpPending[fp]++
+		p.comp.State.FpPending[fp]++
 	}
-	if gpr2, fp2 := instinfo.DestRegs2(i); gpr2 >= 0 || fp2 >= 0 {
+	if gpr2, fp2 := p.comp.State.Decode.DestGPR2, p.comp.State.Decode.DestFP2; gpr2 >= 0 || fp2 >= 0 {
 		if gpr2 >= 0 {
-			p.State.GprPending[gpr2]++
+			p.comp.State.GprPending[gpr2]++
 		}
 		if fp2 >= 0 {
-			p.State.FpPending[fp2]++
+			p.comp.State.FpPending[fp2]++
 		}
 	}
 
-	p.State.Execute = p.State.Decode
-	p.State.Decode = stageReg{}
+	p.comp.State.Execute = p.comp.State.Decode
+	p.comp.State.Decode = stageReg{}
 	return false
 }
 
 func (p *middleware) stageFetch() {
-	if p.State.Decode.Valid {
+	if p.comp.State.Decode.Valid {
 		return // decode occupied — stall fetch
 	}
 
 	// Read 4 bytes at fetchPC from emulator memory.
 	var buf [4]byte
 	for i := range buf {
-		buf[i] = p.Resources.Emu.Mem.ReadU8(p.State.FetchPC + uint64(i))
+		buf[i] = p.comp.Resources.Emu.Mem.ReadU8(p.comp.State.FetchPC + uint64(i))
 	}
 
 	inst, err := arm64asm.Decode(buf[:])
@@ -268,38 +259,43 @@ func (p *middleware) stageFetch() {
 		return
 	}
 
-	p.State.Decode = stageReg{
-		Valid: true,
-		PC:    p.State.FetchPC,
-		Word:  inst.Enc,
+	gpr, fp := instinfo.DestRegs(inst)
+	gpr2, fp2 := instinfo.DestRegs2(inst)
+	p.comp.State.Decode = stageReg{
+		Valid:      true,
+		PC:         p.comp.State.FetchPC,
+		Word:       inst.Enc,
+		Op:         inst.Op,
+		SourceGPRs: instinfo.SourceGPRs(inst), SourceFPs: instinfo.SourceFPs(inst),
+		DestGPR: gpr, DestFP: fp, DestGPR2: gpr2, DestFP2: fp2,
 	}
-	p.State.FetchPC += 4 // predict not-taken
+	p.comp.State.FetchPC += 4 // predict not-taken
 }
 
 // computeMemLatency determines the memory stage latency for the instruction
 // currently in the execute stage, based on tracked memory accesses and cache.
 func (p *middleware) computeMemLatency() int {
-	if p.Resources.Cache == nil {
-		if instinfo.IsLoad(p.State.Execute.instruction().Op) {
-			return p.Spec.LoadLatency - 1
+	if p.comp.Resources.Cache == nil {
+		if instinfo.IsLoad(p.comp.State.Execute.Op) {
+			return p.comp.Spec.LoadLatency - 1
 		}
 		return 0
 	}
 
-	accesses := p.Resources.Emu.Mem.Accesses
+	accesses := p.comp.Resources.Emu.Mem.Accesses
 	if len(accesses) == 0 {
 		return 0
 	}
 
 	worstLevel := mem.HitL1
 	for _, acc := range accesses {
-		level := p.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
+		level := p.comp.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
 		if level > worstLevel {
 			worstLevel = level
 		}
 	}
 
-	cfg := p.Resources.Cache.Config()
+	cfg := p.comp.Resources.Cache.Config()
 	switch worstLevel {
 	case mem.HitL2:
 		return cfg.L2Latency - 1
@@ -312,7 +308,7 @@ func (p *middleware) computeMemLatency() int {
 
 // flush clears fetch and decode stages after a taken branch.
 func (p *middleware) flush() {
-	p.State.Fetch = stageReg{}
-	p.State.Decode = stageReg{}
-	p.State.FetchPC = p.Resources.Emu.Regs.PC
+	p.comp.State.Fetch = stageReg{}
+	p.comp.State.Decode = stageReg{}
+	p.comp.State.FetchPC = p.comp.Resources.Emu.Regs.PC
 }

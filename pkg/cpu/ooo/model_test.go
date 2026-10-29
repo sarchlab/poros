@@ -14,7 +14,11 @@ import (
 func TestModel(t *testing.T) { modelingtest.CheckTicking(t, (*Comp)(nil), DefaultSpec()) }
 func TestConfigurationIsolationAndStateRoundTrip(t *testing.T) {
 	s := sim.MakeBuilder().Build()
-	defer s.Terminate()
+	defer func() {
+		if err := s.Terminate(); err != nil {
+			t.Error(err)
+		}
+	}()
 	spec := DefaultSpec()
 	spec.FuncHookCycles = []HookCycles{{Address: 0x1000, Cycles: 25}}
 	builder := modeling.MakeBuilder[*Comp](spec).WithSimulation(s)
@@ -66,7 +70,11 @@ func TestInvalidConfigurationRejectedAtInitialize(t *testing.T) {
 	for name, change := range tests {
 		t.Run(name, func(t *testing.T) {
 			s := sim.MakeBuilder().Build()
-			defer s.Terminate()
+			defer func() {
+				if err := s.Terminate(); err != nil {
+					t.Error(err)
+				}
+			}()
 			spec := DefaultSpec()
 			change(&spec)
 			em := emu.NewEmulator()

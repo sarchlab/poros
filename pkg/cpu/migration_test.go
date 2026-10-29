@@ -55,7 +55,7 @@ func TestV4Baseline(t *testing.T) {
 		if b == nil {
 			t.Fatalf("unknown baseline benchmark %s", want.Name)
 		}
-		if testing.Short() && want.Name != "raytrace" {
+		if testing.Short() && want.Name != "raytrace" && want.Name != "blackscholes" {
 			continue
 		}
 		t.Run(key, func(t *testing.T) {
@@ -167,7 +167,7 @@ func TestV4PipelineVariants(t *testing.T) {
 			t.Fatal(err)
 		}
 		count++
-		if testing.Short() && want.Name != "raytrace" {
+		if testing.Short() && want.Name != "raytrace" && want.Name != "blackscholes" {
 			continue
 		}
 		t.Run(want.Name+"/"+want.Mode, func(t *testing.T) {

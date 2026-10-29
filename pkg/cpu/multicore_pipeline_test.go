@@ -54,7 +54,11 @@ func TestMultiCore_Basic(t *testing.T) {
 	if err := simulation.Initialize(); err != nil {
 		t.Fatal(err)
 	}
-	defer simulation.Terminate()
+	defer func() {
+		if err := simulation.Terminate(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	err := mc.Run()
 	if err != nil {
@@ -131,7 +135,11 @@ func runMultiCoreParsec(t *testing.T, name string, nCores int) *MultiCorePipelin
 	if err := simulation.Initialize(); err != nil {
 		t.Fatal(err)
 	}
-	defer simulation.Terminate()
+	defer func() {
+		if err := simulation.Terminate(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	err := mc.Run()
 	if err != nil {

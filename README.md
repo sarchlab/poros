@@ -73,7 +73,7 @@ The old module and command paths are no longer provided by this checkout.
 ```bash
 go mod tidy          # Download dependencies
 go build ./cmd/poros # Build simulator
-go test ./pkg/cpu    # Run all tests
+go test ./... -timeout 45m # Run all tests (including long regressions)
 ```
 
 ### CLI Usage
@@ -224,7 +224,8 @@ The imports are `github.com/sarchlab/poros/pkg/benchmark`,
 `github.com/sarchlab/akita/v5/sim`, `.../sim/modeling`, and Poros's `pkg/cpu`,
 `pkg/cpu/ooo`, and `pkg/mem`. Set memory tracking and warm caches during setup.
 Initialize once after all components have been built. Multi-core assembly accepts
-the shared `*sim.Simulation`; call its `Initialize()` before `MultiCorePipeline.Run()`
+the shared `*sim.Simulation` and enables memory-access tracking on each supplied
+emulator during setup. Call its `Initialize()` before `MultiCorePipeline.Run()`
 and `Terminate()` afterwards. All cores use the same default serial simulation,
 with the existing core registration order. Recording remains off by default.
 
@@ -239,7 +240,7 @@ supported by this migration:** functional emulator registers/memory/hooks and th
 synchronous cache hierarchy remain external live Resources and are not saved by
 component checkpoints. Restoring pipeline State alone cannot resume a workload.
 
-`go test ./... -timeout 30m` includes the long existing benchmark tests and the
+`go test ./... -timeout 45m` includes the long existing benchmark tests and the
 v4 regression fixture. `go test -short ./...` retains representative baseline and
 determinism checks while skipping the full sweep. `TestV4Baseline` compares every
 registered kernel on one and two cores against pre-migration instruction counts,

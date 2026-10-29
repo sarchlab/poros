@@ -107,7 +107,7 @@ func (s *State) Initialize(c *Comp) {
 	}
 }
 func (m *Middlewares) Initialize(c *Comp) {
-	p := &middleware{Comp: c, hookCycles: make(map[uint64]int, len(c.Spec.FuncHookCycles))}
+	p := &middleware{comp: c, hookCycles: make(map[uint64]int, len(c.Spec.FuncHookCycles))}
 	for _, h := range c.Spec.FuncHookCycles {
 		if h.Cycles < 1 {
 			panic("ooo: hook cycles must be positive")
@@ -122,12 +122,12 @@ func (m *Middlewares) Initialize(c *Comp) {
 
 // hookCycles is an immutable lookup derived from Spec. All runtime data is in State.
 type middleware struct {
-	*Comp
+	comp       *Comp
 	hookCycles map[uint64]int
 }
 
 func (p *middleware) predictor() *predictor {
-	return &predictor{PredictorState: &p.State.Predictor, spec: p.Spec.Predictor}
+	return &predictor{PredictorState: &p.comp.State.Predictor, spec: p.comp.Spec.Predictor}
 }
 
 // CPI returns cycles per instruction.
@@ -138,12 +138,12 @@ func (s *State) CPI() float64 {
 	return float64(s.Cycles) / float64(s.InstDone)
 }
 
-// Tick advances the pipeline by one cycle.
+// Handle advances the pipeline by one cycle.
 func (p *middleware) Handle(_ timing.Event) bool {
-	if p.State.Done {
+	if p.comp.State.Done {
 		return false
 	}
-	p.State.Cycles++
+	p.comp.State.Cycles++
 
 	// Phase 1: Retire completed instructions from ROB head.
 	p.retire()
@@ -152,25 +152,25 @@ func (p *middleware) Handle(_ timing.Event) bool {
 	p.fetchAndProcess()
 
 	// Check termination: ROB drained and emulator halted.
-	if p.State.RobCount == 0 && p.Resources.Emu.Halted {
-		p.State.Done = true
+	if p.comp.State.RobCount == 0 && p.comp.Resources.Emu.Halted {
+		p.comp.State.Done = true
 	}
 
-	return !p.State.Done
+	return !p.comp.State.Done
 }
 
 // retire walks the ROB from head, retiring entries where
 // completeCycle <= currentCycle, up to RetireWidth per cycle.
 func (p *middleware) retire() {
 	retired := 0
-	for retired < p.Spec.RetireWidth && p.State.RobCount > 0 {
-		if p.State.Rob[p.State.RobHead] > p.State.Cycles {
+	for retired < p.comp.Spec.RetireWidth && p.comp.State.RobCount > 0 {
+		if p.comp.State.Rob[p.comp.State.RobHead] > p.comp.State.Cycles {
 			break // head entry not yet complete
 		}
-		p.State.FpInFlight -= p.State.RobFPDests[p.State.RobHead]
-		p.State.InstDone++
-		p.State.RobHead = (p.State.RobHead + 1) % p.Spec.ROBCapacity
-		p.State.RobCount--
+		p.comp.State.FpInFlight -= p.comp.State.RobFPDests[p.comp.State.RobHead]
+		p.comp.State.InstDone++
+		p.comp.State.RobHead = (p.comp.State.RobHead + 1) % p.comp.Spec.ROBCapacity
+		p.comp.State.RobCount--
 		retired++
 	}
 }
@@ -178,18 +178,18 @@ func (p *middleware) retire() {
 // fetchAndProcess fetches up to FetchWidth instructions, decodes, dispatches,
 // and functionally executes each one.
 func (p *middleware) fetchAndProcess() {
-	if p.State.Cycles < p.State.FrontendReady {
+	if p.comp.State.Cycles < p.comp.State.FrontendReady {
 		return // frontend stalled from branch penalty
 	}
 
 	fetched := 0
-	for fetched < p.Spec.FetchWidth && p.State.RobCount < p.Spec.ROBCapacity &&
-		p.State.FpInFlight < p.Spec.FpPhysLimit && !p.Resources.Emu.Halted {
+	for fetched < p.comp.Spec.FetchWidth && p.comp.State.RobCount < p.comp.Spec.ROBCapacity &&
+		p.comp.State.FpInFlight < p.comp.Spec.FpPhysLimit && !p.comp.Resources.Emu.Halted {
 		// 1. Peek at instruction at emulator's current PC.
-		pc := p.Resources.Emu.Regs.PC
+		pc := p.comp.Resources.Emu.Regs.PC
 		var buf [4]byte
 		for i := range buf {
-			buf[i] = p.Resources.Emu.Mem.ReadU8(pc + uint64(i))
+			buf[i] = p.comp.Resources.Emu.Mem.ReadU8(pc + uint64(i))
 		}
 		inst, err := arm64asm.Decode(buf[:])
 		if err != nil {
@@ -199,24 +199,24 @@ func (p *middleware) fetchAndProcess() {
 		// 2. Compute source operand readiness.
 		var srcReady uint64
 		for _, gpr := range instinfo.SourceGPRs(inst) {
-			if p.State.GprReady[gpr] > srcReady {
-				srcReady = p.State.GprReady[gpr]
+			if p.comp.State.GprReady[gpr] > srcReady {
+				srcReady = p.comp.State.GprReady[gpr]
 			}
 		}
 		for _, fp := range instinfo.SourceFPs(inst) {
-			if p.State.FpReady[fp] > srcReady {
-				srcReady = p.State.FpReady[fp]
+			if p.comp.State.FpReady[fp] > srcReady {
+				srcReady = p.comp.State.FpReady[fp]
 			}
 		}
 
 		// Flags (NZCV) dependency.
-		if instinfo.UsesFlags(inst.Op) && p.State.FlagsReady > srcReady {
-			srcReady = p.State.FlagsReady
+		if instinfo.UsesFlags(inst.Op) && p.comp.State.FlagsReady > srcReady {
+			srcReady = p.comp.State.FlagsReady
 		}
 
 		// 3. Classify instruction and find execution unit.
 		ut := classifyUnit(inst.Op)
-		dispatchCycle := p.State.Cycles
+		dispatchCycle := p.comp.State.Cycles
 		issueCycle := dispatchCycle
 		if srcReady > issueCycle {
 			issueCycle = srcReady
@@ -226,22 +226,22 @@ func (p *middleware) fetchAndProcess() {
 		issueCycle = bestCycle
 
 		// 4. Execute functionally (in program order).
-		_, branched, execErr := p.Resources.Emu.StepDetailed()
+		_, branched, execErr := p.comp.Resources.Emu.StepDetailed()
 		if execErr != nil {
-			p.State.Err = execErr.Error()
-			p.State.Done = true
+			p.comp.State.Err = execErr.Error()
+			p.comp.State.Done = true
 			return
 		}
 
 		// 5. Address-based load-store disambiguation (after StepDetailed
-		//    so actual addresses are available in p.Resources.Emu.Mem.Accesses).
+		//    so actual addresses are available in p.comp.Resources.Emu.Mem.Accesses).
 		forwarded := false
 		if instinfo.IsLoad(inst.Op) {
-			accesses := p.Resources.Emu.Mem.Accesses
+			accesses := p.comp.Resources.Emu.Mem.Accesses
 			allForwarded := len(accesses) > 0
 			for _, acc := range accesses {
 				covered := false
-				for _, sb := range p.State.StoreBuffer {
+				for _, sb := range p.comp.State.StoreBuffer {
 					if acc.Addr < sb.Addr+uint64(sb.Size) &&
 						sb.Addr < acc.Addr+uint64(acc.Size) {
 						// Address overlap: load must wait for this store.
@@ -274,7 +274,7 @@ func (p *middleware) fetchAndProcess() {
 			if miss {
 				mshrIdx, mshrCycle := p.acquireMSHR(issueCycle)
 				issueCycle = mshrCycle
-				p.State.MshrBusyUntil[mshrIdx] = issueCycle + latency
+				p.comp.State.MshrBusyUntil[mshrIdx] = issueCycle + latency
 			}
 		}
 		completeCycle := issueCycle + latency
@@ -282,10 +282,10 @@ func (p *middleware) fetchAndProcess() {
 		// 7. Update destination register readiness.
 		gpr, fp := instinfo.DestRegs(inst)
 		if gpr >= 0 && gpr < 31 {
-			p.State.GprReady[gpr] = completeCycle
+			p.comp.State.GprReady[gpr] = completeCycle
 		}
 		if fp >= 0 {
-			p.State.FpReady[fp] = completeCycle
+			p.comp.State.FpReady[fp] = completeCycle
 		}
 		fpDests := 0
 		if fp >= 0 {
@@ -293,10 +293,10 @@ func (p *middleware) fetchAndProcess() {
 		}
 		if gpr2, fp2 := instinfo.DestRegs2(inst); gpr2 >= 0 || fp2 >= 0 {
 			if gpr2 >= 0 {
-				p.State.GprReady[gpr2] = completeCycle
+				p.comp.State.GprReady[gpr2] = completeCycle
 			}
 			if fp2 >= 0 {
-				p.State.FpReady[fp2] = completeCycle
+				p.comp.State.FpReady[fp2] = completeCycle
 				fpDests++
 			}
 		}
@@ -309,40 +309,40 @@ func (p *middleware) fetchAndProcess() {
 			if instinfo.IsStore(inst.Op) {
 				// For stores, base writeback depends only on the base
 				// register, not on the store data operand.
-				baseReady := p.State.GprReady[base]
+				baseReady := p.comp.State.GprReady[base]
 				if dispatchCycle > baseReady {
 					baseReady = dispatchCycle
 				}
-				p.State.GprReady[base] = baseReady + 1
+				p.comp.State.GprReady[base] = baseReady + 1
 			} else {
 				// For loads, issueCycle already includes base readiness.
-				p.State.GprReady[base] = issueCycle + 1
+				p.comp.State.GprReady[base] = issueCycle + 1
 			}
 		}
 
 		// Update NZCV flags readiness.
 		if instinfo.SetsFlags(inst.Op) {
-			p.State.FlagsReady = completeCycle
+			p.comp.State.FlagsReady = completeCycle
 		}
 
 		// 8. For stores: add to store buffer.
 		if instinfo.IsStore(inst.Op) {
-			for _, acc := range p.Resources.Emu.Mem.Accesses {
+			for _, acc := range p.comp.Resources.Emu.Mem.Accesses {
 				entry := storeBufferEntry{
 					Addr:          acc.Addr,
 					Size:          acc.Size,
 					CompleteCycle: completeCycle,
 				}
-				if len(p.State.StoreBuffer) >= p.Spec.StoreBufferSize {
+				if len(p.comp.State.StoreBuffer) >= p.comp.Spec.StoreBufferSize {
 					// Store buffer full — stall frontend until oldest
 					// store retires (its completeCycle).
-					stallUntil := p.State.StoreBuffer[0].CompleteCycle + 1
-					if stallUntil > p.State.FrontendReady {
-						p.State.FrontendReady = stallUntil
+					stallUntil := p.comp.State.StoreBuffer[0].CompleteCycle + 1
+					if stallUntil > p.comp.State.FrontendReady {
+						p.comp.State.FrontendReady = stallUntil
 					}
-					p.State.StoreBuffer = p.State.StoreBuffer[1:]
+					p.comp.State.StoreBuffer = p.comp.State.StoreBuffer[1:]
 				}
-				p.State.StoreBuffer = append(p.State.StoreBuffer, entry)
+				p.comp.State.StoreBuffer = append(p.comp.State.StoreBuffer, entry)
 			}
 		}
 
@@ -350,14 +350,14 @@ func (p *middleware) fetchAndProcess() {
 		p.markUnitBusy(ut, bestUnit, issueCycle, inst.Op)
 
 		// 10. Add to ROB and track FP register usage.
-		p.State.Rob[p.State.RobTail] = completeCycle
-		p.State.RobFPDests[p.State.RobTail] = fpDests
-		p.State.FpInFlight += fpDests
-		p.State.RobTail = (p.State.RobTail + 1) % p.Spec.ROBCapacity
-		p.State.RobCount++
+		p.comp.State.Rob[p.comp.State.RobTail] = completeCycle
+		p.comp.State.RobFPDests[p.comp.State.RobTail] = fpDests
+		p.comp.State.FpInFlight += fpDests
+		p.comp.State.RobTail = (p.comp.State.RobTail + 1) % p.comp.Spec.ROBCapacity
+		p.comp.State.RobCount++
 
 		// 11. Handle branch.
-		if instinfo.IsBranch(inst.Op) && p.Spec.BranchPrediction {
+		if instinfo.IsBranch(inst.Op) && p.comp.Spec.BranchPrediction {
 			isCall := inst.Op == arm64asm.BL || inst.Op == arm64asm.BLR
 			isReturn := inst.Op == arm64asm.RET
 
@@ -366,7 +366,7 @@ func (p *middleware) fetchAndProcess() {
 
 			// Actual outcome from StepDetailed.
 			actualTaken := branched
-			actualTarget := p.Resources.Emu.Regs.PC
+			actualTarget := p.comp.Resources.Emu.Regs.PC
 
 			// Update predictor with actual outcome.
 			p.predictor().Update(pc, actualTaken, actualTarget, predTaken, isCall, isReturn)
@@ -376,7 +376,7 @@ func (p *middleware) fetchAndProcess() {
 				(predTaken && predTarget != actualTarget)
 
 			if mispredicted {
-				p.State.FrontendReady = issueCycle + uint64(p.Spec.BranchPenalty)
+				p.comp.State.FrontendReady = issueCycle + uint64(p.comp.Spec.BranchPenalty)
 				break
 			}
 			// Correct prediction, taken: BTB provides the target in the
@@ -384,13 +384,13 @@ func (p *middleware) fetchAndProcess() {
 			// (loop stream detector / micro-op cache eliminates the
 			// redirect bubble for well-predicted branches).
 			if actualTaken {
-				p.State.FrontendReady = p.State.Cycles + 1 // 0-cycle redirect
+				p.comp.State.FrontendReady = p.comp.State.Cycles + 1 // 0-cycle redirect
 				fetched++
 				break
 			}
 		} else if branched {
 			// Fallback for non-branch PC changes or nil predictor.
-			p.State.FrontendReady = issueCycle + uint64(p.Spec.BranchPenalty)
+			p.comp.State.FrontendReady = issueCycle + uint64(p.comp.Spec.BranchPenalty)
 			break
 		}
 
@@ -424,11 +424,11 @@ func (p *middleware) findUnit(ut unitType, earliest uint64) (int, uint64) {
 	var units []uint64
 	switch ut {
 	case unitINT:
-		units = p.State.IntUnits
+		units = p.comp.State.IntUnits
 	case unitFP:
-		units = p.State.FpUnits
+		units = p.comp.State.FpUnits
 	case unitLDST:
-		units = p.State.LdstUnits
+		units = p.comp.State.LdstUnits
 	}
 
 	bestIdx := 0
@@ -464,11 +464,11 @@ func (p *middleware) markUnitBusy(ut unitType, idx int, issueCycle uint64, op ar
 	}
 	switch ut {
 	case unitINT:
-		p.State.IntUnits[idx] = busyUntil
+		p.comp.State.IntUnits[idx] = busyUntil
 	case unitFP:
-		p.State.FpUnits[idx] = busyUntil
+		p.comp.State.FpUnits[idx] = busyUntil
 	case unitLDST:
-		p.State.LdstUnits[idx] = busyUntil
+		p.comp.State.LdstUnits[idx] = busyUntil
 	}
 }
 
@@ -491,19 +491,19 @@ func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64) (latency 
 // For loads, l1Miss indicates whether the load missed L1 (needs MSHR).
 func (p *middleware) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bool) {
 	if instinfo.IsLoad(inst.Op) {
-		if p.Resources.Cache != nil {
-			accesses := p.Resources.Emu.Mem.Accesses
+		if p.comp.Resources.Cache != nil {
+			accesses := p.comp.Resources.Emu.Mem.Accesses
 			if len(accesses) == 0 {
-				return uint64(p.Spec.LoadLatency), false
+				return uint64(p.comp.Spec.LoadLatency), false
 			}
 			worst := mem.HitL1
 			for _, acc := range accesses {
-				level := p.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
+				level := p.comp.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
 				if level > worst {
 					worst = level
 				}
 			}
-			cfg := p.Resources.Cache.Config()
+			cfg := p.comp.Resources.Cache.Config()
 			switch worst {
 			case mem.HitL2:
 				return uint64(cfg.L2Latency), true
@@ -513,12 +513,12 @@ func (p *middleware) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bo
 				return uint64(cfg.L1Latency), false
 			}
 		}
-		return uint64(p.Spec.LoadLatency), false
+		return uint64(p.comp.Spec.LoadLatency), false
 	}
 	if instinfo.IsStore(inst.Op) {
-		if p.Resources.Cache != nil {
-			for _, acc := range p.Resources.Emu.Mem.Accesses {
-				p.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
+		if p.comp.Resources.Cache != nil {
+			for _, acc := range p.comp.Resources.Emu.Mem.Accesses {
+				p.comp.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
 			}
 		}
 		return 3, false
@@ -530,11 +530,11 @@ func (p *middleware) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bo
 // past issueCycle, the load is delayed. Returns (mshrIndex, adjustedIssueCycle).
 func (p *middleware) acquireMSHR(issueCycle uint64) (int, uint64) {
 	bestIdx := 0
-	bestTime := p.State.MshrBusyUntil[0]
-	for i := 1; i < len(p.State.MshrBusyUntil); i++ {
-		if p.State.MshrBusyUntil[i] < bestTime {
+	bestTime := p.comp.State.MshrBusyUntil[0]
+	for i := 1; i < len(p.comp.State.MshrBusyUntil); i++ {
+		if p.comp.State.MshrBusyUntil[i] < bestTime {
 			bestIdx = i
-			bestTime = p.State.MshrBusyUntil[i]
+			bestTime = p.comp.State.MshrBusyUntil[i]
 		}
 	}
 	if bestTime > issueCycle {

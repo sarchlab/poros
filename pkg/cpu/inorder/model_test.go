@@ -3,6 +3,7 @@ package inorder
 import (
 	"encoding/binary"
 	"encoding/json"
+	"golang.org/x/arch/arm64/arm64asm"
 	"reflect"
 	"testing"
 
@@ -28,12 +29,21 @@ func TestLifecycleAndStateRoundTrip(t *testing.T) {
 	if err := s.Initialize(); err != nil {
 		t.Fatal(err)
 	}
-	defer s.Terminate()
+	defer func() {
+		if err := s.Terminate(); err != nil {
+			t.Error(err)
+		}
+	}()
 	if c.State.FetchPC != 0x1000 {
 		t.Fatal("initializer did not seed fetch PC")
 	}
-	// Store the fetched encoding, not the contents at its original memory address.
-	c.State.Decode = stageReg{Valid: true, PC: 0x1000, Word: 0xd2800540, CyclesLeft: 3}
+	// Fetch ADD X1, X0, X0 once, including its operand metadata.
+	em.Mem.WriteU32(0x1000, 0x8b000001)
+	c.Middlewares.Pipeline.stageFetch()
+	if c.State.Decode.Op != arm64asm.ADD || c.State.Decode.DestGPR != 1 || !reflect.DeepEqual(c.State.Decode.SourceGPRs, []int{0, 0}) {
+		t.Fatalf("wrong fetched operands: %+v", c.State.Decode)
+	}
+	c.State.Decode.CyclesLeft = 3
 	c.State.GprPending[0] = 1
 	c.State.Cycles = 7
 	data, err := json.Marshal(c.State)
@@ -48,13 +58,17 @@ func TestLifecycleAndStateRoundTrip(t *testing.T) {
 		t.Fatal("pipeline state did not round-trip")
 	}
 	em.Mem.WriteU32(0x1000, 0xd65f03c0)
-	if got := restored.Decode.instruction().Enc; got != 0xd2800540 {
-		t.Fatalf("decoded %#x, want fetched word", got)
+	if got := restored.Decode.Word; got != 0x8b000001 {
+		t.Fatalf("stored %#x, want fetched word", got)
 	}
 }
 func TestIndependentPipelineState(t *testing.T) {
 	s := sim.MakeBuilder().Build()
-	defer s.Terminate()
+	defer func() {
+		if err := s.Terminate(); err != nil {
+			t.Error(err)
+		}
+	}()
 	var comps []*Comp
 	for _, name := range []string{"A", "B"} {
 		em := emu.NewEmulator()

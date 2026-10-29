@@ -13,7 +13,8 @@ import (
 )
 
 // CoreConfig defines the configuration for a single core in a multi-core
-// simulation.
+// simulation. NewMultiCorePipeline enables memory-access tracking on each supplied
+// Emulator during setup, before any component is built.
 type CoreConfig struct {
 	Emulator       *emu.Emulator
 	FuncHookCycles map[uint64]int // optional cycle costs for hooked functions
@@ -33,7 +34,8 @@ type MultiCorePipeline struct {
 }
 
 // NewMultiCorePipeline creates a multi-core pipeline with len(configs) cores.
-// Each core gets a private L1 cache and all share a single L2 cache.
+// Each core gets a private L1 cache and all share a single L2 cache. This setup
+// operation enables memory-access tracking on each supplied emulator.
 func NewMultiCorePipeline(
 	name string,
 	simulation *sim.Simulation,
