@@ -29,7 +29,7 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	fs := flag.NewFlagSet("elf", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
 	mode := fs.String("mode", "functional", "functional, inorder or ooo")
-	hz := fs.Float64("frequency-hz", 3.49e9, "assumed timing frequency, not measured")
+	hz := fs.Float64("frequency-hz", 3.49e9, "assumed integer CPU Hz (1 MHz to 1 THz), not measured")
 	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
 	timeout := fs.Duration("timeout", 2*time.Second, "host execution timeout")
 	output := fs.Int("max-output", 1<<20, "combined stdout/stderr byte budget")
@@ -41,6 +41,10 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	}
 	if fs.NArg() < 1 {
 		fmt.Fprintln(diagnostics, "usage: poros elf [options] file.elf [guest arguments...]")
+		return 2
+	}
+	if *mode != "functional" && *hz == 0 {
+		fmt.Fprintln(diagnostics, "timing frequency must be positive integer CPU Hz (1 MHz to 1 THz)")
 		return 2
 	}
 	path := fs.Arg(0)

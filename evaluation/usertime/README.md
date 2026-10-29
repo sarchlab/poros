@@ -10,7 +10,10 @@ wait for the boundary to retire. No ROI or extracted kernel is required.
 
 `poros elf --mode ooo program.elf args` (or `--mode inorder`) uses the shared
 checked runtime. Default frequency is an explicitly assumed 3.49 GHz; the full
-CPU Spec and cache configuration are reported. Cache state starts cold; user
+CPU Spec and cache configuration are reported. Timing CLI frequency must be an
+integer from 1 MHz through 1 THz; fractional or zero CLI values are rejected, so
+reported Hz matches the simulation clock exactly. The Go Options zero value
+selects the documented default. Cache state starts cold; user
 initialization naturally warms it. There is no OS cache/TLB pollution model,
 I-cache timing is not supplied by these existing pipelines, and this is not a
 validated Apple hardware profile. Inorder branch metrics are explicitly unavailable. `--mode functional` remains the default.

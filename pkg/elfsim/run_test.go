@@ -7,6 +7,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/sarchlab/poros/pkg/cpu/ooo"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -233,5 +235,38 @@ func TestCompleteWorkloadShapesAndResults(t *testing.T) {
 				t.Fatal("branch workload has no varied branch activity")
 			}
 		})
+	}
+}
+
+func TestTimingFrequencyContract(t *testing.T) {
+	input, err := os.ReadFile("../../tests/elf/hello.elf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, frequency := range []float64{1, 999999, 1000000.5, 3.49e9 + .5, 1e12 + 1, math.NaN(), math.Inf(1)} {
+		p, err := linuxuser.Parse(input, linuxuser.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = Run(context.Background(), p, Options{FrequencyHz: frequency}); err == nil {
+			t.Fatalf("invalid CPU frequency accepted: %v", frequency)
+		}
+	}
+	for _, frequency := range []float64{0, 1e6, 1e12} {
+		p, err := linuxuser.Parse(input, linuxuser.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := Run(context.Background(), p, Options{FrequencyHz: frequency})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := frequency
+		if want == 0 {
+			want = 3.49e9
+		}
+		if r.Timing.AssumedHz != want || float64(r.Timing.Configuration.(ooo.Spec).Freq) != want || r.Timing.PredictedUserSeconds != float64(r.Timing.Cycles)/want {
+			t.Fatalf("frequency metadata disagrees with actual configuration: %+v", r.Timing)
+		}
 	}
 }

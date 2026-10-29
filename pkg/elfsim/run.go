@@ -16,7 +16,8 @@ import (
 )
 
 type Options struct {
-	Model       string
+	Model string
+	// FrequencyHz is integer CPU Hz in [1 MHz, 1 THz]; zero selects 3.49 GHz.
 	FrequencyHz float64
 	Limits      linuxuser.RunOptions
 }
@@ -47,7 +48,7 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 	if o.FrequencyHz == 0 {
 		o.FrequencyHz = 3.49e9
 	}
-	if (o.Model != "ooo" && o.Model != "inorder") || math.IsNaN(o.FrequencyHz) || math.IsInf(o.FrequencyHz, 0) || o.FrequencyHz < 1 || o.FrequencyHz > 1e12 {
+	if (o.Model != "ooo" && o.Model != "inorder") || math.IsNaN(o.FrequencyHz) || math.IsInf(o.FrequencyHz, 0) || o.FrequencyHz < 1e6 || o.FrequencyHz > 1e12 || math.Trunc(o.FrequencyHz) != o.FrequencyHz {
 		return r, fmt.Errorf("invalid timing model/frequency")
 	}
 	x, err := p.NewExecution(ctx, o.Limits)

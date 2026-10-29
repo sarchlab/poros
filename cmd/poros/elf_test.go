@@ -73,7 +73,7 @@ func TestELFTimingModesAndOptions(t *testing.T) {
 			}
 		})
 	}
-	for _, options := range [][]string{{"--mode", "invalid"}, {"--mode", "ooo", "--frequency-hz", "-1"}, {"--mode", "inorder", "--frequency-hz", "NaN"}, {"--mode", "ooo", "--frequency-hz", "+Inf"}} {
+	for _, options := range [][]string{{"--mode", "invalid"}, {"--mode", "ooo", "--frequency-hz", "-1"}, {"--mode", "inorder", "--frequency-hz", "NaN"}, {"--mode", "ooo", "--frequency-hz", "+Inf"}, {"--mode", "ooo", "--frequency-hz", "0"}, {"--mode", "inorder", "--frequency-hz", "1000000.5"}, {"--mode", "ooo", "--frequency-hz", "999999"}} {
 		var out, diag bytes.Buffer
 		if runELF(append(options, "../../tests/elf/hello.elf"), &out, &diag) != 2 || out.Len() != 0 || diag.Len() == 0 {
 			t.Fatalf("invalid timing options accepted: %v", options)

@@ -216,9 +216,40 @@ class UserTimeTests(unittest.TestCase):
             args.base_commit = "arbitrary-missing-feature"
             self.assertEqual(run(reference), 1)
             args.base_commit = "base"
-            args.base = str(head)
+            base = root / "base"
+            base.write_text("base binary")
+            args.base = str(base)
             args.base_unavailable = False
-            self.assertEqual(run(reference, missing), 1)
+
+            def available(binary, case):
+                result = execution(binary, case)
+                is_base = binary == str(base)
+                result["build"]["vcs.revision"] = "base" if is_base else "head"
+                cycles = int(case["frequency_hz"] / 1000) * (2 if is_base else 1)
+                result["timing"].update(
+                    user_cycles=cycles,
+                    predicted_user_seconds=cycles / case["frequency_hz"],
+                    cpi=cycles / result["instructions"],
+                )
+                return result
+
+            self.assertEqual(run(reference, available), 0)
+            report = json.loads(output.read_text())
+            self.assertEqual(report["base_status"], "available")
+            for row in report["cases"]:
+                self.assertEqual(row["base"]["error_percent"], 100)
+                self.assertEqual(row["head"]["error_percent"], 0)
+                self.assertEqual(row["error_change_percentage_points"], -100)
+
+            def failed_base(binary, case):
+                if binary == str(base):
+                    raise ValueError("base-only execution failure")
+                return available(binary, case)
+
+            self.assertEqual(run(reference, failed_base), 1)
+            report = json.loads(output.read_text())
+            self.assertEqual(report["base_status"], "available")
+            self.assertIn("base-only execution failure", report["error"])
 
     def test_execute_rejects_changed_profile_and_input(self):
         c = gate.inventory()["cases"][0]
