@@ -154,8 +154,14 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 	packagePass := map[string]bool{}
 	packageRun := map[string]bool{}
 	packageSkip := map[string]bool{}
-	numericalStatus := "missing"
-	const numericalTest = "TestRegistryBlackScholesNumericalReference"
+	numericalTests := map[string]string{
+		"blackscholes": "TestRegistryBlackScholesNumericalReference",
+		"bodytrack":    "TestRegistryBodytrackNumericalReference",
+	}
+	numericalStatus := map[string]string{}
+	for _, name := range numericalTests {
+		numericalStatus[name] = "missing"
+	}
 	failed := false
 	scan := bufio.NewScanner(bytes.NewReader(data))
 	scan.Buffer(make([]byte, 4096), 4<<20)
@@ -164,14 +170,15 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		if e := json.Unmarshal(scan.Bytes(), &ev); e != nil {
 			return report, fmt.Errorf("invalid go test JSON: %w", e)
 		}
+		// This marker is emitted by portableHookReference in pkg/cpu/migration_test.go.
 		if ev.Package == "github.com/sarchlab/poros/pkg/cpu" && required[ev.Test] && strings.Contains(ev.Output, "nonportable host-math hook reference:") {
 			modes[ev.Test] = "same-host functional architectural digest; independent numerical test required"
 		}
-		if ev.Package == "github.com/sarchlab/poros/pkg/cpu" && ev.Test == numericalTest && (ev.Action == "pass" || ev.Action == "skip" || ev.Action == "fail") {
-			if numericalStatus != "missing" {
-				return report, fmt.Errorf("duplicate result %s", numericalTest)
+		if ev.Package == "github.com/sarchlab/poros/pkg/cpu" && numericalStatus[ev.Test] != "" && (ev.Action == "pass" || ev.Action == "skip" || ev.Action == "fail") {
+			if numericalStatus[ev.Test] != "missing" {
+				return report, fmt.Errorf("duplicate result %s", ev.Test)
 			}
-			numericalStatus = ev.Action
+			numericalStatus[ev.Test] = ev.Action
 		}
 		if ev.Action == "fail" {
 			failed = true
@@ -214,12 +221,23 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		}
 		report.Cases = append(report.Cases, Case{id, status, "exact historical instructions/cycles; " + mode})
 	}
-	if len(modes) > 0 {
-		report.IndependentChecks = append(report.IndependentChecks, Case{numericalTest, numericalStatus, "all 1024 Black-Scholes prices; reference independent of simulated instructions, shares host math"})
-		if numericalStatus != "pass" {
-			failed = true
+	for _, workload := range []string{"blackscholes", "bodytrack"} {
+		needed := false
+		for id := range modes {
+			if containsCase(id, workload) {
+				needed = true
+			}
+		}
+		if needed {
+			name := numericalTests[workload]
+			status := numericalStatus[name]
+			report.IndependentChecks = append(report.IndependentChecks, Case{name, status, "all registry outputs; reference independent of simulated instructions, shares host math"})
+			if status != "pass" {
+				failed = true
+			}
 		}
 	}
+
 	for pkg := range packageRun {
 		if !packagePass[pkg] && !packageSkip[pkg] {
 			failed = true

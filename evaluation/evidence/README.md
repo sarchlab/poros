@@ -28,3 +28,8 @@ These numbers demonstrate the measurement/comparison system; they are not an acc
 
 An earlier development clock source was microsecond-quantized and was discarded.
 The retained evidence records clock resolution and flags short/noisy measurements.
+
+Later changes canonicalize legacy registry input generation and strengthen tests
+and report gates. They do not change this pilot's input generator, kernel, driver,
+manifest, simulator arithmetic or timing model. The retained measurement remains
+explicitly attributed to source commit 7316013, not to a later analysis commit.

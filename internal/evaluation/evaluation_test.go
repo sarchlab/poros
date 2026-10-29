@@ -114,23 +114,25 @@ func TestPortableHookRequiresNumericalReference(t *testing.T) {
 		t.Fatal(err)
 	}
 	good := logFor(t, root, req, "", "pass")
-	for _, action := range []string{"missing", "skip", "fail", "pass"} {
-		t.Run(action, func(t *testing.T) {
-			var log bytes.Buffer
-			log.Write(good)
-			enc := json.NewEncoder(&log)
-			enc.Encode(map[string]string{"Action": "output", "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": "TestV4Baseline/blackscholes/1", "Output": "nonportable host-math hook reference:"})
-			if action != "missing" {
-				enc.Encode(map[string]string{"Action": action, "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": "TestRegistryBlackScholesNumericalReference"})
-			}
-			report, err := Regression(root, "full", "test", &log)
-			if (err == nil) != (action == "pass") {
-				t.Fatalf("status %s: %v", action, err)
-			}
-			if len(report.Cases) != 90 || len(report.IndependentChecks) != 1 || report.IndependentChecks[0].Status != action {
-				t.Fatalf("incorrect coverage: %+v", report)
-			}
-		})
+	for _, workload := range []string{"blackscholes", "bodytrack"} {
+		for _, action := range []string{"missing", "skip", "fail", "pass"} {
+			t.Run(workload+"/"+action, func(t *testing.T) {
+				var log bytes.Buffer
+				log.Write(good)
+				enc := json.NewEncoder(&log)
+				enc.Encode(map[string]string{"Action": "output", "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": "TestV4Baseline/" + workload + "/1", "Output": "nonportable host-math hook reference:"})
+				if action != "missing" {
+					enc.Encode(map[string]string{"Action": action, "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": map[string]string{"blackscholes": "TestRegistryBlackScholesNumericalReference", "bodytrack": "TestRegistryBodytrackNumericalReference"}[workload]})
+				}
+				report, err := Regression(root, "full", "test", &log)
+				if (err == nil) != (action == "pass") {
+					t.Fatalf("status %s: %v", action, err)
+				}
+				if len(report.Cases) != 90 || len(report.IndependentChecks) != 1 || report.IndependentChecks[0].Status != action {
+					t.Fatalf("incorrect coverage: %+v", report)
+				}
+			})
+		}
 	}
 }
 

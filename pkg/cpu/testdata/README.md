@@ -31,11 +31,12 @@ v4 report; that CLI comparison is not performed by TestV4PipelineVariants.
 
 ## Host-math portability
 
-These digests originate from Go1.27 darwin/arm64. The Black-Scholes kernel invokes
-host math.Exp/Log, whose low-order floating-point bits differ on AMD64. On
-non-ARM64 hosts, that audited workload retains exact historical instruction/cycle
-checks, but its whole-state digest is compared with same-host functional execution.
-A separate mathematical test checks all1024 registry option results, linking to
-pipeline results through the full digest comparison. Test logs and evaluation
-reports identify this alternative explicitly. Other workloads retain frozen
-digests. The JSONL fixtures themselves have not changed.
+These digests originate from Go1.27 darwin/arm64. The Black-Scholes and Bodytrack
+kernels invoke host math.Exp/Log, whose low-order floating-point bits differ on
+AMD64. On non-ARM64 hosts, only those audited workloads retain exact historical
+instruction/cycle checks while comparing whole-state digests with same-host
+functional execution. Separate mathematical tests check all 1024 option prices
+and all 64 particle likelihoods on actual registry inputs. Full-state equality
+links these functional outputs to pipeline results. Logs and evaluation reports
+identify the alternatives and require the corresponding numerical tests. All
+other workloads retain frozen digests. The JSONL fixtures have not changed.

@@ -185,7 +185,7 @@ are not portable. Linux AMD64 initially failed four Black-Scholes baseline cases
 with identical instruction/cycle counts. A diagnostic translation of Go's AMD64
 Exp algorithm changed65/1024 prices by at most1.25e-14 on the ARM host while
 retaining106565 instructions; this isolates an actual rounding sensitivity, not
-a guessed new Linux golden. Only blackscholes is allowlisted for the alternative
+a guessed new Linux golden. Black-Scholes and Bodytrack are the explicit allowlist for the alternative
 non-ARM64 check. The fixtures remain byte-identical. Independent numerical checks
 cover all1024 option outputs; exact same-host whole-state digest equality links
 those functional outputs to timing-mode executions. Other workloads keep frozen
@@ -199,8 +199,9 @@ pinned by hash and checked against the linked executable; a truncated future ker
 must still pass full output checks and bounded simulation (otherwise the pilot
 fails). This is not a general-purpose executable loader.
 
-When a regression case uses the non-ARM64 Black-Scholes digest substitute, the
-report also requires `TestRegistryBlackScholesNumericalReference` to pass and
+When a regression case uses a non-ARM64 digest substitute, the report requires
+`TestRegistryBlackScholesNumericalReference` or
+`TestRegistryBodytrackNumericalReference`, respectively, to pass and
 records it in `independent_checks`, separately from the 90 legacy cases. Missing,
 skipped, or failed numerical checks fail coverage. This reference is independent
 of the simulated instruction stream, but shares the host math implementation.
@@ -213,3 +214,18 @@ cover cancellation, intermediate overflow and signed zero; the original fixtures
 remain unchanged. This narrow semantic repair does not implement full FPCR/FPSR,
 NaN payload handling or single-precision FMA portability. Those remain limitations,
 so passing legacy kernels is not a claim of full ARM floating-point conformance.
+
+Bodytrack was separately audited after canonicalizing its inputs: translating
+Go's AMD64 Exp path changed 7 of 64 hook results and the final state digest on
+identical inputs. Its companion checks all 64 likelihoods against the mathematical
+projection/squared-error/Exp formula using actual registry inputs, with relative
+error at most 1e-10 and finite checks. Swaptions and Facesim retain frozen digests:
+the same audit did not change their final state digests. These are bounded workload
+checks, not a claim that host math is correctly rounded or universally portable.
+
+Registry initialization now specifies FMA grouping at 32 compiler-proven source
+lines, preserving the original ARM64 input bytes on all 41 kernels. The fast
+`TestInitialStateIdentity` fixture hashes initial register JSON followed by declared
+data-region bytes in registry order, before any execution. It defines input
+identity, not correct outputs; it was captured on clean pre-change commit 9269bca.
+This prevents host compiler contraction from silently changing the workload itself.

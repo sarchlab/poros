@@ -229,11 +229,11 @@ func TestV4PipelineVariants(t *testing.T) {
 // differ on AMD64, so their exact floating-point bytes are not portable. Retain
 // exact historical counts on every host; on other architectures compare the
 // whole architectural state against same-host functional execution for ONLY
-// the audited Black-Scholes hook-dependent workload. New exceptions require
+// the audited Black-Scholes and Bodytrack workloads. New exceptions require
 // their own numerical reference and portability evidence.
 func portableHookReference(t *testing.T, want baselineRecord, b benchmark.Benchmark) baselineRecord {
 	t.Helper()
-	if runtime.GOARCH == "arm64" || b.Name != "blackscholes" {
+	if runtime.GOARCH == "arm64" || (b.Name != "blackscholes" && b.Name != "bodytrack") {
 		return want
 	}
 	em := b.Setup()
@@ -244,6 +244,8 @@ func portableHookReference(t *testing.T, want baselineRecord, b benchmark.Benchm
 		t.Fatal("functional reference did not halt")
 	}
 	digest := architectureDigest(em, b)
+	// Contract marker parsed by internal/evaluation/regression.go to require the
+	// corresponding independent numerical companion test. Keep both sites aligned.
 	t.Logf("nonportable host-math hook reference: workload=%s host=%s frozen=%s functional=%s", b.Name, runtime.GOARCH, want.Digest[0], digest)
 	want.Digest = append([]string(nil), want.Digest...)
 	for i := range want.Digest {
@@ -285,4 +287,45 @@ func TestRegistryBlackScholesNumericalReference(t *testing.T) {
 		}
 	}
 	t.Logf("1024 independent prices verified; max_abs_error=%.17g; exp_probe_bits=%x; log_probe_bits=%x", maxAbs, math.Float64bits(math.Exp(-0.5)), math.Float64bits(math.Log(1.05)))
+}
+
+// Check every actual registry particle using the mathematical likelihood formula
+// from TestParsecBodytrack. Independent of instructions, but shares host math.Exp.
+func TestRegistryBodytrackNumericalReference(t *testing.T) {
+	b := benchmark.ByName("bodytrack")
+	em := b.Setup()
+	count, dims, observations := int(em.Regs.ReadX(4)), int(em.Regs.ReadX(5)), int(em.Regs.ReadX(6))
+	if count != 64 || dims != 6 || observations != 8 {
+		t.Fatal("unexpected Bodytrack dimensions")
+	}
+	output, states, obs, matrix := em.Regs.ReadX(0), em.Regs.ReadX(1), em.Regs.ReadX(2), em.Regs.ReadX(3)
+	want := make([]float64, count)
+	for p := range want {
+		sum := 0.0
+		for i := 0; i < observations; i++ {
+			predicted := 0.0
+			for j := 0; j < dims; j++ {
+				predicted += em.Mem.ReadF64(matrix+uint64((i*dims+j)*8)) * em.Mem.ReadF64(states+uint64((p*dims+j)*8))
+			}
+			diff := predicted - em.Mem.ReadF64(obs+uint64(i*8))
+			sum += diff * diff
+		}
+		want[p] = math.Exp(-0.5 * sum)
+	}
+	if err := em.Run(); err != nil {
+		t.Fatal(err)
+	}
+	maxRel := 0.0
+	for i, v := range want {
+		got := em.Mem.ReadF64(output + uint64(i*8))
+		// Relative error down to tiny nonzero likelihoods; avoid an absolute 1e-10
+		// floor that would accept zero for nearly every particle.
+		denom := math.Max(math.SmallestNonzeroFloat64, math.Abs(v))
+		rel := math.Abs(got-v) / denom
+		maxRel = math.Max(maxRel, rel)
+		if math.IsNaN(got) || math.IsInf(got, 0) || math.IsNaN(v) || math.IsInf(v, 0) || rel > 1e-10 {
+			t.Fatalf("particle%d got%.17g want%.17g relative_error=%g", i, got, v, rel)
+		}
+	}
+	t.Logf("64 independent likelihoods verified; max_relative_error=%.17g", maxRel)
 }
