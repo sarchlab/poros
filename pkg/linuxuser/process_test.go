@@ -56,7 +56,7 @@ func TestLinuxStartup(t *testing.T) {
 			p := process(t, o)
 			m := p.Memory
 			sp := p.Registers.SP
-			if sp%16 != 0 || p.Registers.PC != 0x400120 || p.Registers.X != [31]uint64{} {
+			if sp%16 != 0 || p.Registers.PC != 0x400120 || p.Registers.GPR != [31]uint64{} {
 				t.Fatalf("registers %+v", p.Registers)
 			}
 			wantArgs := args

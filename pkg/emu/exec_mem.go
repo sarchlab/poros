@@ -1,299 +1,192 @@
 package emu
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
-// Load instructions
-
-func (e *executor) execLDR(inst arm64asm.Inst) error {
-	dst := inst.Args[0]
-
-	// Check if destination is FP register
-	if r, ok := dst.(arm64asm.Reg); ok {
-		if di := dRegIndex(r); di >= 0 {
-			addr := e.resolveMemAddr(inst.Args[1], true)
-			e.regs.WriteDRaw(di, e.mem.ReadU64(addr))
-			return nil
+// readMemory and writeMemory preserve the legacy typed access widths (including
+// Q pairs as four 8-byte accesses). Checked execution validates/transfers a whole
+// instruction's span at once, so a pair cannot partially modify memory.
+func (e *executor) readMemory(addr uint64, width, count int) ([32]byte, error) {
+	var b [32]byte
+	if e.checked != nil {
+		err := e.checked.Read(addr, e.scratch[:width*count])
+		if err != nil {
+			return b, &memoryAccessError{err}
 		}
-		if si := sRegIndex(r); si >= 0 {
-			addr := e.resolveMemAddr(inst.Args[1], true)
-			e.regs.WriteSRaw(si, e.mem.ReadU32(addr))
-			return nil
+		return e.scratch, nil
+	}
+	for i := 0; i < width*count; i += width {
+		a := addr + uint64(i)
+		switch width {
+		case 1:
+			b[i] = e.mem.ReadU8(a)
+		case 2:
+			binary.LittleEndian.PutUint16(b[i:], e.mem.ReadU16(a))
+		case 4:
+			binary.LittleEndian.PutUint32(b[i:], e.mem.ReadU32(a))
+		case 8:
+			binary.LittleEndian.PutUint64(b[i:], e.mem.ReadU64(a))
 		}
 	}
-
-	is32 := is32bit(dst)
-	addr := e.resolveMemAddr(inst.Args[1], true)
-
-	if is32 {
-		val := e.mem.ReadU32(addr)
-		e.writeGPR(dst, uint64(val))
+	return b, nil
+}
+func (e *executor) writeMemory(addr uint64, width int, b []byte) error {
+	if e.checked != nil {
+		if err := e.checked.Write(addr, b); err != nil {
+			return &memoryAccessError{err}
+		}
+		return nil
+	}
+	for i := 0; i < len(b); i += width {
+		a := addr + uint64(i)
+		switch width {
+		case 1:
+			e.mem.WriteU8(a, b[i])
+		case 2:
+			e.mem.WriteU16(a, binary.LittleEndian.Uint16(b[i:]))
+		case 4:
+			e.mem.WriteU32(a, binary.LittleEndian.Uint32(b[i:]))
+		case 8:
+			e.mem.WriteU64(a, binary.LittleEndian.Uint64(b[i:]))
+		}
+	}
+	return nil
+}
+func memoryWidth(arg arm64asm.Arg) int {
+	if r, ok := arg.(arm64asm.Reg); ok {
+		if qRegIndex(r) >= 0 {
+			return 16
+		}
+		if dRegIndex(r) >= 0 {
+			return 8
+		}
+		if sRegIndex(r) >= 0 {
+			return 4
+		}
+	}
+	if is32bit(arg) {
+		return 4
+	}
+	return 8
+}
+func (e *executor) loadRegister(arg arm64asm.Arg, b []byte, signed bool) {
+	var v uint64
+	switch len(b) {
+	case 1:
+		v = uint64(b[0])
+		if signed {
+			v = uint64(int64(int8(v)))
+		}
+	case 2:
+		v = uint64(binary.LittleEndian.Uint16(b))
+		if signed {
+			v = uint64(int64(int16(v)))
+		}
+	case 4:
+		v = uint64(binary.LittleEndian.Uint32(b))
+		if signed {
+			v = uint64(int64(int32(v)))
+		}
+	case 8, 16:
+		v = binary.LittleEndian.Uint64(b)
+	}
+	if r, ok := arg.(arm64asm.Reg); ok {
+		if q := qRegIndex(r); q >= 0 {
+			e.regs.WriteQ(q, v, binary.LittleEndian.Uint64(b[8:]))
+			return
+		}
+		if d := dRegIndex(r); d >= 0 {
+			e.regs.WriteDRaw(d, v)
+			return
+		}
+		if s := sRegIndex(r); s >= 0 {
+			e.regs.WriteSRaw(s, uint32(v))
+			return
+		}
+	}
+	e.writeGPR(arg, v)
+}
+func (e *executor) storeRegister(arg arm64asm.Arg, b []byte) {
+	var lo, hi uint64
+	if r, ok := arg.(arm64asm.Reg); ok && qRegIndex(r) >= 0 {
+		lo, hi = e.regs.ReadQ(qRegIndex(r))
+	} else if r, ok := arg.(arm64asm.Reg); ok && dRegIndex(r) >= 0 {
+		lo = e.regs.ReadDRaw(dRegIndex(r))
+	} else if r, ok := arg.(arm64asm.Reg); ok && sRegIndex(r) >= 0 {
+		lo = uint64(e.regs.ReadSRaw(sRegIndex(r)))
 	} else {
-		val := e.mem.ReadU64(addr)
-		e.writeGPR(dst, val)
+		lo = e.readOperandVal(arg, is32bit(arg))
 	}
-	return nil
-}
-
-func (e *executor) execLDRB(inst arm64asm.Inst) error {
-	dst := inst.Args[0]
-	addr := e.resolveMemAddr(inst.Args[1], true)
-	val := e.mem.ReadU8(addr)
-	e.writeGPR(dst, uint64(val))
-	return nil
-}
-
-func (e *executor) execLDRH(inst arm64asm.Inst) error {
-	dst := inst.Args[0]
-	addr := e.resolveMemAddr(inst.Args[1], true)
-	val := e.mem.ReadU16(addr)
-	e.writeGPR(dst, uint64(val))
-	return nil
-}
-
-func (e *executor) execLDRSB(inst arm64asm.Inst) error {
-	dst := inst.Args[0]
-	addr := e.resolveMemAddr(inst.Args[1], true)
-	val := e.mem.ReadS8(addr)
-	is32 := is32bit(dst)
-	if is32 {
-		e.writeGPR(dst, uint64(uint32(int32(val))))
-	} else {
-		e.writeGPR(dst, uint64(int64(val)))
+	switch len(b) {
+	case 1:
+		b[0] = byte(lo)
+	case 2:
+		binary.LittleEndian.PutUint16(b, uint16(lo))
+	case 4:
+		binary.LittleEndian.PutUint32(b, uint32(lo))
+	case 8:
+		binary.LittleEndian.PutUint64(b, lo)
+	case 16:
+		binary.LittleEndian.PutUint64(b, lo)
+		binary.LittleEndian.PutUint64(b[8:], hi)
 	}
-	return nil
 }
-
-func (e *executor) execLDRSH(inst arm64asm.Inst) error {
-	dst := inst.Args[0]
-	addr := e.resolveMemAddr(inst.Args[1], true)
-	val := int16(e.mem.ReadU16(addr))
-	is32 := is32bit(dst)
-	if is32 {
-		e.writeGPR(dst, uint64(uint32(int32(val))))
-	} else {
-		e.writeGPR(dst, uint64(int64(val)))
+func (e *executor) load(inst arm64asm.Inst, width, count int, signed bool) error {
+	if width == 0 {
+		width = memoryWidth(inst.Args[0])
 	}
-	return nil
-}
-
-func (e *executor) execLDRSW(inst arm64asm.Inst) error {
-	dst := inst.Args[0]
-	addr := e.resolveMemAddr(inst.Args[1], true)
-	val := e.mem.ReadS32(addr)
-	e.writeGPR(dst, uint64(int64(val)))
-	return nil
-}
-
-func (e *executor) execLDUR(inst arm64asm.Inst) error {
-	return e.execLDR(inst) // Same logic, unscaled offset handled by decoder
-}
-
-func (e *executor) execLDURB(inst arm64asm.Inst) error {
-	return e.execLDRB(inst)
-}
-
-func (e *executor) execLDURH(inst arm64asm.Inst) error {
-	return e.execLDRH(inst)
-}
-
-func (e *executor) execLDURSB(inst arm64asm.Inst) error {
-	return e.execLDRSB(inst)
-}
-
-func (e *executor) execLDURSH(inst arm64asm.Inst) error {
-	return e.execLDRSH(inst)
-}
-
-func (e *executor) execLDURSW(inst arm64asm.Inst) error {
-	return e.execLDRSW(inst)
-}
-
-func (e *executor) execLDP(inst arm64asm.Inst) error {
-	rt1 := inst.Args[0]
-	rt2 := inst.Args[1]
-	is32 := is32bit(rt1)
-
-	// Check for FP/SIMD register pair
-	if r, ok := rt1.(arm64asm.Reg); ok {
-		// Q register pair (128-bit each)
-		if qi := qRegIndex(r); qi >= 0 {
-			addr := e.resolveMemAddr(inst.Args[2], true)
-			r2 := inst.Args[1].(arm64asm.Reg)
-			qi2 := qRegIndex(r2)
-			lo1 := e.mem.ReadU64(addr)
-			hi1 := e.mem.ReadU64(addr + 8)
-			lo2 := e.mem.ReadU64(addr + 16)
-			hi2 := e.mem.ReadU64(addr + 24)
-			e.regs.WriteQ(qi, lo1, hi1)
-			e.regs.WriteQ(qi2, lo2, hi2)
-			return nil
-		}
-		if di := dRegIndex(r); di >= 0 {
-			addr := e.resolveMemAddr(inst.Args[2], true)
-			r2 := inst.Args[1].(arm64asm.Reg)
-			di2 := dRegIndex(r2)
-			e.regs.WriteDRaw(di, e.mem.ReadU64(addr))
-			e.regs.WriteDRaw(di2, e.mem.ReadU64(addr+8))
-			return nil
-		}
-		if si := sRegIndex(r); si >= 0 {
-			addr := e.resolveMemAddr(inst.Args[2], true)
-			r2 := inst.Args[1].(arm64asm.Reg)
-			si2 := sRegIndex(r2)
-			e.regs.WriteSRaw(si, e.mem.ReadU32(addr))
-			e.regs.WriteSRaw(si2, e.mem.ReadU32(addr+4))
-			return nil
-		}
-	}
-
-	addr := e.resolveMemAddr(inst.Args[2], true)
-	if is32 {
-		v1 := uint64(e.mem.ReadU32(addr))
-		v2 := uint64(e.mem.ReadU32(addr + 4))
-		e.writeGPR(rt1, v1)
-		e.writeGPR(rt2, v2)
-	} else {
-		v1 := e.mem.ReadU64(addr)
-		v2 := e.mem.ReadU64(addr + 8)
-		e.writeGPR(rt1, v1)
-		e.writeGPR(rt2, v2)
-	}
-	return nil
-}
-
-func (e *executor) execLDPSW(inst arm64asm.Inst) error {
-	rt1 := inst.Args[0]
-	rt2 := inst.Args[1]
-	addr := e.resolveMemAddr(inst.Args[2], true)
-	v1 := int64(e.mem.ReadS32(addr))
-	v2 := int64(e.mem.ReadS32(addr + 4))
-	e.writeGPR(rt1, uint64(v1))
-	e.writeGPR(rt2, uint64(v2))
-	return nil
-}
-
-// Store instructions
-
-func (e *executor) execSTR(inst arm64asm.Inst) error {
-	src := inst.Args[0]
-
-	// Check if source is FP register
-	if r, ok := src.(arm64asm.Reg); ok {
-		if di := dRegIndex(r); di >= 0 {
-			addr := e.resolveMemAddr(inst.Args[1], true)
-			e.mem.WriteU64(addr, e.regs.ReadDRaw(di))
-			return nil
-		}
-		if si := sRegIndex(r); si >= 0 {
-			addr := e.resolveMemAddr(inst.Args[1], true)
-			e.mem.WriteU32(addr, e.regs.ReadSRaw(si))
-			return nil
-		}
-	}
-
-	is32 := is32bit(src)
-	addr := e.resolveMemAddr(inst.Args[1], true)
-
-	if is32 {
-		val := uint32(e.readOperandVal(src, true))
-		e.mem.WriteU32(addr, val)
-	} else {
-		val := e.readOperandVal(src, false)
-		e.mem.WriteU64(addr, val)
-	}
-	return nil
-}
-
-func (e *executor) execSTRB(inst arm64asm.Inst) error {
-	src := inst.Args[0]
-	addr := e.resolveMemAddr(inst.Args[1], true)
-	val := uint8(e.readOperandVal(src, true))
-	e.mem.WriteU8(addr, val)
-	return nil
-}
-
-func (e *executor) execSTRH(inst arm64asm.Inst) error {
-	src := inst.Args[0]
-	addr := e.resolveMemAddr(inst.Args[1], true)
-	val := uint16(e.readOperandVal(src, true))
-	e.mem.WriteU16(addr, val)
-	return nil
-}
-
-func (e *executor) execSTUR(inst arm64asm.Inst) error {
-	return e.execSTR(inst)
-}
-
-func (e *executor) execSTURB(inst arm64asm.Inst) error {
-	return e.execSTRB(inst)
-}
-
-func (e *executor) execSTURH(inst arm64asm.Inst) error {
-	return e.execSTRH(inst)
-}
-
-func (e *executor) execSTP(inst arm64asm.Inst) error {
-	rt1 := inst.Args[0]
-	rt2 := inst.Args[1]
-	is32 := is32bit(rt1)
-
-	// Check for FP/SIMD register pair
-	if r, ok := rt1.(arm64asm.Reg); ok {
-		// Q register pair (128-bit each)
-		if qi := qRegIndex(r); qi >= 0 {
-			addr := e.resolveMemAddr(inst.Args[2], true)
-			r2 := inst.Args[1].(arm64asm.Reg)
-			qi2 := qRegIndex(r2)
-			lo1, hi1 := e.regs.ReadQ(qi)
-			lo2, hi2 := e.regs.ReadQ(qi2)
-			e.mem.WriteU64(addr, lo1)
-			e.mem.WriteU64(addr+8, hi1)
-			e.mem.WriteU64(addr+16, lo2)
-			e.mem.WriteU64(addr+24, hi2)
-			return nil
-		}
-		if di := dRegIndex(r); di >= 0 {
-			addr := e.resolveMemAddr(inst.Args[2], true)
-			r2 := inst.Args[1].(arm64asm.Reg)
-			di2 := dRegIndex(r2)
-			e.mem.WriteU64(addr, e.regs.ReadDRaw(di))
-			e.mem.WriteU64(addr+8, e.regs.ReadDRaw(di2))
-			return nil
-		}
-		if si := sRegIndex(r); si >= 0 {
-			addr := e.resolveMemAddr(inst.Args[2], true)
-			r2 := inst.Args[1].(arm64asm.Reg)
-			si2 := sRegIndex(r2)
-			e.mem.WriteU32(addr, e.regs.ReadSRaw(si))
-			e.mem.WriteU32(addr+4, e.regs.ReadSRaw(si2))
-			return nil
-		}
-	}
-
-	addr := e.resolveMemAddr(inst.Args[2], true)
-	if is32 {
-		e.mem.WriteU32(addr, uint32(e.readOperandVal(rt1, true)))
-		e.mem.WriteU32(addr+4, uint32(e.readOperandVal(rt2, true)))
-	} else {
-		e.mem.WriteU64(addr, e.readOperandVal(rt1, false))
-		e.mem.WriteU64(addr+8, e.readOperandVal(rt2, false))
-	}
-	return nil
-}
-
-// resolveLoadAddr is a helper for load-with-literal (PC-relative).
-func (e *executor) resolveLoadAddr(inst arm64asm.Inst) (uint64, error) {
-	memArg := inst.Args[1]
-	switch m := memArg.(type) {
+	addrArg := inst.Args[count]
+	var addr uint64
+	switch m := addrArg.(type) {
 	case arm64asm.PCRel:
-		return uint64(int64(e.regs.PC) + int64(m)), nil
+		addr = e.regs.PC + uint64(m)
 	case arm64asm.MemImmediate, arm64asm.MemExtend:
-		return e.resolveMemAddr(m, true), nil
+		addr = e.resolveMemAddr(m, true)
 	default:
-		return 0, fmt.Errorf("unexpected load address type: %T", memArg)
+		return fmt.Errorf("unexpected load address type: %T", addrArg)
 	}
+	b, err := e.readMemory(addr, min(width, 8), count*width/min(width, 8))
+	if err != nil {
+		return err
+	}
+	for i := 0; i < count; i++ {
+		e.loadRegister(inst.Args[i], b[i*width:(i+1)*width], signed)
+	}
+	return nil
 }
+func (e *executor) store(inst arm64asm.Inst, width, count int) error {
+	if width == 0 {
+		width = memoryWidth(inst.Args[0])
+	}
+	addr := e.resolveMemAddr(inst.Args[count], true)
+	b := e.scratch[:width*count]
+	for i := 0; i < count; i++ {
+		e.storeRegister(inst.Args[i], b[i*width:(i+1)*width])
+	}
+	return e.writeMemory(addr, min(width, 8), b[:width*count])
+}
+func (e *executor) execLDR(i arm64asm.Inst) error    { return e.load(i, 0, 1, false) }
+func (e *executor) execLDRB(i arm64asm.Inst) error   { return e.load(i, 1, 1, false) }
+func (e *executor) execLDRH(i arm64asm.Inst) error   { return e.load(i, 2, 1, false) }
+func (e *executor) execLDRSB(i arm64asm.Inst) error  { return e.load(i, 1, 1, true) }
+func (e *executor) execLDRSH(i arm64asm.Inst) error  { return e.load(i, 2, 1, true) }
+func (e *executor) execLDRSW(i arm64asm.Inst) error  { return e.load(i, 4, 1, true) }
+func (e *executor) execLDP(i arm64asm.Inst) error    { return e.load(i, 0, 2, false) }
+func (e *executor) execLDPSW(i arm64asm.Inst) error  { return e.load(i, 4, 2, true) }
+func (e *executor) execSTR(i arm64asm.Inst) error    { return e.store(i, 0, 1) }
+func (e *executor) execSTRB(i arm64asm.Inst) error   { return e.store(i, 1, 1) }
+func (e *executor) execSTRH(i arm64asm.Inst) error   { return e.store(i, 2, 1) }
+func (e *executor) execSTP(i arm64asm.Inst) error    { return e.store(i, 0, 2) }
+func (e *executor) execLDUR(i arm64asm.Inst) error   { return e.execLDR(i) }
+func (e *executor) execLDURB(i arm64asm.Inst) error  { return e.execLDRB(i) }
+func (e *executor) execLDURH(i arm64asm.Inst) error  { return e.execLDRH(i) }
+func (e *executor) execLDURSB(i arm64asm.Inst) error { return e.execLDRSB(i) }
+func (e *executor) execLDURSH(i arm64asm.Inst) error { return e.execLDRSH(i) }
+func (e *executor) execLDURSW(i arm64asm.Inst) error { return e.execLDRSW(i) }
+func (e *executor) execSTUR(i arm64asm.Inst) error   { return e.execSTR(i) }
+func (e *executor) execSTURB(i arm64asm.Inst) error  { return e.execSTRB(i) }
+func (e *executor) execSTURH(i arm64asm.Inst) error  { return e.execSTRH(i) }

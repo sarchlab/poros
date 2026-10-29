@@ -1,7 +1,6 @@
 package emu
 
 import (
-	"fmt"
 	"math/bits"
 
 	"golang.org/x/arch/arm64/arm64asm"
@@ -9,8 +8,10 @@ import (
 
 // executor holds the emulator state needed for instruction execution.
 type executor struct {
-	regs *Registers
-	mem  *Memory
+	regs    *Registers
+	mem     *Memory
+	checked CheckedMemory
+	scratch [32]byte
 }
 
 // execute dispatches a decoded instruction to the appropriate handler.
@@ -272,7 +273,7 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, nil
 
 	default:
-		return false, fmt.Errorf("unimplemented instruction: %s (Op=%d)", inst.Op, inst.Op)
+		return false, &UnsupportedInstructionError{Instruction: inst}
 	}
 }
 

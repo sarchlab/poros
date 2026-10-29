@@ -1,11 +1,12 @@
-# Static AArch64 Linux startup
+# Static AArch64 Linux process execution
 
 `Load(path, Options)` and `Parse(bytes, Options)` create a fresh `Process` with
-initial general registers and a checked address space. `loader.LoadELF` /
+initial architectural registers and a checked address space. `loader.LoadELF` /
 `ParseELF` are the lower-level image parsers. They inspect program headers only;
-stripped or absent section headers do not affect loading. No emulator, syscall
-handler or timing model is attached in this stage (#45); #46 supplies execution.
-The existing Mach-O extraction and function-level emulator are unchanged.
+stripped or absent section headers do not affect loading. `Process.Run` executes
+from the ELF entry with the existing interpreter semantics and checked memory.
+The existing Mach-O extraction and function-level harness remain available.
+ELF execution does not yet drive the timing model (#47).
 
 ## Supported profile
 
@@ -38,8 +39,8 @@ entire image and startup state have passed validation.
 ## ABI state
 
 PC is the ELF entry, SP is 16-byte aligned, and all initial GPRs are zero,
-including x0 (no dynamic-linker cleanup function). An eventual execution backend
-must also initialize FP/SIMD state to zero. Arguments are on the stack, not in
+including x0 (no dynamic-linker cleanup function). FP/SIMD and NZCV state also
+start at zero. Arguments are on the stack, not in
 x0/x1. Memory holds argc, argv pointers + NULL, envp pointers + NULL, auxv +
 AT_NULL, and NUL-terminated strings. Empty Args becomes a single empty argv[0],
 as modern Linux execve does. Environment is exactly the supplied list. `Load` defaults EXECFN to the supplied
@@ -68,11 +69,69 @@ human-readable diagnostics. Lower-level parsed image fields are caller-owned;
 Process constructors always parse fresh bytes and never trust a caller-mutated
 image. Each process owns independent backing storage.
 
+## Execution and captured syscalls
+
+`Process.Registers` is the authoritative full `emu.Registers`; successful steps
+update it and faulting instructions leave it unchanged. `emu.StepChecked` shares
+ISA handlers with the legacy interpreter, returns the decoded instruction and
+branch/SVC event, and requires atomic checked memory operations. Paired stores
+validate/transfer their complete span; paired loads and address writeback commit
+only after success. Legacy timing access widths/order remain unchanged.
+Buffers supplied to `CheckedMemory` are ephemeral and must not be retained.
+
+`Run(context, RunOptions)` is one-shot. A repeated call returns an error; final
+registers/memory remain inspectable. There are no application hooks or synthetic
+LR halt: RET to an invalid address faults. Scalar integer/FP instructions supported
+by the interpreter are available, plus pair Q transfers. SIMD arithmetic, unknown
+instructions, nonzero SVC immediates, non-NOP HINT instructions and unsupported
+syscalls terminate explicitly. Full FPCR/FPSR emulation is not provided; the
+validated FP profile is the interpreter's default rounding behavior.
+
+Linux AArch64 SVC #0 uses x8 for the syscall number, x0–x2 for arguments:
+
+- `write` (64) captures stdout (fd 1) or stderr (fd 2). The fd is truncated to
+  32 bits like Linux's integer argument. Other descriptors return `-EBADF` (-9).
+  Invalid readable ranges return `-EFAULT` (-14). Zero count with a valid fd
+  succeeds even with a null pointer. Count is capped at Linux's `0x7ffff000`.
+- Captured writes are atomic whole-buffer operations: a fault anywhere returns
+  EFAULT with no output. This matches the tested QEMU user behavior but does
+  **not** model Linux pipe partial writes when a large buffer crosses a faulting
+  page. Host pipe blocking, signals, partial writes and scheduling are outside
+  this captured-stream profile.
+- `exit` (93) and `exit_group` (94) finish the single guest thread with `x0 & 255`.
+- Other syscall numbers produce `unsupported_syscall`, not a fabricated return
+  value. This intentionally differs from Linux/QEMU for existing syscalls.
+
+Defaults are 1,000,000 completed instructions, a 2-second host deadline and
+1 MiB combined captured output (maximum configurable output 16 MiB). Context
+cancellation/deadline, instruction exhaustion and output exhaustion have distinct
+termination reasons. The deadline is a host safety bound, never simulated time.
+Output-limit failure emits no partial bytes and does not retire that SVC.
+Successful or errno-returning syscalls count as completed instructions; faults
+and unsupported operations do not. Guest failure is a structured `Result`;
+invalid host configuration is a Go error. No guest output is written to host
+stdout/stderr by `Run`.
+
+```sh
+go run ./cmd/poros elf --argv0 fixture --env MODE=test \
+  tests/elf/startup.elf alpha beta
+```
+
+The CLI emits a JSON object with ELF SHA-256, exact argv/env, termination,
+optional guest exit status, completed instructions, PC, diagnostic and base64
+stdout/stderr bytes. Host environment is not inherited. CLI status 0 means guest
+exit 0, status 1 means guest nonzero exit/fault/limit, and status 2 means a host
+configuration/load error. Flags precede the ELF path; subsequent arguments belong
+to the guest. The API can represent an empty argv[0]; CLI defaults it to `program`.
+
 ## Validation and references
 
 Tests verify the real compiled ELF, page bytes/BSS/permissions, stack pointers,
 strings, auxv, registers, empty/bounded startup inputs and malformed files. Fuzz
-seeds exercise the same parser. Existing 90 kernel cases remain unchanged.
+seeds exercise the same parser. [The functional fixture suite](../../tests/elf/README.md)
+executes real ELF entry points and compares results with Linux ARM64/QEMU. It
+includes atomic fault/writeback tests and independent numerical checks. Existing
+90 kernel cases remain unchanged.
 
 - [ELF program header specification](https://gabi.xinuos.com/elf/07-pheader.html)
 - [Linux create_elf_tables](https://github.com/torvalds/linux/blob/master/fs/binfmt_elf.c)

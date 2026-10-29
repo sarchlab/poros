@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/loader"
 )
 
@@ -53,19 +54,12 @@ type Options struct {
 	Random    [16]byte
 }
 
-// Registers is the initial AArch64 general register state. All GPRs (including
-// x0, the no-dynamic-linker cleanup function) start at zero. FP state is also zero
-// when an execution backend is attached. Arguments are on the stack, not x0/x1.
-type Registers struct {
-	X      [31]uint64
-	PC, SP uint64
-}
-
-// Process owns a fresh initial address space and register state.
-// No emulator is attached until process execution is implemented.
+// Process owns the authoritative architectural state and checked address space.
+// Run is one-shot; final registers and memory remain available for inspection.
 type Process struct {
-	Registers Registers
+	Registers emu.Registers
 	Memory    *AddressSpace
+	ran       bool
 }
 
 // StartupError describes rejected startup configuration or image/stack collision.
@@ -215,7 +209,7 @@ func start(image *loader.ELFImage, o Options) (*Process, error) {
 	}
 	memory.regions = append(memory.regions, mappedRegion{Mapping{base, StackTop, elf.PF_R | elf.PF_W}, stack})
 	sort.Slice(memory.regions, func(i, j int) bool { return memory.regions[i].Start < memory.regions[j].Start })
-	return &Process{Registers: Registers{PC: image.Entry, SP: base + sp}, Memory: memory}, nil
+	return &Process{Registers: emu.Registers{PC: image.Entry, SP: base + sp}, Memory: memory}, nil
 }
 
 // String returns a concise startup witness suitable for diagnostics.

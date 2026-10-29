@@ -1,5 +1,4 @@
-// Package linuxuser constructs checked Linux process state for static ELF images.
-// It does not yet execute processes or provide system calls.
+// Package linuxuser loads and executes a bounded static Linux AArch64 profile.
 package linuxuser
 
 import (
