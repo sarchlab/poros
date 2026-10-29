@@ -182,3 +182,67 @@ func TestCaptureLogBinding(t *testing.T) {
 		t.Fatal("accepted wrong log")
 	}
 }
+
+func TestCaptureLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "repo")
+	if e := os.Mkdir(root, 0700); e != nil {
+		t.Fatal(e)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		if out, e := cmd.CombinedOutput(); e != nil {
+			t.Fatalf("git %v: %s: %v", args, out, e)
+		}
+	}
+	git("init", "-q")
+	source := filepath.Join(root, "source.txt")
+	if e := os.WriteFile(source, []byte("original"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	git("add", "source.txt")
+	git("-c", "user.name=Evaluation Test", "-c", "user.email=evaluation@example.invalid", "commit", "-qm", "fixture")
+	path := filepath.Join(dir, "capture.json")
+	log := filepath.Join(dir, "log.jsonl")
+	if e := os.WriteFile(log, []byte("log"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	c, e := BeginCapture(root)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = SaveCapture(path, c); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = ReadCapture(path, []byte("log")); e == nil {
+		t.Fatal("unsealed capture accepted")
+	}
+	sealed, e := SealCapture(root, path, log, 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = SaveCapture(path, sealed); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = ReadCapture(path, []byte("log")); e != nil {
+		t.Fatal(e)
+	}
+	if e = SaveCapture(path, c); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.WriteFile(source, []byte("edited during test"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = SealCapture(root, path, log, 0); e == nil {
+		t.Fatal("source mutation accepted")
+	}
+	git("add", "source.txt")
+	git("-c", "user.name=Evaluation Test", "-c", "user.email=evaluation@example.invalid", "commit", "-qm", "changed")
+	if _, e = SealCapture(root, path, log, 0); e == nil {
+		t.Fatal("commit mutation accepted")
+	}
+	if _, e = ReadCapture(filepath.Join(dir, "missing"), []byte("log")); e == nil {
+		t.Fatal("missing capture accepted")
+	}
+}
