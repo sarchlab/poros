@@ -27,7 +27,7 @@ func TestCheckedInstructionFaultIsAtomic(t *testing.T) {
 			code := make([]byte, 4)
 			binary.LittleEndian.PutUint32(code, tc.opcode)
 			data := bytes.Repeat([]byte{0x55}, tc.size)
-			m := &AddressSpace{regions: []mappedRegion{{Mapping{0x1000, 0x1004, elf.PF_R | elf.PF_X}, code}, {Mapping{0x2000, 0x2000 + uint64(tc.size), elf.PF_R | elf.PF_W}, data}}}
+			m := testAddressSpace(t, testRegion{0x1000, 4, elf.PF_R | elf.PF_X, code}, testRegion{0x2000, uint64(tc.size), elf.PF_R | elf.PF_W, data})
 			regs := emu.Registers{PC: 0x1000}
 			regs.GPR[0] = 0x1234
 			regs.GPR[1] = 0x5678
@@ -44,6 +44,9 @@ func TestCheckedInstructionFaultIsAtomic(t *testing.T) {
 			if !errors.As(err, &fault) || fault.Kind != "memory_fault" {
 				t.Fatalf("expected memory fault: %v", err)
 			}
+			if err := m.Read(0x2000, data); err != nil {
+				t.Fatal(err)
+			}
 			if regs != before || !bytes.Equal(data, original) {
 				t.Fatal("fault changed architectural state")
 			}
@@ -55,12 +58,15 @@ func TestCheckedSuccessfulPairAndNoMagicReturn(t *testing.T) {
 	binary.LittleEndian.PutUint32(code, 0xa8810440)
 	binary.LittleEndian.PutUint32(code[4:], 0xd65f03c0) // stp;ret
 	data := make([]byte, 16)
-	m := &AddressSpace{regions: []mappedRegion{{Mapping{0x1000, 0x1008, elf.PF_X}, code}, {Mapping{0x2000, 0x2010, elf.PF_R | elf.PF_W}, data}}}
+	m := testAddressSpace(t, testRegion{0x1000, 8, elf.PF_X, code}, testRegion{0x2000, 16, elf.PF_R | elf.PF_W, data})
 	regs := emu.Registers{PC: 0x1000}
 	regs.GPR[0] = 11
 	regs.GPR[1] = 22
 	regs.GPR[2] = 0x2000
 	if _, err := emu.StepChecked(&regs, m); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Read(0x2000, data); err != nil {
 		t.Fatal(err)
 	}
 	if regs.GPR[2] != 0x2010 || binary.LittleEndian.Uint64(data) != 11 || binary.LittleEndian.Uint64(data[8:]) != 22 {
@@ -75,10 +81,10 @@ func TestCheckedSuccessfulPairAndNoMagicReturn(t *testing.T) {
 	}
 }
 
-func instructionMemory(opcode uint32) *AddressSpace {
+func instructionMemory(t *testing.T, opcode uint32) *AddressSpace {
 	code := make([]byte, 4)
 	binary.LittleEndian.PutUint32(code, opcode)
-	return &AddressSpace{regions: []mappedRegion{{Mapping{0x1000, 0x1004, elf.PF_X}, code}}}
+	return testAddressSpace(t, testRegion{0x1000, 4, elf.PF_X, code})
 }
 func TestCheckedRejectsUnsupportedOperandForms(t *testing.T) {
 	for _, tc := range []struct {
@@ -97,7 +103,7 @@ func TestCheckedRejectsUnsupportedOperandForms(t *testing.T) {
 			regs.WriteD(1, 7)
 			regs.WriteD(2, 11)
 			before := regs
-			_, err := emu.StepChecked(&regs, instructionMemory(tc.opcode))
+			_, err := emu.StepChecked(&regs, instructionMemory(t, tc.opcode))
 			var fault *emu.StepError
 			if !errors.As(err, &fault) || fault.Kind != "unsupported_instruction" {
 				t.Fatalf("wrong rejection: %v", err)
@@ -111,7 +117,7 @@ func TestCheckedRejectsUnsupportedOperandForms(t *testing.T) {
 func TestCheckedSupportedScalarConversions(t *testing.T) {
 	regs := emu.Registers{PC: 0x1000}
 	regs.GPR[0] = 17
-	if _, err := emu.StepChecked(&regs, instructionMemory(0x9e620000)); err != nil {
+	if _, err := emu.StepChecked(&regs, instructionMemory(t, 0x9e620000)); err != nil {
 		t.Fatal(err)
 	}
 	if regs.ReadD(0) != 17 {
@@ -121,7 +127,7 @@ func TestCheckedSupportedScalarConversions(t *testing.T) {
 	regs.WriteD(0, 3.5)
 	regs.WriteD(1, 7)
 	regs.WriteD(2, 11)
-	if _, err := emu.StepChecked(&regs, instructionMemory(0x9e780000)); err != nil {
+	if _, err := emu.StepChecked(&regs, instructionMemory(t, 0x9e780000)); err != nil {
 		t.Fatal(err)
 	}
 	if regs.GPR[0] != 3 {
@@ -147,10 +153,27 @@ func TestCheckedBranchEvent(t *testing.T) {
 			regs := emu.Registers{PC: 0x1000, Z: tc.z}
 			regs.GPR[0] = tc.x0
 			regs.GPR[30] = tc.lr
-			step, err := emu.StepChecked(&regs, instructionMemory(tc.opcode))
+			step, err := emu.StepChecked(&regs, instructionMemory(t, tc.opcode))
 			if err != nil || regs.PC != tc.wantPC || step.Branched != tc.branched {
 				t.Fatalf("PC=%#x branch=%v err=%v", regs.PC, step.Branched, err)
 			}
 		})
 	}
+}
+
+type testRegion struct {
+	start, size uint64
+	flags       elf.ProgFlag
+	data        []byte
+}
+
+func testAddressSpace(t *testing.T, regions ...testRegion) *AddressSpace {
+	t.Helper()
+	m := &AddressSpace{}
+	for _, r := range regions {
+		if err := m.mapRegion(r.start, r.size, r.flags, r.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return m
 }

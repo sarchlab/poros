@@ -1,0 +1,30 @@
+{
+  "sdk": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk",
+  "compiler": "Apple clang version 17.0.0 (clang-1700.6.3.2)\nTarget: arm64-apple-darwin27.2.0\nThread model: posix\nInstalledDir: /Library/Developer/CommandLineTools/usr/bin\n",
+  "flags": [
+    "-target",
+    "arm64-apple-macos15",
+    "-O1",
+    "-funsigned-char",
+    "-ffp-contract=off",
+    "-fno-vectorize",
+    "-fno-slp-vectorize",
+    "-fno-unroll-loops",
+    "-fno-stack-protector"
+  ],
+  "sources": {
+    "tests/usertime/program.c": "1a6fd6e3b28efa9be0a8b26b933c6fd328f0862a7e499d44bb50b2723c316799",
+    "tests/usertime/mvt.c": "0a8a427057c176c6aae64a5f66f5e9a429ddc238ed2bd45453c4311364a592d0",
+    "tests/usertime/runtime.h": "0d88776b5d232e0dba662d738619cf206e254f9fbf7da63889b2374de7a8a759",
+    "tests/macho/main.c": "64e11988fc91cb93ef1ab509c5d7984d95d59b9e61d7e8ada387dd75244518e8",
+    "tests/macho/runtime-output.h": "50b4ba45d14afb0e8daedc31c223158b7480d02e9d58beb7d2134da40c1b4965",
+    "tests/macho/build.py": "f7577fc3ab85d855aaff1ffee8ed2f71830394aaaff1739063752f6e6ae81199"
+  },
+  "binaries": {
+    "integer.macho": "c5591d20f4cae0b616c06620baa071915d470ce330f5453ac847de32a4747e76",
+    "memory.macho": "b7f01d9078d88608768b54a0e77cb57d617525776d1be94ca95970908edd0e30",
+    "branch.macho": "fdca2fdc42e2e41aa231c7018ba001056881c77bdfde5e88bdc483490bc4dcaf",
+    "mvt.macho": "00784905a2be75510bc312a5ebaabdc575aec3ee173d402a236327e7a9827cd7"
+  },
+  "branch_guard": "1000004d8: 3687ff6d    \ttbz\tw13, #0x10, 0x1000004c4 <_guest_main+0xb4>"
+}

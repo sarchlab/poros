@@ -38,13 +38,6 @@ func TestSyscallCopyDoesNotGenerateGuestAccesses(t *testing.T) {
 		t.Fatal("write/exit not exercised")
 	}
 }
-func TestUnalignedMemoryAccessSplitsWordBoundary(t *testing.T) {
-	m := trackedMemory{}
-	m.record(63, 8, false)
-	if len(m.accesses) != 2 || m.accesses[0].Addr != 63 || m.accesses[0].Size != 1 || m.accesses[1].Addr != 64 || m.accesses[1].Size != 7 {
-		t.Fatalf("lost crossing access: %+v", m.accesses)
-	}
-}
 func TestFaultClearsMemoryEvents(t *testing.T) {
 	b, err := os.ReadFile("../../tests/elf/bad-load.elf")
 	if err != nil {

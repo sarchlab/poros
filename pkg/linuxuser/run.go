@@ -44,7 +44,7 @@ type Execution struct {
 	cancel  context.CancelFunc
 	result  Result
 	done    bool
-	memory  trackedMemory
+	memory  emu.TrackedMemory
 }
 
 // NewExecution claims this process exactly once; all execution modes share it.
@@ -69,14 +69,14 @@ func (p *Process) NewExecution(ctx context.Context, o RunOptions) (*Execution, e
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 
 	x := &Execution{process: p, options: o, ctx: ctx, cancel: cancel, result: r}
-	x.memory.space = p.Memory
+	x.memory.Space = p.Memory
 	return x, nil
 }
 func (x *Execution) Close()                          { x.cancel() }
 func (x *Execution) Result() Result                  { return x.result }
 func (x *Execution) CPURegisters() *emu.Registers    { return &x.process.Registers }
 func (x *Execution) Stopped() bool                   { return x.done }
-func (x *Execution) MemoryAccesses() []emu.MemAccess { return x.memory.accesses }
+func (x *Execution) MemoryAccesses() []emu.MemAccess { return x.memory.Accesses }
 func (x *Execution) Peek(pc uint64) (arm64asm.Inst, error) {
 	var b [4]byte
 	if err := x.process.Memory.Fetch(pc, b[:]); err != nil {
@@ -88,13 +88,13 @@ func (x *Execution) StepDetailed() (arm64asm.Inst, bool, error) {
 	pc := x.process.Registers.PC
 	inst, _ := x.Peek(pc)
 	before := x.result.Instructions
-	x.memory.accesses = x.memory.accesses[:0]
+	x.memory.Accesses = x.memory.Accesses[:0]
 	_, err := x.step()
 	if err != nil {
 		return inst, false, err
 	}
 	if x.result.Instructions == before {
-		x.memory.accesses = x.memory.accesses[:0]
+		x.memory.Accesses = x.memory.Accesses[:0]
 		return inst, false, fmt.Errorf("%s: %s", x.result.Termination, x.result.Diagnostic)
 	}
 	return inst, x.process.Registers.PC != pc+4, nil
@@ -184,34 +184,4 @@ func (p *Process) Run(ctx context.Context, o RunOptions) (Result, error) {
 	return x.Result(), nil
 }
 
-type trackedMemory struct {
-	space    *AddressSpace
-	accesses []emu.MemAccess
-}
-
-func (m *trackedMemory) Fetch(a uint64, b []byte) error { return m.space.Fetch(a, b) }
-func (m *trackedMemory) Read(a uint64, b []byte) error {
-	if err := m.space.Read(a, b); err != nil {
-		return err
-	}
-	m.record(a, len(b), false)
-	return nil
-}
-func (m *trackedMemory) Write(a uint64, b []byte) error {
-	if err := m.space.Write(a, b); err != nil {
-		return err
-	}
-	m.record(a, len(b), true)
-	return nil
-}
-func (m *trackedMemory) record(a uint64, n int, w bool) {
-	for n > 0 {
-		// Split at natural word boundaries so an unaligned operation crossing
-		// a cache line is represented on both sides.
-		width := min(n, 8-int(a%8))
-		m.accesses = append(m.accesses, emu.MemAccess{Addr: a, Size: width, IsWrite: w})
-		a += uint64(width)
-		n -= width
-	}
-}
 func errno(n uint64) uint64 { return ^n + 1 }

@@ -31,6 +31,7 @@ Usage:
   poros run --suite <suite> --cores N   Run suite benchmarks on N cores
   poros eval                            Quick 6-benchmark evaluation
   poros elf [options] file.elf [args]    Run static Linux ELF; emit JSON result
+  poros macho --dyld path file [args]   Start Mach-O at dyld; report runtime progress
 `)
 	os.Exit(1)
 }
@@ -41,6 +42,8 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "macho":
+		os.Exit(runMachO(os.Args[2:], os.Stdout, os.Stderr))
 	case "elf":
 		os.Exit(runELF(os.Args[2:], os.Stdout, os.Stderr))
 	case "list":

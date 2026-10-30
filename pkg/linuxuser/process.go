@@ -4,7 +4,6 @@ import (
 	"debug/elf"
 	"encoding/binary"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/sarchlab/poros/pkg/emu"
@@ -205,14 +204,17 @@ func start(image *loader.ELFImage, o Options) (*Process, error) {
 		lo := s.Address &^ (loader.ELFPageSize - 1)
 		hi := (s.Address + s.MemorySize + loader.ELFPageSize - 1) &^ (loader.ELFPageSize - 1)
 		data := s.Data // fresh validated parser output, exclusively owned by this process
-		memory.regions = append(memory.regions, mappedRegion{Mapping{lo, hi, s.Flags}, data})
+		if err := memory.mapRegion(lo, hi-lo, s.Flags, data); err != nil {
+			return nil, err
+		}
 	}
-	memory.regions = append(memory.regions, mappedRegion{Mapping{base, StackTop, elf.PF_R | elf.PF_W}, stack})
-	sort.Slice(memory.regions, func(i, j int) bool { return memory.regions[i].Start < memory.regions[j].Start })
+	if err := memory.mapRegion(base, size, elf.PF_R|elf.PF_W, stack); err != nil {
+		return nil, err
+	}
 	return &Process{Registers: emu.Registers{PC: image.Entry, SP: base + sp}, Memory: memory}, nil
 }
 
 // String returns a concise startup witness suitable for diagnostics.
 func (p *Process) String() string {
-	return fmt.Sprintf("PC=%#x SP=%#x mappings=%d", p.Registers.PC, p.Registers.SP, len(p.Memory.regions))
+	return fmt.Sprintf("PC=%#x SP=%#x mappings=%d", p.Registers.PC, p.Registers.SP, len(p.Memory.Mappings()))
 }

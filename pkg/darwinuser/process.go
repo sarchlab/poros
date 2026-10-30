@@ -1,0 +1,193 @@
+// Package darwinuser starts ordinary Mach-O programs at the real dyld entry.
+// Runtime bring-up is incremental: missing ISA or OS interfaces stop explicitly.
+package darwinuser
+
+import (
+	"encoding/binary"
+	"fmt"
+	"strings"
+
+	"github.com/sarchlab/poros/pkg/emu"
+	"github.com/sarchlab/poros/pkg/loader"
+	"github.com/sarchlab/poros/pkg/usermem"
+)
+
+const (
+	DyldBase         uint64 = 0x700000000
+	StackTop         uint64 = 0x800000000
+	DefaultStackSize uint64 = 1 << 20
+	MaxStackSize     uint64 = 8 << 20
+	MaxArgumentBytes        = 128 << 10
+	MaxArgumentCount        = 4096
+)
+
+type Options struct {
+	Args, Env []string
+	ExecName  string
+	StackSize uint64
+}
+type Identity struct {
+	SHA256  string `json:"sha256"`
+	UUID    string `json:"uuid"`
+	Subtype uint32 `json:"subtype"`
+}
+
+// Process owns memory and registers. Runtime bytes are read-only host inputs;
+// neither host environment nor host library calls are inherited by the guest.
+type Process struct {
+	Registers    emu.Registers
+	Memory       *usermem.AddressSpace
+	Binary, Dyld Identity
+	MainEntry    uint64
+	ran          bool
+}
+
+// Load snapshots an executable and an explicitly supplied dyld file. It never
+// follows a guest dylinker/dylib path onto the host filesystem automatically.
+func Load(path, dyldPath string, o Options) (*Process, error) {
+	image, e := loader.LoadMachO(path, loader.MachOExecutable)
+	if e != nil {
+		return nil, e
+	}
+	dyld, e := loader.LoadMachO(dyldPath, loader.MachODylinker)
+	if e != nil {
+		return nil, e
+	}
+	return start(image, dyld, o)
+}
+func Parse(binary, dyld []byte, o Options) (*Process, error) {
+	image, e := loader.ParseMachO(binary, loader.MachOExecutable)
+	if e != nil {
+		return nil, e
+	}
+	runtime, e := loader.ParseMachO(dyld, loader.MachODylinker)
+	if e != nil {
+		return nil, e
+	}
+	return start(image, runtime, o)
+}
+func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
+	if len(o.Args) == 0 {
+		o.Args = []string{"program"}
+	}
+	if o.ExecName == "" {
+		o.ExecName = o.Args[0]
+	}
+	if len(o.Args) > MaxArgumentCount || len(o.Env) > MaxArgumentCount {
+		return nil, fmt.Errorf("Darwin startup: too many arguments/environment entries")
+	}
+	apple := []string{"executable_path=" + o.ExecName}
+	total := 0
+	for _, list := range [][]string{o.Args, o.Env, apple} {
+		for _, s := range list {
+			if strings.IndexByte(s, 0) >= 0 || len(s) >= MaxArgumentBytes-total {
+				return nil, fmt.Errorf("Darwin startup: invalid/oversized string payload")
+			}
+			total += len(s) + 1
+		}
+	}
+	size := o.StackSize
+	if size == 0 {
+		size = image.StackSize
+	}
+	if size == 0 {
+		size = DefaultStackSize
+	}
+	if size < loader.MachOPageSize || size > MaxStackSize || size%loader.MachOPageSize != 0 {
+		return nil, fmt.Errorf("Darwin startup: stack must be 16 KiB aligned, between 16 KiB and 8 MiB")
+	}
+	memory := &usermem.AddressSpace{}
+	type span struct{ lo, hi uint64 }
+	reserved := []span{{StackTop - size, StackTop}}
+	mapImage := func(img *loader.MachOImage, slide uint64) error {
+		for _, s := range img.Segments {
+			if s.Size == 0 {
+				continue
+			}
+			if slide > (1<<48)-s.Address-s.Size {
+				return fmt.Errorf("Darwin startup: relocated segment overflows address space")
+			}
+			lo, hi := s.Address+slide, s.Address+slide+s.Size
+			for _, r := range reserved {
+				if lo < r.hi && r.lo < hi {
+					return fmt.Errorf("Darwin startup: overlapping reserved/image/stack ranges")
+				}
+			}
+			reserved = append(reserved, span{lo, hi})
+			if s.Protection == 0 {
+				continue
+			}
+			flags := usermem.Permission(0)
+			if s.Protection&1 != 0 {
+				flags |= usermem.Read
+			}
+			if s.Protection&2 != 0 {
+				flags |= usermem.Write
+			}
+			if s.Protection&4 != 0 {
+				flags |= usermem.Execute
+			}
+			if err := memory.Map(lo, s.Size, flags, s.Data); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := mapImage(image, 0); err != nil {
+		return nil, err
+	}
+	// A fixed slide is explicit simulator startup state, not a host ASLR sample.
+	if err := mapImage(dyld, DyldBase); err != nil {
+		return nil, err
+	}
+	stack := make([]byte, size)
+	sp := size
+	base := StackTop - size
+	putStrings := func(ss []string) ([]uint64, error) {
+		ptrs := make([]uint64, len(ss))
+		for i, s := range ss {
+			n := uint64(len(s) + 1)
+			if n > sp {
+				return nil, fmt.Errorf("Darwin startup: stack overflow")
+			}
+			sp -= n
+			copy(stack[sp:], s)
+			ptrs[i] = base + sp
+		}
+		return ptrs, nil
+	}
+	args, e := putStrings(o.Args)
+	if e != nil {
+		return nil, e
+	}
+	env, e := putStrings(o.Env)
+	if e != nil {
+		return nil, e
+	}
+	ap, e := putStrings(apple)
+	if e != nil {
+		return nil, e
+	}
+	// dyldStartup.s kernel contract: mh, argc, argv[], NULL, env[], NULL,
+	// apple[], NULL. This is not the LC_MAIN C calling convention.
+	words := []uint64{image.HeaderAddress, uint64(len(args))}
+	words = append(words, args...)
+	words = append(words, 0)
+	words = append(words, env...)
+	words = append(words, 0)
+	words = append(words, ap...)
+	words = append(words, 0)
+	n := uint64(len(words)) * 8
+	if n > sp {
+		return nil, fmt.Errorf("Darwin startup: stack overflow")
+	}
+	sp = (sp - n) &^ 15
+	for i, w := range words {
+		binary.LittleEndian.PutUint64(stack[sp+uint64(i)*8:], w)
+	}
+	if err := memory.Map(base, size, usermem.Read|usermem.Write, stack); err != nil {
+		return nil, err
+	}
+	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
+	return &Process{Registers: emu.Registers{PC: dyld.ThreadEntry + DyldBase, SP: base + sp}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
+}
