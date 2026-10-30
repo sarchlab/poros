@@ -77,14 +77,19 @@ simulator host cost are not substituted. Each output and exit status is checked.
 Scalar outputs use independent arithmetic oracles. The MVT oracle forms exact
 integer dot-product numerators and converts once, independently of the guest’s
 sequential floating-point accumulation. Every finite element must satisfy
-`abs(got-want) <= max(1e-11, 1e-12*abs(want))`; output truncation and NaN/Inf fail.
+`abs(got-want) <= max(1e-11, 1e-12*max(abs(got), abs(want)))`; output truncation and NaN/Inf fail.
 Functional and timing executions must have identical output bytes and instruction
 counts in addition to each passing the independent oracle.
 
 `m2-linuxvm-user-v2.json` contains all 24 cases and all 504 samples from the first
 successful capture, plus system time, source/build/binary/input identities,
 measurement harness and imported contract hashes, container image identity and
-hardware description. It was collected on an Apple M2 Mac14,3 with 24 GiB RAM using
+hardware description. Active comparisons intentionally bind the exact native collector and
+`workload_contract.py` bytes: any edit to either file, including a validator or
+comment change, requires a fresh capture. This conservative provenance policy
+has no hash bypass; retained historical bundles remain self-contained.
+
+It was collected on an Apple M2 Mac14,3 with 24 GiB RAM using
 native ARM64 execution in a Docker Linux VM. No QEMU timing is used. Heavy local
 simulation/testing was paused, but exclusive host isolation, aggregate host load,
 core type and instantaneous frequency were not measured or controlled. VM user

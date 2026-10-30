@@ -205,7 +205,6 @@ def bundle(report_path, source, output, commit):
             raise ValueError("reference does not match report")
         if digest(manifest) != report["reference"]["manifest_sha256"]:
             raise ValueError("manifest does not match report")
-        inputs = read(manifest)
         evidence = {
             "reference.json": reference,
             "manifest.json": manifest,
@@ -483,7 +482,7 @@ def detail(report, entry, preview=False):
                 ("Full Evaluation", entry.get("evaluation_conclusion", "not checked")),
                 (
                     "Usable references",
-                    f"{usable} / {len(report_manifest(report)['cases']) if report.get('artifact_status') == 'pass' else len(cases)}",
+                    f"{usable} / {len(report_manifest(report)['cases']) if report.get('artifact_status') == 'pass' else '—'}",
                 ),
                 ("Hardware accuracy", report["accuracy_status"]),
             ]
@@ -532,9 +531,7 @@ def detail(report, entry, preview=False):
             '<div class="card">'
             + esc(split)
             + "<strong>"
-            + esc(
-                f'{summary.get("comparable", 0)} / {summary.get("required", 2 if split == "calibration" else 4)}'
-            )
+            + esc(f'{summary.get("comparable", "—")} / {summary.get("required", "—")}')
             + "</strong><p>Mean head error: "
             + number(summary.get("head", {}).get("mean_error_percent"), "%")
             + "<br>Maximum: "
@@ -960,7 +957,9 @@ def home(index):
         )
         for split in ("calibration", "held_out"):
             summary = e["summary"].get(split, {})
-            coverage = f'{summary.get("comparable", 0)}/{summary.get("required", 2 if split == "calibration" else 4)}'
+            coverage = (
+                f'{summary.get("comparable", "—")}/{summary.get("required", "—")}'
+            )
             body += (
                 "<td>"
                 + number(summary.get("head", {}).get("mean_error_percent"), "%")

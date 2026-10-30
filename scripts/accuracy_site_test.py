@@ -321,6 +321,44 @@ class AccuracySiteTest(unittest.TestCase):
         )
         self.assertIn("10.0000% (2/12)", site.home(index))
 
+    def test_failure_coverage_never_invents_legacy_or_partial_totals(self):
+        for partial in (False, True):
+            with self.subTest(partial=partial):
+                commit = revision(30 + int(partial))
+                if partial:
+                    report, _ = site.validate_bundle(self.bundle(commit), commit)
+                    report.update(
+                        artifact_status="fail", error="interrupted after one case"
+                    )
+                    report["cases"] = report["cases"][:1]
+                    report.pop("summary")
+                    raw = self.root / "partial.json"
+                    site.write(raw, report)
+                    raw.with_suffix(".md").write_text(report["error"])
+                    bundle = self.root / "partial-bundle"
+                    site.bundle(raw, ROOT, bundle, commit)
+                else:
+                    bundle = self.bundle(commit, False)
+                index = site.archive(
+                    self.pages,
+                    bundle,
+                    self.metadata(commit, conclusion="failure"),
+                    [commit, revision(30)],
+                )
+                detail = (
+                    self.pages / "calibration/runs" / commit / "index.html"
+                ).read_text()
+                self.assertIn("Usable references<strong>0 / —", detail)
+                self.assertIn("calibration<strong>— / —", detail)
+                self.assertIn("held_out<strong>— / —", detail)
+                self.assertNotIn("0 / 2", detail)
+                self.assertNotIn("0 / 4", detail)
+                self.assertNotIn("0 / 1", detail)
+                home = site.home(index)
+                self.assertIn("— (—/—)", home)
+                self.assertNotIn("(0/2)", home)
+                self.assertNotIn("(0/4)", home)
+
     def test_zero_errors_plotted_and_scatter_not_connected(self):
         chart = site.chart(
             "zero", [("head", [(1, 0, "perfect")], "#000")], "x", "error"

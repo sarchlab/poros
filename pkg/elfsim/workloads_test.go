@@ -50,7 +50,7 @@ func TestMVTCompleteELF(t *testing.T) {
 					}
 					want := float64(numerator) / (n * n)
 					got := math.Float64frombits(binary.LittleEndian.Uint64(result.Stdout[8*(half*n+i):]))
-					if math.IsNaN(got) || math.IsInf(got, 0) || math.Abs(got-want) > 1e-11+1e-12*math.Abs(want) {
+					if math.IsNaN(got) || math.IsInf(got, 0) || math.Abs(got-want) > math.Max(1e-11, 1e-12*math.Max(math.Abs(got), math.Abs(want))) {
 						t.Fatalf("output[%d]=%g want %g", half*n+i, got, want)
 					}
 				}
