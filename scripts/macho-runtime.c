@@ -1,6 +1,7 @@
 // Read only documented nonsecret CPU/runtime capabilities, never a raw commpage.
 // XNU osfmk/arm/cpu_capabilities.h defines these stable ARM64 commpage offsets.
 #include <stdint.h>
+#include <sys/sysctl.h>
 #include <mach-o/dyld_images.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -115,6 +116,15 @@ static int exclusive_probe(void) {
  }
  return 1;
 }
+static int print_sysctl_names(void) {
+ const char *name="security.mac.lockdown_mode_state";
+ int mib[24];size_t count=24;
+ if(sysctlnametomib(name,mib,&count)||count==0||count>24)return 1;
+ printf("[{\"name\":\"%s\",\"mib\":[",name);
+ for(size_t i=0;i<count;i++)printf("%s%d",i?",":"",mib[i]);
+ printf("]}]");
+ return 0;
+}
 int main(void) {
     if(!pointer_strip_probe()||!exclusive_probe()||!exclusive_signature())return 5;
     const volatile uint8_t *p = (const volatile uint8_t *)0xfffffc000ULL;
@@ -147,5 +157,6 @@ int main(void) {
     printf(",\"exclusive_monitor\":\"m2-local-64-byte\",\"native_dyld\":");if(print_native_dyld()!=0)return 7;
     printf(",\"pointer_strip\":\"darwin-47-bit\",\"cache_dynamic\":");
     if(print_cache_dynamic()!=0)return 4;
+    printf(",\"sysctl_names\":");if(print_sysctl_names()!=0)return 8;
     puts("}");
 }

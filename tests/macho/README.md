@@ -25,8 +25,9 @@ and reserved its released address range through a real `mach_msg2`/`mach_vm_map`
 request. The 24 retained cases reach 1,471,269–1,556,144 instructions at that same
 read-only syscall-permission query. They have not reached benchmark main.
 That snapshot predates the selected sandbox-query handler. Current single-case
-validation reaches BSD 202 (`__sysctl` NAME2OID for
-`security.mac.lockdown_mode_state`) after 1,472,048 instructions for integer/1000.
+validation completes the selected NAME2OID lookup, then reaches BSD 202
+(`__sysctl` numeric value query for `security.mac.lockdown_mode_state`) after
+1,472,062 instructions for integer/1000. The attribute value remains unmodeled.
 The 24-case samples have not been relabeled as a run of this newer collector.
 
 `scripts/macho-startup.c` captures documented kernel apple metadata from each
@@ -148,3 +149,13 @@ unlisted syscalls, other policies/operations, and partial copyout faults remain
 explicitly unsupported. The collector launches its metadata helper in an owned
 process group, terminates that group and waits for the helper on every completion path, including
 timeout, error and malformed output, so suspended children cannot escape cleanup.
+
+Selected sysctl name/OID associations are captured independently of their values.
+Seventeen native NAME2OID cases verify input termination, size-only queries,
+whole-OID copyout, short-buffer errors, output protection, and error-side length
+preservation. Unknown names do not imply observed absence; unsupported namespace
+queries fail explicitly. Invalid non-null/read-only length pointers and mixed
+copyout permissions remain unsupported because their native contract is not
+established. The helper's recorded lockdown value is contextual probe evidence,
+not a value installed into guest programs. Per-image value semantics and the
+broader Darwin compatibility boundary remain under design discussion.

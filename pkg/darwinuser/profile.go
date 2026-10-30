@@ -7,10 +7,11 @@ import (
 	"github.com/sarchlab/poros/pkg/usermem"
 )
 
-// RuntimeProfile supplies selected nonsecret commpage fields captured on the
-// native reference host. Unmodeled fields remain unmapped, not guessed as zero.
+// RuntimeProfile supplies selected nonsecret kernel/runtime state captured on the
+// native reference host. Unmodeled commpage fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
+	SysctlNames        []SysctlName         `json:"sysctl_names,omitempty"`
 	ExclusiveMonitor   string               `json:"exclusive_monitor,omitempty"`
 	NativeDyld         *RuntimeDyldIdentity `json:"native_dyld,omitempty"`
 	PointerStrip       string               `json:"pointer_strip,omitempty"`

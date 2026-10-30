@@ -73,6 +73,11 @@ func Parse(binary, dyld []byte, o Options) (*Process, error) {
 	return start(image, runtime, o)
 }
 func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
+	if o.RuntimeProfile != nil {
+		if err := validateSysctlNames(o.RuntimeProfile.SysctlNames); err != nil {
+			return nil, err
+		}
+	}
 	if o.RuntimeProfile != nil && o.RuntimeProfile.NativeDyld != nil {
 		n := o.RuntimeProfile.NativeDyld
 		if n.UUID == "" || n.UUID != dyld.UUID || n.Subtype != dyld.Subtype {
@@ -291,6 +296,11 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	alignment := emu.AtomicNaturalAlignment
 	if o.RuntimeProfile != nil && o.RuntimeProfile.AtomicAlignment == "within-16-byte" {
 		alignment = emu.AtomicWithin16Bytes
+	}
+	if o.RuntimeProfile != nil {
+		for _, name := range o.RuntimeProfile.SysctlNames {
+			kernel.sysctlNames = append(kernel.sysctlNames, SysctlName{Name: name.Name, MIB: append([]int32(nil), name.MIB...)})
+		}
 	}
 	if o.RuntimeProfile != nil && o.RuntimeProfile.CSRConfig != nil {
 		config := *o.RuntimeProfile.CSRConfig

@@ -1733,6 +1733,179 @@
           "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
         }
       ]
+    },
+    {
+      "source": "sysctl-name-probe.c",
+      "source_sha256": "9f02bca105f96995789272ab6a560734619ed7d436d45323f1b061c07f8cb32e",
+      "architecture": "arm64",
+      "binary_sha256": "604406f93751013a9aea15a0c11f13a85f7aa99b4faac6675c14371d81b8ab35",
+      "result": {
+        "name": "security.mac.lockdown_mode_state",
+        "mib": [
+          102,
+          100,
+          101
+        ],
+        "value_result": -1,
+        "value_errno": 1,
+        "value": -1,
+        "value_length": 4,
+        "cases": [
+          {
+            "case": "ordinary",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "initial_capacity": 56,
+            "final_length": 12,
+            "output_hex": "660000006400000065000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "include_nul",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "initial_capacity": 56,
+            "final_length": 12,
+            "output_hex": "660000006400000065000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "trailing_dot",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "initial_capacity": 56,
+            "final_length": 12,
+            "output_hex": "660000006400000065000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "embedded_nul_tail",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "initial_capacity": 56,
+            "final_length": 12,
+            "output_hex": "660000006400000065000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "size_only",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "initial_capacity": 56,
+            "final_length": 12,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "zero_capacity",
+            "x0": 12,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 0,
+            "final_length": 0,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "one_byte_capacity",
+            "x0": 12,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 1,
+            "final_length": 0,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "four_byte_capacity",
+            "x0": 12,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 4,
+            "final_length": 0,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "short_capacity",
+            "x0": 12,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 11,
+            "final_length": 0,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "exact_capacity",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "initial_capacity": 12,
+            "final_length": 12,
+            "output_hex": "660000006400000065000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "readonly_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 56,
+            "final_length": 56,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "null_length",
+            "x0": 12,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 56,
+            "final_length": 56,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "bad_mib",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 56,
+            "final_length": 56,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "bad_new_pointer",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 56,
+            "final_length": 56,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "empty_input",
+            "x0": 2,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 56,
+            "final_length": 56,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "too_long_input",
+            "x0": 63,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 56,
+            "final_length": 56,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "unknown_name",
+            "x0": 2,
+            "x1": 0,
+            "carry": true,
+            "initial_capacity": 56,
+            "final_length": 56,
+            "output_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          }
+        ]
+      }
     }
   ]
 }
