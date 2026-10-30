@@ -61,7 +61,7 @@ class AccuracySiteTest(unittest.TestCase):
         return output
 
     def metadata(self, commit, kind="main", conclusion="success", run=1, attempt=1):
-        return {"commit": commit, "kind": kind, "conclusion": conclusion, "run_id": run, "run_attempt": attempt, "run_url": f"https://github.com/sarchlab/poros/actions/runs/{run}/attempts/{attempt}", **({"release": {"id": run, "tag": "v1.0"}} if kind == "release" else {})}
+        return {"commit": commit, "kind": kind, "conclusion": conclusion, "evaluation_conclusion": conclusion, "run_id": run, "run_attempt": attempt, "run_url": f"https://github.com/sarchlab/poros/actions/runs/{run}/attempts/{attempt}", **({"release": {"id": run, "tag": "v1.0"}} if kind == "release" else {})}
 
     def test_keep_twenty_plus_releases_and_preserve_unrelated(self):
         order = [revision(n) for n in range(25, 0, -1)]
@@ -207,6 +207,7 @@ class AccuracySiteTest(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", evaluation)
         self.assertNotIn("contents: write", evaluation)
         self.assertIn("retention-days: 30", evaluation)
+        self.assertIn("name: user-time-accuracy-${{ github.run_attempt }}", evaluation)
         self.assertIn("github.event_name == 'pull_request' && github.ref || github.run_id", evaluation)
         self.assertIn("types: [completed]", publishing)
         self.assertIn("branches: [main]", publishing)
@@ -218,6 +219,25 @@ class AccuracySiteTest(unittest.TestCase):
         self.assertIn("format('refs/tags/{0}', github.event.release.tag_name) || github.sha", publishing)
         self.assertIn("pages: write", publishing)
         self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", publishing)
+
+    def test_attempt_scoped_artifacts_and_failed_job_rerun(self):
+        artifacts = [{"name": "user-time-accuracy-1", "expired": False}, {"name": "user-time-accuracy-3", "expired": False}, {"name": "user-time-accuracy-2", "expired": True}]
+        self.assertEqual(publisher.choose_artifact(artifacts, 2)[0], 1)
+        self.assertEqual(publisher.choose_artifact(artifacts, 3)[0], 3)
+        self.assertEqual(publisher.choose_artifact(artifacts, 1)[0], 1)
+        self.assertEqual(publisher.choose_artifact([], 2), (None, None))
+
+    def test_manual_report_success_does_not_imply_full_evaluation_success(self):
+        commit = revision(1)
+        metadata = self.metadata(commit)
+        metadata["evaluation_conclusion"] = "failure"
+        index = site.archive(self.pages, self.bundle(commit), metadata, [commit])
+        self.assertIsNone(index["latest_success"])
+        with patch.object(publisher, "api", return_value={"workflow_runs": []}):
+            self.assertEqual(publisher.evaluation_for_commit(commit)["evaluation_conclusion"], "not checked")
+        wrong = {"head_sha": revision(2), "head_branch": "main", "event": "push", "head_repository": {"full_name": site.REPO}}
+        with patch.object(publisher, "api", return_value={"workflow_runs": [wrong]}):
+            with self.assertRaises(ValueError): publisher.evaluation_for_commit(commit)
 
     def test_pages_build_must_include_published_commit(self):
         expected = revision(2)

@@ -4,7 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
-import shutil
+import hashlib
 import subprocess
 import tempfile
 import time
@@ -31,7 +31,7 @@ def verify_source(source, bundle, commit):
         raise ValueError("report source inventory differs from the recorded commit")
     for path in paths:
         data = subprocess.check_output(["git", "-C", str(source), "show", commit + ":" + path])
-        if site.hashlib.sha256(data).hexdigest() != report["head"]["files"][path]:
+        if hashlib.sha256(data).hexdigest() != report["head"]["files"][path]:
             raise ValueError("report source hash differs from commit: " + path)
     bindings = {"reference.json": "evaluation/usertime/m2-linuxvm-user-v1.json", "manifest.json": "tests/usertime/manifest.json", "native_usertime.py": "scripts/native_usertime.py"}
     bindings.update({n: "tests/usertime/" + n[7:] for n in manifest["files"] if n.startswith("inputs/")})
@@ -55,7 +55,7 @@ def assert_event(event, event_name):
         for key in ("head_sha", "head_branch", "event", "workflow_id", "conclusion", "run_attempt"):
             if actual[key] != workflow[key]:
                 raise ValueError("workflow attempt identity changed")
-        return {"commit": site.sha(workflow["head_sha"]), "kind": "main", "conclusion": workflow["conclusion"], "run_id": workflow["id"], "run_attempt": workflow["run_attempt"], "run_url": workflow["html_url"] + '/attempts/' + str(workflow["run_attempt"])}
+        return {"commit": site.sha(workflow["head_sha"]), "kind": "main", "conclusion": workflow["conclusion"], "run_id": workflow["id"], "run_attempt": workflow["run_attempt"], "run_url": workflow["html_url"] + '/attempts/' + str(workflow["run_attempt"]), "evaluation_conclusion": workflow["conclusion"], "evaluation_run_url": workflow["html_url"] + '/attempts/' + str(workflow["run_attempt"])}
     if event_name == "release":
         release = event["release"]
         if event["action"] != "published" or release["draft"]:
@@ -66,6 +66,27 @@ def assert_event(event, event_name):
             raise ValueError("manual publication must run from main")
         return {"kind": "main"}
     raise ValueError("unsupported publication event")
+
+
+def choose_artifact(artifacts, attempt):
+    """A failed-jobs rerun may legitimately reuse an earlier same-run capture."""
+    candidates = []
+    for artifact in artifacts:
+        match = site.re.fullmatch(r"user-time-accuracy-([1-9][0-9]*)", artifact["name"])
+        if match and not artifact["expired"] and int(match.group(1)) <= attempt:
+            candidates.append((int(match.group(1)), artifact))
+    return max(candidates, key=lambda item: item[0], default=(None, None))
+
+
+def evaluation_for_commit(commit):
+    response = api(f"repos/{REPO}/actions/workflows/evaluation.yml/runs?branch=main&event=push&head_sha={commit}&per_page=1")
+    runs = response["workflow_runs"]
+    if not runs:
+        return {"evaluation_conclusion": "not checked"}
+    workflow = runs[0]
+    if workflow["head_sha"] != commit or workflow["head_branch"] != "main" or workflow["event"] != "push" or workflow["head_repository"]["full_name"] != REPO:
+        raise ValueError("full Evaluation proof does not match the target")
+    return {"evaluation_conclusion": workflow.get("conclusion") or workflow["status"], "evaluation_run_url": workflow["html_url"] + '/attempts/' + str(workflow["run_attempt"])}
 
 
 def wait_pages(expected, checkout, timeout=600):
@@ -133,21 +154,34 @@ def main():
     metadata = assert_event(event, args.event_name)
     source, bundle = Path(args.source).resolve(), Path(args.bundle).resolve()
     if args.event_name == "workflow_run":
-        downloaded = run("gh", "run", "download", str(metadata["run_id"]), "--repo", REPO, "--name", "user-time-accuracy", "--dir", str(bundle), check=False)
-        if downloaded.returncode or not (bundle / "bundle.json").is_file():
+        artifacts = []
+        page = 1
+        while True:
+            batch = api(f'repos/{REPO}/actions/runs/{metadata["run_id"]}/artifacts?per_page=100&page={page}')
+            artifacts.extend(batch["artifacts"])
+            if len(batch["artifacts"]) < 100:
+                break
+            page += 1
+        evidence_attempt, artifact = choose_artifact(artifacts, metadata["run_attempt"])
+        downloaded = None
+        if artifact:
+            downloaded = run("gh", "run", "download", str(metadata["run_id"]), "--repo", REPO, "--name", artifact["name"], "--dir", str(bundle), check=False)
+        if downloaded is None or downloaded.returncode or not (bundle / "bundle.json").is_file():
             bundle.mkdir(parents=True, exist_ok=True)
             site.failure(bundle, metadata["commit"], "Evaluation did not produce an accuracy bundle; inspect its run logs.")
             site.bundle(bundle / "report.json", source, bundle / "missing", metadata["commit"])
             bundle = bundle / "missing"
         else:
             identity = site.read(bundle / "bundle.json")
-            if str(identity.get("run_id")) != str(metadata["run_id"]) or str(identity.get("run_attempt")) != str(metadata["run_attempt"]):
+            if str(identity.get("run_id")) != str(metadata["run_id"]) or str(identity.get("run_attempt")) != str(evidence_attempt):
                 raise ValueError("artifact came from a different workflow attempt")
+            metadata["evidence_run_url"] = f'https://github.com/{REPO}/actions/runs/{metadata["run_id"]}/attempts/{evidence_attempt}'
     else:
         run("git", "fetch", "origin", "main", "--tags", cwd=source)
         ref = 'refs/tags/' + metadata["release"]["tag"] if metadata["kind"] == "release" else os.environ["GITHUB_SHA"]
         metadata["commit"] = site.sha(site.git(source, "rev-parse", "--verify", ref + "^{commit}"))
-        metadata.update(conclusion=args.build_conclusion, run_url=f'https://github.com/{REPO}/actions/runs/{os.environ["GITHUB_RUN_ID"]}/attempts/{os.environ["GITHUB_RUN_ATTEMPT"]}')
+        metadata.update(conclusion=args.build_conclusion, run_id=int(os.environ["GITHUB_RUN_ID"]), run_attempt=int(os.environ["GITHUB_RUN_ATTEMPT"]), run_url=f'https://github.com/{REPO}/actions/runs/{os.environ["GITHUB_RUN_ID"]}/attempts/{os.environ["GITHUB_RUN_ATTEMPT"]}')
+        metadata.update(evaluation_for_commit(metadata["commit"]))
         if metadata["kind"] == "release":
             metadata["release"]["publication_run_url"] = metadata["run_url"]
         # The build job records its exact target; a moving tag/main must not mislabel it.

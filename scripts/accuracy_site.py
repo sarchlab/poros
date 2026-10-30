@@ -135,7 +135,7 @@ def bundle(report_path, source, output, commit):
             files.append(name)
     write(output / "bundle.json", {"schema": SCHEMA, "commit": commit, "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"), "files": {p: digest(output / p) for p in sorted(files)}})
     validate_bundle(output, commit)
-    (output / "index.html").write_text(detail(report, {"commit": commit, "conclusion": "preview", "run_url": "", "releases": []}, preview=True))
+    (output / "index.html").write_text(detail(report, {"commit": commit, "conclusion": "preview", "run_url": "", "releases": [], "evidence_files": files, "measurement_completed_at": read(output / "reference.json").get("completed_at_utc") if report["artifact_status"] == "pass" else None}, preview=True))
 
 
 def validate_bundle(path, commit):
@@ -239,7 +239,7 @@ def detail(report, entry, preview=False):
     body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> Current reference is an Apple M2 host running a Linux ARM64 VM; core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
     cases = report.get("cases", [])
     usable = sum(c.get("reference_quality") == "usable" for c in cases)
-    body += '<div class="cards">' + ''.join('<div class="card">' + esc(label) + '<strong>' + esc(value) + '</strong></div>' for label, value in [("Report artifact", report["artifact_status"]), ("Evaluation run", entry["conclusion"]), ("Usable references", f"{usable} / {len(REQUIRED)}"), ("Hardware accuracy", report["accuracy_status"])]) + '</div>'
+    body += '<div class="cards">' + ''.join('<div class="card">' + esc(label) + '<strong>' + esc(value) + '</strong></div>' for label, value in [("Report artifact", report["artifact_status"]), ("Full Evaluation", entry.get("evaluation_conclusion", "not checked")), ("Usable references", f"{usable} / {len(REQUIRED)}"), ("Hardware accuracy", report["accuracy_status"])]) + '</div>'
     if report.get("error"):
         body += '<p class="notice">' + esc(report["error"]) + '</p>'
     body += '<h2>Measured and predicted time</h2><p class="muted">Error = 100 × |sim − reference| / min(sim, reference). Positive Δ means a larger error. No offset fitting or anchor removal. Times are milliseconds.</p><div class="table"><table><thead><tr><th>Case / split</th><th>Reference</th><th>Quality</th><th>Base</th><th>Head</th><th>Base error</th><th>Head error</th><th>Direction</th><th>Δ pp</th></tr></thead><tbody>'
@@ -273,14 +273,19 @@ def detail(report, entry, preview=False):
     scatter = [(c["reference_user_seconds"] * 1000, c["head"]["predicted_user_seconds"] * 1000, c["id"]) for c in usable_rows]
     limit = max([max(x, y) for x, y, _ in scatter] or [1])
     body += chart("Qualified reference vs. prediction", [("ideal y = x", [(0.000001, 0.000001, "ideal"), (limit, limit, "ideal")], "#a4b5bc"), ("head", scatter, "#087e8b")], "Reference user time (ms)", "Predicted user time (ms)", scatter=True) + '</div>'
-    body += '<h2>Evidence and provenance</h2><div class="downloads"><a href="report.json">Report JSON</a><a href="report.md">Markdown report</a><a href="bundle.json">Evidence hashes</a>'
+    body += '<h2>Evidence and provenance</h2><p>Measurement completed (UTC): ' + esc(entry.get("measurement_completed_at") or "unavailable") + '</p><div class="downloads"><a href="report.json">Report JSON</a><a href="report.md">Markdown report</a><a href="bundle.json">Evidence hashes</a>'
     if report["artifact_status"] == "pass":
         body += '<a href="reference.json">Raw native samples</a><a href="manifest.json">Workloads and hardware profile</a><a href="native_usertime.py">Measurement harness</a>'
     if entry.get("run_url"):
         body += '<a href="' + esc(entry["run_url"]) + '">GitHub Actions run</a>'
+    if entry.get("evaluation_run_url") and entry["evaluation_run_url"] != entry.get("run_url"):
+        body += '<a href="' + esc(entry["evaluation_run_url"]) + '">Full Evaluation proof</a>'
     if entry.get("evidence_run_url") and entry["evidence_run_url"] != entry.get("run_url"):
         body += '<a href="' + esc(entry["evidence_run_url"]) + '">Original evidence run</a>'
     body += '<a href="https://github.com/' + REPO + '/commit/' + commit + '">Source commit</a></div>'
+    inputs = [name for name in entry.get("evidence_files", []) if name.startswith("inputs/")]
+    if inputs:
+        body += '<details><summary>Download workload sources and ELF binaries</summary><p class="downloads">' + ' '.join('<a href="' + esc(name) + '">' + esc(name[7:]) + '</a>' for name in inputs) + '</p></details>'
     body += '<details><summary>Reference environment and exact configuration</summary><pre>' + esc(json.dumps({"base_commit": report.get("base_commit"), "formula": report.get("formula"), "reference": report.get("reference"), "configuration": cases[0].get("head", {}) if cases else None}, indent=2)) + '</pre></details>'
     return page("Poros accuracy · " + commit[:12], body)
 
@@ -335,13 +340,13 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(Path(bundle_path) / name, target)
         shutil.copyfile(Path(bundle_path) / "bundle.json", destination / "bundle.json")
-        entry = {**metadata, "main": metadata["kind"] == "main" or bool(existing and existing["main"]), "artifact_status": report["artifact_status"], "accuracy_status": report["accuracy_status"], "series": series_key(report), "summary": report.get("summary", {}), "releases": existing["releases"] if existing else [], "successful_evaluation": False, "evidence_run_url": metadata["run_url"]}
+        entry = {**metadata, "main": metadata["kind"] == "main" or bool(existing and existing["main"]), "artifact_status": report["artifact_status"], "accuracy_status": report["accuracy_status"], "series": series_key(report), "summary": report.get("summary", {}), "releases": existing["releases"] if existing else [], "successful_evaluation": False, "evidence_run_url": metadata.get("evidence_run_url", metadata["run_url"]), "evidence_files": sorted(bundle_manifest["files"]), "measurement_completed_at": read(Path(bundle_path) / "reference.json").get("completed_at_utc") if report["artifact_status"] == "pass" else None}
         entries[commit] = entry
     if metadata["kind"] == "main":
-        if metadata["conclusion"] == "success" and report["artifact_status"] == "pass":
+        if metadata.get("evaluation_conclusion") == "success" and report["artifact_status"] == "pass":
             entry["successful_evaluation"] = True
         if (int(metadata.get("run_id", 0)), int(metadata.get("run_attempt", 0))) >= (int(entry.get("run_id", 0)), int(entry.get("run_attempt", 0))):
-            for key in ("conclusion", "run_id", "run_attempt", "run_url"):
+            for key in ("conclusion", "run_id", "run_attempt", "run_url", "evaluation_conclusion", "evaluation_run_url"):
                 if key in metadata:
                     entry[key] = metadata[key]
     if metadata["kind"] == "release":
@@ -386,9 +391,9 @@ def home(index):
     body = '<header><div class="eyebrow">Poros / Calibration dashboard</div><h1>Accuracy over time</h1><p class="muted">Whole-program user CPU time · Raw predictions against retained hardware observations</p></header><div class="notice"><strong>Hardware accuracy remains unverified.</strong> Report success describes evidence completeness, not an accuracy threshold. Calibration and held-out cases are reported separately.</div>'
     body += '<p id="current-main">Published snapshot of main: <code>' + esc(index["main_head"] or "unknown") + '</code>.</p>'
     latest = index["latest_success"]
-    body += '<p><strong>Latest successful main report:</strong> ' + ('<a href="runs/' + latest + '/">' + latest[:12] + '</a>' if latest else 'None yet') + '</p><h2>Report history</h2><p class="muted">Latest 20 ordinary main commits; release reports are retained permanently outside that limit. Failed and incomplete results stay visible.</p><div class="table"><table><thead><tr><th>Commit</th><th>CI</th><th>Report</th><th>Calibration mean</th><th>Held-out mean</th><th>Permanent releases</th></tr></thead><tbody>'
+    body += '<p><strong>Latest successful main report:</strong> ' + ('<a href="runs/' + latest + '/">' + latest[:12] + '</a>' if latest else 'None yet') + '</p><h2>Report history</h2><p class="muted">Latest 20 ordinary main commits; release reports are retained permanently outside that limit. Failed and incomplete results stay visible.</p><div class="table"><table><thead><tr><th>Commit</th><th>Full Evaluation</th><th>Report</th><th>Calibration mean</th><th>Held-out mean</th><th>Permanent releases</th></tr></thead><tbody>'
     for e in index["entries"]:
-        body += '<tr><td><a href="runs/' + e["commit"] + '/">' + e["commit"][:12] + '</a></td><td>' + esc(e["conclusion"]) + '</td><td><span class="badge ' + e["artifact_status"] + '">' + esc(e["artifact_status"]) + '</span></td>'
+        body += '<tr><td><a href="runs/' + e["commit"] + '/">' + e["commit"][:12] + '</a></td><td>' + esc(e.get("evaluation_conclusion", "not checked")) + '</td><td><span class="badge ' + e["artifact_status"] + '">' + esc(e["artifact_status"]) + '</span></td>'
         for split in ("calibration", "held_out"):
             body += '<td>' + number(e["summary"].get(split, {}).get("head", {}).get("mean_error_percent"), "%") + '</td>'
         body += '<td>' + esc(', '.join(r["tag"] for r in e["releases"]) or '—') + '</td></tr>'

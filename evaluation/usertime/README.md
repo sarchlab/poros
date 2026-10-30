@@ -113,13 +113,17 @@ a Pages build, then waits for a successful build that contains its publication.
 A default `GITHUB_TOKEN` push alone does not trigger a branch-based Pages build.
 
 Every PR update produces an HTML preview plus JSON/Markdown and a complete
-evidence bundle in the `user-time-accuracy` artifact, retained for 30 days. PR
+evidence bundle in the `user-time-accuracy-ATTEMPT` artifact, retained for 30 days. PR
 reports never enter the public archive. Each main push evaluates its latest
 commit; intermediate commits in one push are not individually measured.
 `Publish accuracy reports` consumes only completed main-push Evaluation runs,
-verifying their workflow, repository, commit and attempt. Failed/cancelled runs
+verifying their workflow, repository, commit and attempt. Artifact names include
+the attempt number. A rerun of failed jobs may reuse the newest earlier artifact
+from the same run and commit, preserving its original evidence-attempt link. Failed/cancelled runs
 are visible, including an explicit missing-report record when no artifact exists.
-Only a complete report with a successful Evaluation run can become the latest
+A release/manual accuracy build is not a full Evaluation run; its status is
+reported separately, and manual recovery queries full Evaluation proof for the
+exact commit before qualifying it. Only a complete report with a successful Evaluation run can become the latest
 successful main report. The homepage separately queries current main's public
 GitHub status; if that query is unavailable it labels the displayed snapshot.
 

@@ -117,7 +117,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: user-time-accuracy
+          name: user-time-accuracy-${{ github.run_attempt }}
           path: evaluation-results/accuracy-bundle/
           retention-days: 30
           if-no-files-found: error
