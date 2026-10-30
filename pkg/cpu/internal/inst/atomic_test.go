@@ -96,3 +96,64 @@ func TestOrderedMemoryDependencies(t *testing.T) {
 		}
 	}
 }
+
+func TestExclusiveDependencyAndMemoryClassification(t *testing.T) {
+	for _, tc := range []struct {
+		word        uint32
+		dst         int
+		src         []int
+		load, store bool
+	}{
+		{0x885f7c61, 1, []int{3}, true, false},
+		{0x88027c65, 2, []int{5, 3}, false, true},
+		{0x881f7c65, -1, []int{5, 3}, false, true},
+	} {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], tc.word)
+		i, err := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, f := DestRegs(i)
+		if g != tc.dst || f != -1 || !reflect.DeepEqual(SourceGPRs(i), tc.src) || IsLoad(i.Op) != tc.load || IsStore(i.Op) != tc.store || !IsBarrier(i.Op) {
+			t.Fatal(i, g, f, SourceGPRs(i))
+		}
+	}
+}
+
+func TestPartialDestinationDependencies(t *testing.T) {
+	for _, tc := range []struct {
+		word uint32
+		src  []int
+	}{{0xf2b579a1, []int{1}}, {0xb3703c41, []int{1, 2}}, {0xb340f041, []int{1, 2}}, {0xb340fc41, []int{2}}, {0x33007c41, []int{2}}} {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], tc.word)
+		i, err := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(SourceGPRs(i), tc.src) {
+			t.Fatal(i, SourceGPRs(i))
+		}
+	}
+}
+func TestNonTemporalPairDependencies(t *testing.T) {
+	// LDNP Q2,Q3,[X1] and STNP Q2,Q3,[X0]. Both vector lanes are tracked.
+	for _, word := range []uint32{0xac400c22, 0xac000c02} {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], word)
+		i, err := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if IsLoad(i.Op) {
+			_, a := DestRegs(i)
+			_, b := DestRegs2(i)
+			if a != 2 || b != 3 || !reflect.DeepEqual(SourceGPRs(i), []int{1}) {
+				t.Fatal(i, a, b, SourceGPRs(i))
+			}
+		} else if !IsStore(i.Op) || !reflect.DeepEqual(SourceFPs(i), []int{2, 3}) || !reflect.DeepEqual(SourceGPRs(i), []int{0}) {
+			t.Fatal(i, SourceFPs(i), SourceGPRs(i))
+		}
+	}
+}

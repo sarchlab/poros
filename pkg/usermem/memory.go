@@ -307,3 +307,11 @@ func (m *AddressSpace) Exchange(addr uint64, replacement, old []byte) error {
 	copy(old, current[:n])
 	return nil
 }
+
+// WriteExclusive preserves the native permission check even for a failed local
+// reservation. Only successful exclusive stores materialize/write data pages.
+func (m *AddressSpace) WriteExclusive(address uint64,data []byte,enabled bool) error {
+ if err:=m.Check(address,len(data),Write,"exclusive write");err!=nil{return err}
+ if !enabled{return nil}
+ return m.Write(address,data)
+}

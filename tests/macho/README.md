@@ -18,8 +18,9 @@ All initialization, arithmetic, output and exit remain native program work.
 Current simulator status: the loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 With the captured native profile and explicit warm shared cache, the installed
-M2 runtime reaches `mach_vm_map` after 108,676 user instructions, including its
-own chained fixups and actual cache discovery. It has not reached benchmark main.
+M2 runtime reaches `BFXIL X9,X28,#0,#61` after 298,148 user instructions for
+integer/1000, including real cache discovery and anonymous mapping. It has not
+reached benchmark main.
 This is **not successful benchmark execution or a whole-program accuracy
 measurement**. Missing dependencies remain failures with an exact guest PC.
 
@@ -60,3 +61,9 @@ Owned XPAC probes replay both instruction/data strip results on tagged and
 noncanonical synthetic values in arm64 and arm64e. LDAR/STLR probes replay 192
 native width, alignment, base-register and value cases. These extend functional
 ISA evidence; release/acquire and pointer-strip latency are not calibrated.
+
+`kernel-native-m2.json` retains the owned raw Mach mapping and SVC/exclusive
+contract probes. `isa-native-m2.json` also contains exclusive-monitor granule,
+alignment and permissions cases, MOVI/XTN vectors, and 288 independently checked
+non-temporal load/store pairs. Full 128-bit vector results and raw probe outcomes
+are retained with source/binary hashes. These are functional semantic evidence.

@@ -55,9 +55,9 @@ platform string routines. Modeled kernel calls provide task/thread/reply port
 names, thread ID/TLS, page-rounded `mach_vm_protect`, native-architecture
 crossarch errors, and CSR queries against an explicitly captured configuration.
 SVC immediates are checked by the OS runtime; they are not architectural state.
-With an explicit matching warm shared cache, the next local stop is Mach
-`mach_vm_map` (-15) at `0x7000015c0`, after 108,676 user instructions for
-integer/1000. It has not reached benchmark
+With an explicit matching warm shared cache, the next local stop is the unsupported instruction
+`BFXIL X9,X28,#0,#61` at `0x700017400`, after 298,148 user instructions
+for integer/1000. It has not reached benchmark
 main. CAS/SWP execute as real read-modify-write operations; DMB/DSB/ISB preserve
 ordering. Both timing pipelines serialize atomic/barrier operations
 conservatively. Their latency has not been calibrated against native hardware.
@@ -111,3 +111,37 @@ being enabled or disabled. Unspecified policies fail closed. It does not add
 implicit tagged-memory translation. Both timing scoreboards track the unary
 read/write dependency. LDAR/STLR use checked memory transactions and the
 measured atomic-alignment policy, with conservative acquire/release ordering.
+
+## Anonymous mappings and local exclusive accesses
+
+The anonymous `mach_vm_map` trap supports fixed/anywhere reservations with
+allocation tags, arbitrary alignment masks, page rounding, zero-filled private
+lazy pages and maximum-protection checks. First-fit allocation is deterministic;
+the complete shared region (including holes), commpage, inaccessible image spans
+and stack stay reserved. Limits are 8 GiB anonymous virtual space and 4096
+anonymous mappings, within the shared 256 MiB resident-page limit. Unsupported
+flag families and executable anonymous allocation remain explicit errors.
+Kernel copyin/map/copyout order is preserved: a failed result copyout leaves its
+mapping installed. Eleven owned native trap cases check errors and side effects.
+`getpid` returns 100 in the private single-process namespace. Current BSD calls
+clear their second result register; Mach/platform conventions remain distinct.
+
+The captured native runtime identity contains the actually running dyld UUID and
+CPU subtype. A supplied file selecting another dyld slice is rejected.
+
+LDXR/LDAXR/STXR/STLXR and CLREX use an explicit measured M2 local-monitor profile.
+The reservation covers one 64-byte granule; same-granule second exclusive loads
+can satisfy an original-address store, without an invented exact-width rule.
+Access alignment follows the independently captured 16-byte policy, with SP 16
+checks. Ordinary stores into the reserved granule clear it. Retired CAS/SWP operations
+clear it even on comparison mismatch or a different granule; handled SVC also
+clears it. Failed local
+reservations still validate write permission; faulting instructions do not
+partially store or retire. This models the single owner of a private process,
+not multicore global monitors or asynchronous invalidations. Native probes
+validate reservation interactions, permissions, 192 alignment cases and raw SVC.
+
+The required vector slice now also covers MOVI 2S/4S with LSL immediates, lower-half
+XTN narrowing and checked LDNP/STNP pairs. Pair transfers retain all-or-nothing
+fault behavior; both destinations/sources reach timing dependencies. Cache
+allocation hints and ISA latencies remain uncalibrated; no parameter was fitted.

@@ -39,6 +39,7 @@ func (e *executor) writeMemory(addr uint64, width int, b []byte) error {
 		if err := e.checked.Write(addr, b); err != nil {
 			return &memoryAccessError{err}
 		}
+		e.regs.invalidateExclusiveStore(addr, len(b))
 		return nil
 	}
 	for i := 0; i < len(b); i += width {
@@ -54,6 +55,7 @@ func (e *executor) writeMemory(addr uint64, width int, b []byte) error {
 			e.mem.WriteU64(a, binary.LittleEndian.Uint64(b[i:]))
 		}
 	}
+	e.regs.invalidateExclusiveStore(addr, len(b))
 	return nil
 }
 func memoryWidth(arg arm64asm.Arg) int {

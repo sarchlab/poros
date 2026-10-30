@@ -10,10 +10,13 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
-	nextPort        uint32
-	entropyState    uint64
-	sharedCacheBase uint64
-	csrConfig       *uint32
+	reserved          []addressSpan
+	anonymousBytes    uint64
+	anonymousMappings uint32
+	nextPort          uint32
+	entropyState      uint64
+	sharedCacheBase   uint64
+	csrConfig         *uint32
 }
 
 func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
@@ -33,6 +36,8 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return true
 	}
 	switch number {
+	case -15:
+		return k.mapAnonymous(r, m)
 	case -14: // mach_vm_protect, on this process's task map only.
 		if uint32(r.GPR[0]) != 0x103 {
 			r.GPR[0] = 0x10000003 // MACH_SEND_INVALID_DEST; kernelrpc rejects foreign task rights.
@@ -73,6 +78,9 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 			r.GPR[0] = uint64(k.nextPort)
 			k.nextPort += 4
 		}
+	case 20: // getpid in this private single-process namespace.
+		r.GPR[0] = 100
+		r.C = false
 	case 294: // warm kernel shared region; dyld still performs discovery and binding.
 		addr := r.GPR[0]
 		if addr == 0 {
@@ -160,6 +168,9 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 	default:
 		return false
 	}
+	if number >= 0 {
+		r.GPR[1] = 0
+	} // Current BSD return types have no second result.
 	return true
 }
 

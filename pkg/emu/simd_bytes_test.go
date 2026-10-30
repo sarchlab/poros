@@ -169,3 +169,89 @@ func TestByteSIMDRecordedNativeVectors(t *testing.T) {
 		t.Fatal("missing native vectors", count)
 	}
 }
+
+func TestMOVIWordLanesNativeVectors(t *testing.T) {
+	var native struct {
+		Vectors []struct {
+			Lanes, Shift, Immediate int
+			Bytes                   string
+		}
+	}
+	nativeAtomicObservation(t, "movi-probe.c", &native)
+	if len(native.Vectors) != 32 {
+		t.Fatal("native MOVI vectors missing")
+	}
+	for _, tc := range native.Vectors {
+		word := uint32(0x0f000400) | uint32(tc.Immediate>>5)<<16 | uint32(tc.Immediate&31)<<5 | uint32(tc.Shift/8)<<13 | 17
+		if tc.Lanes == 4 {
+			word |= 1 << 30
+		}
+		r := Registers{PC: 0x1000, N: true, C: true}
+		r.WriteQ(17, ^uint64(0), ^uint64(0))
+		before := r
+		if _, err := StepChecked(&r, authMemory{word}); err != nil {
+			t.Fatal(tc, err)
+		}
+		want, err := hex.DecodeString(tc.Bytes)
+		if err != nil || len(want) != 16 {
+			t.Fatal("bad native bytes")
+		}
+		if r.FP[17].Lo != binary.LittleEndian.Uint64(want) || r.FP[17].Hi != binary.LittleEndian.Uint64(want[8:]) {
+			t.Fatal(tc, r.FP[17])
+		}
+		before.FP[17] = r.FP[17]
+		before.PC += 4
+		if before != r {
+			t.Fatal("MOVI changed unrelated state")
+		}
+	}
+}
+
+func TestXTNNativeVectors(t *testing.T) {
+	var native struct {
+		Bad   int
+		Cases []struct {
+			Bits          int
+			Alias, OK     bool
+			Input, Output string
+		}
+	}
+	nativeAtomicObservation(t, "xtn-probe.c", &native)
+	if native.Bad != 0 || len(native.Cases) != 384 {
+		t.Fatal("missing native XTN cases")
+	}
+	for _, tc := range native.Cases {
+		word := uint32(0x0e212800)
+		if tc.Bits == 16 {
+			word |= 1 << 22
+		}
+		if tc.Bits == 32 {
+			word |= 2 << 22
+		}
+		src := 1
+		if tc.Alias {
+			src = 0
+		}
+		word |= uint32(src) << 5
+		input, _ := hex.DecodeString(tc.Input)
+		want, _ := hex.DecodeString(tc.Output)
+		if len(input) != 16 || len(want) != 16 || !tc.OK {
+			t.Fatal("bad native vector")
+		}
+		r := Registers{PC: 0x1000, C: true}
+		r.WriteQ(0, ^uint64(0), ^uint64(0))
+		r.WriteQ(src, binary.LittleEndian.Uint64(input), binary.LittleEndian.Uint64(input[8:]))
+		before := r
+		if _, err := StepChecked(&r, authMemory{word}); err != nil {
+			t.Fatal(tc, err)
+		}
+		if r.FP[0].Lo != binary.LittleEndian.Uint64(want) || r.FP[0].Hi != binary.LittleEndian.Uint64(want[8:]) {
+			t.Fatal(tc, r.FP[0])
+		}
+		before.FP[0] = r.FP[0]
+		before.PC += 4
+		if before != r {
+			t.Fatal("XTN changed unrelated state")
+		}
+	}
+}

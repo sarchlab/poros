@@ -43,8 +43,8 @@ functional execution. Separate mathematical tests check all 1024 option prices
 and all 64 particle likelihoods on actual registry inputs. Full-state equality
 links these functional outputs to pipeline results. Logs and evaluation reports
 identify the alternatives and require the corresponding numerical tests. All
-other workloads retain frozen digests. Only the two corrected Facesim digests changed; all other JSONL entries retain
-their historical values.
+other workloads retain frozen digests. The Facesim digests and the seven dependency-corrected cycle rows
+below are explicit exceptions; other fields retain their historical values.
 
 ## Corrected Facesim exception to historical provenance
 
@@ -53,15 +53,32 @@ input, not the v4 checkout. The previous mesh produced NaN forces and was not a
 valid numerical regression oracle. After independent all-60-force mathematical
 and native C checks, only these two digests were replaced with
 `5f67d9c4ff061f9c2fb1daab144f368d1c4d8d573f4b19187e776150d13ebd71`.
-Instructions (8166) and cycles (5392) per core did not change. The other 80 rows
-and all eight pipeline-variant rows are unchanged. `TestRegistryFacesimNumericalReference`
+Instructions (8166) and cycles (5392) per core did not change. At that correction, the other 80 rows
+and all eight pipeline-variant rows were unchanged. `TestRegistryFacesimNumericalReference`
 is required by both short and full evaluation reports; missing, skipped or failed
 reference execution rejects acceptance. There is no Facesim host-math exception.
 
 ## MVT ELF migration
 
 MVT now runs as a complete ELF program in the 24-case user-time suite. Its two
-legacy CPU rows and one initial-state fingerprint were removed; all other rows
-are unchanged. The remaining registry has 40 kernels (29 PolyBench and 11 PARSEC),
+legacy CPU rows and one initial-state fingerprint were removed; no other rows
+changed during that migration. The remaining registry has 40 kernels (29 PolyBench and 11 PARSEC),
 80 one/two-core baseline cases plus eight pipeline variants. Git history retains
 the superseded MVT fixtures for rollback.
+
+## Corrected partial-register dependencies
+
+Mach-O bring-up exposed missing old-destination dependencies in MOVK and BFI.
+Both preserve bits of the previous destination. Owned native MOVK vectors and
+focused delayed-load producer tests establish the dependency without fitting a
+hardware latency. Source classification now also handles BFM/BFXIL consistently.
+
+Three pipeline fixture cycle fields changed: raytrace/inorder 1533→1559,
+raytrace/no-bp 299→301, and blackscholes/inorder 643266→643308. Isolating MOVK
+accounts for +18, +2, +42 respectively; BFI adds 8 to raytrace/inorder; BFM changes
+none of these eight cases. Four default-OoO rows also change solely from MOVK:
+swaptions/1 97307→97308; swaptions/2 [97307,97183]→[97308,97183];
+fluidanimate/1 16230→16231; fluidanimate/2 [16230,16230]→[16231,16231].
+Isolating BFI or BFM leaves these four rows unchanged. Workload inputs, instruction counts, architectural
+digests and CPU/cache parameters are unchanged. Strict comparisons remain.
+Historical cycle values remain in Git history rather than a second golden set.

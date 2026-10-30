@@ -1,0 +1,118 @@
+{
+  "compiler": "Apple clang version 17.0.0 (clang-1700.6.3.2)\nTarget: arm64-apple-darwin27.2.0\nThread model: posix\nInstalledDir: /Library/Developer/CommandLineTools/usr/bin\n",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.2\nBuildVersion:\t\t26B123\n",
+  "observations": [
+    {
+      "source": "vm-map-probe.c",
+      "source_sha256": "69c593d4ecdd1de67d96ffdd0b43635a0b2a7a28624024ed9e588d4a21c5743e",
+      "architecture": "arm64",
+      "binary_sha256": "84acd35684844be78a98ef735051c5044818efed2ed77d7b925acbf3857555d9",
+      "result": {
+        "cases": [
+          {
+            "name": "invalid-task",
+            "return": 268435459,
+            "gap_readable": false,
+            "zero_fill": false,
+            "address_equals_gap": true,
+            "returned_mask_match": true
+          },
+          {
+            "name": "null-address-pointer",
+            "return": 10,
+            "gap_readable": false,
+            "zero_fill": false,
+            "address_equals_gap": true,
+            "returned_mask_match": true
+          },
+          {
+            "name": "bad-address-pointer",
+            "return": 10,
+            "gap_readable": false,
+            "zero_fill": false,
+            "address_equals_gap": true,
+            "returned_mask_match": true
+          },
+          {
+            "name": "zero-size",
+            "return": 4,
+            "gap_readable": false,
+            "zero_fill": false,
+            "address_equals_gap": true,
+            "returned_mask_match": true
+          },
+          {
+            "name": "one-byte-size",
+            "return": 0,
+            "gap_readable": true,
+            "zero_fill": true,
+            "address_equals_gap": true,
+            "returned_mask_match": true
+          },
+          {
+            "name": "unaligned-fixed-hint",
+            "return": 0,
+            "gap_readable": true,
+            "zero_fill": true,
+            "address_equals_gap": true,
+            "returned_mask_match": true
+          },
+          {
+            "name": "invalid-protection",
+            "return": 4,
+            "gap_readable": false,
+            "zero_fill": false,
+            "address_equals_gap": true,
+            "returned_mask_match": true
+          },
+          {
+            "name": "noncontiguous-mask",
+            "return": 0,
+            "gap_readable": true,
+            "zero_fill": true,
+            "address_equals_gap": true,
+            "returned_mask_match": true
+          },
+          {
+            "name": "maximum-mask",
+            "return": 3,
+            "gap_readable": false,
+            "zero_fill": false,
+            "address_equals_gap": true,
+            "returned_mask_match": false
+          },
+          {
+            "name": "readonly-address-pointer",
+            "return": 10,
+            "gap_readable": true,
+            "zero_fill": true,
+            "address_equals_gap": true,
+            "returned_mask_match": true
+          },
+          {
+            "name": "noncontiguous-large-anywhere-mask",
+            "return": 0,
+            "gap_readable": false,
+            "zero_fill": false,
+            "address_equals_gap": false,
+            "returned_mask_match": true
+          }
+        ]
+      }
+    },
+    {
+      "source": "exclusive-svc-probe.c",
+      "source_sha256": "a4ddfcbe0464bfad9c3ee7a3da3f46575f8fffef9daef2b68bcfe4a5bc2417d7",
+      "architecture": "arm64",
+      "binary_sha256": "e7b58d939b46a3ee66018e09d66c03785085dd2c1aa9c1978acf3df70f64bc25",
+      "result": {
+        "iterations": 100,
+        "control_success": 100,
+        "control_failed": 0,
+        "svc_success": 0,
+        "svc_failed": 100,
+        "bad": 0
+      }
+    }
+  ]
+}

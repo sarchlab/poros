@@ -17,11 +17,13 @@ type executor struct {
 // execute dispatches a decoded instruction to the appropriate handler.
 // Returns true if the instruction updated PC (branch), false otherwise.
 func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
-	if byteSIMDForm(inst.Enc) != 0 {
-		e.execByteSIMD(inst.Enc)
+	if simdForm(inst.Enc) != 0 {
+		e.execSIMD(inst.Enc)
 		return false, nil
 	}
 	switch inst.Op {
+	case arm64asm.LDXR, arm64asm.LDAXR, arm64asm.STXR, arm64asm.STLXR, arm64asm.CLREX:
+		return false, e.execExclusive(inst)
 	case arm64asm.DMB, arm64asm.DSB, arm64asm.ISB:
 		option := (inst.Enc >> 8) & 15
 		if inst.Op == arm64asm.ISB {
@@ -191,7 +193,7 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execLDURSH(inst)
 	case arm64asm.LDURSW:
 		return false, e.execLDURSW(inst)
-	case arm64asm.LDP:
+	case arm64asm.LDP, arm64asm.LDNP:
 		return false, e.execLDP(inst)
 	case arm64asm.LDPSW:
 		return false, e.execLDPSW(inst)
@@ -209,7 +211,7 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execSTURB(inst)
 	case arm64asm.STURH:
 		return false, e.execSTURH(inst)
-	case arm64asm.STP:
+	case arm64asm.STP, arm64asm.STNP:
 		return false, e.execSTP(inst)
 
 	// Branch

@@ -186,3 +186,28 @@ func TestEntropyBoundsFaultsAndDeterminism(t *testing.T) {
 		t.Fatal("entropy state contract")
 	}
 }
+
+func TestPrivatePIDAndBSDSecondReturn(t *testing.T) {
+	k := kernelState{}
+	m := &usermem.AddressSpace{}
+	for _, number := range []uint64{20, 38, 372, 500} {
+		r := emu.Registers{C: true, N: true}
+		r.GPR[16] = number
+		r.GPR[1] = 99
+		if number == 500 {
+			r.GPR[1] = 0
+		}
+		if !k.trap(&r, m) || r.GPR[1] != 0 || !r.N {
+			t.Fatal(number, r.GPR[:2])
+		}
+		if number == 20 && (r.GPR[0] != 100 || r.C) {
+			t.Fatal("getpid namespace result")
+		}
+	}
+	r := emu.Registers{C: true}
+	r.GPR[16] = 0xffffffe4
+	r.GPR[1] = 99
+	if !k.trap(&r, m) || r.GPR[1] != 99 || !r.C {
+		t.Fatal("Mach ABI return was changed")
+	}
+}

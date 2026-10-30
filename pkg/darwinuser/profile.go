@@ -11,6 +11,8 @@ import (
 // native reference host. Unmodeled fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
+	ExclusiveMonitor   string               `json:"exclusive_monitor,omitempty"`
+	NativeDyld         *RuntimeDyldIdentity `json:"native_dyld,omitempty"`
 	PointerStrip       string               `json:"pointer_strip,omitempty"`
 	CacheDynamic       *CacheDynamicProfile `json:"cache_dynamic,omitempty"`
 	AtomicAlignment    string               `json:"atomic_alignment,omitempty"`
@@ -36,6 +38,9 @@ type PageShifts struct {
 }
 
 func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
+	if p.ExclusiveMonitor != "" && p.ExclusiveMonitor != "m2-local-64-byte" {
+		return fmt.Errorf("unsupported exclusive monitor profile")
+	}
 	if p.PointerStrip != "" && p.PointerStrip != "darwin-47-bit" {
 		return fmt.Errorf("unsupported pointer strip profile")
 	}
@@ -96,4 +101,11 @@ func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
 		}
 	}
 	return nil
+}
+
+// RuntimeDyldIdentity identifies the runtime actually mapped by the native
+// reference process, rather than assuming the first universal file slice ran.
+type RuntimeDyldIdentity struct {
+	UUID    string `json:"uuid"`
+	Subtype uint32 `json:"subtype"`
 }

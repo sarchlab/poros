@@ -100,6 +100,13 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 		return gpr, -1
 	}
 
+	if emu.IsExclusiveStore(op) {
+		gpr = ArgGPR(inst.Args[0])
+		if gpr == 31 {
+			gpr = -1
+		}
+		return gpr, -1
+	}
 	// Stores don't write to a data register destination.
 	if IsStore(op) {
 		return
@@ -146,7 +153,7 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 // DestRegs2 returns the second destination for pair instructions (LDP).
 func DestRegs2(inst arm64asm.Inst) (gpr, fp int) {
 	gpr, fp = -1, -1
-	if inst.Op != arm64asm.LDP && inst.Op != arm64asm.LDPSW {
+	if inst.Op != arm64asm.LDNP && inst.Op != arm64asm.LDP && inst.Op != arm64asm.LDPSW {
 		return
 	}
 	if inst.Args[1] == nil {
@@ -198,13 +205,13 @@ func BaseWritebackGPR(inst arm64asm.Inst) int {
 	}
 	var memArg arm64asm.Arg
 	if IsLoad(inst.Op) {
-		if inst.Op == arm64asm.LDP || inst.Op == arm64asm.LDPSW {
+		if inst.Op == arm64asm.LDNP || inst.Op == arm64asm.LDP || inst.Op == arm64asm.LDPSW {
 			memArg = inst.Args[2]
 		} else {
 			memArg = inst.Args[1]
 		}
 	} else if IsStore(inst.Op) {
-		if inst.Op == arm64asm.STP {
+		if inst.Op == arm64asm.STNP || inst.Op == arm64asm.STP {
 			memArg = inst.Args[2]
 		} else {
 			memArg = inst.Args[1]
@@ -236,6 +243,11 @@ func SourceGPRs(inst arm64asm.Inst) []int {
 
 	op := inst.Op
 
+	if emu.IsExclusiveStore(op) {
+		add(ArgGPR(inst.Args[1]))
+		ExtractMemSrcGPRs(inst.Args[2], add)
+		return srcs
+	}
 	if emu.IsPointerStrip(op) {
 		add(ArgGPR(inst.Args[0]))
 		return srcs
@@ -254,7 +266,7 @@ func SourceGPRs(inst arm64asm.Inst) []int {
 		add(ArgGPR(inst.Args[0]))
 		ExtractMemSrcGPRs(inst.Args[1], add)
 		// STP also stores Args[1] as a second value, address in Args[2].
-		if op == arm64asm.STP {
+		if op == arm64asm.STNP || op == arm64asm.STP {
 			add(ArgGPR(inst.Args[1]))
 			ExtractMemSrcGPRs(inst.Args[2], add)
 		}
@@ -264,7 +276,7 @@ func SourceGPRs(inst arm64asm.Inst) []int {
 	// For loads: source is the memory operand (base/index registers).
 	if IsLoad(op) {
 		// LDP: Args[0] and Args[1] are destinations, Args[2] is memory.
-		if op == arm64asm.LDP || op == arm64asm.LDPSW {
+		if op == arm64asm.LDNP || op == arm64asm.LDP || op == arm64asm.LDPSW {
 			ExtractMemSrcGPRs(inst.Args[2], add)
 		} else {
 			ExtractMemSrcGPRs(inst.Args[1], add)
@@ -289,6 +301,25 @@ func SourceGPRs(inst arm64asm.Inst) []int {
 		return srcs
 	}
 
+	// Bitfield insertion and MOVK preserve part of the previous destination.
+	switch op {
+	case arm64asm.MOVK:
+		add(ArgGPR(inst.Args[0]))
+	case arm64asm.BFI, arm64asm.BFM, arm64asm.BFXIL:
+		bits := uint32(64)
+		if r, ok := inst.Args[0].(arm64asm.Reg); ok && r >= arm64asm.W0 && r <= arm64asm.WZR {
+			bits = 32
+		}
+		first, a := inst.Args[2].(arm64asm.Imm)
+		second, b := inst.Args[3].(arm64asm.Imm)
+		full := bits
+		if op == arm64asm.BFM {
+			full--
+		}
+		if !a || !b || first.Imm != 0 || second.Imm != full {
+			add(ArgGPR(inst.Args[0]))
+		}
+	}
 	// General case: Args[1..] are sources.
 	for i := 1; i < len(inst.Args); i++ {
 		if inst.Args[i] == nil {
@@ -311,7 +342,7 @@ func SourceFPs(inst arm64asm.Inst) []int {
 
 	if IsStore(inst.Op) {
 		add(ArgFP(inst.Args[0]))
-		if inst.Op == arm64asm.STP {
+		if inst.Op == arm64asm.STNP || inst.Op == arm64asm.STP {
 			add(ArgFP(inst.Args[1]))
 		}
 		return srcs

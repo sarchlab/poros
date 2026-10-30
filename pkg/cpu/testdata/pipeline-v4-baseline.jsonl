@@ -1,6 +1,6 @@
-{"Name":"raytrace","Mode":"inorder","Cores":1,"Instructions":[425],"Cycles":[1533],"Digest":["af656d31b26221505092d0c4841ea672a6f5c08cb89f486b129d6946632f0458"]}
-{"Name":"raytrace","Mode":"no-bp","Cores":1,"Instructions":[425],"Cycles":[299],"Digest":["af656d31b26221505092d0c4841ea672a6f5c08cb89f486b129d6946632f0458"]}
-{"Name":"blackscholes","Mode":"inorder","Cores":1,"Instructions":[106565],"Cycles":[643266],"Digest":["6fbd6676c7aaf218e83b5fcc53210a21a6123b738d5354fcf648fcb0b4202499"]}
+{"Name":"raytrace","Mode":"inorder","Cores":1,"Instructions":[425],"Cycles":[1559],"Digest":["af656d31b26221505092d0c4841ea672a6f5c08cb89f486b129d6946632f0458"]}
+{"Name":"raytrace","Mode":"no-bp","Cores":1,"Instructions":[425],"Cycles":[301],"Digest":["af656d31b26221505092d0c4841ea672a6f5c08cb89f486b129d6946632f0458"]}
+{"Name":"blackscholes","Mode":"inorder","Cores":1,"Instructions":[106565],"Cycles":[643308],"Digest":["6fbd6676c7aaf218e83b5fcc53210a21a6123b738d5354fcf648fcb0b4202499"]}
 {"Name":"blackscholes","Mode":"no-bp","Cores":1,"Instructions":[106565],"Cycles":[137297],"Digest":["6fbd6676c7aaf218e83b5fcc53210a21a6123b738d5354fcf648fcb0b4202499"]}
 {"Name":"atax","Mode":"inorder","Cores":1,"Instructions":[2244458],"Cycles":[10332347],"Digest":["1d9374398d9ebd313525978345440ad95e3289e06f29051a8f9473ad558c0c04"]}
 {"Name":"atax","Mode":"no-bp","Cores":1,"Instructions":[2244458],"Cycles":[5912048],"Digest":["1d9374398d9ebd313525978345440ad95e3289e06f29051a8f9473ad558c0c04"]}

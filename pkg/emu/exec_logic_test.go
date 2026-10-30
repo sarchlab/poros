@@ -1,6 +1,7 @@
 package emu
 
 import (
+	"strconv"
 	"testing"
 
 	"golang.org/x/arch/arm64/arm64asm"
@@ -331,6 +332,44 @@ func TestBitfieldExtractAliasWidth(t *testing.T) {
 					}
 				}
 			}
+		}
+	}
+}
+
+func TestMOVKNativePreservesOldDestination(t *testing.T) {
+	var native struct {
+		Cases []struct {
+			Bits, Shift, Immediate int
+			Destination, Output    string
+		}
+	}
+	nativeAtomicObservation(t, "movk-probe.c", &native)
+	if len(native.Cases) != 96 {
+		t.Fatal("native MOVK cases missing")
+	}
+	for _, tc := range native.Cases {
+		word := uint32(0x72800001) | uint32(tc.Shift/16)<<21 | uint32(tc.Immediate)<<5
+		if tc.Bits == 64 {
+			word |= 1 << 31
+		}
+		destination, e := strconv.ParseUint(tc.Destination, 16, 64)
+		if e != nil {
+			t.Fatal(e)
+		}
+		want, e := strconv.ParseUint(tc.Output, 16, 64)
+		if e != nil {
+			t.Fatal(e)
+		}
+		r := Registers{PC: 0x1000, C: true}
+		r.GPR[1] = destination
+		before := r
+		if _, err := StepChecked(&r, authMemory{word}); err != nil || r.GPR[1] != want {
+			t.Fatal(tc, err, r.GPR[1])
+		}
+		before.GPR[1] = want
+		before.PC += 4
+		if before != r {
+			t.Fatal("MOVK changed unrelated state")
 		}
 	}
 }

@@ -119,6 +119,9 @@ func (e *executor) execAtomic(inst arm64asm.Inst) error {
 	if err != nil {
 		return &memoryAccessError{err}
 	}
+	if e.regs.Exclusive.Policy == ExclusiveM2Local64 {
+		e.regs.ClearExclusive()
+	} // LSE clears the measured M2 local monitor even on comparison mismatch.
 	value := binary.LittleEndian.Uint64(old[:])
 	e.regs.WriteX(rs, value)
 	return nil

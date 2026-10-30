@@ -16,6 +16,22 @@ static uint64_t u64(const void*p){uint64_t v;memcpy(&v,p,8);return v;}
 static uint32_t u32(const void*p){uint32_t v;memcpy(&v,p,4);return v;}
 static void hex(const unsigned char *p,size_t n){putchar('"');for(size_t i=0;i<n;i++)printf("%02x",p[i]);putchar('"');}
 static int path(uint64_t base,uint64_t size,uint32_t off){if(off==0){printf("null");return 1;}if(off>=size)return 0;char s[1025];size_t i;for(i=0;i<1024&&off+i<size;i++){if(!read_self(base+off+i,s+i,1))return 0;if(s[i]==0)break;}if(i==1024||off+i>=size||s[0]!='/')return 0;putchar('"');for(size_t j=0;j<i;j++){unsigned char c=s[j];if(c=='"'||c=='\\')printf("\\%c",c);else if(c<32)printf("\\u%04x",c);else putchar(c);}putchar('"');return 1;}
+static int print_native_dyld(void) {
+ task_dyld_info_data_t d;mach_msg_type_number_t n=TASK_DYLD_INFO_COUNT;
+ if(task_info(mach_task_self(),TASK_DYLD_INFO,(task_info_t)&d,&n)!=KERN_SUCCESS)return 1;
+ const struct dyld_all_image_infos*a=(const void*)(uintptr_t)d.all_image_info_addr;
+ uint64_t base=(uint64_t)(uintptr_t)a->dyldImageLoadAddress;unsigned char h[32];
+ if(!read_self(base,h,32)||u32(h)!=0xfeedfacf)return 2;
+ uint32_t count=u32(h+16),size=u32(h+20),offset=32;unsigned char uuid[16];unsigned found=0;
+ if(count>4096||size>65536)return 3;
+ for(unsigned i=0;i<count;i++) {unsigned char command[8];if(offset>32+size||32+size-offset<8||!read_self(base+offset,command,8))return 4;
+ uint32_t length=u32(command+4);if(length<8||length>32+size-offset)return 5;
+ if(u32(command)==0x1b){if(length!=24||found++||!read_self(base+offset+8,uuid,16))return 6;}
+ offset+=length;
+ }
+ if(found!=1)return 7;
+ printf("{\"uuid\":");hex(uuid,16);printf(",\"subtype\":%u}",u32(h+8));return 0;
+}
 static int print_cache_dynamic(void){task_dyld_info_data_t d;mach_msg_type_number_t n=TASK_DYLD_INFO_COUNT;if(task_info(mach_task_self(),TASK_DYLD_INFO,(task_info_t)&d,&n)!=KERN_SUCCESS)return 2;
 const struct dyld_all_image_infos*a=(const void*)(uintptr_t)d.all_image_info_addr;
 uint64_t base=a->sharedCacheBaseAddress;unsigned char h[512],r[80]={0};if(!read_self(base,h,sizeof(h)))return 3;
@@ -62,8 +78,34 @@ static int pointer_strip_probe(void) {
  if(d!=data[i]||a!=instruction[i])return 0;
  } return 1;
 }
+static int exclusive_signature(void) {
+ _Alignas(128) uint32_t data[64]={0};uint32_t *p=data,*q=data+32;
+ for(unsigned kind=0;kind<3;kind++) {
+ uint32_t loaded,status,compare=5,value=9;*p=7;*q=0;
+ if(kind==0)__asm__ volatile(".arch armv8.1-a\nldxr %w[l],[%x[p]]\ncas %w[c],%w[v],[%x[q]]\nstxr %w[s],%w[v],[%x[p]]" : [l]"=&r"(loaded),[s]"=&r"(status),[c]"+&r"(compare):[p]"r"(p),[q]"r"(q),[v]"r"(value):"memory");
+ else if(kind==1)__asm__ volatile(".arch armv8.1-a\nldxr %w[l],[%x[p]]\nswp %w[v],%w[c],[%x[q]]\nstxr %w[s],%w[v],[%x[p]]" : [l]"=&r"(loaded),[s]"=&r"(status),[c]"=&r"(compare):[p]"r"(p),[q]"r"(q),[v]"r"(value):"memory");
+ else __asm__ volatile("ldxr %w[l],[%x[p]]\nmov x16,#20\nsvc #0x80\nstxr %w[s],%w[v],[%x[p]]" : [l]"=&r"(loaded),[s]"=&r"(status):[p]"r"(p),[v]"r"(value):"x0","x1","x16","cc","memory");
+ if(status!=1||loaded!=7||*p!=7||*q!=(kind==1?9u:0u))return 0;
+ }
+ return 1;
+}
+// Identify the measured local exclusive-monitor granule with real instructions.
+static int exclusive_probe(void) {
+ _Alignas(128) uint32_t data[64];
+ for(unsigned kind=0;kind<2;kind++)for(unsigned offset=0;offset<=128;offset+=4) {
+ unsigned successes=0;uint32_t *p=data,*q=data+offset/4;
+ for(unsigned attempt=0;attempt<16;attempt++) { *p=7;*q=0;uint32_t old,status,value=9,ordinary=11;
+ if(kind==0)__asm__ volatile("ldxr %w[o],[%x[p]]\n\tstr %w[t],[%x[q]]\n\tstxr %w[s],%w[v],[%x[p]]" : [o]"=&r"(old),[s]"=&r"(status):[p]"r"(p),[q]"r"(q),[v]"r"(value),[t]"r"(ordinary):"memory");
+ else __asm__ volatile("ldxr %w[o],[%x[p]]\n\tldxr %w[o],[%x[q]]\n\tstxr %w[s],%w[v],[%x[p]]" : [o]"=&r"(old),[s]"=&r"(status):[p]"r"(p),[q]"r"(q),[v]"r"(value):"memory");
+ if(status>1)return 0;if(status==0){if(*p!=9)return 0;successes++;}
+ }
+ unsigned expected=kind==0?offset>=64:offset<64;
+ if((successes!=0)!=expected)return 0;
+ }
+ return 1;
+}
 int main(void) {
-    if(!pointer_strip_probe())return 5;
+    if(!pointer_strip_probe()||!exclusive_probe()||!exclusive_signature())return 5;
     const volatile uint8_t *p = (const volatile uint8_t *)0xfffffc000ULL;
     mach_timebase_info_data_t tb;
     if (mach_timebase_info(&tb) != 0) return 1;
@@ -91,6 +133,7 @@ int main(void) {
            *(const volatile uint32_t *)(p + 0x80), p[0x90], p[0x91],
            *(const volatile uint32_t *)(p + 0x100), tb.numer, tb.denom, p[0x37], *(const volatile uint64_t *)(p + 0x160), csr, atomic_alignment);
     if (ro) printf(",\"read_only_page_shifts\":{\"user\":%u,\"kernel\":%u}",ro_user,ro_kernel);
+    printf(",\"exclusive_monitor\":\"m2-local-64-byte\",\"native_dyld\":");if(print_native_dyld()!=0)return 7;
     printf(",\"pointer_strip\":\"darwin-47-bit\",\"cache_dynamic\":");
     if(print_cache_dynamic()!=0)return 4;
     puts("}");

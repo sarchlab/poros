@@ -93,7 +93,7 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 	}
 	// Scalar semantics do not implement SIMD arrangements or element operands.
 	// Reject these before handlers that assume scalar register forms.
-	if byteSIMDForm(inst.Enc) == 0 {
+	if simdForm(inst.Enc) == 0 {
 		for _, arg := range inst.Args {
 			switch a := arg.(type) {
 			case arm64asm.RegisterWithArrangement, arm64asm.RegisterWithArrangementAndIndex:
@@ -154,7 +154,7 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 // memory operations may reach handlers with an FP/SIMD register operand.
 func checkedFPRegisterSupported(op arm64asm.Op, r arm64asm.Reg) bool {
 	switch op {
-	case arm64asm.LDR, arm64asm.LDUR, arm64asm.LDP, arm64asm.STR, arm64asm.STUR, arm64asm.STP:
+	case arm64asm.LDNP, arm64asm.STNP, arm64asm.LDR, arm64asm.LDUR, arm64asm.LDP, arm64asm.STR, arm64asm.STUR, arm64asm.STP:
 		return sRegIndex(r) >= 0 || dRegIndex(r) >= 0 || qRegIndex(r) >= 0
 	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FMUL, arm64asm.FDIV,
 		arm64asm.FMADD, arm64asm.FMSUB, arm64asm.FSQRT, arm64asm.FNEG,

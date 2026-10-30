@@ -174,10 +174,13 @@ func TestMissingFixture(t *testing.T) {
 		t.Fatal("accepted missing fixture")
 	}
 }
+
+// The fixture hashes include the seven audited MOVK/BFI dependency corrections
+// documented in pkg/cpu/testdata/README.md; the strict identity gate remains.
 func TestFixtureIdentity(t *testing.T) {
 	root := repo(t)
 	for path, want := range map[string]string{
-		"akita-v4-baseline.jsonl": "4e7f6639bade643ca713b37378b14d67345b31377f41a10fd1f1b6b5790c077f", "pipeline-v4-baseline.jsonl": "2834a614b5147b0500cb000e7437e879e594af59339a8ee487bda13476d9820a",
+		"akita-v4-baseline.jsonl": "8f9b5bd1f6514d5d1b69a293e466fb3ca84ae4fb12bdaf04a8d4ded92ebe4721", "pipeline-v4-baseline.jsonl": "94ce28a3b21e94b20cacd3fcabc7035605b412ffa886d172c30c4de06afc46e4",
 	} {
 		b, e := os.ReadFile(filepath.Join(root, "pkg/cpu/testdata", path))
 		if e != nil {

@@ -58,10 +58,11 @@ func newExtensionExecution(t *testing.T, words []uint32) *extensionExecution {
 func TestCheckedAtomicAndOrderedMemoryAcrossTimingModels(t *testing.T) {
 	// Load compare; CASA; load replacement; SWPL zero; load zero; DMB ISH;
 	// STLR replacement; LDAR result; NOP.
-	words := []uint32{0xb9400061, 0x88e17c62, 0xb9400064, 0xb87f8065, 0xb9400066, 0xd5033bbf, 0x889ffc62, 0x88dffc67, 0xd503201f}
+	words := []uint32{0xb9400061, 0x88e17c62, 0xb9400064, 0xb87f8065, 0xb9400066, 0xd5033bbf, 0x889ffc62, 0x88dffc67, 0x885f7c61, 0x88057c62, 0x885f7c61, 0xd5033f5f, 0x88047c62, 0xd503201f}
 	for _, mode := range []string{"functional", "inorder", "ooo"} {
 		t.Run(mode, func(t *testing.T) {
 			x := newExtensionExecution(t, words)
+			x.regs.Exclusive.Policy = emu.ExclusiveM2Local64
 			switch mode {
 			case "functional":
 				for !x.Stopped() {
@@ -94,12 +95,12 @@ func TestCheckedAtomicAndOrderedMemoryAcrossTimingModels(t *testing.T) {
 					if !c.State.Done || c.State.Err != "" || c.State.InstDone != uint64(len(words)) {
 						t.Fatalf("%+v", c.State)
 					}
-					if c.State.GprReady[4] <= c.State.GprReady[1] || c.State.GprReady[6] <= c.State.GprReady[5] || c.State.GprReady[7] <= c.State.GprReady[6] {
+					if c.State.GprReady[4] <= c.State.GprReady[5] || c.State.GprReady[7] <= c.State.GprReady[6] {
 						t.Fatal("RMW/load ordering lost")
 					}
 				}
 			}
-			if x.regs.GPR[1] != 7 || x.regs.GPR[4] != 9 || x.regs.GPR[5] != 9 || x.regs.GPR[6] != 0 || x.regs.GPR[7] != 9 {
+			if x.regs.GPR[1] != 9 || x.regs.GPR[4] != 1 || x.regs.GPR[5] != 0 || x.regs.GPR[6] != 0 || x.regs.GPR[7] != 9 {
 				t.Fatal(x.regs.GPR[:7])
 			}
 		})
@@ -151,5 +152,28 @@ func TestOoOPointerStripWaitsForLoad(t *testing.T) {
 	}
 	if c.State.GprReady[1] < 40 {
 		t.Fatal("lost XPAC read dependency", c.State.GprReady[:4])
+	}
+}
+
+func TestOoOPartialRegisterWritesWaitForOldDestination(t *testing.T) {
+	for _, tc := range []struct {
+		word uint32
+		want uint64
+	}{{0xf2b579a1, 0xabcd0007}, {0xb3703c41, 0x90007}} {
+		x := newExtensionExecution(t, []uint32{0xf9400061, tc.word, 0xd503201f})
+		s := sim.MakeBuilder().Build()
+		spec := ooo.DefaultSpec()
+		spec.LoadLatency = 40
+		c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+		if err := s.Initialize(); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 500 && !c.State.Done; i++ {
+			c.Middlewares.Pipeline.Handle(nil)
+		}
+		if c.State.Err != "" || !c.State.Done || x.regs.GPR[1] != tc.want || c.State.GprReady[1] < 40 {
+			t.Fatal(tc, x.regs.GPR[1], c.State.GprReady[1], c.State.Err)
+		}
+		s.Terminate()
 	}
 }

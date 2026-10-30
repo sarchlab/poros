@@ -62,3 +62,17 @@ func (m *TrackedMemory) Exchange(a uint64, replacement, old []byte) error {
 	m.record(a, len(old), true)
 	return nil
 }
+
+func (m *TrackedMemory) WriteExclusive(a uint64, b []byte, enabled bool) error {
+	memory, ok := m.Space.(ExclusiveMemory)
+	if !ok {
+		return fmt.Errorf("memory does not implement checked exclusive store")
+	}
+	if err := memory.WriteExclusive(a, b, enabled); err != nil {
+		return err
+	}
+	if enabled {
+		m.record(a, len(b), true)
+	}
+	return nil
+}

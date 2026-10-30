@@ -53,7 +53,7 @@ func ExecuteLatency(op arm64asm.Op) int {
 
 // IsLoad returns true if the instruction is a load operation.
 func IsLoad(op arm64asm.Op) bool {
-	if emu.IsAtomicOperation(op) {
+	if emu.IsAtomicOperation(op) || emu.IsExclusiveLoad(op) {
 		return true
 	}
 	switch op {
@@ -61,7 +61,7 @@ func IsLoad(op arm64asm.Op) bool {
 		arm64asm.LDRSB, arm64asm.LDRSH, arm64asm.LDRSW,
 		arm64asm.LDUR, arm64asm.LDURB, arm64asm.LDURH,
 		arm64asm.LDURSB, arm64asm.LDURSH, arm64asm.LDURSW,
-		arm64asm.LDP, arm64asm.LDPSW:
+		arm64asm.LDNP, arm64asm.LDP, arm64asm.LDPSW:
 		return true
 	}
 	return false
@@ -69,13 +69,13 @@ func IsLoad(op arm64asm.Op) bool {
 
 // IsStore returns true if the instruction is a store operation.
 func IsStore(op arm64asm.Op) bool {
-	if emu.IsAtomicOperation(op) {
+	if emu.IsAtomicOperation(op) || emu.IsExclusiveStore(op) {
 		return true
 	}
 	switch op {
 	case arm64asm.STLR, arm64asm.STR, arm64asm.STRB, arm64asm.STRH,
 		arm64asm.STUR, arm64asm.STURB, arm64asm.STURH,
-		arm64asm.STP:
+		arm64asm.STNP, arm64asm.STP:
 		return true
 	}
 	return false
@@ -118,5 +118,5 @@ func UsesFlags(op arm64asm.Op) bool {
 
 // IsBarrier requires memory/retirement ordering; latency is not hardware calibrated.
 func IsBarrier(op arm64asm.Op) bool {
-	return emu.IsAtomicOperation(op) || op == arm64asm.STLR || op == arm64asm.LDAR || op == arm64asm.DMB || op == arm64asm.DSB || op == arm64asm.ISB
+	return emu.IsAtomicOperation(op) || emu.IsExclusiveLoad(op) || emu.IsExclusiveStore(op) || op == arm64asm.CLREX || op == arm64asm.STLR || op == arm64asm.LDAR || op == arm64asm.DMB || op == arm64asm.DSB || op == arm64asm.ISB
 }

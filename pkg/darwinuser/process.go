@@ -72,6 +72,12 @@ func Parse(binary, dyld []byte, o Options) (*Process, error) {
 	return start(image, runtime, o)
 }
 func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
+	if o.RuntimeProfile != nil && o.RuntimeProfile.NativeDyld != nil {
+		n := o.RuntimeProfile.NativeDyld
+		if n.UUID == "" || n.UUID != dyld.UUID || n.Subtype != dyld.Subtype {
+			return nil, fmt.Errorf("supplied dyld does not match native runtime identity")
+		}
+	}
 	if len(o.Args) == 0 {
 		o.Args = []string{"program"}
 	}
@@ -109,8 +115,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		return nil, fmt.Errorf("Darwin startup: stack must be 16 KiB aligned, between 16 KiB and 8 MiB")
 	}
 	memory := &usermem.AddressSpace{}
-	type span struct{ lo, hi uint64 }
-	reserved := []span{{StackTop - size, StackTop}}
+	reserved := []addressSpan{{StackTop - size, StackTop}, {0xfffffc000, 0x1000000000}, {0xfffff4000, 0xfffff8000}}
 	mapImage := func(img *loader.MachOImage, slide uint64) error {
 		for _, s := range img.Segments {
 			if s.Size == 0 {
@@ -125,7 +130,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 					return fmt.Errorf("Darwin startup: overlapping reserved/image/stack ranges")
 				}
 			}
-			reserved = append(reserved, span{lo, hi})
+			reserved = append(reserved, addressSpan{lo, hi})
 			if s.Protection == 0 {
 				continue
 			}
@@ -143,6 +148,11 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		return nil, err
 	}
 	if o.SharedCache != nil {
+		for _, r := range reserved {
+			if o.SharedCache.Base < r.hi && r.lo < o.SharedCache.Base+o.SharedCache.Size {
+				return nil, fmt.Errorf("shared cache region overlaps reserved process region")
+			}
+		}
 		if !o.SharedCache.IsOpen() {
 			return nil, fmt.Errorf("shared cache handle is closed")
 		}
@@ -234,9 +244,14 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		counter.Frequency = 1_000_000_000 * uint64(o.RuntimeProfile.TimebaseDenom) / uint64(o.RuntimeProfile.TimebaseNumer)
 	}
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
-	kernel := kernelState{entropyState: o.EntropySeed}
+	kernel := kernelState{entropyState: o.EntropySeed, reserved: append([]addressSpan(nil), reserved...)}
 	if o.SharedCache != nil {
 		kernel.sharedCacheBase = o.SharedCache.Base
+		kernel.reserved = append(kernel.reserved, addressSpan{o.SharedCache.Base, o.SharedCache.Base + o.SharedCache.Size})
+	}
+	exclusive := emu.ExclusiveState{}
+	if o.RuntimeProfile != nil && o.RuntimeProfile.ExclusiveMonitor == "m2-local-64-byte" {
+		exclusive.Policy = emu.ExclusiveM2Local64
 	}
 	strip := emu.PointerStripUnspecified
 	if o.RuntimeProfile != nil && o.RuntimeProfile.PointerStrip == "darwin-47-bit" {
@@ -250,5 +265,5 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		config := *o.RuntimeProfile.CSRConfig
 		kernel.csrConfig = &config
 	}
-	return &Process{kernel: kernel, Registers: emu.Registers{PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
+	return &Process{kernel: kernel, Registers: emu.Registers{Exclusive: exclusive, PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
 }

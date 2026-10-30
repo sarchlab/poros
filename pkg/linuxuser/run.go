@@ -82,7 +82,7 @@ func (x *Execution) Peek(pc uint64) (arm64asm.Inst, error) {
 	if err := x.process.Memory.Fetch(pc, b[:]); err != nil {
 		return arm64asm.Inst{}, err
 	}
-	return arm64asm.Decode(b[:])
+	return emu.DecodeChecked(b[:], x.process.Registers.PointerAuth)
 }
 func (x *Execution) StepDetailed() (arm64asm.Inst, bool, error) {
 	pc := x.process.Registers.PC
@@ -139,6 +139,7 @@ func (x *Execution) step() (Result, error) {
 			code := int(p.Registers.GPR[0] & 255)
 			r.ExitStatus = &code
 			r.Instructions++
+			p.Registers.ClearExclusive()
 			p.Registers.PC += 4
 			return finish("exit", "")
 		case 64:
@@ -164,6 +165,7 @@ func (x *Execution) step() (Result, error) {
 				}
 				p.Registers.GPR[0] = count
 			}
+			p.Registers.ClearExclusive()
 			p.Registers.PC += 4
 		default:
 			return finish("unsupported_syscall", fmt.Sprintf("syscall %d at PC=%#x is unsupported", number, p.Registers.PC))

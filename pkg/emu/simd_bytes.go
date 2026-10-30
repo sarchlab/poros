@@ -5,9 +5,9 @@ import (
 	"math/bits"
 )
 
-// byteSIMDForm selects only implemented encodings. Q chooses 8B/16B; size
-// bits remain in the mask so halfword/word variants cannot silently execute.
-func byteSIMDForm(word uint32) uint32 {
+// simdForm selects only implemented encodings. Byte operations keep size
+// bits in their mask; MOVI explicitly selects its implemented lane form.
+func simdForm(word uint32) uint32 {
 	switch form := word & 0xbfe0fc00; form {
 	case 0x0e201c00, 0x0ea01c00, 0x2e201c00, 0x2e203400, 0x2e208c00:
 		return form // ORR, EOR, CMHI
@@ -16,14 +16,20 @@ func byteSIMDForm(word uint32) uint32 {
 	case 0x2e31a800, 0x0e205800, 0x2e303800:
 		return form // UMINV, CNT, UADDLV
 	}
+	if word&0xff3ffc00 == 0x0e212800 && (word>>22)&3 != 3 {
+		return 0x0e212800
+	} // XTN, lower half
+	if word&0xbff89c00 == 0x0f000400 {
+		return 0x0f000400
+	} // MOVI Vd.2S/4S,#imm8,LSL #0/8/16/24
 	if word&^31 == 0x6f00e400 {
 		return 0x6f00e400
 	} // MOVI Vd.2D,#0
 	return 0
 }
 
-func (e *executor) execByteSIMD(word uint32) {
-	form := byteSIMDForm(word)
+func (e *executor) execSIMD(word uint32) {
+	form := simdForm(word)
 	n := 8
 	if word&(1<<30) != 0 {
 		n = 16
@@ -59,6 +65,19 @@ func (e *executor) execByteSIMD(word uint32) {
 			minimum = min(minimum, a[i])
 		case 0x2e303800:
 			sum += uint16(a[i])
+		}
+	}
+	if form == 0x0e212800 {
+		width := 1 << ((word >> 22) & 3)
+		for lane := 0; lane < 8/width; lane++ {
+			copy(out[lane*width:(lane+1)*width], a[lane*width*2:lane*width*2+width])
+		}
+	}
+	if form == 0x0f000400 {
+		value := (((word >> 16) & 7) << 5) | ((word >> 5) & 31)
+		value <<= ((word >> 13) & 3) * 8
+		for i := 0; i < n; i += 4 {
+			binary.LittleEndian.PutUint32(out[i:], value)
 		}
 	}
 	if form == 0x2e31a800 {

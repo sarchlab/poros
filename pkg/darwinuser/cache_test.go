@@ -101,7 +101,7 @@ func TestDynamicCacheRespectsUnmappedReservedSpan(t *testing.T) {
 	binary.LittleEndian.PutUint64(main[128:], c.Base+c.DynamicOffset)
 	binary.LittleEndian.PutUint32(main[160:], 0)
 	binary.LittleEndian.PutUint32(main[164:], 0)
-	if _, err := Parse(main, machotest.Image(7), Options{SharedCache: c}); err == nil || !strings.Contains(err.Error(), "dynamic cache overlaps reserved") {
+	if _, err := Parse(main, machotest.Image(7), Options{SharedCache: c}); err == nil || !strings.Contains(err.Error(), "overlaps reserved process region") {
 		t.Fatal("reserved gap accepted", err)
 	}
 }
