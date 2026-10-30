@@ -1,0 +1,13 @@
+#include <stdint.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+struct result{uint64_t x0,x1,nzcv;};
+static struct result call(uint64_t task,uint64_t address,uint64_t size,uint64_t maximum,uint64_t prot){register uint64_t a __asm__("x0")=task,b __asm__("x1")=address,c __asm__("x2")=size,d __asm__("x3")=maximum,e __asm__("x4")=prot,n __asm__("x16")=(uint64_t)-14;uint64_t f;__asm__ volatile("svc #0x80\n\tmrs %x[f],nzcv":"+r"(a),"+r"(b),[f]"=r"(f):"r"(c),"r"(d),"r"(e),"r"(n):"memory","cc");return(struct result){a,b,f};}
+static void region(uint64_t address){mach_vm_address_t a=address;mach_vm_size_t size=0;vm_region_basic_info_data_64_t info={0};mach_msg_type_number_t n=VM_REGION_BASIC_INFO_COUNT_64;mach_port_t object=0;kern_return_t kr=mach_vm_region(mach_task_self(),&a,&size,VM_REGION_BASIC_INFO_64,(vm_region_info_t)&info,&n,&object);if(object)mach_port_deallocate(mach_task_self(),object);int found=kr==0&&a<=address&&address-a<size;printf("{\"mapped\":%s,\"protection\":%d,\"maximum\":%d}",found?"true":"false",found?info.protection:0,found?info.max_protection:0);}
+int main(void){struct {const char*name;unsigned max;uint64_t prot,setmax;unsigned kind;uint64_t size;} cases[]={{"max7_copy_rw",7,19,0,0,16384},{"max7_copy_read",7,17,0,0,16384},{"max7_copy_set_max",7,19,1,0,16384}};
+ puts("{\"cases\":[");for(unsigned i=0;i<sizeof(cases)/sizeof(cases[0]);i++){unsigned char*p=mmap(0,49152,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON,-1,0);if(p==MAP_FAILED)return 2;for(unsigned j=0;j<3;j++)p[j*16384]=0x5a;if(mach_vm_protect(mach_task_self(),(uintptr_t)p,49152,0,1))return 3;uint64_t address=(uint64_t)p,task=mach_task_self();if(cases[i].kind==1)address++;if(cases[i].kind==2){munmap(p+16384,16384);if(cases[i].size==16384)address+=16384;}if(cases[i].kind==3)address=0;if(cases[i].kind==4)task=0;
+ struct result r=call(task,address,cases[i].size,cases[i].setmax,cases[i].prot);printf("%s{\"name\":\"%s\",\"initial_maximum\":%u,\"requested\":%llu,\"set_maximum\":%llu,\"length\":%llu,\"x0\":%llu,\"x1_equals_address\":%s,\"regions\":[",i?",":"",cases[i].name,cases[i].max,(unsigned long long)cases[i].prot,(unsigned long long)cases[i].setmax,(unsigned long long)cases[i].size,(unsigned long long)r.x0,r.x1==address?"true":"false");for(unsigned j=0;j<3;j++){if(j)putchar(',');region((uint64_t)p+j*16384);}printf("],\"data\":[");for(unsigned j=0;j<3;j++){unsigned char b=0;mach_vm_size_t n=0;int kr=mach_vm_read_overwrite(mach_task_self(),(uint64_t)p+j*16384,1,(uint64_t)&b,&n);printf("%s%d",j?",":"",kr==0&&n==1?b:-1);}printf("]}");munmap(p,49152);}
+ puts("]}");return 0;}

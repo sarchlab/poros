@@ -33,7 +33,15 @@ type AMFIPolicy struct {
 	OutputFlags       uint64 `json:"output_flags,string"`
 }
 
+// DTracePolicy records the observed per-image lazy helper mode. No tracing
+// consumer or host device is exposed by this profile.
+type DTracePolicy struct {
+	Mode              string `json:"mode"`
+	CodeSigningStatus uint32 `json:"code_signing_status"`
+}
+
 type StartupProfile struct {
+	DTrace              *DTracePolicy              `json:"dtrace_helper,omitempty"`
 	ExecutableStat      *FileStat                  `json:"executable_stat,omitempty"`
 	StandardIO          []InitialDescriptor        `json:"standard_io,omitempty"`
 	AMFI                *AMFIPolicy                `json:"amfi_dyld_policy,omitempty"`
@@ -67,6 +75,9 @@ func nextEntropyWord(state *uint64) uint64 {
 }
 
 func (s *StartupProfile) validate(image, dyld *loader.MachOImage) error {
+	if s.DTrace != nil && (s.DTrace.Mode != "lazy-untraced" || s.AMFI == nil || s.DTrace.CodeSigningStatus != s.AMFI.CodeSigningStatus) {
+		return fmt.Errorf("DTrace helper policy is unsupported or does not match executable signing state")
+	}
 	if err := validateInitialDescriptors(s.StandardIO); err != nil {
 		return err
 	}

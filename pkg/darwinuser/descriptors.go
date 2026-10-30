@@ -8,9 +8,10 @@ import (
 
 // Root is structural; descriptors never mount or expose the host filesystem.
 type guestDescriptor struct {
-	file  *guestOpenFile
-	path  string
-	flags uint32
+	dtrace bool
+	file   *guestOpenFile
+	path   string
+	flags  uint32
 }
 
 const maxGuestDescriptors = 256
@@ -23,7 +24,7 @@ func (k *kernelState) openAt(r *emu.Registers, m *usermem.AddressSpace) bool {
 }
 
 func (k *kernelState) openFile(r *emu.Registers, m *usermem.AddressSpace, address uint64, flags, dirfd uint32, relative bool) bool {
-	if flags&^uint32(0x20100000) != 0 {
+	if flags&^uint32(0x20100003) != 0 {
 		return false
 	}
 	finish := func(value uint64, errno bool) bool { r.GPR[0] = value; r.GPR[1] = 0; r.C = errno; return true }
@@ -33,6 +34,19 @@ func (k *kernelState) openFile(r *emu.Registers, m *usermem.AddressSpace, addres
 	}
 	if errno != 0 {
 		return finish(errno, true)
+	}
+	if name == dtraceHelperPath {
+		if k.dtrace == nil || flags > 2 {
+			return false
+		}
+		fd, ok := k.allocateDescriptor(guestDescriptor{dtrace: true, flags: flags})
+		if !ok {
+			return false
+		}
+		return finish(uint64(fd), false)
+	}
+	if flags&3 != 0 {
+		return false
 	}
 	// Known main-file aliases use the exact loader-owned file snapshot. Only
 	// read-only flags zero are modeled; writes and uncaptured path properties fail.
@@ -173,7 +187,7 @@ func (k *kernelState) directoryPath(m *usermem.AddressSpace, address uint64, dir
 			}
 			return "", 9, true
 		}
-		if directory.file != nil {
+		if directory.file != nil || directory.dtrace {
 			return "", 0, false
 		}
 		if directory.path == "/" && (name == "." || name == "..") {
@@ -197,6 +211,9 @@ func (k *kernelState) fcntl(r *emu.Registers, m *usermem.AddressSpace) bool {
 	node, ok := k.descriptors[fd]
 	if !ok {
 		return finish(9)
+	}
+	if node.dtrace {
+		return false
 	}
 	if node.file != nil && (node.file.reader == nil || node.path == "") {
 		return false

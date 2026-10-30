@@ -190,3 +190,25 @@ func TestUnmapSplitsAndReclaimsPrivatePages(t *testing.T) {
 		t.Fatal("overflow changed mappings")
 	}
 }
+
+func TestCheckProtectionDoesNotReadOrChangePrivateMappings(t *testing.T) {
+	source := &faultyReader{data: make([]byte, 32), failAt: 0}
+	m := &AddressSpace{}
+	m.MapReader(0x1000, 32, Read, Read|Write, source, 16)
+	before := m.Mappings()
+	if m.CheckProtection(0x1008, 16, Write) != nil {
+		t.Fatal("available maximum rejected")
+	}
+	if !errors.Is(m.CheckProtection(0x1008, 16, Execute), ErrProtection) {
+		t.Fatal("maximum ignored")
+	}
+	if m.CheckProtection(0x1018, 16, Read) == nil {
+		t.Fatal("hole ignored")
+	}
+	if source.reads != 0 || m.lazyBytes != 0 || !reflect.DeepEqual(before, m.Mappings()) {
+		t.Fatal("read-only protection check changed backing/mappings")
+	}
+	if m.Check(0x1000, 1, Write, "test") == nil {
+		t.Fatal("current protection changed")
+	}
+}

@@ -204,3 +204,39 @@ func TestDTraceDOFNativeObservation(t *testing.T) {
 		t.Fatal("native byte mismatch")
 	}
 }
+
+func TestThreadProtectionSelectedNativeByte(t *testing.T) {
+	var native struct {
+		Offset, Width int
+		Value         uint8
+	}
+	kernelNativeResult(t, "commpage-aprr-probe.c", &native)
+	if native.Offset != 0x10c || native.Width != 1 {
+		t.Fatal(native)
+	}
+	runtime, identity := nativeDyldFixture()
+	for _, value := range []uint8{0, native.Value, 0xff} {
+		profile := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, NativeDyld: &identity, ThreadProtectionByte: &value}
+		p, e := Parse(machotest.Image(2), runtime, Options{RuntimeProfile: &profile})
+		if e != nil {
+			t.Fatal(e)
+		}
+		var got [1]byte
+		if p.Memory.Read(0xfffffc10c, got[:]) != nil || got[0] != value || p.Memory.Write(0xfffffc10c, []byte{0}) == nil {
+			t.Fatal("byte not preserved readonly")
+		}
+		for _, address := range []uint64{0xfffffc10b, 0xfffffc10d} {
+			if p.Memory.Read(address, got[:]) == nil {
+				t.Fatal("unobserved adjacent bytes mapped")
+			}
+		}
+		profile.NativeDyld = nil
+		if profile.validate() == nil {
+			t.Fatal("unbound capability")
+		}
+	}
+	p := process(t, Options{})
+	if p.Memory.Read(0xfffffc10c, make([]byte, 1)) == nil {
+		t.Fatal("missing capability guessed")
+	}
+}

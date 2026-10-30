@@ -11,32 +11,36 @@ import (
 // native reference host. Unmodeled commpage fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
-	DTraceDOF           *uint8               `json:"dtrace_dof_enabled,omitempty"`
-	StatENOENTPaths     []string             `json:"stat_enoent_paths,omitempty"`
-	BranchTarget        string               `json:"branch_target_mode,omitempty"`
-	Directories         []RuntimeDirectory   `json:"directories,omitempty"`
-	DevFirmware         *uint32              `json:"development_firmware,omitempty"`
-	ReadOnlyDevFirmware *uint32              `json:"read_only_development_firmware,omitempty"`
-	SysctlNames         []SysctlName         `json:"sysctl_names,omitempty"`
-	ExclusiveMonitor    string               `json:"exclusive_monitor,omitempty"`
-	NativeDyld          *RuntimeDyldIdentity `json:"native_dyld,omitempty"`
-	PointerStrip        string               `json:"pointer_strip,omitempty"`
-	CacheDynamic        *CacheDynamicProfile `json:"cache_dynamic,omitempty"`
-	AtomicAlignment     string               `json:"atomic_alignment,omitempty"`
-	CSRConfig           *uint32              `json:"csr_config,omitempty"`
-	DyldFlags           *uint64              `json:"dyld_flags,omitempty"`
-	KernelPageShift     uint8                `json:"kernel_page_shift,omitempty"`
-	ReadOnlyPageShifts  *PageShifts          `json:"read_only_page_shifts,omitempty"`
-	CPUCapabilities     uint64               `json:"cpu_capabilities"`
-	Version             uint16               `json:"version"`
-	UserPageShift       uint8                `json:"user_page_shift_64_legacy"`
-	CacheLineSize       uint16               `json:"cache_line_size"`
-	CPUFamily           uint32               `json:"cpu_family"`
-	UserTimebase        uint8                `json:"user_timebase"`
-	ContinuousHWClock   uint8                `json:"continuous_hwclock"`
-	KDebug              uint32               `json:"kdebug"`
-	TimebaseNumer       uint32               `json:"timebase_numer"`
-	TimebaseDenom       uint32               `json:"timebase_denom"`
+	// ThreadProtectionByte is the exact byte consumed by the matching native
+	// libdyld TPRO entry at commpage +0x10c, not a published XNU field layout.
+	ThreadProtectionByte *uint8               `json:"thread_protection_capability_byte,omitempty"`
+	DTraceDOF            *uint8               `json:"dtrace_dof_enabled,omitempty"`
+	AccessENOENTPaths    []string             `json:"access_enoent_paths,omitempty"`
+	StatENOENTPaths      []string             `json:"stat_enoent_paths,omitempty"`
+	BranchTarget         string               `json:"branch_target_mode,omitempty"`
+	Directories          []RuntimeDirectory   `json:"directories,omitempty"`
+	DevFirmware          *uint32              `json:"development_firmware,omitempty"`
+	ReadOnlyDevFirmware  *uint32              `json:"read_only_development_firmware,omitempty"`
+	SysctlNames          []SysctlName         `json:"sysctl_names,omitempty"`
+	ExclusiveMonitor     string               `json:"exclusive_monitor,omitempty"`
+	NativeDyld           *RuntimeDyldIdentity `json:"native_dyld,omitempty"`
+	PointerStrip         string               `json:"pointer_strip,omitempty"`
+	CacheDynamic         *CacheDynamicProfile `json:"cache_dynamic,omitempty"`
+	AtomicAlignment      string               `json:"atomic_alignment,omitempty"`
+	CSRConfig            *uint32              `json:"csr_config,omitempty"`
+	DyldFlags            *uint64              `json:"dyld_flags,omitempty"`
+	KernelPageShift      uint8                `json:"kernel_page_shift,omitempty"`
+	ReadOnlyPageShifts   *PageShifts          `json:"read_only_page_shifts,omitempty"`
+	CPUCapabilities      uint64               `json:"cpu_capabilities"`
+	Version              uint16               `json:"version"`
+	UserPageShift        uint8                `json:"user_page_shift_64_legacy"`
+	CacheLineSize        uint16               `json:"cache_line_size"`
+	CPUFamily            uint32               `json:"cpu_family"`
+	UserTimebase         uint8                `json:"user_timebase"`
+	ContinuousHWClock    uint8                `json:"continuous_hwclock"`
+	KDebug               uint32               `json:"kdebug"`
+	TimebaseNumer        uint32               `json:"timebase_numer"`
+	TimebaseDenom        uint32               `json:"timebase_denom"`
 }
 
 type PageShifts struct {
@@ -45,16 +49,22 @@ type PageShifts struct {
 }
 
 func (p RuntimeProfile) validate() error {
+	if p.ThreadProtectionByte != nil && p.NativeDyld == nil {
+		return fmt.Errorf("thread protection byte requires native runtime identity")
+	}
 	if err := validateDirectories(p.Directories); err != nil {
 		return err
 	}
 	if err := validateSysctlNames(p.SysctlNames); err != nil {
 		return err
 	}
-	if len(p.StatENOENTPaths) != 0 && p.NativeDyld == nil {
+	if (len(p.StatENOENTPaths) != 0 || len(p.AccessENOENTPaths) != 0) && p.NativeDyld == nil {
 		return fmt.Errorf("captured stat paths require native runtime identity")
 	}
 	if err := validateStatENOENTPaths(p.StatENOENTPaths, p.Directories); err != nil {
+		return err
+	}
+	if err := validateAbsentPaths(p.AccessENOENTPaths, p.Directories, "access"); err != nil {
 		return err
 	}
 	if p.BranchTarget != "" && (p.BranchTarget != "non-enforced" || p.NativeDyld == nil) {
@@ -64,6 +74,11 @@ func (p RuntimeProfile) validate() error {
 }
 
 func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
+	if p.ThreadProtectionByte != nil {
+		if err := m.Map(0xfffffc10c, 1, usermem.Read, []byte{*p.ThreadProtectionByte}); err != nil {
+			return err
+		}
+	}
 	if p.DTraceDOF != nil {
 		if *p.DTraceDOF > 1 {
 			return fmt.Errorf("invalid DTrace DOF capability")

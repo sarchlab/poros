@@ -214,9 +214,9 @@ func (m *AddressSpace) MapReader(start, size uint64, flags, maxFlags Permission,
 	return nil
 }
 
-// Protect changes a fully mapped range atomically. The caller supplies its OS
-// page rounding. setMaximum also reduces current protection to the new maximum.
-func (m *AddressSpace) Protect(start, size uint64, flags Permission, setMaximum bool) error {
+// CheckProtection validates a complete protection transition without changing
+// mappings or materializing private pages.
+func (m *AddressSpace) CheckProtection(start, size uint64, flags Permission) error {
 	if size == 0 {
 		return nil
 	}
@@ -232,6 +232,19 @@ func (m *AddressSpace) Protect(start, size uint64, flags Permission, setMaximum 
 			return ErrProtection
 		}
 	}
+	return nil
+}
+
+// Protect changes a fully mapped range atomically. The caller supplies its OS
+// page rounding. setMaximum also reduces current protection to the new maximum.
+func (m *AddressSpace) Protect(start, size uint64, flags Permission, setMaximum bool) error {
+	if err := m.CheckProtection(start, size, flags); err != nil {
+		return err
+	}
+	if size == 0 {
+		return nil
+	}
+	end := start + size
 	out := make([]mappedRegion, 0, len(m.regions)+2)
 	for _, r := range m.regions {
 		if r.End <= start || r.Start >= end {

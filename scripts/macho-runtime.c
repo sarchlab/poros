@@ -187,6 +187,12 @@ static int print_stat_enoent_paths(void){
   printf("%s\"%s\"",emitted++?",":"",paths[i]);
  }printf("]");return 0;
 }
+static int print_access_enoent_paths(void){
+ const char *name="/AppleInternal/XBS/.isChrooted";errno=0;int result=access(name,F_OK);
+ if(result==0){printf("[]");return 0;}
+ if(errno!=ENOENT){fprintf(stderr,"selected access observation failed: %d\n",errno);return 1;}
+ printf("[\"%s\"]",name);return 0;
+}
 int main(void) {
     if(!pointer_strip_probe()||!exclusive_probe()||!exclusive_signature())return 5;
     const volatile uint8_t *p = (const volatile uint8_t *)0xfffffc000ULL;
@@ -203,7 +209,9 @@ int main(void) {
     for(unsigned load=0;load<3;load++)if(ordered_probe(0,load)!=aligned||ordered_probe(1,load)!=within||ordered_probe(9,load)!=crossing)return 6;
     const char *atomic_alignment=within==0?"within-16-byte":"natural";
     if(p[0x92]>1)return 15;
-    printf("{\"dtrace_dof_enabled\":%u,",p[0x92]);
+    // Exact byte read by this native libdyld TPRO entry; this offset is not a
+    // published XNU field. The collector binds it to native dyld/cache identity.
+    printf("{\"thread_protection_capability_byte\":%u,\"dtrace_dof_enabled\":%u,",p[0x10c],p[0x92]);
     uint32_t csr;
     int (*get_csr)(uint32_t *) = (int (*)(uint32_t *))dlsym(RTLD_DEFAULT, "csr_get_active_config");
     if (!get_csr || get_csr(&csr) != 0) return 2;
@@ -227,5 +235,6 @@ int main(void) {
     printf(",\"sysctl_names\":");if(print_sysctl_names()!=0)return 8;
     printf(",\"directories\":");int directory_error=print_runtime_directories();if(directory_error){fprintf(stderr,"runtime directory capture failed at check %d\n",directory_error);return 9;}
     printf(",\"stat_enoent_paths\":");if(print_stat_enoent_paths()!=0)return 10;
+ printf(",\"access_enoent_paths\":");if(print_access_enoent_paths()!=0)return 10;
     puts("}");
 }

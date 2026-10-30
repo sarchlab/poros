@@ -5299,6 +5299,1060 @@
         "width": 1,
         "dtrace_dof_enabled": 1
       }
+    },
+    {
+      "source": "dtrace-open-probe.c",
+      "source_sha256": "5f206672a021ff9b06a9b0ac4b9bec888ac08510885e67d264f05e706ce5eee8",
+      "architecture": "arm64",
+      "binary_sha256": "bad3bf7a51f249a6267dfe7d50aa86cec52d522ede3c3b6bd08d77b5796d5e8c",
+      "result": {
+        "cases": [
+          {
+            "flags": 0,
+            "x0": 3,
+            "x1": 0,
+            "carry": 0
+          },
+          {
+            "flags": 1,
+            "x0": 3,
+            "x1": 0,
+            "carry": 0
+          },
+          {
+            "flags": 2,
+            "x0": 3,
+            "x1": 0,
+            "carry": 0
+          }
+        ]
+      }
+    },
+    {
+      "source": "dtrace-ioctl-probe.c",
+      "source_sha256": "7342fb5171b66b237ac386579b148f18d94dc94d15ec5ddc2937e83716f22c76",
+      "architecture": "arm64",
+      "binary_sha256": "44dbe016a13b22b1d3f1a81c797d00526dca6c231bbec6ad72c6179cad008993",
+      "result": {
+        "cases": [
+          {
+            "mode": 0,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "before": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b010000000700000000000000",
+            "removals": [
+              {
+                "generation": 7,
+                "x0": 0,
+                "x1": 0,
+                "carry": 0
+              }
+            ]
+          },
+          {
+            "mode": 1,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "before": "0200000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000706f726f732d6f776e65642d656d7074792d3100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0200000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b010000000700000000000000706f726f732d6f776e65642d656d7074792d3100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b010000000800000000000000",
+            "removals": [
+              {
+                "generation": 7,
+                "x0": 0,
+                "x1": 0,
+                "carry": 0
+              },
+              {
+                "generation": 8,
+                "x0": 0,
+                "x1": 0,
+                "carry": 0
+              }
+            ]
+          },
+          {
+            "mode": 2,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "before": "0000000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0000000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "removals": []
+          },
+          {
+            "mode": 3,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "before": "0104000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0104000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "removals": []
+          },
+          {
+            "mode": 4,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 14,
+            "x1": 0,
+            "carry": 1,
+            "before": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "removals": []
+          },
+          {
+            "mode": 5,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 14,
+            "x1": 0,
+            "carry": 1,
+            "before": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "removals": []
+          },
+          {
+            "mode": 6,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 14,
+            "x1": 0,
+            "carry": 1,
+            "before": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "removals": [
+              {
+                "generation": 7,
+                "x0": 0,
+                "x1": 0,
+                "carry": 0
+              }
+            ]
+          },
+          {
+            "mode": 7,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 9,
+            "x1": 0,
+            "carry": 1,
+            "before": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "removals": []
+          },
+          {
+            "mode": 8,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "before": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b010000000700000000000000",
+            "removals": [
+              {
+                "generation": 7,
+                "x0": 0,
+                "x1": 0,
+                "carry": 0
+              }
+            ]
+          },
+          {
+            "mode": 9,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 25,
+            "x1": 0,
+            "carry": 1,
+            "before": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "removals": []
+          },
+          {
+            "mode": 10,
+            "dof_header_size": 64,
+            "helper_size": 80,
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "before": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b0100000050e7c56b01000000",
+            "after": "0100000000000000706f726f732d6f776e65642d656d7074792d3000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050e7c56b010000000700000000000000",
+            "removals": [
+              {
+                "generation": 7,
+                "x0": 0,
+                "x1": 0,
+                "carry": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "dtrace-lifecycle-probe.c",
+      "source_sha256": "1c1f3548aca5782909b664848ff068cddb4ed5a4a3b982ef51f3cbac1eba0cea",
+      "architecture": "arm64",
+      "binary_sha256": "ccc2ec350bf376cb32c076a9f30cbccb598b7d621c7a82047e68f08a436c0ec4",
+      "result": {
+        "cases": [
+          {
+            "operation": "add_two",
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "generation_a": 7,
+            "generation_b": 8
+          },
+          {
+            "operation": "remove_first_after_reopen",
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "generation_a": 7,
+            "generation_b": 8
+          },
+          {
+            "operation": "remove_first_again",
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "generation_a": 7,
+            "generation_b": 8
+          },
+          {
+            "operation": "add_after_first_removed",
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "generation_a": 9,
+            "generation_b": 8
+          },
+          {
+            "operation": "remove_last",
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "generation_a": 9,
+            "generation_b": 8
+          },
+          {
+            "operation": "add_after_last_removed",
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "generation_a": 9,
+            "generation_b": 8
+          },
+          {
+            "operation": "remove_original_second",
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "generation_a": 8,
+            "generation_b": 9
+          },
+          {
+            "operation": "remove_new_last",
+            "x0": 0,
+            "x1": 0,
+            "carry": 0,
+            "generation_a": 9,
+            "generation_b": 8
+          },
+          {
+            "operation": "remove_zero",
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "generation_a": 0,
+            "generation_b": 0
+          },
+          {
+            "operation": "remove_negative",
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "generation_a": 0,
+            "generation_b": 0
+          }
+        ]
+      }
+    },
+    {
+      "source": "vm-protect-copy-probe.c",
+      "source_sha256": "bbce0ed6686d00fc18f868dad30ae7bacb5c3bedea6a383d9e3fc70a82f2a7be",
+      "architecture": "arm64",
+      "binary_sha256": "f662a5f8b302a9612c54a28c489da5275873e34e360bd68927a493a296076fbc",
+      "result": {
+        "cases": [
+          {
+            "name": "private_rw_copy",
+            "initial_maximum": 3,
+            "requested": 19,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 3,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "raise_ro_max_copy",
+            "initial_maximum": 1,
+            "requested": 19,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 3,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 1
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 1
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "raise_ro_max_without_copy",
+            "initial_maximum": 1,
+            "requested": 3,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 2,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 1
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 1
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 1
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "copy_read",
+            "initial_maximum": 3,
+            "requested": 17,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "copy_none",
+            "initial_maximum": 3,
+            "requested": 16,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 0,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              -1,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "copy_set_max",
+            "initial_maximum": 3,
+            "requested": 19,
+            "set_maximum": 1,
+            "length": 16384,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "unaligned_copy_one",
+            "initial_maximum": 3,
+            "requested": 19,
+            "set_maximum": 0,
+            "length": 1,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 3,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "copy_spans_hole",
+            "initial_maximum": 3,
+            "requested": 19,
+            "set_maximum": 0,
+            "length": 49152,
+            "x0": 1,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": false,
+                "protection": 0,
+                "maximum": 0
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              -1,
+              90
+            ]
+          },
+          {
+            "name": "copy_zero_null",
+            "initial_maximum": 3,
+            "requested": 19,
+            "set_maximum": 0,
+            "length": 0,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "copy_length_overflow",
+            "initial_maximum": 3,
+            "requested": 19,
+            "set_maximum": 0,
+            "length": 18446744073709551615,
+            "x0": 4,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "invalid_task",
+            "initial_maximum": 3,
+            "requested": 19,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 268435459,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "unknown_protection",
+            "initial_maximum": 3,
+            "requested": 35,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 4,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "copy_length_page_plus_one",
+            "initial_maximum": 3,
+            "requested": 19,
+            "set_maximum": 0,
+            "length": 16385,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 3,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 3,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "copy_unmapped",
+            "initial_maximum": 3,
+            "requested": 19,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 1,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": false,
+                "protection": 0,
+                "maximum": 0
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              -1,
+              90
+            ]
+          },
+          {
+            "name": "protection_low32",
+            "initial_maximum": 3,
+            "requested": 4294967315,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 3,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "maximum_flag_low32",
+            "initial_maximum": 3,
+            "requested": 19,
+            "set_maximum": 4294967296,
+            "length": 16384,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 3,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "vm-copy-file-probe.c",
+      "source_sha256": "784c8063fc301163799b6eaa608f1df985b338c3eec0bc1198dd958c78e0c623",
+      "architecture": "arm64",
+      "binary_sha256": "f7b0e2c3e339dfb3475c0cdafcfe3bb85c855c6acb508437f3588134a1155fc7",
+      "result": {
+        "requested": 19,
+        "return": 0,
+        "private_before": 107,
+        "private_after_copy": 107,
+        "private_after_write": 124,
+        "other_mapping": 90,
+        "backing_file": 90
+      }
+    },
+    {
+      "source": "dtrace-boundary-probe.c",
+      "source_sha256": "e3a3ed2e2ba5d36b16c5fe2474cd1d68b419d29dac53ed79e8bedb5c42e19970",
+      "architecture": "arm64",
+      "binary_sha256": "e61b94da6acf736cf933291b7973d1bf8686ca64d4cc3350180a6acf0d01acb5",
+      "result": {
+        "high_command": {
+          "x0": 25,
+          "x1": 0,
+          "carry": 1
+        },
+        "initial_next_generation": 7,
+        "fill_count": 1018,
+        "overflow_readonly": {
+          "x0": 22,
+          "x1": 0,
+          "carry": 1,
+          "record_unchanged": true
+        },
+        "cleanup_count": 1018
+      }
+    },
+    {
+      "source": "access-runtime-probe.c",
+      "source_sha256": "546a052f3bc08da2f15ba9fb561654da555f9513d854acca7d956fee5d844cf4",
+      "architecture": "arm64",
+      "binary_sha256": "80ba7a14cca4b16bed94cc56ab19475e773786e8caf783394447b2e8afd9b069",
+      "result": {
+        "path": "/AppleInternal/XBS/.isChrooted",
+        "cases": [
+          {
+            "case": 0,
+            "mode": 0,
+            "path_kind": 0,
+            "x0": 2,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 1,
+            "mode": 1,
+            "path_kind": 0,
+            "x0": 2,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 2,
+            "mode": 2,
+            "path_kind": 0,
+            "x0": 2,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 3,
+            "mode": 3,
+            "path_kind": 0,
+            "x0": 2,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 4,
+            "mode": 4,
+            "path_kind": 0,
+            "x0": 2,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 5,
+            "mode": 5,
+            "path_kind": 0,
+            "x0": 2,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 6,
+            "mode": 6,
+            "path_kind": 0,
+            "x0": 2,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 7,
+            "mode": 7,
+            "path_kind": 0,
+            "x0": 2,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 8,
+            "mode": 8,
+            "path_kind": 0,
+            "x0": 2,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 9,
+            "mode": 0,
+            "path_kind": 1,
+            "x0": 14,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 10,
+            "mode": 0,
+            "path_kind": 2,
+            "x0": 14,
+            "x1": 0,
+            "carry": 1
+          },
+          {
+            "case": 11,
+            "mode": 8,
+            "path_kind": 3,
+            "x0": 14,
+            "x1": 0,
+            "carry": 1
+          }
+        ]
+      }
+    },
+    {
+      "source": "vm-copy-max-probe.c",
+      "source_sha256": "6bc1a4b9278beca327af3e5d1c85704e44c4c698622c997f5a046cb68b9bda0f",
+      "architecture": "arm64",
+      "binary_sha256": "b1cbb5cd5162ba92180f96d09993d79e4cec64452192b60e055fbb2b548bea5a",
+      "result": {
+        "cases": [
+          {
+            "name": "max7_copy_rw",
+            "initial_maximum": 7,
+            "requested": 19,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 3,
+                "maximum": 7
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 7
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 7
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "max7_copy_read",
+            "initial_maximum": 7,
+            "requested": 17,
+            "set_maximum": 0,
+            "length": 16384,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 7
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 7
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 7
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          },
+          {
+            "name": "max7_copy_set_max",
+            "initial_maximum": 7,
+            "requested": 19,
+            "set_maximum": 1,
+            "length": 16384,
+            "x0": 0,
+            "x1_equals_address": true,
+            "regions": [
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 3
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 7
+              },
+              {
+                "mapped": true,
+                "protection": 1,
+                "maximum": 7
+              }
+            ],
+            "data": [
+              90,
+              90,
+              90
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "commpage-aprr-probe.c",
+      "source_sha256": "cb34a3084b6af6262bff7bb27304799489c45a1ea881907096325e963848b13f",
+      "architecture": "arm64",
+      "binary_sha256": "dafc45d8c5759bdc959a26f581c6d428e2dd73c08a0a0b996f848e2f0e3b0f74",
+      "result": {
+        "offset": 268,
+        "width": 1,
+        "value": 3
+      }
     }
   ]
 }

@@ -65,6 +65,15 @@ class StatObservationTests(unittest.TestCase):
             macho.verify_captured_stat_absences({})
             query.assert_not_called()
 
+    def test_access_recheck_does_not_use_stat_or_permission_boolean(self):
+        profile={"access_enoent_paths":["/AppleInternal/XBS/.isChrooted"]}
+        for errno in (0,2,13):
+            with self.subTest(errno=errno),patch.object(macho,"native_access_errno",return_value=errno) as query:
+                if errno==2:macho.verify_captured_access_absences(profile)
+                else:
+                    with self.assertRaises(ValueError):macho.verify_captured_access_absences(profile)
+                query.assert_called_once_with(profile["access_enoent_paths"][0])
+
 
 class StartupIdentityTests(unittest.TestCase):
     def setUp(self):
@@ -231,10 +240,14 @@ class NativeSymbolTests(unittest.TestCase):
 
 class AMFICaptureTests(unittest.TestCase):
     def test_policy_requires_matching_identity_state_and_output(self):
-        for failure in (None, "status", "query", "output", "entitlements"):
+        for failure in (None, "status", "query", "output", "entitlements", "dtrace-mode", "dtrace-cleanup", "dtrace-status"):
             with self.subTest(failure=failure):
                 data = dict(cs_status=7, cs_result=0, cs_errno=0,
                             input_flags=0, output_flags=479, x0=0, x1=0, carry=False)
+                data["dtrace"]=dict(opened=True,lazy_invalid_header_accepted=True,own_registration_removed=True,cs_status_after=7,cs_result_after=0)
+                if failure == "dtrace-mode": data["dtrace"]["lazy_invalid_header_accepted"]=False
+                if failure == "dtrace-cleanup": data["dtrace"]["own_registration_removed"]=False
+                if failure == "dtrace-status": data["dtrace"]["cs_status_after"]=8
                 if failure == "status": data["cs_status"] = 8
                 if failure == "query": data["x0"] = 14
                 def launch(*args, **kwargs):
@@ -250,10 +263,10 @@ class AMFICaptureTests(unittest.TestCase):
                 with patch.object(macho.subprocess, "run", return_value=signed), patch.object(macho.subprocess, "Popen", side_effect=launch), patch.object(macho.os, "killpg"), patch.object(macho, "check_output", side_effect=check):
                     if failure:
                         with self.assertRaises(ValueError):
-                            macho.capture_amfi_policy("program", "probe", {"args":["program"]}, 7)
+                            macho.capture_main_policies("program", "probe", {"args":["program"]}, 7)
                     else:
-                        result=macho.capture_amfi_policy("program", "probe", {"args":["program"]}, 7)
-                        self.assertEqual(result, dict(input_flags="0",output_flags="479",code_signing_status=7))
+                        result=macho.capture_main_policies("program", "probe", {"args":["program"]}, 7)
+                        self.assertEqual(result, (dict(input_flags="0",output_flags="479",code_signing_status=7),dict(mode="lazy-untraced",code_signing_status=7),data))
 
 
 class StartupCleanupTests(unittest.TestCase):
@@ -288,7 +301,7 @@ time.sleep(30)
                     exception = subprocess.TimeoutExpired if mode == "timeout" else ValueError
                     with patch.object(macho,"run_owned_process",side_effect=run), patch.object(macho.subprocess,"run",return_value=signed), patch.object(macho,"check_output"):
                         with self.assertRaises(exception):
-                            macho.capture_amfi_policy("program","library",{"args":["program"]},7)
+                            macho.capture_main_policies("program","library",{"args":["program"]},7)
                 child = int(record.read_text())
                 deadline = time.monotonic()+3
                 while True:

@@ -2,7 +2,6 @@ package darwinuser
 
 import (
 	"encoding/binary"
-	"errors"
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/loader"
 	"github.com/sarchlab/poros/pkg/usermem"
@@ -11,6 +10,9 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
+	accessENOENTPaths                          []string
+	dtrace                                     *DTracePolicy
+	dofs                                       map[uint64][80]byte
 	mapLinkingDisabled                         bool
 	executableCDHash                           string
 	statENOENTPaths                            []string
@@ -59,6 +61,10 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return true
 	}
 	switch number {
+	case 33:
+		return k.access(r, m)
+	case 54:
+		return k.ioctl(r, m)
 	case 550:
 		return k.mapWithLinking(r, m)
 	case 197:
@@ -105,37 +111,8 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return k.deallocate(r, m)
 	case -10, -15:
 		return k.mapAnonymous(r, m)
-	case -14: // mach_vm_protect, on this process's task map only.
-		if !k.currentTaskRight(uint32(r.GPR[0])) {
-			r.GPR[0] = 0x10000003 // MACH_SEND_INVALID_DEST; kernelrpc rejects foreign task rights.
-			break
-		}
-		addr, size, prot := r.GPR[1], r.GPR[2], r.GPR[4]
-		if prot&^7 != 0 || size > ^uint64(0)-addr || addr+size > ^uint64(0)-0x3fff {
-			r.GPR[0] = 4
-			break
-		}
-		end := (addr + size + 0x3fff) &^ uint64(0x3fff)
-		addr &^= 0x3fff
-		if size == 0 {
-			r.GPR[0] = 0
-			break
-		}
-		if prot&4 != 0 {
-			for _, span := range k.ownedRanges {
-				if addr < span.hi && span.lo < end {
-					return false
-				}
-			}
-		} // Owned memory needs an explicit signing/JIT policy before executable transitions.
-		err := m.Protect(addr, end-addr, machPermissions(uint32(prot)), r.GPR[3] != 0)
-		r.GPR[0] = 0
-		if err != nil {
-			r.GPR[0] = 1
-			if errors.Is(err, usermem.ErrProtection) {
-				r.GPR[0] = 2
-			}
-		}
+	case -14:
+		return k.machProtect(r, m)
 	case -28:
 		if !copySelfRight(&k.taskSendRefs) {
 			return false

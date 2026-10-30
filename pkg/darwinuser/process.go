@@ -296,6 +296,10 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 			policy := *o.StartupProfile.AMFI
 			kernel.amfi = &policy
 		}
+		if o.StartupProfile.DTrace != nil {
+			policy := *o.StartupProfile.DTrace
+			kernel.dtrace = &policy
+		}
 		kernel.threadSendRefs = 1 // XNU installs one pinned main-thread send reference.
 	}
 	if o.SharedCache != nil && o.SharedCache.DynamicSize != 0 {
@@ -344,13 +348,14 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	}
 	if o.RuntimeProfile != nil {
 		kernel.statENOENTPaths = append([]string(nil), o.RuntimeProfile.StatENOENTPaths...)
-		for _, name := range kernel.statENOENTPaths {
+		kernel.accessENOENTPaths = append([]string(nil), o.RuntimeProfile.AccessENOENTPaths...)
+		for _, name := range append(append([]string(nil), kernel.statENOENTPaths...), kernel.accessENOENTPaths...) {
 			if name == o.ExecName || name == image.Dylinker {
-				return nil, fmt.Errorf("stat ENOENT conflicts with process image path")
+				return nil, fmt.Errorf("captured ENOENT conflicts with process image path")
 			}
 			for _, file := range kernel.files {
 				if name == file.Path {
-					return nil, fmt.Errorf("stat ENOENT conflicts with captured file identity")
+					return nil, fmt.Errorf("captured ENOENT conflicts with captured file identity")
 				}
 			}
 		}
@@ -372,6 +377,26 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 				entry.String = &value
 			}
 			kernel.sysctlNames = append(kernel.sysctlNames, entry)
+		}
+	}
+	if kernel.dtrace != nil {
+		if o.ExecName == dtraceHelperPath || image.Dylinker == dtraceHelperPath {
+			return nil, fmt.Errorf("DTrace helper conflicts with process image")
+		}
+		for _, file := range kernel.files {
+			if file.Path == dtraceHelperPath {
+				return nil, fmt.Errorf("DTrace helper conflicts with captured file")
+			}
+		}
+		for _, node := range kernel.directories {
+			if node.Path == dtraceHelperPath || node.CanonicalPath == dtraceHelperPath {
+				return nil, fmt.Errorf("DTrace helper conflicts with directory")
+			}
+		}
+		for _, name := range append(append([]string(nil), kernel.statENOENTPaths...), kernel.accessENOENTPaths...) {
+			if name == dtraceHelperPath {
+				return nil, fmt.Errorf("DTrace helper conflicts with captured absence")
+			}
 		}
 	}
 	if o.RuntimeProfile != nil && o.RuntimeProfile.CSRConfig != nil {

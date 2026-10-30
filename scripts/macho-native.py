@@ -48,6 +48,21 @@ def observe(binary, args):
                             minor_faults=usage.ru_minflt, major_faults=usage.ru_majflt)
 
 
+def native_access_errno(name):
+    library=ctypes.CDLL(None,use_errno=True)
+    query=library.access
+    query.argtypes=[ctypes.c_char_p,ctypes.c_int]
+    query.restype=ctypes.c_int
+    ctypes.set_errno(0)
+    return 0 if query(os.fsencode(name),0)==0 else ctypes.get_errno()
+
+
+def verify_captured_access_absences(profile):
+    for name in profile.get("access_enoent_paths",[]):
+        if native_access_errno(name)!=2:
+            raise ValueError("captured access F_OK absence changed: "+name)
+
+
 def verify_captured_stat_absences(profile):
     """Recheck exact stat observations without inventing an open/lstat namespace."""
     for name in profile.get("stat_enoent_paths", []):
@@ -121,6 +136,7 @@ def runtime_profile():
             raise ValueError("branch target evidence differs from captured native runtime")
         profile["branch_target_mode"]=observed["mode"]
         verify_captured_stat_absences(profile)
+        verify_captured_access_absences(profile)
         return profile, dict(source_sha256=digest(source), source_dependencies_sha256={"macho-stat.h":digest(ROOT/"scripts/macho-stat.h"),"macho_symbols.py":digest(ROOT/"scripts/macho_symbols.py")}, binary_sha256=digest(binary),
                              branch_target_probe=dict(source_sha256=digest(bti_source),binary_sha256=digest(bti_binary),dyld_sha256=before_dyld,observation=observed,
                                 protocol="generic-arm64 helper; UUID-matched dyld symbol; own child plain/mismatched landing and actual stack-probe entry/after-entry checks; no guarded-page enforcement claim"),
@@ -203,7 +219,7 @@ def capture_startup_profile(helper, binary, dyld, identity):
     return profile, captured["cs_status"]
 
 
-def capture_amfi_policy(binary, library, case, expected_status):
+def capture_main_policies(binary, library, case, expected_status):
     """Diagnostic run only: same main bytes, explicit injected constructor.
 
     Validate native output and code-signing state against the suspended launch;
@@ -227,12 +243,18 @@ def capture_amfi_policy(binary, library, case, expected_status):
         if (observed["cs_result"] or observed["cs_errno"] or observed["cs_status"]!=expected_status
             or observed["x0"] or observed["x1"] or observed["carry"] or observed["input_flags"]!=0):
             raise ValueError("AMFI diagnostic differs from suspended native process state")
-        return dict(input_flags=str(observed["input_flags"]),output_flags=str(observed["output_flags"]),
-                    code_signing_status=expected_status)
+        dtrace=observed["dtrace"]
+        if (dtrace["opened"] is not True or dtrace["lazy_invalid_header_accepted"] is not True
+            or dtrace["own_registration_removed"] is not True or dtrace["cs_result_after"]
+            or dtrace["cs_status_after"]!=expected_status):
+            raise ValueError("DTrace lazy policy or owned-registration cleanup was not verified")
+        return (dict(input_flags=str(observed["input_flags"]),output_flags=str(observed["output_flags"]),
+                     code_signing_status=expected_status),
+                dict(mode="lazy-untraced",code_signing_status=expected_status),observed)
 
 
 def startup_profiles(binaries, dyld, cases):
-    """Capture suspended kernel metadata, then separate diagnostic AMFI results.
+    """Capture suspended kernel metadata, then separate diagnostic AMFI and lazy DTrace results.
 
     The helper uses fixed safe argv and env{}; workload argv cannot spoof keys.
     fsgetpath resolves only the two identities just captured from our own child.
@@ -266,12 +288,13 @@ def startup_profiles(binaries, dyld, cases):
         amfi_source=ROOT/"scripts/macho-amfi.c"
         subprocess.run([compiler,"-isysroot",sdk,"-arch","arm64","-Wall","-Wextra","-Werror","-dynamiclib",str(amfi_source),"-o",str(library)],check=True,timeout=30)
         probe["amfi_diagnostic"]=dict(source_sha256=digest(amfi_source),binary_sha256=digest(library),
-            protocol="owned injected constructor; same main SHA; no entitlements; CS status equals suspended env{} child; original output oracle; excluded from timing")
+            protocol="owned injected constructor; same main SHA; no entitlements; CS status equals suspended env{} child; original output oracle; invalid owned DOF accepted lazily and own generation removed; CS status rechecked; excluded from timing")
         profiles = {}
+        probe["main_policy_observations"]={}
         for binary in binaries:
             metadata,cs_status=capture_startup_profile(helper,binary,dyld,identity)
             case=next(c for c in cases if c["workload"]==binary.stem)
-            metadata["amfi_dyld_policy"]=capture_amfi_policy(binary,library,case,cs_status)
+            metadata["amfi_dyld_policy"],metadata["dtrace_helper"],probe["main_policy_observations"][binary.stem]=capture_main_policies(binary,library,case,cs_status)
             if digest(binary)!=metadata["binary_sha256"] or digest(dyld)!=metadata["dyld_sha256"]:
                 raise ValueError("runtime input changed during AMFI capture")
             profiles[binary.stem]=metadata
@@ -311,6 +334,7 @@ def main():
             raise ValueError("captured startup metadata differs from frozen build/runtime")
     def verify_inputs():
         verify_captured_stat_absences(profile)
+        verify_captured_access_absences(profile)
         if digest(options.dyld) != initial_dyld:
             raise ValueError("dyld changed during collection")
         for name, expected in build["binaries"].items():

@@ -18,8 +18,8 @@ All initialization, arithmetic, output and exit remain native program work.
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 Current integer/1000 validation with the corrected ISA, captured runtime profile,
-and the explicit warm shared cache retires 2,232,651 instructions and stops at
-BSD `open("/dev/dtracehelper", O_RDWR)` at PC `0x18048d0a4`, with no guest
+and the explicit warm shared cache retires 2,250,441 instructions and stops at
+`MRS X8, S3_6_C15_C1_5` at PC `0x180466fbc`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -28,8 +28,14 @@ path, and resolves the library in the real shared cache. The guest then construc
 its version-7 kernel page-in linking request; the modeled kernel installs a private
 format-6 fixup pager over the signed main data page and applies BSD mprotect.
 It subsequently executes native-validated UXTL/UXTL2, BSL, SMAXV and LDAPR,
-and reads the captured DTrace DOF capability. The resulting device open is not
-yet implemented. This remains incomplete startup, not benchmark
+and reads the captured DTrace DOF capability. It opens a private helper descriptor
+and registers DOF metadata using the captured lazy mode, without host device
+forwarding. Correct Mach VM_PROT_COPY handling preserves private dirty data and
+allows validated non-executable shared-cache data to become writable. The captured
+access(F_OK) absence and exact TPRO capability byte lead to an unimplemented
+Apple thread-protection register read. Earlier
+bring-up counts followed incorrect COPY error returns and are not comparable
+progress measures. This remains incomplete startup, not benchmark
 main or successful exit. The old superseded bring-up dataset has been removed. Current whole-program
 Mach-O calibration data will be retained after successful execution is validated.
 
@@ -342,3 +348,45 @@ acquire operations conservatively; this is not a calibrated throughput claim.
 The DTrace DOF byte is explicitly captured at commpage offset 0x92, including a
 native value of one; absent profile fields remain unmapped rather than defaulting
 to disabled. BSL reads its old destination mask in the timing dependency graph.
+
+
+The per-image diagnostic constructor now validates both AMFI and lazy DTrace
+helper behavior, with unchanged executable bytes and matching code-signing state.
+An owned invalid DOF header must be accepted without parsing, its field must be
+replaced by a generation, and removal of that exact owned generation must succeed.
+Raw acceptance/cleanup/signing checks are retained in capture provenance. These
+instrumented runs remain excluded from native timing; final measurements must
+recheck applicability before and after collection. Uncaptured or eager helper
+modes remain unsupported. The process owns registration metadata across descriptor
+close/dup; it does not simulate a tracing consumer. Native open, eleven ioctl,
+ten lifecycle and registry-limit observations cover generation reuse, input-size
+bounds, low-word REMOVE arguments, full-width ioctl commands and registration
+commit before failed copyout. Partial copyout remains explicitly unsupported.
+
+Mach VM_PROT_COPY is a real private-copy request, not an invalid protection bit.
+The bounded implementation reuses existing private AddressSpace pages when the
+maximum already permits write. It preserves dirty bytes, backing-file isolation
+and current/max protection semantics, and decodes scalar ABI arguments at their
+native widths. Native sixteen-case protection, three maximum-protection cases and an independent private-file probe
+cover this path. Maximum expansion, executable COPY and synthetic commpage/dynamic
+fields remain unsupported. Shared-cache DATA is admitted only through its validated
+CacheMapping backing, including protection splits; holes and replacement backings
+cannot masquerade as that mapping. The hosted macOS15 failure diagnosed a legitimate
+COPY request that previously returned a false KERN_INVALID_ARGUMENT; the memory-fault
+acceptance gate remains strict.
+
+
+The selected `/AppleInternal/XBS/.isChrooted` lookup is modeled only as its captured
+`access(F_OK)` result. It has a separate namespace from stat64 observations,
+requires native runtime identity, and is rechecked with native access before and
+after collection. Other modes, uncaptured paths and host filesystem traversal
+remain unsupported; no lookup is forwarded during simulated execution.
+
+
+The exact byte at commpage `+0x10c`, consumed by the matching installed
+`_dyld_call_with_writable_tpro_memory`, is captured read-only and bound to native
+runtime identity. Its observed value is preserved, including zero when actually
+captured; absence leaves the byte unmapped. This is installed-binary evidence,
+not a claimed published XNU field definition. Adjacent unknown bytes remain
+unmapped, and capturing the capability does not implement unobserved TPRO
+register operations or authorize them as no-ops.
