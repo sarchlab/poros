@@ -60,6 +60,8 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return k.openAt(r, m)
 	case 6:
 		return k.closeDescriptor(r)
+	case 169:
+		return k.codeSigningStatus(r, m)
 	case 202:
 		return k.sysctl(r, m)
 	case 381:
@@ -76,7 +78,7 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return k.modifyPortRefs(r)
 	case -12:
 		return k.deallocate(r, m)
-	case -15:
+	case -10, -15:
 		return k.mapAnonymous(r, m)
 	case -14: // mach_vm_protect, on this process's task map only.
 		if !k.currentTaskRight(uint32(r.GPR[0])) {

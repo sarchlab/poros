@@ -15,6 +15,8 @@ import (
 	"github.com/sarchlab/poros/pkg/loader"
 )
 
+const maxMachORuntimeProfileBytes = 64 << 10
+
 // runMachO reports actual runtime progress. Incomplete startup is a failing
 // execution, never a benchmark result or a prediction of complete user time.
 func runMachO(args []string, out, diagnostics io.Writer) int {
@@ -49,7 +51,7 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 	options := darwinuser.Options{EntropySeed: *entropySeed, Args: append([]string{*argv0}, fs.Args()[1:]...), Env: []string(env), ExecName: *execName}
 	if *profilePath != "" {
 		var profile darwinuser.RuntimeProfile
-		if err := readMachOProfile(*profilePath, 4096, &profile); err != nil {
+		if err := readMachOProfile(*profilePath, maxMachORuntimeProfileBytes, &profile); err != nil {
 			fmt.Fprintln(diagnostics, err)
 			return 2
 		}

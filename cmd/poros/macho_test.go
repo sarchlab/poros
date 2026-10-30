@@ -96,3 +96,24 @@ func TestMachOCLIUsesAndReportsBoundStartupProfile(t *testing.T) {
 		t.Fatal("mismatched startup identity accepted", diagnostic.String())
 	}
 }
+
+func TestMachORuntimeProfileSizeBound(t *testing.T) {
+	directory := t.TempDir()
+	profile := filepath.Join(directory, "runtime.json")
+	// Whitespace is valid JSON padding; the limit applies to all input bytes.
+	valid := append([]byte(`{}`), bytes.Repeat([]byte(" "), maxMachORuntimeProfileBytes-2)...)
+	if err := os.WriteFile(profile, valid, 0600); err != nil {
+		t.Fatal(err)
+	}
+	var p darwinuser.RuntimeProfile
+	if err := readMachOProfile(profile, maxMachORuntimeProfileBytes, &p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(profile, append(valid, ' '), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out, diagnostic bytes.Buffer
+	if code := runMachO([]string{"--dyld", "unused", "--runtime-profile", profile, "unused"}, &out, &diagnostic); code != 2 || !strings.Contains(diagnostic.String(), "exceeds") || out.Len() != 0 {
+		t.Fatal(code, diagnostic.String())
+	}
+}

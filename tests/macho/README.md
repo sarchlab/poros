@@ -28,8 +28,10 @@ That snapshot predates the selected sandbox-query handler. Current single-case
 validation completes the selected NAME2OID and captured integer-value queries,
 then consumes the explicitly captured AMFI policy and executes its SIMD flag
 packing, reads captured kernel settings and uses the selected runtime directory
-namespace. Integer/1000 now reaches an unmapped v4 dynamic-cache roots field at
-`0x34bb24054` after 1,486,372 instructions. This remains incomplete startup.
+namespace. Integer/1000 now consumes the captured v4 roots bitmaps and cache file identity,
+queries its captured code-signing status, and allocates anonymous memory. It reaches
+BSD339 (`fstat64`) on stderr in dyld logging setup after 1,513,063 instructions.
+This remains incomplete startup.
 The 24-case samples have not been relabeled as a run of this newer collector.
 
 `scripts/macho-startup.c` captures documented kernel apple metadata from each
@@ -213,3 +215,22 @@ the same dynamic-region fault, with a nonzero exit status and no timing claim.
 The native collector omits the optional Rosetta directory when the host reports
 ENOENT. It does not install Rosetta or fabricate a guest ENOENT result: querying
 an uncaptured directory remains explicitly unsupported. Other capture errors fail.
+
+The selected v4 roots descriptors and bitmap layout are derived from the matching
+installed dyld methods, not asserted as a public cross-version ABI. Native data
+records 4,115 images and two 515-byte bitmaps; even all-zero values are captured,
+not synthesized. Read-only mapping validates ranges, disjoint bitmaps and exact
+agreement where the first bitmap overlaps the 16-byte cache-path read envelope.
+Bytes 85–87 remain unknown and unmapped. The runtime JSON is bounded at 64 KiB,
+with smaller field/count bounds; the captured local profile is 5,200 bytes.
+
+Cache `fsgetpath` reuses the native dynamic-region FileIdTuple and canonical path.
+Unknown identities, including unknown inodes on a captured mount, stop explicitly;
+a known filesystem does not imply a complete negative file namespace. CS_OPS_STATUS
+returns the per-image status already verified during startup/AMFI capture. Its
+null-output and size-ignored behavior follows [XNU csops_internal](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_proc.c).
+The Mach allocate and map traps share anonymous VM allocation with their distinct
+argument framing and zero-size behavior. Both preserve native map-before-copyout
+side effects for a read-only address slot; mixed-permission copyout stays unsupported.
+Owned native probes cover these contracts, including exact output extents and
+preserved Mach flags/registers. No CPU timing parameters change in this slice.

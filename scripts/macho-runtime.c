@@ -46,6 +46,16 @@ static int print_native_dyld(void) {
  if(found!=1)return 7;
  printf("{\"uuid\":");hex(uuid,16);printf(",\"subtype\":%u}",u32(h+8));return 0;
 }
+// Selected v4 roots fields, identified in the matching installed dyld methods.
+// Read only the bounded descriptors and bitmaps, not the unknown header gap.
+static int print_cache_roots(uint64_t base,uint64_t size) {
+ unsigned char header[5],desc[16],image[8192],cryptex[8192];
+ if(!read_self(base+80,header,5)||!read_self(base+96,desc,16))return 0;
+ uint32_t count=u32(header),a=u32(desc),an=u32(desc+4),b=u32(desc+8),bn=u32(desc+12);
+ if(!(header[4]&1)||!count||count>65536||an!=(count+7)/8||bn!=an||a<112||b<112||(uint64_t)a+an>size||(uint64_t)b+bn>size||((uint64_t)a<b+(uint64_t)bn&&(uint64_t)b<a+(uint64_t)an))return 0;
+ if(!read_self(base+a,image,an)||!read_self(base+b,cryptex,bn))return 0;
+ printf(",\"roots\":{\"roots_flags\":%u,\"image_count\":%u,\"image_roots_offset\":%u,\"image_roots_size\":%u,\"cryptex_roots_offset\":%u,\"cryptex_roots_size\":%u,\"image_roots_hex\":",header[4],count,a,an,b,bn);hex(image,an);printf(",\"cryptex_roots_hex\":");hex(cryptex,bn);printf("}");return 1;
+}
 static int print_cache_dynamic(void){task_dyld_info_data_t d;mach_msg_type_number_t n=TASK_DYLD_INFO_COUNT;if(task_info(mach_task_self(),TASK_DYLD_INFO,(task_info_t)&d,&n)!=KERN_SUCCESS)return 2;
 const struct dyld_all_image_infos*a=(const void*)(uintptr_t)d.all_image_info_addr;
 uint64_t base=a->sharedCacheBaseAddress;unsigned char h[512],r[96]={0};if(!read_self(base,h,sizeof(h)))return 3;
@@ -56,7 +66,7 @@ if(version>=1&&!read_self(base+off+32,r+32,4))return 8;
 if(version>=2&&!read_self(base+off+36,r+36,4))return 9;
 if(version>=3&&!read_self(base+off+48,r+48,32))return 10;
 if(version>=4&&(size<112||!read_self(base+off+88,r+88,8)))return 11;
-printf("{\"cache_uuid\":");hex(a->sharedCacheUUID,16);printf(",\"dynamic_offset\":%llu,\"dynamic_size\":%llu,\"magic_hex\":",off,size);hex(r,16);printf(",\"file_id_hex\":");hex(r+16,16);printf(",\"system_flags_hex\":");hex(r+48,16);printf(",\"processor_flags_hex\":");hex(r+64,16);printf(",\"cryptex_offset\":%u,\"cache_path_offset\":%u,\"cryptex_path\":",u32(r+32),u32(r+36));if(!path(base+off,size,u32(r+32)))return 5;printf(",\"cache_path\":");if(!path(base+off,size,u32(r+36)))return 6;if(version>=4)printf(",\"cryptex_length\":%u,\"cache_path_length\":%u",u32(r+88),u32(r+92));if(u32(r+32)){printf(",\"cryptex_window_hex\":");if(!path_window(base+off,size,u32(r+32)))return 12;}if(u32(r+36)){printf(",\"cache_path_window_hex\":");if(!path_window(base+off,size,u32(r+36)))return 13;}printf("}");return 0;}
+printf("{\"cache_uuid\":");hex(a->sharedCacheUUID,16);printf(",\"dynamic_offset\":%llu,\"dynamic_size\":%llu,\"magic_hex\":",off,size);hex(r,16);printf(",\"file_id_hex\":");hex(r+16,16);printf(",\"system_flags_hex\":");hex(r+48,16);printf(",\"processor_flags_hex\":");hex(r+64,16);printf(",\"cryptex_offset\":%u,\"cache_path_offset\":%u,\"cryptex_path\":",u32(r+32),u32(r+36));if(!path(base+off,size,u32(r+32)))return 5;printf(",\"cache_path\":");if(!path(base+off,size,u32(r+36)))return 6;if(version>=4)printf(",\"cryptex_length\":%u,\"cache_path_length\":%u",u32(r+88),u32(r+92));if(u32(r+32)){printf(",\"cryptex_window_hex\":");if(!path_window(base+off,size,u32(r+32)))return 12;}if(u32(r+36)){printf(",\"cache_path_window_hex\":");if(!path_window(base+off,size,u32(r+36)))return 13;}if(version==4&&!print_cache_roots(base+off,size))return 14;printf("}");return 0;}
 
 static int atomic_probe(unsigned offset) {
     pid_t child=fork(); if(child<0)return -1;

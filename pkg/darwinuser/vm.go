@@ -29,7 +29,7 @@ func (z zeroMemory) ReadAt(b []byte, offset int64) (int, error) {
 	return int(n), nil
 }
 
-// mapAnonymous models kernelrpc's copyin -> map -> copyout order. A failing
+// mapAnonymous models the allocate/map kernel traps' copyin -> map -> copyout order. A failing
 // copyout leaves the new mapping installed, just as the kernel trap does.
 func (k *kernelState) mapAnonymous(r *emu.Registers, m *usermem.AddressSpace) bool {
 	if !k.currentTaskRight(uint32(r.GPR[0])) {
@@ -38,6 +38,10 @@ func (k *kernelState) mapAnonymous(r *emu.Registers, m *usermem.AddressSpace) bo
 	}
 	pointer, size, mask := r.GPR[1], r.GPR[2], r.GPR[3]
 	flags, prot := uint32(r.GPR[4]), uint32(r.GPR[5])
+	allocating := int32(r.GPR[16]) == -10
+	if allocating {
+		mask, flags, prot = 0, uint32(r.GPR[3]), 3
+	}
 	// Allocation tags are accounting metadata. Other valid flag families require
 	// actual semantics, so remain explicit unsupported interfaces.
 	var b [8]byte
@@ -46,6 +50,23 @@ func (k *kernelState) mapAnonymous(r *emu.Registers, m *usermem.AddressSpace) bo
 		return true
 	}
 	hint := binary.LittleEndian.Uint64(b[:])
+	// Copyout can partially modify a mixed-permission slot natively. Keep that
+	// unmodeled path unsupported before allocation; a wholly readonly slot still
+	// follows the native map-then-copyout-error order below.
+	if m.Check(pointer, 8, usermem.Write, "VM address copyout") != nil && m.Check(pointer, 1, usermem.Write, "VM address copyout") == nil {
+		return false
+	}
+	if allocating && size == 0 {
+		if flags&^uint32(0xff000001) != 0 {
+			return false
+		}
+		clear(b[:])
+		r.GPR[0] = 0
+		if m.Write(pointer, b[:]) != nil {
+			r.GPR[0] = 10
+		}
+		return true
+	}
 	address, result, supported := k.allocateAnonymous(m, hint, size, mask, flags, prot, 7)
 	if !supported {
 		return false

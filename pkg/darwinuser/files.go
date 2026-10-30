@@ -22,13 +22,11 @@ func (k *kernelState) fsgetpath(r *emu.Registers, m *usermem.AddressSpace) bool 
 		return finish(22, true)
 	}
 	id := binary.LittleEndian.Uint32(fsid[:4])
-	knownFS := false
 	for _, f := range k.files {
 		// Ordinary fsgetpath uses the low volfs ID; fsgetpath_ext has other options.
 		if uint32(f.FSID) != id {
 			continue
 		}
-		knownFS = true
 		if f.ObjectID != r.GPR[3] {
 			continue
 		}
@@ -44,8 +42,7 @@ func (k *kernelState) fsgetpath(r *emu.Registers, m *usermem.AddressSpace) bool 
 		}
 		return finish(uint64(len(b)), false)
 	}
-	if !knownFS {
-		return false
-	} // Other mounts and their filesystem-specific errors are unmodeled.
-	return finish(2, true)
+	// A captured mount does not describe all of its inode namespace. Unknown
+	// identities remain unsupported instead of inventing an ENOENT response.
+	return false
 }

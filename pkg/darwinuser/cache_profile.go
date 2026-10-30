@@ -7,27 +7,29 @@ import (
 	"fmt"
 	"github.com/sarchlab/poros/pkg/loader"
 	"github.com/sarchlab/poros/pkg/usermem"
+	"path"
 	"strings"
 )
 
-// CacheDynamicProfile contains documented fields and version-4 path lengths
+// CacheDynamicProfile contains documented fields and selected version-4 fields
 // identified from the matching dyld binary. Other unknown fields stay unmapped.
 type CacheDynamicProfile struct {
-	UUID               string  `json:"cache_uuid"`
-	Offset             uint64  `json:"dynamic_offset"`
-	Size               uint64  `json:"dynamic_size"`
-	MagicHex           string  `json:"magic_hex"`
-	FileIDHex          string  `json:"file_id_hex"`
-	SystemFlagsHex     string  `json:"system_flags_hex"`
-	ProcessorFlagsHex  string  `json:"processor_flags_hex"`
-	CryptexOffset      uint32  `json:"cryptex_offset"`
-	CachePathOffset    uint32  `json:"cache_path_offset"`
-	CryptexPath        *string `json:"cryptex_path"`
-	CachePath          *string `json:"cache_path"`
-	CryptexLength      *uint32 `json:"cryptex_length,omitempty"`
-	CachePathLength    *uint32 `json:"cache_path_length,omitempty"`
-	CryptexWindowHex   string  `json:"cryptex_window_hex,omitempty"`
-	CachePathWindowHex string  `json:"cache_path_window_hex,omitempty"`
+	Roots              *CacheRootsProfile `json:"roots,omitempty"`
+	UUID               string             `json:"cache_uuid"`
+	Offset             uint64             `json:"dynamic_offset"`
+	Size               uint64             `json:"dynamic_size"`
+	MagicHex           string             `json:"magic_hex"`
+	FileIDHex          string             `json:"file_id_hex"`
+	SystemFlagsHex     string             `json:"system_flags_hex"`
+	ProcessorFlagsHex  string             `json:"processor_flags_hex"`
+	CryptexOffset      uint32             `json:"cryptex_offset"`
+	CachePathOffset    uint32             `json:"cache_path_offset"`
+	CryptexPath        *string            `json:"cryptex_path"`
+	CachePath          *string            `json:"cache_path"`
+	CryptexLength      *uint32            `json:"cryptex_length,omitempty"`
+	CachePathLength    *uint32            `json:"cache_path_length,omitempty"`
+	CryptexWindowHex   string             `json:"cryptex_window_hex,omitempty"`
+	CachePathWindowHex string             `json:"cache_path_window_hex,omitempty"`
 }
 
 func (p CacheDynamicProfile) mapRegion(m *usermem.AddressSpace, c *loader.SharedCache) error {
@@ -78,6 +80,14 @@ func (p CacheDynamicProfile) mapRegion(m *usermem.AddressSpace, c *loader.Shared
 			if err := m.Map(base+v.field, 4, usermem.Read, b[:]); err != nil {
 				return err
 			}
+		}
+	}
+	if p.Roots != nil {
+		if version != 4 {
+			return fmt.Errorf("roots bitmaps require version-4 dynamic region")
+		}
+		if err := p.Roots.mapRegion(m, base, p.Size); err != nil {
+			return err
 		}
 	}
 	mapPath := func(field uint64, offset uint32, path *string, windowHex string) error {
@@ -151,4 +161,21 @@ func (p CacheDynamicProfile) mapRegion(m *usermem.AddressSpace, c *loader.Shared
 		}
 	}
 	return nil
+}
+
+// fileIdentity reuses the native dynamic region's FileIdTuple and canonical
+// cache path; it grants identity lookup only, never host file access.
+func (p CacheDynamicProfile) fileIdentity() (FileIdentity, bool, error) {
+	raw, err := hex.DecodeString(p.FileIDHex)
+	if err != nil || len(raw) != 16 {
+		return FileIdentity{}, false, fmt.Errorf("invalid cache file identity")
+	}
+	fsid, inode := binary.LittleEndian.Uint64(raw[:8]), binary.LittleEndian.Uint64(raw[8:])
+	if fsid == 0 && inode == 0 {
+		return FileIdentity{}, false, nil
+	}
+	if uint32(fsid) == 0 || inode == 0 || p.CachePath == nil || !path.IsAbs(*p.CachePath) || path.Clean(*p.CachePath) != *p.CachePath || strings.IndexByte(*p.CachePath, 0) >= 0 {
+		return FileIdentity{}, false, fmt.Errorf("invalid cache identity path")
+	}
+	return FileIdentity{FSID: fsid, ObjectID: inode, Path: *p.CachePath}, true, nil
 }

@@ -278,6 +278,20 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		}
 		kernel.threadSendRefs = 1 // XNU installs one pinned main-thread send reference.
 	}
+	if o.SharedCache != nil && o.SharedCache.DynamicSize != 0 {
+		file, present, err := o.RuntimeProfile.CacheDynamic.fileIdentity()
+		if err != nil {
+			return nil, err
+		}
+		if present {
+			for _, existing := range kernel.files {
+				if uint32(existing.FSID) == uint32(file.FSID) && existing.ObjectID == file.ObjectID {
+					return nil, fmt.Errorf("conflicting cache/startup file identity")
+				}
+			}
+			kernel.files = append(kernel.files, file)
+		}
+	}
 	if dyld.AllImageInfoAddress != 0 || dyld.AllImageInfoSize != 0 {
 		kernel.dyldInfoAddress = dyld.AllImageInfoAddress + DyldBase
 		kernel.dyldInfoSize = dyld.AllImageInfoSize

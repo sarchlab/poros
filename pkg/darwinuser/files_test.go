@@ -79,9 +79,9 @@ func TestFSGetPathNativeContract(t *testing.T) {
 		}
 		before := r
 		handled := k.trap(&r, m)
-		if tc.Case == 7 { // Native filesystem-specific missing-mount result is not a generic rule.
+		if tc.Case == 7 || tc.Case == 9 { // Native missing mount/inode observations do not describe an uncaptured namespace.
 			if handled || r != before {
-				t.Fatal("unknown mount did not fail closed")
+				t.Fatal("unknown identity did not fail closed")
 			}
 			continue
 		}
@@ -121,5 +121,29 @@ func TestFSGetPathMixedPermissionOutputIsExplicitlyUnsupported(t *testing.T) {
 	before := r
 	if k.fsgetpath(&r, m) || r != before {
 		t.Fatal("partial-copyout scope silently expanded")
+	}
+}
+
+func TestFSGetPathUnknownInodeOnKnownMountFailsClosed(t *testing.T) {
+	m := &usermem.AddressSpace{}
+	var fsid [8]byte
+	binary.LittleEndian.PutUint64(fsid[:], 1)
+	m.Map(0x1000, 8, usermem.Read, fsid[:])
+	initial := bytes.Repeat([]byte{0xa5}, 32)
+	m.Map(0x2000, 32, usermem.Read|usermem.Write, initial)
+	k := kernelState{files: []FileIdentity{{FSID: 1, ObjectID: 2, Path: "/known"}}}
+	r := emu.Registers{C: true}
+	r.GPR[0] = 0x2000
+	r.GPR[1] = 32
+	r.GPR[2] = 0x1000
+	r.GPR[3] = 3
+	before := r
+	if k.fsgetpath(&r, m) || r != before {
+		t.Fatal("uncaptured identity was fabricated")
+	}
+	got := make([]byte, 32)
+	m.Read(0x2000, got)
+	if !bytes.Equal(got, initial) {
+		t.Fatal("output mutated")
 	}
 }

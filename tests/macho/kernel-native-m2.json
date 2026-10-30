@@ -3228,6 +3228,335 @@
           "gid": 0
         }
       }
+    },
+    {
+      "source": "cache-roots-bitmaps-probe.c",
+      "source_sha256": "e61aa3a06a4bd7431f4c1158eb784426b580bf8e09a86c908d1e6671f1b43e1e",
+      "architecture": "arm64",
+      "binary_sha256": "57e898100d60ac3209cd6c2888b704f5e5e3adce2dfb1a8558775997a40bb698",
+      "result": {
+        "cache_uuid": "b411828b445038e3973aafe7b7b5bef5",
+        "dynamic_offset": 7712423936,
+        "dynamic_size": 16384,
+        "version": 4,
+        "roots_flags": 1,
+        "image_count": 4115,
+        "image_roots_offset": 194,
+        "image_roots_size": 515,
+        "cryptex_roots_offset": 709,
+        "cryptex_roots_size": 515,
+        "image_roots_hex": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "cryptex_roots_hex": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "source": "cache-fsgetpath-probe.c",
+      "source_sha256": "7198807ed02239996a32f9da969267397838c9e9a5d34133ba364494ef9a15a8",
+      "architecture": "arm64",
+      "binary_sha256": "cbb5b75934f7336b1691283bfda2077366396644812514e05fd8bc6c5e54f228",
+      "result": {
+        "cache_uuid": "b411828b445038e3973aafe7b7b5bef5",
+        "file_id_hex": "1000000100000000127b030000000000",
+        "x0": 82,
+        "x1": 0,
+        "carry": false,
+        "tail_unchanged": true,
+        "stat_identity_matches": true,
+        "path_hex": "2f53797374656d2f566f6c756d65732f507265626f6f742f4372797074657865732f4f532f53797374656d2f4c6962726172792f64796c642f64796c645f7368617265645f63616368655f61726d36346500"
+      }
+    },
+    {
+      "source": "csops-status-probe.c",
+      "source_sha256": "93fffa9fbb469930c1b43c5472198322e8e77907d480947ae6dd261833f5af34",
+      "architecture": "arm64",
+      "binary_sha256": "d76615137d19c39522cf41413052a3025127d468de7ed43759f789760cf285c0",
+      "result": [
+        {
+          "case": "self_zero_size",
+          "size": 0,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "bytes": "01020222a5a5a5a5a5a5a5a5a5a5a5a5"
+        },
+        {
+          "case": "self_one_size",
+          "size": 1,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "bytes": "01020222a5a5a5a5a5a5a5a5a5a5a5a5"
+        },
+        {
+          "case": "self_three_size",
+          "size": 3,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "bytes": "01020222a5a5a5a5a5a5a5a5a5a5a5a5"
+        },
+        {
+          "case": "self_four_size",
+          "size": 4,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "bytes": "01020222a5a5a5a5a5a5a5a5a5a5a5a5"
+        },
+        {
+          "case": "self_large_size",
+          "size": 4096,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "bytes": "01020222a5a5a5a5a5a5a5a5a5a5a5a5"
+        },
+        {
+          "case": "explicit_own_pid",
+          "size": 4,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "bytes": "01020222a5a5a5a5a5a5a5a5a5a5a5a5"
+        },
+        {
+          "case": "pid_low32_zero",
+          "size": 4,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "bytes": "01020222a5a5a5a5a5a5a5a5a5a5a5a5"
+        },
+        {
+          "case": "null_output_four_size",
+          "size": 4,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "bytes": ""
+        },
+        {
+          "case": "null_output_zero_size",
+          "size": 0,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "bytes": ""
+        },
+        {
+          "case": "readonly_output",
+          "size": 4,
+          "x0": 14,
+          "x1": 0,
+          "carry": true,
+          "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+        },
+        {
+          "case": "unmapped_output",
+          "size": 4,
+          "x0": 14,
+          "x1": 0,
+          "carry": true,
+          "bytes": ""
+        },
+        {
+          "case": "partial_one",
+          "size": 4,
+          "x0": 14,
+          "x1": 0,
+          "carry": true,
+          "bytes": "01"
+        },
+        {
+          "case": "partial_three",
+          "size": 4,
+          "x0": 14,
+          "x1": 0,
+          "carry": true,
+          "bytes": "010202"
+        },
+        {
+          "case": "exact_four_guarded",
+          "size": 4,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "bytes": "01020222"
+        }
+      ]
+    },
+    {
+      "source": "vm-allocate-probe.c",
+      "source_sha256": "1ad06e472b68f75f0f0d7c59bdc59ddebe16c187f7dae8f562b0aaa2a9ab4070",
+      "architecture": "arm64",
+      "binary_sha256": "9bd05130888c3a0d796fa7f700a71a1a88bb5e1345661e252d181dc54684fd3d",
+      "result": [
+        {
+          "case": "fixed_36",
+          "return": 0,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": true,
+          "address_zero": false,
+          "address_equals_gap": true,
+          "gap_readable": true,
+          "gap_zero": true,
+          "allocation_zero": true,
+          "region_size": 16384,
+          "protection": 3,
+          "max_protection": 7
+        },
+        {
+          "case": "anywhere_tag60_36",
+          "return": 0,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": false,
+          "address_zero": false,
+          "address_equals_gap": false,
+          "gap_readable": false,
+          "gap_zero": false,
+          "allocation_zero": true,
+          "region_size": 16384,
+          "protection": 3,
+          "max_protection": 7
+        },
+        {
+          "case": "invalid_task",
+          "return": 268435459,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": true,
+          "address_zero": false,
+          "address_equals_gap": true,
+          "gap_readable": false,
+          "gap_zero": false,
+          "allocation_zero": false,
+          "region_size": 0,
+          "protection": -1,
+          "max_protection": -1
+        },
+        {
+          "case": "dead_task",
+          "return": 268435459,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": true,
+          "address_zero": false,
+          "address_equals_gap": true,
+          "gap_readable": false,
+          "gap_zero": false,
+          "allocation_zero": false,
+          "region_size": 0,
+          "protection": -1,
+          "max_protection": -1
+        },
+        {
+          "case": "null_address_pointer",
+          "return": 10,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": true,
+          "address_zero": false,
+          "address_equals_gap": true,
+          "gap_readable": false,
+          "gap_zero": false,
+          "allocation_zero": false,
+          "region_size": 0,
+          "protection": -1,
+          "max_protection": -1
+        },
+        {
+          "case": "unmapped_address_pointer",
+          "return": 10,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": true,
+          "address_zero": false,
+          "address_equals_gap": true,
+          "gap_readable": false,
+          "gap_zero": false,
+          "allocation_zero": false,
+          "region_size": 0,
+          "protection": -1,
+          "max_protection": -1
+        },
+        {
+          "case": "zero_size",
+          "return": 0,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": false,
+          "address_zero": true,
+          "address_equals_gap": false,
+          "gap_readable": false,
+          "gap_zero": false,
+          "allocation_zero": false,
+          "region_size": 0,
+          "protection": -1,
+          "max_protection": -1
+        },
+        {
+          "case": "fixed_unaligned",
+          "return": 0,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": false,
+          "address_zero": false,
+          "address_equals_gap": true,
+          "gap_readable": true,
+          "gap_zero": true,
+          "allocation_zero": true,
+          "region_size": 16384,
+          "protection": 3,
+          "max_protection": 7
+        },
+        {
+          "case": "readonly_address_pointer",
+          "return": 10,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": true,
+          "address_zero": false,
+          "address_equals_gap": true,
+          "gap_readable": true,
+          "gap_zero": true,
+          "allocation_zero": false,
+          "region_size": 0,
+          "protection": -1,
+          "max_protection": -1
+        },
+        {
+          "case": "fixed_collision",
+          "return": 3,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": true,
+          "address_zero": false,
+          "address_equals_gap": false,
+          "gap_readable": false,
+          "gap_zero": false,
+          "allocation_zero": false,
+          "region_size": 0,
+          "protection": -1,
+          "max_protection": -1
+        },
+        {
+          "case": "overflow_size",
+          "return": 4,
+          "x1_preserved": true,
+          "nzcv": "a0000000",
+          "address_unchanged": true,
+          "address_zero": false,
+          "address_equals_gap": true,
+          "gap_readable": false,
+          "gap_zero": false,
+          "allocation_zero": false,
+          "region_size": 0,
+          "protection": -1,
+          "max_protection": -1
+        }
+      ]
     }
   ]
 }
