@@ -10,9 +10,8 @@
 #include <sys/dtrace.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <mach/mach.h>
-#include <mach/arm/thread_status.h>
-#include <stdatomic.h>
+#include <pthread.h>
+
 struct result{uint64_t x0,x1,nzcv;};
 static struct result query(const void *policy,const void *request){
  register uint64_t a __asm__("x0")=(uint64_t)policy,b __asm__("x1")=90,c __asm__("x2")=(uint64_t)request,n __asm__("x16")=381;uint64_t flags;
@@ -25,40 +24,45 @@ static struct result helper_ioctl(int fd,uint64_t command,uint64_t argument){
  register uint64_t a __asm__("x0")=(uint32_t)fd,b __asm__("x1")=command,c __asm__("x2")=argument,n __asm__("x16")=54;uint64_t flags;
  __asm__ volatile("svc #0x80\nmrs %2,nzcv":"+r"(a),"+r"(b),"=&r"(flags):"r"(c),"r"(n):"memory","cc");return(struct result){a,b,flags};
 }
-// The first instruction runs before any user runtime on this owned Mach
-// thread. Observe the kernel-created default, not a synthesized exec trace.
-struct thread_observation { uint64_t value; _Atomic uint64_t ready; };
-__attribute__((naked)) static void read_thread_default(void) {
- __asm__ volatile("mrs x1, S3_6_C15_C1_5\nstr x1,[x0]\nmov x1,#1\nadd x2,x0,#8\nstlr x1,[x2]\n1:yield\nb 1b");
+// Native startup observations only. These wrappers invoke the original native
+// routines with unchanged arguments/results. They call no libc before libSystem
+// initialization, and never participate in timed launches or guest execution.
+extern int __bsdthread_register(void*,void*,int,void*,uintptr_t,uintptr_t);
+static volatile unsigned registration_calls;
+static volatile uint64_t registration_args[3];
+static volatile unsigned char registration_before[128],registration_after[128];
+static volatile int registration_result;
+static int observe_registration(void*a,void*b,int c,void*d,uintptr_t size,uintptr_t offset){
+ unsigned call=registration_calls++;
+ if(call==0){registration_args[0]=(uint32_t)c;registration_args[1]=size;registration_args[2]=offset;
+  if(d&&size<=128)for(unsigned i=0;i<size;i++)registration_before[i]=((volatile unsigned char*)d)[i];}
+ int result=__bsdthread_register(a,b,c,d,size,offset);
+ if(call==0){registration_result=result;if(d&&size<=128)for(unsigned i=0;i<size;i++)registration_after[i]=((volatile unsigned char*)d)[i];}
+ return result;
 }
-static uint64_t capture_thread_default(void) {
- uint32_t entry=0;memcpy(&entry,(const void*)(uintptr_t)&read_thread_default,sizeof(entry));
- if(entry!=0xd53ef1a1U)_exit(80);
- void *stack=mmap(NULL,65536,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON,-1,0);
- if(stack==MAP_FAILED)_exit(81);
- struct thread_observation result={0}; arm_thread_state64_t state={0};
- state.__x[0]=(uint64_t)&result;
- arm_thread_state64_set_pc_fptr(state,read_thread_default);
- arm_thread_state64_set_sp(state,(char*)stack+65536);
- thread_act_t thread=MACH_PORT_NULL;
- kern_return_t created=thread_create_running(mach_task_self(),ARM_THREAD_STATE64,
-   (thread_state_t)&state,ARM_THREAD_STATE64_COUNT,&thread);
- if(created){munmap(stack,65536);_exit(82);}
- for(unsigned i=0;i<1000&&!atomic_load_explicit(&result.ready,memory_order_acquire);i++)usleep(1000);
- int ready=atomic_load_explicit(&result.ready,memory_order_acquire);
- // Never return while an owned thread can still reference this frame/stack.
- // Any cleanup failure terminates only this diagnostic process.
- if(thread_terminate(thread)!=KERN_SUCCESS)_exit(83);
- kern_return_t released=mach_port_deallocate(mach_task_self(),thread);
- if(released!=KERN_SUCCESS){
-  // Some kernel thread ports disappear when the thread terminates. Require
-  // an independent namespace query to prove that no owned right remains.
-  mach_port_type_t kind=0;
-  if(released!=KERN_INVALID_NAME || mach_port_type(mach_task_self(),thread,&kind)!=KERN_INVALID_NAME)_exit(84);
- }
- if(munmap(stack,65536)||!ready)_exit(85);
- return result.value;
+#if POROS_CAPTURE_TPRO
+extern void _dyld_call_with_writable_tpro_memory(void(*)(void*),void*);
+static volatile unsigned tpro_calls;
+static volatile uint64_t tpro_before[16],tpro_after[16];
+static volatile unsigned char tpro_capability;
+static void observe_tpro(void(*callback)(void*),void*context){
+ unsigned i=tpro_calls++;uint64_t value=0;
+ tpro_capability=*(const volatile unsigned char*)0xfffffc10cULL;
+ if(tpro_capability==3)__asm__ volatile("mrs %0,S3_6_C15_C1_5":"=r"(value));
+ if(i<16)tpro_before[i]=value;
+ _dyld_call_with_writable_tpro_memory(callback,context);
+ if(tpro_capability==3)__asm__ volatile("mrs %0,S3_6_C15_C1_5":"=r"(value));
+ if(i<16)tpro_after[i]=value;
 }
+#endif
+__attribute__((used,section("__DATA,__interpose"))) static struct {
+ const void *replacement,*original;
+} startup_interpose[]={
+ {observe_registration,__bsdthread_register},
+#if POROS_CAPTURE_TPRO
+ {observe_tpro,_dyld_call_with_writable_tpro_memory},
+#endif
+};
 __attribute__((constructor)) static void capture(void){
  const char*t=getenv("POROS_QUERY_FD");if(!t)return;char*end;long fd=strtol(t,&end,10);if(*end||fd<3||fd>1024)return;
  uint64_t out=0xa5a5a5a5a5a5a5a5ULL,req[2]={0,(uintptr_t)&out};struct result r=query("AMFI",req);
@@ -83,16 +87,17 @@ __attribute__((constructor)) static void capture(void){
  uint32_t after=0;int after_result=csops(getpid(),0,&after,sizeof(after));
  dprintf((int)fd,"{\"cs_status\":%u,\"cs_result\":%d,\"cs_errno\":%d,\"input_flags\":0,\"output_flags\":%llu,\"x0\":%llu,\"x1\":%llu,\"carry\":%s,\"dtrace\":{\"opened\":%s,\"lazy_invalid_header_accepted\":%s,\"own_registration_removed\":%s,\"cs_status_after\":%u,\"cs_result_after\":%d},",cs,cs_result,cs_errno,(unsigned long long)out,(unsigned long long)r.x0,(unsigned long long)r.x1,(r.nzcv&(1ull<<29))?"true":"false",opened?"true":"false",lazy?"true":"false",removed?"true":"false",after,after_result);
  uint8_t capability=*(const volatile uint8_t*)0xfffffc10cULL;
- uint64_t protection=0;
- if(capability==3)__asm__ volatile("mrs %0, S3_6_C15_C1_5":"=r"(protection));
- dprintf((int)fd,"\"thread_protection_observation\":{\"stage\":\"post-loader-pre-main\",\"capability\":%u,\"register\":\"S3_6_C15_C1_5\",\"value\":",capability);
- if(capability==3)dprintf((int)fd,"\"%llu\"",(unsigned long long)protection);else dprintf((int)fd,"null");
- if(capability==3){
-  uint64_t initial=capture_thread_default(),rechecked=0;
-  __asm__ volatile("mrs %0, S3_6_C15_C1_5":"=r"(rechecked));
-  uint32_t final_cs=0;int final_result=csops(getpid(),0,&final_cs,sizeof(final_cs));
-  dprintf((int)fd,",\"kernel_thread_default\":{\"stage\":\"first-instruction-of-new-mach-thread\",\"value\":\"%llu\",\"main_rechecked\":\"%llu\",\"terminated\":true,\"entry_encoding\":3577672097,\"cs_status_after\":%u,\"cs_result_after\":%d}",(unsigned long long)initial,(unsigned long long)rechecked,final_cs,final_result);
- }
+ dprintf((int)fd,"\"pthread_registration\":{\"stage\":\"native-first-registration\",\"calls\":%u,\"result\":%d,\"pthread_size\":%llu,\"data_size\":%llu,\"dispatch_queue_offset\":%llu,\"main_stack_top\":\"%llu\",\"input_hex\":\"",registration_calls,registration_result,(unsigned long long)registration_args[0],(unsigned long long)registration_args[1],(unsigned long long)registration_args[2],(unsigned long long)(uintptr_t)pthread_get_stackaddr_np(pthread_self()));
+ for(unsigned i=0;i<registration_args[1]&&i<128;i++)dprintf((int)fd,"%02x",registration_before[i]);
+ dprintf((int)fd,"\",\"output_hex\":\"");
+ for(unsigned i=0;i<registration_args[1]&&i<128;i++)dprintf((int)fd,"%02x",registration_after[i]);
+ dprintf((int)fd,"\"},\"thread_protection_observation\":{\"stage\":\"native-tpro-call-entry-and-return\",\"capability\":%u,\"register\":\"S3_6_C15_C1_5\",",capability);
+#if POROS_CAPTURE_TPRO
+ dprintf((int)fd,"\"interposed\":true,\"entry_capability\":%u,\"calls\":%u,\"values\":[",tpro_capability,tpro_calls);
+ for(unsigned i=0;i<tpro_calls&&i<16;i++)dprintf((int)fd,"%s[\"%llu\",\"%llu\"]",i?",":"",(unsigned long long)tpro_before[i],(unsigned long long)tpro_after[i]);
+ dprintf((int)fd,"]");
+#else
+ dprintf((int)fd,"\"interposed\":false,\"calls\":0,\"values\":[]");
+#endif
  dprintf((int)fd,"}}\n");
-
 }

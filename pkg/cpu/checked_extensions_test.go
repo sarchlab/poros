@@ -549,3 +549,29 @@ func TestThreadProtectionMRSConsumerAcrossTimingModels(t *testing.T) {
 		})
 	}
 }
+
+func TestOoOScalarBICWaitsForDataWithoutWritingFlags(t *testing.T) {
+	// LDR W1,[X3]; BIC W2,W1,W4; CSET W6,EQ; NOP.
+	// The flag consumer is independent of the delayed load/BIC chain.
+	x := newExtensionExecution(t, []uint32{0xb9400061, 0x0a240022, 0x1a9f17e6, 0xd503201f})
+	x.regs.GPR[4] = 3
+	x.regs.Z = true
+	x.regs.C = true
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if e := s.Initialize(); e != nil {
+		t.Fatal(e)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || c.State.InstDone != 4 || x.regs.GPR[2] != 4 || x.regs.GPR[6] != 1 || !x.regs.Z || !x.regs.C {
+		t.Fatal(c.State.Err, c.State.InstDone, x.regs)
+	}
+	if c.State.GprReady[2] <= c.State.GprReady[1] || c.State.GprReady[6] >= c.State.GprReady[1] || c.State.FlagsReady != 0 {
+		t.Fatal("BIC data/flags dependencies", c.State.GprReady[:7], c.State.FlagsReady)
+	}
+}

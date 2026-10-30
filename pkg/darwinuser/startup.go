@@ -18,7 +18,8 @@ type FileIdentity struct {
 }
 
 // StartupProfile is specific to one executable and native boot. It captures
-// nonsecret kernel launch metadata before dyld consumes the apple vector.
+// nonsecret kernel launch metadata before dyld consumes the apple vector, plus
+// separately captured native startup policy observations.
 // Guest addresses, port names, and entropy remain explicitly virtual state.
 type SandboxSyscallPermission struct {
 	Number   uint32 `json:"number"`
@@ -41,9 +42,9 @@ type DTracePolicy struct {
 }
 
 type StartupProfile struct {
-	// ThreadProtectionRegister is an explicitly captured per-process kernel-created
-	// thread default under security_config0, checked against main-thread reads.
-	// It models initial state; it is not a claimed direct exec-entry trace.
+	Pthread *PthreadPolicy `json:"pthread_registration,omitempty"`
+	// ThreadProtectionRegister is observed at the actual native TPRO startup
+	// call entry/return. Earlier guest reads/writes remain audited explicitly.
 	ThreadProtectionRegister *uint64                    `json:"thread_protection_register,omitempty,string"`
 	DTrace                   *DTracePolicy              `json:"dtrace_helper,omitempty"`
 	ExecutableStat           *FileStat                  `json:"executable_stat,omitempty"`

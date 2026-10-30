@@ -411,13 +411,20 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		kernel.hostPriorities = new([8]int32)
 		copy(kernel.hostPriorities[:], o.RuntimeProfile.HostPriorities)
 	}
+	if o.StartupProfile != nil && o.StartupProfile.Pthread != nil {
+		policy := *o.StartupProfile.Pthread
+		if o.StartupProfile.AMFI == nil || policy.CodeSigningStatus != o.StartupProfile.AMFI.CodeSigningStatus || !policy.valid() {
+			return nil, fmt.Errorf("pthread registration policy is invalid or unbound to executable signing state")
+		}
+		kernel.pthreadPolicy = &policy
+	}
 	threadProtection := emu.AppleThreadProtectionState{}
 	if o.StartupProfile != nil && o.StartupProfile.ThreadProtectionRegister != nil {
 		if o.RuntimeProfile == nil || o.RuntimeProfile.ThreadProtectionByte == nil || *o.RuntimeProfile.ThreadProtectionByte != 3 {
 			return nil, fmt.Errorf("supplied Apple thread-protection register requires captured capability 3")
 		}
 		if o.StartupProfile.SecurityConfig != 0 {
-			return nil, fmt.Errorf("supplied Apple thread-protection default requires non-TPRO process security policy")
+			return nil, fmt.Errorf("supplied Apple thread-protection initial state requires non-TPRO process security policy")
 		}
 		threadProtection = emu.AppleThreadProtectionState{Enabled: true, Value: *o.StartupProfile.ThreadProtectionRegister}
 	}

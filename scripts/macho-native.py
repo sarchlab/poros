@@ -219,7 +219,8 @@ def capture_startup_profile(helper, binary, dyld, identity):
     return profile, captured["cs_status"]
 
 
-def capture_main_policies(binary, library, case, expected_status):
+def capture_main_policies(binary, library, case, expected_status, runtime):
+    expected_capability=runtime["thread_protection_capability_byte"]
     """Diagnostic run only: same main bytes, explicit injected constructor.
 
     Validate native output and code-signing state against the suspended launch;
@@ -249,36 +250,59 @@ def capture_main_policies(binary, library, case, expected_status):
             or dtrace["cs_status_after"]!=expected_status):
             raise ValueError("DTrace lazy policy or owned-registration cleanup was not verified")
         protection=observed["thread_protection_observation"]
-        if protection["stage"]!="post-loader-pre-main" or protection["register"]!="S3_6_C15_C1_5":
-            raise ValueError("unknown thread-protection observation stage/register")
-        capability=protection["capability"]
-        if type(capability) is not int or not 0<=capability<=255:
-            raise ValueError("invalid thread-protection capability")
-        if capability==3:
-            value=protection["value"]
-            if not isinstance(value,str) or not value.isdecimal() or not 0<=int(value)<2**64:
-                raise ValueError("invalid observed thread-protection value")
-        elif protection["value"] is not None:
-            raise ValueError("unverified thread-protection register read")
-        if capability==3:
-            fresh=protection["kernel_thread_default"]
-            if (fresh["stage"]!="first-instruction-of-new-mach-thread" or fresh["terminated"] is not True or fresh["entry_encoding"]!=0xd53ef1a1
-                or fresh["value"]!=protection["value"] or fresh["main_rechecked"]!=protection["value"]
-                or fresh["cs_result_after"] or fresh["cs_status_after"]!=expected_status):
-                raise ValueError("kernel-created thread default or unchanged process policy was not verified")
-        # This is a kernel-created thread default under the original image's
-        # process policy, not a direct exec-entry register observation.
+        if (protection["stage"]!="native-tpro-call-entry-and-return" or protection["register"]!="S3_6_C15_C1_5"
+            or protection["capability"]!=expected_capability):
+            raise ValueError("unknown/mismatched native thread-protection observation")
+        if expected_capability==3:
+            values=protection["values"]
+            if (protection["interposed"] is not True or protection["entry_capability"]!=3
+                or not 1<=protection["calls"]<=16 or len(values)!=protection["calls"]):
+                raise ValueError("native TPRO startup call was not observed")
+            first=None
+            for pair in values:
+                if len(pair)!=2 or any(not isinstance(v,str) or not v.isdecimal() or not 0<=int(v)<2**64 for v in pair):
+                    raise ValueError("invalid native thread-protection value")
+                if first is None:first=pair[0]
+                if pair!=[first,first]:
+                    raise ValueError("native thread-protection state changed across startup calls")
+        elif protection["interposed"] is not False or protection["calls"]!=0 or protection["values"]:
+            raise ValueError("unexpected TPRO interception without captured capability3")
+        registration=observed["pthread_registration"]
+        size=registration["data_size"]
+        before=bytes.fromhex(registration["input_hex"]);after=bytes.fromhex(registration["output_hex"])
+        if (registration["stage"]!="native-first-registration" or registration["calls"]!=1
+            or type(size) is not int or not 48<=size<=128 or len(before)!=size or len(after)!=size
+            or int.from_bytes(before[:8],"little")!=size
+            or not 0<registration["result"]<2**31):
+            raise ValueError("native first pthread registration was not observed")
+        # Identify changed output fields from the real first registration, not a
+        # retry after libpthread has already initialized the process.
+        known=set(range(0,8))|set(range(16,24))|set(range(36,48))
+        if any(a!=b for i,(a,b) in enumerate(zip(before,after)) if i not in known):
+            raise ValueError("unmodeled native pthread registration normalization")
+        page_shift=runtime["kernel_page_shift"]
+        if type(page_shift) is not int or not 12<=page_shift<=16:
+            raise ValueError("invalid native kernel page shift")
+        stack_top=int(registration["main_stack_top"])
+        if int.from_bytes(after[36:44],"little")!=stack_top&~((1<<page_shift)-1):
+            raise ValueError("native pthread stack hint differs from main stack top policy")
+        if int.from_bytes(after[:8],"little") not in (48,52,56,60):
+            raise ValueError("unsupported native pthread registration layout")
+        pthread=dict(version=int.from_bytes(after[:8],"little"),features=registration["result"],
+            main_qos=str(int.from_bytes(after[16:24],"little")),mutex_policy=int.from_bytes(after[44:48],"little"),
+            code_signing_status=expected_status)
         return (dict(input_flags=str(observed["input_flags"]),output_flags=str(observed["output_flags"]),
                      code_signing_status=expected_status),
-                dict(mode="lazy-untraced",code_signing_status=expected_status),observed)
+                dict(mode="lazy-untraced",code_signing_status=expected_status),pthread,observed)
 
 
-def startup_profiles(binaries, dyld, cases):
+def startup_profiles(binaries, dyld, cases, runtime):
     """Capture suspended kernel metadata, then separate diagnostic AMFI and lazy DTrace results.
 
     The helper uses fixed safe argv and env{}; workload argv cannot spoof keys.
     fsgetpath resolves only the two identities just captured from our own child.
     """
+    thread_protection_capability=runtime["thread_protection_capability_byte"]
     library = ctypes.CDLL(None, use_errno=True)
     fsgetpath = library.fsgetpath
     fsgetpath.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_uint64]
@@ -306,20 +330,23 @@ def startup_profiles(binaries, dyld, cases):
                      protocol="own suspended child; fixed argv program/1, env{}; stdin=/dev/null, stdout/stderr=distinct empty owned regular files; exact launch descriptor stat64 capture; filtered KERN_PROCARGS2; kill/reap; fsgetpath of captured identities")
         library=Path(directory)/"amfi.dylib"
         amfi_source=ROOT/"scripts/macho-amfi.c"
-        subprocess.run([compiler,"-isysroot",sdk,"-arch","arm64","-Wall","-Wextra","-Werror","-dynamiclib",str(amfi_source),"-o",str(library)],check=True,timeout=30)
-        probe["amfi_diagnostic"]=dict(source_sha256=digest(amfi_source),binary_sha256=digest(library),
-            protocol="owned injected constructor; same main SHA; no entitlements; CS status equals suspended env{} child; original output oracle; invalid owned DOF accepted lazily and own generation removed; CS status rechecked; first-instruction owned Mach-thread default equals main pre/post reads; security_config0 required for initial-state model; excluded from timing")
+        if type(thread_protection_capability) is not int or not 0<=thread_protection_capability<=255:
+            raise ValueError("invalid captured thread-protection capability")
+        capture_tpro=thread_protection_capability==3
+        subprocess.run([compiler,"-isysroot",sdk,"-arch","arm64","-Wall","-Wextra","-Werror",f"-DPOROS_CAPTURE_TPRO={int(capture_tpro)}","-dynamiclib",str(amfi_source),"-o",str(library)],check=True,timeout=30)
+        probe["amfi_diagnostic"]=dict(source_sha256=digest(amfi_source),binary_sha256=digest(library),tpro_interpose_enabled=capture_tpro,
+            protocol="owned injected constructor; same main SHA; no entitlements; CS status equals suspended env{} child; original output oracle; invalid owned DOF accepted lazily and own generation removed; CS status rechecked; native first bsdthread_register input/output and TPRO call entry/return interception; security_config0 required for initial state; excluded from timing")
         profiles = {}
         probe["main_policy_observations"]={}
         for binary in binaries:
             metadata,cs_status=capture_startup_profile(helper,binary,dyld,identity)
             case=next(c for c in cases if c["workload"]==binary.stem)
-            metadata["amfi_dyld_policy"],metadata["dtrace_helper"],probe["main_policy_observations"][binary.stem]=capture_main_policies(binary,library,case,cs_status)
+            metadata["amfi_dyld_policy"],metadata["dtrace_helper"],metadata["pthread_registration"],probe["main_policy_observations"][binary.stem]=capture_main_policies(binary,library,case,cs_status,runtime)
             protection=probe["main_policy_observations"][binary.stem]["thread_protection_observation"]
             if protection["capability"]==3:
                 if metadata["security_config"]!=0:
-                    raise ValueError("thread default capture requires the observed non-TPRO process policy")
-                metadata["thread_protection_register"]=protection["kernel_thread_default"]["value"]
+                    raise ValueError("initial thread state requires the observed non-TPRO process policy")
+                metadata["thread_protection_register"]=protection["values"][0][0]
             if digest(binary)!=metadata["binary_sha256"] or digest(dyld)!=metadata["dyld_sha256"]:
                 raise ValueError("runtime input changed during AMFI capture")
             profiles[binary.stem]=metadata
@@ -353,7 +380,7 @@ def main():
             raise ValueError("Mach-O binary hash mismatch: " + name)
     initial_dyld = digest(options.dyld)
     profile, probe = runtime_profile()
-    startup, startup_probe = startup_profiles([folder / name for name in sorted(build["binaries"])], options.dyld, manifest["cases"])
+    startup, startup_probe = startup_profiles([folder / name for name in sorted(build["binaries"])], options.dyld, manifest["cases"], profile)
     for name, metadata in startup.items():
         if metadata["binary_sha256"] != build["binaries"][name + ".macho"] or metadata["dyld_sha256"] != initial_dyld:
             raise ValueError("captured startup metadata differs from frozen build/runtime")

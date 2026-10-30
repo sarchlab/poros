@@ -240,42 +240,52 @@ class NativeSymbolTests(unittest.TestCase):
 
 class AMFICaptureTests(unittest.TestCase):
     def test_policy_requires_matching_identity_state_and_output(self):
-        for failure in (None, "status", "query", "output", "entitlements", "dtrace-mode", "dtrace-cleanup", "dtrace-status", "register-stage", "register-value", "thread-default", "thread-cleanup", "thread-cs", "thread-main-change", "thread-opcode"):
+        failures=(None,"status","query","output","entitlements","dtrace-mode","dtrace-cleanup","dtrace-status",
+                  "register-stage","register-value","tpro-missing","tpro-changed","tpro-capability","registration-calls",
+                  "registration-feature","registration-layout","registration-normalization","stack-hint")
+        for failure in failures:
             with self.subTest(failure=failure):
-                data = dict(cs_status=7, cs_result=0, cs_errno=0,
-                            input_flags=0, output_flags=479, x0=0, x1=0, carry=False)
+                data=dict(cs_status=7,cs_result=0,cs_errno=0,input_flags=0,output_flags=479,x0=0,x1=0,carry=False)
                 data["dtrace"]=dict(opened=True,lazy_invalid_header_accepted=True,own_registration_removed=True,cs_status_after=7,cs_result_after=0)
-                data["thread_protection_observation"]=dict(stage="post-loader-pre-main",capability=3,register="S3_6_C15_C1_5",value="2310346611465650176")
-                data["thread_protection_observation"]["kernel_thread_default"]=dict(stage="first-instruction-of-new-mach-thread",value="2310346611465650176",main_rechecked="2310346611465650176",terminated=True,entry_encoding=0xd53ef1a1,cs_status_after=7,cs_result_after=0)
-                if failure == "thread-opcode":data["thread_protection_observation"]["kernel_thread_default"]["entry_encoding"]=0
-                if failure == "thread-default":data["thread_protection_observation"]["kernel_thread_default"]["value"]="0"
-                if failure == "thread-cleanup":data["thread_protection_observation"]["kernel_thread_default"]["terminated"]=False
-                if failure == "thread-cs":data["thread_protection_observation"]["kernel_thread_default"]["cs_status_after"]=8
-                if failure == "thread-main-change":data["thread_protection_observation"]["kernel_thread_default"]["main_rechecked"]="0"
-                if failure == "register-stage":data["thread_protection_observation"]["stage"]="kernel-entry"
-                if failure == "register-value":data["thread_protection_observation"]["value"]=str(2**64)
-                if failure == "dtrace-mode": data["dtrace"]["lazy_invalid_header_accepted"]=False
-                if failure == "dtrace-cleanup": data["dtrace"]["own_registration_removed"]=False
-                if failure == "dtrace-status": data["dtrace"]["cs_status_after"]=8
-                if failure == "status": data["cs_status"] = 8
-                if failure == "query": data["x0"] = 14
-                def launch(*args, **kwargs):
-                    os.write(kwargs["pass_fds"][0], json.dumps(data).encode())
-                    kwargs["stdout"].write(b"wrong" if failure == "output" else b"correct")
+                data["thread_protection_observation"]=dict(stage="native-tpro-call-entry-and-return",capability=3,register="S3_6_C15_C1_5",interposed=True,entry_capability=3,calls=1,values=[["2310346747086372864","2310346747086372864"]])
+                before=bytearray(60);struct.pack_into("<Q",before,0,60)
+                after=bytearray(before);struct.pack_into("<Q",after,16,0x20ff);struct.pack_into("<Q",after,36,0x8000)
+                data["pthread_registration"]=dict(stage="native-first-registration",calls=1,result=0x400011df,pthread_size=16384,data_size=60,dispatch_queue_offset=160,input_hex=before.hex(),output_hex=after.hex(),main_stack_top=str(0x8000))
+                protection=data["thread_protection_observation"];registration=data["pthread_registration"]
+                if failure=="register-stage":protection["stage"]="post-loader-main"
+                if failure=="register-value":protection["values"][0][0]=str(2**64)
+                if failure=="tpro-missing":protection["calls"]=0;protection["values"]=[]
+                if failure=="tpro-changed":protection["values"][0][1]="0"
+                if failure=="tpro-capability":protection["entry_capability"]=0
+                if failure=="registration-calls":registration["calls"]=2
+                if failure=="registration-feature":registration["result"]=-1
+                if failure=="registration-layout":after[0]=64;registration["output_hex"]=after.hex()
+                if failure=="registration-normalization":after[56]=1;registration["output_hex"]=after.hex()
+                if failure=="stack-hint":registration["main_stack_top"]=str(0x10000)
+                if failure=="dtrace-mode":data["dtrace"]["lazy_invalid_header_accepted"]=False
+                if failure=="dtrace-cleanup":data["dtrace"]["own_registration_removed"]=False
+                if failure=="dtrace-status":data["dtrace"]["cs_status_after"]=8
+                if failure=="status":data["cs_status"]=8
+                if failure=="query":data["x0"]=14
+                def launch(*args,**kwargs):
+                    os.write(kwargs["pass_fds"][0],json.dumps(data).encode())
+                    kwargs["stdout"].write(b"wrong" if failure=="output" else b"correct")
                     class Process:
-                        pid = 999999
-                        def wait(self, **kwargs): return 0
+                        pid=999999
+                        def wait(self,**kwargs):return 0
                     return Process()
-                def check(case, output):
-                    if output != b"correct": raise ValueError("incorrect original output")
-                signed = subprocess.CompletedProcess([], 0, b"<plist/>" if failure == "entitlements" else b"", b"")
-                with patch.object(macho.subprocess, "run", return_value=signed), patch.object(macho.subprocess, "Popen", side_effect=launch), patch.object(macho.os, "killpg"), patch.object(macho, "check_output", side_effect=check):
+                def check(case,output):
+                    if output!=b"correct":raise ValueError("incorrect original output")
+                signed=subprocess.CompletedProcess([],0,b"<plist/>" if failure=="entitlements" else b"",b"")
+                with patch.object(macho.subprocess,"run",return_value=signed),patch.object(macho.subprocess,"Popen",side_effect=launch),patch.object(macho.os,"killpg"),patch.object(macho,"check_output",side_effect=check):
                     if failure:
-                        with self.assertRaises(ValueError):
-                            macho.capture_main_policies("program", "probe", {"args":["program"]}, 7)
+                        with self.assertRaises(ValueError):macho.capture_main_policies("program","probe",{"args":["program"]},7,{"thread_protection_capability_byte":3,"kernel_page_shift":14})
                     else:
-                        result=macho.capture_main_policies("program", "probe", {"args":["program"]}, 7)
-                        self.assertEqual(result, (dict(input_flags="0",output_flags="479",code_signing_status=7),dict(mode="lazy-untraced",code_signing_status=7),data))
+                        result=macho.capture_main_policies("program","probe",{"args":["program"]},7,{"thread_protection_capability_byte":3,"kernel_page_shift":14})
+                        self.assertEqual(result,(dict(input_flags="0",output_flags="479",code_signing_status=7),dict(mode="lazy-untraced",code_signing_status=7),dict(version=60,features=0x400011df,main_qos=str(0x20ff),mutex_policy=0,code_signing_status=7),data))
+                        protection.update(capability=0,interposed=False,calls=0,values=[])
+                        result=macho.capture_main_policies("program","probe",{"args":["program"]},7,{"thread_protection_capability_byte":0,"kernel_page_shift":14})
+                        self.assertEqual(result[-1],data)
 
 
 class StartupCleanupTests(unittest.TestCase):
@@ -310,7 +320,7 @@ time.sleep(30)
                     exception = subprocess.TimeoutExpired if mode == "timeout" else ValueError
                     with patch.object(macho,"run_owned_process",side_effect=run), patch.object(macho.subprocess,"run",return_value=signed), patch.object(macho,"check_output"):
                         with self.assertRaises(exception):
-                            macho.capture_main_policies("program","library",{"args":["program"]},7)
+                            macho.capture_main_policies("program","library",{"args":["program"]},7,{"thread_protection_capability_byte":3,"kernel_page_shift":14})
                 child = int(record.read_text())
                 deadline = time.monotonic()+3
                 while True:

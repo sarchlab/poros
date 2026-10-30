@@ -12,6 +12,9 @@ func (e *executor) execAND(inst arm64asm.Inst) error {
 	dst := inst.Args[0]
 	op1 := e.readOperandVal(inst.Args[1], is32)
 	op2 := e.readOperandVal(inst.Args[2], is32)
+	if inst.Op == arm64asm.BIC {
+		op2 = ^op2
+	}
 	result := op1 & op2
 	if is32 {
 		result = mask32(result)

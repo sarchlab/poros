@@ -73,7 +73,7 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execUDIV(inst)
 
 	// Logic / move
-	case arm64asm.AND:
+	case arm64asm.AND, arm64asm.BIC:
 		return false, e.execAND(inst)
 	case arm64asm.ANDS, arm64asm.BICS:
 		return false, e.execANDS(inst)

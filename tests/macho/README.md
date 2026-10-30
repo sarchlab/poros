@@ -18,8 +18,8 @@ All initialization, arithmetic, output and exit remain native program work.
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 Current integer/1000 validation with the corrected ISA, captured runtime profile,
-and the explicit warm shared cache retires 2,254,182 instructions and stops at
-scalar `BIC W2,W9,W8` at PC `0x180587088`, with no guest
+and the explicit warm shared cache retires 2,256,197 instructions and stops at
+Mach message ID206 (`host_get_clock_service`) at PC `0x180547c1c`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -394,20 +394,17 @@ register operations or authorize them as no-ops.
 
 The selected `MRS S3_6_C15_C1_5` reads explicitly configured architectural state;
 missing state and all unimplemented MSR operations fail precisely. The per-image
-diagnostic constructor creates an owned Mach thread whose first instruction is
-this MRS, before user-runtime initialization on that thread. It requires the
-kernel-created default to equal the main-thread values before and after capture,
-unchanged code-signing status, capability3, and captured `security_config=0`.
-Thread termination and removal of its owned port are checked. The supplied initial
-state is a **per-process kernel-created default model**, not a claim to have
-observed the original exec-entry register. XNU's [`machine_thread_create` and `machine_thread_process_signature`](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/arm64/pcb.c)
-document initialization under process-signature
-policy; the exact Apple register value is established by the native probe, not a
-portable architectural constant. Source, executed helper hash and per-image raw
-observations remain in capture provenance. Unknown process policies are rejected.
-The standalone diagnostic retains up to32 read sites and their next8 instructions
-with register changes and an explicit truncation flag. The current single read
-is consumed only by `TBNZ X8,#36`, then overwritten by ADRP; MSR is not skipped.
+diagnostic dylib interposes the actual native TPRO startup call, recording its
+entry/return register state while preserving the original callback and arguments.
+It requires unchanged observed state, captured capability3, original code-signing
+status/output and `security_config=0`. Earlier guest MRS/MSR accesses remain
+explicitly audited; the current sole read uses bit36 then overwrites the register.
+This directly observes the relevant startup stage rather than inferring it from
+post-main or newly created thread state. Superseded fresh-thread capture code and
+observations have been removed. The TPRO interpose pair is compiled only for a
+captured capability3 runtime, avoiding an unnecessary symbol dependency on older
+capability0 hosts. The diagnostic retains up to32 MRS sites and their next8
+instructions, with register changes and a truncation flag; MSR is never skipped.
 
 `--quiescence single-thread-no-scheduling` explicitly models one active guest
 thread with no scheduler quiescence events. Its read-only commpage epoch starts
@@ -436,3 +433,23 @@ Native eleven-step observations verify counts, reacquisition, null/dead names,
 low32 argument decoding and unchanged NZCV. Last pinned task/thread sends and
 receive-right deallocation remain unsupported until their exception/lifecycle
 contracts are implemented.
+
+
+The same diagnostic observes the real first `bsdthread_register` call before
+libSystem initialization, preserving its native arguments/result. Four unchanged
+benchmark images match their uninstrumented outputs and signing status. The
+captured policy supplies the kernel struct version, feature mask, main QoS and
+mutex policy; the native stack hint is verified against the main stack top, then
+simulated from the guest's stack top rather than copying a host ASLR address.
+Kernel registration retains guest thread entry points and normalized TSD offsets.
+Native22 field probes, eight initial-error/duplicate cases, readonly-copyout and
+four NULL-data cases cover clamp boundaries, bounded struct versions and state
+commit before failed output. Byte56 is identified only as an additional
+native-verified TSD-relative offset; no undocumented semantic name is invented.
+Thread creation, scheduling and other unimplemented pthread operations still stop
+explicitly. These instrumented startup observations are never timing samples.
+
+Scalar BIC complements its shifted second operand while preserving NZCV; SIMD BIC
+continues through the existing vector path. Native4,864 full-state observations
+cover W/X, shifts, alias and zero-register forms, and an OoO delayed-load chain
+checks its data dependency without introducing a flag dependency.

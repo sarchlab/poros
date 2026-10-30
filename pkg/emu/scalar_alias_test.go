@@ -10,7 +10,7 @@ func TestScalarAliasesMatchNativeFullState(t *testing.T) {
 	for _, probe := range []struct {
 		source string
 		count  int
-	}{{"cneg-probe.c", 7168}, {"variable-shift-probe.c", 3584}, {"reverse-probe.c", 48}, {"bics-probe.c", 4608}, {"bti-state-probe.c", 64}} {
+	}{{"cneg-probe.c", 7168}, {"variable-shift-probe.c", 3584}, {"reverse-probe.c", 48}, {"bics-probe.c", 4608}, {"bic-probe.c", 4864}, {"bti-state-probe.c", 64}} {
 		var cases []struct {
 			Instruction, Encoding string
 			Before, After         [3]string

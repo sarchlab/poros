@@ -10,6 +10,9 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
+	pthreadPolicy                              *PthreadPolicy
+	pthreadRegistration                        *pthreadRegistration
+	pthreadStackHint                           uint64
 	hostName                                   uint32
 	hostPriorities                             *[8]int32
 	accessENOENTPaths                          []string
@@ -63,6 +66,8 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return true
 	}
 	switch number {
+	case 366:
+		return k.registerPthread(r, m)
 	case 33:
 		return k.access(r, m)
 	case 54:

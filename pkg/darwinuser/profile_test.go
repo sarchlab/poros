@@ -6,7 +6,6 @@ import (
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/loader"
 	"github.com/sarchlab/poros/pkg/usermem"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -279,44 +278,6 @@ func TestSuppliedThreadProtectionStateIsExplicitAndCopied(t *testing.T) {
 		if _, e := Parse(machotest.Image(2), runtime, Options{StartupProfile: startup, RuntimeProfile: &profile}); e == nil {
 			t.Fatal("register enabled without corresponding capability")
 		}
-	}
-}
-
-func TestObservedThreadProtectionRegisterRead(t *testing.T) {
-	var native struct {
-		Capability      uint8
-		Register, Value string
-		Bit36           uint8
-	}
-	kernelNativeResult(t, "tpro-read-probe.c", &native)
-	value, e := strconv.ParseUint(native.Value, 0, 64)
-	if e != nil || native.Capability != 3 || native.Register != "S3_6_C15_C1_5" || uint8(value>>36&1) != native.Bit36 {
-		t.Fatal(native, e)
-	}
-	// Replay a supplied read value, not an assumption that the native main-stage
-	// observation is the register's initial kernel-entry value.
-	r := emu.Registers{PC: 0x1000, AppleThreadProtection: emu.AppleThreadProtectionState{Enabled: true, Value: value}}
-	m := &usermem.AddressSpace{}
-	m.Map(0x1000, 4, usermem.Execute, []byte{0xa8, 0xf1, 0x3e, 0xd5})
-	if _, e := emu.StepChecked(&r, m); e != nil || r.GPR[8] != value {
-		t.Fatal(r, e)
-	}
-}
-
-func TestNativeKernelCreatedThreadDefaultMatchesObservedProcessState(t *testing.T) {
-	var fresh struct {
-		Stage            string
-		Capability       uint8
-		Ready, Terminate int
-		Deallocate       int
-		LookupAfter      int `json:"lookup_after"`
-		Value            string
-	}
-	var main struct{ Value string }
-	kernelNativeResult(t, "tpro-fresh-thread-probe.c", &fresh)
-	kernelNativeResult(t, "tpro-read-probe.c", &main)
-	if fresh.Stage != "first-instruction-of-new-mach-thread" || fresh.Capability != 3 || fresh.Ready != 1 || fresh.Terminate != 0 || fresh.Deallocate != 15 || fresh.LookupAfter != 15 || fresh.Value != main.Value {
-		t.Fatal(fresh, main)
 	}
 }
 
