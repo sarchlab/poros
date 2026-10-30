@@ -28,7 +28,7 @@ func TestInitialStateIdentity(t *testing.T) {
 		expected[fields[0]] = fields[1]
 	}
 	kernels := All()
-	if len(expected) != len(kernels) || len(kernels) != 41 {
+	if len(expected) != len(kernels) || len(kernels) != 40 {
 		t.Fatal("input inventory mismatch")
 	}
 	for _, b := range kernels {

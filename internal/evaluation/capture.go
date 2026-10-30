@@ -1,6 +1,8 @@
 package evaluation
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -141,3 +143,5 @@ func MatchCapture(root string, c *Capture) error {
 	}
 	return nil
 }
+
+func hash(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }

@@ -220,7 +220,11 @@ func TestCompleteWorkloadShapesAndResults(t *testing.T) {
 					}
 				}
 			}
-			p, err := linuxuser.Parse(input, linuxuser.Options{Args: []string{"program", "1024"}})
+			args := []string{"program", "1024"}
+			if name == "memory" {
+				args = append(args, "65536")
+			}
+			p, err := linuxuser.Parse(input, linuxuser.Options{Args: args})
 			if err != nil {
 				t.Fatal(err)
 			}

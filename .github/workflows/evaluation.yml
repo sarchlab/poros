@@ -22,6 +22,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.0'
+      - run: python3 scripts/workload_contract_test.py
       - run: python3 scripts/accuracy_site_test.py
       - run: scripts/evaluation-ci.sh static
         env:
@@ -55,9 +56,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.0'
-      - name: Assert native pilot platform
-        if: runner.os == 'macOS'
-        run: test "$(uname -m)" = arm64 && command -v clang
       - run: go build ./cmd/...
       - run: scripts/evaluation-ci.sh ${{ matrix.tier }}
       - uses: actions/upload-artifact@v4

@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+from workload_contract import LEGACY_IDS, case_ids, validate_manifest
 
 SCHEMA = 1
 FORMULA = "absolute-difference-over-min-v2"
@@ -41,9 +42,22 @@ TERMINAL = {
     "neutral",
 }
 REPO = "sarchlab/poros"
-REQUIRED = [
-    f"{k}-{n}" for k in ("integer", "memory", "branch") for n in (2000000, 8000000)
-]
+# Compatibility inventory is confined to schema-1 reports.
+REQUIRED = list(LEGACY_IDS)
+
+
+def report_manifest(report):
+    if report.get("schema") == 2:
+        if report["workload_manifest"].get("schema") != 2:
+            raise ValueError("schema-2 report requires the 24-case schema-2 manifest")
+        return validate_manifest(report["workload_manifest"])
+    return {
+        "schema": 1,
+        "cases": [
+            dict(id=i, split="calibration" if i.startswith("integer-") else "held_out")
+            for i in LEGACY_IDS
+        ],
+    }
 
 
 def read(path):
@@ -86,7 +100,7 @@ def safe_name(value):
 
 
 def check_report(report, commit):
-    if report.get("schema") != 1 or report.get("artifact_status") not in (
+    if report.get("schema") not in (1, 2) or report.get("artifact_status") not in (
         "pass",
         "fail",
     ):
@@ -105,19 +119,24 @@ def check_report(report, commit):
         return
     if report.get("formula") != FORMULA or report["head"].get("dirty") is not False:
         raise ValueError("invalid report formula/source state")
-    if [c["id"] for c in report["cases"]] != REQUIRED:
+    inventory = report_manifest(report)
+    if tuple(c["id"] for c in report["cases"]) != case_ids(inventory):
         raise ValueError("missing required cases")
-    for row in report["cases"]:
+    for row, declared in zip(report["cases"], inventory["cases"]):
         if (
             "head" not in row
             or not isinstance(row.get("reference_user_seconds"), (int, float))
             or not math.isfinite(row["reference_user_seconds"])
-            or row["reference_user_seconds"] <= 0
+            or row["reference_user_seconds"] < 0
+            or (
+                row["reference_user_seconds"] == 0
+                and row["reference_quality"] != "invalid_nonpositive"
+            )
         ):
             raise ValueError("missing head or invalid reference time")
-        expected_split = (
-            "calibration" if row["id"].startswith("integer-") else "held_out"
-        )
+        if report["schema"] == 2 and row.get("functional_status") != "pass":
+            raise ValueError("functional correctness evidence missing")
+        expected_split = declared["split"]
         if row.get("split") != expected_split:
             raise ValueError("invalid case split")
         if row["reference_quality"] not in (
@@ -176,17 +195,23 @@ def bundle(report_path, source, output, commit):
     files = ["report.json", "report.md"]
     if report["artifact_status"] == "pass":
         manifest = source / "tests/usertime/manifest.json"
-        reference = source / "evaluation/usertime/m2-linuxvm-user-v1.json"
+        inputs = read(manifest)
+        reference = (
+            source
+            / "evaluation/usertime"
+            / safe_name(inputs.get("reference_file", "m2-linuxvm-user-v1.json"))
+        )
         if digest(reference) != report["reference_sha256"]:
             raise ValueError("reference does not match report")
         if digest(manifest) != report["reference"]["manifest_sha256"]:
             raise ValueError("manifest does not match report")
-        inputs = read(manifest)
         evidence = {
             "reference.json": reference,
             "manifest.json": manifest,
             "native_usertime.py": source / "scripts/native_usertime.py",
         }
+        if inputs["schema"] == 2:
+            evidence["workload_contract.py"] = source / "scripts/workload_contract.py"
         for name in set(inputs["sources"]) | {c["file"] for c in inputs["cases"]}:
             evidence["inputs/" + safe_name(name)] = source / "tests/usertime" / name
         for name, path in evidence.items():
@@ -243,6 +268,7 @@ def validate_bundle(path, commit):
         "reference.json",
         "manifest.json",
         "native_usertime.py",
+        "workload_contract.py",
     }
     for name, expected in files.items():
         if name not in allowed and not (
@@ -267,10 +293,18 @@ def validate_bundle(path, commit):
         if reference["harness_sha256"] != digest(path / "native_usertime.py"):
             raise ValueError("reference harness mismatch")
         inputs = read(path / "manifest.json")
-        if [c["id"] for c in inputs["cases"]] != REQUIRED or [
-            c["id"] for c in reference["cases"]
-        ] != REQUIRED:
+        validate_manifest(inputs)
+        if case_ids(inputs) != case_ids(reference) or case_ids(inputs) != case_ids(
+            report_manifest(report)
+        ):
             raise ValueError("evidence inventory mismatch")
+        if report["schema"] == 2:
+            if inputs != report["workload_manifest"]:
+                raise ValueError("report manifest differs from retained inventory")
+            if reference.get("support_sha256") != {
+                "workload_contract.py": digest(path / "workload_contract.py")
+            }:
+                raise ValueError("reference support module mismatch")
         for row, measured in zip(report["cases"], reference["cases"]):
             if (
                 row["reference_quality"] != measured["quality"]
@@ -285,7 +319,9 @@ def validate_bundle(path, commit):
                     for k in ("configuration", "cache_config")
                 ):
                     raise ValueError("report hardware profile differs from manifest")
-        required = allowed - {"report.md"}
+        required = allowed - {"report.md", "workload_contract.py"}
+        if report["schema"] == 2:
+            required.add("workload_contract.py")
         required |= {"inputs/" + safe_name(n) for n in inputs["sources"]}
         required |= {"inputs/" + safe_name(c["file"]) for c in inputs["cases"]}
         if not required.issubset(files):
@@ -355,7 +391,7 @@ def page(title, content, script=""):
     )
 
 
-def chart(title, series, xlabel, ylabel, scatter=False):
+def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None):
     """Small accessible SVG; the source values also appear in the report tables."""
     points = [
         (x, y) for _, values, _ in series for x, y, _ in values if x >= 0 and y >= 0
@@ -371,8 +407,13 @@ def chart(title, series, xlabel, ylabel, scatter=False):
     for i in range(5):
         y = 235 - i * 215 / 4
         body += f'<path d="M55 {y}H410" stroke="#edf2f3"/><text x="48" y="{y+4}" text-anchor="end">{ymax*i/4:.2g}</text>'
-        x = 55 + i * 355 / 4
-        body += f'<text x="{x}" y="253" text-anchor="middle">{xmax*i/4:.2g}</text>'
+    for coordinate, label in (
+        x_ticks
+        if x_ticks is not None
+        else [(xmax * i / 4, f"{xmax*i/4:.2g}") for i in range(5)]
+    ):
+        x = 55 + coordinate / xmax * 355
+        body += f'<text x="{x}" y="253" text-anchor="middle">{esc(label)}</text>'
     for name, values, color in series:
         coordinates = [
             (55 + x / xmax * 355, 235 - y / ymax * 215, label)
@@ -439,7 +480,10 @@ def detail(report, entry, preview=False):
             for label, value in [
                 ("Report artifact", report["artifact_status"]),
                 ("Full Evaluation", entry.get("evaluation_conclusion", "not checked")),
-                ("Usable references", f"{usable} / {len(REQUIRED)}"),
+                (
+                    "Usable references",
+                    f"{usable} / {len(report_manifest(report)['cases']) if report.get('artifact_status') == 'pass' else '—'}",
+                ),
                 ("Hardware accuracy", report["accuracy_status"]),
             ]
         )
@@ -451,9 +495,13 @@ def detail(report, entry, preview=False):
         body += '<p class="notice">This failure occurred before source identity was recorded. The bundle identifies the requested target; it does not certify an executed binary or measured source.</p>'
     if report.get("error"):
         body += '<p class="notice">' + esc(report["error"]) + "</p>"
-    body += '<h2>Measured and predicted time</h2><p class="muted">Error = 100 × |sim − reference| / min(sim, reference). Positive Δ means a larger error. No offset fitting or anchor removal. Times are milliseconds.</p><div class="table"><table><thead><tr><th>Case / split</th><th>Reference</th><th>Quality</th><th>Base</th><th>Head</th><th>Base error</th><th>Head error</th><th>Direction</th><th>Δ pp</th></tr></thead><tbody>'
+    body += '<h2>Measured and predicted time</h2><p class="muted">Error = 100 × |sim − reference| / min(sim, reference). Positive Δ means a larger error. No offset fitting or anchor removal. Times are milliseconds.</p><div class="table"><table><thead><tr><th>Case / split</th><th>Functional</th><th>Reference</th><th>Quality</th><th>Base</th><th>Head</th><th>Base error</th><th>Head error</th><th>Direction</th><th>Δ pp</th></tr></thead><tbody>'
     by_id = {c["id"]: c for c in cases}
-    for case in REQUIRED:
+    for case in (
+        (c["id"] for c in report_manifest(report)["cases"])
+        if report["artifact_status"] == "pass"
+        else (c["id"] for c in cases)
+    ):
         c = by_id.get(case)
         if not c:
             body += (
@@ -465,6 +513,7 @@ def detail(report, entry, preview=False):
         base, head = c.get("base", {}), c.get("head", {})
         values = [
             case + " / " + c["split"],
+            c.get("functional_status", "not separately recorded"),
             number(c.get("reference_user_seconds", 0) * 1000),
             c["reference_quality"],
             number(base.get("predicted_user_seconds", 0) * 1000) if base else "—",
@@ -482,17 +531,30 @@ def detail(report, entry, preview=False):
             '<div class="card">'
             + esc(split)
             + "<strong>"
-            + esc(
-                f'{summary.get("comparable", 0)} / {summary.get("required", 2 if split == "calibration" else 4)}'
-            )
+            + esc(f'{summary.get("comparable", "—")} / {summary.get("required", "—")}')
             + "</strong><p>Mean head error: "
             + number(summary.get("head", {}).get("mean_error_percent"), "%")
             + "<br>Maximum: "
             + number(summary.get("head", {}).get("maximum_error_percent"), "%")
             + "</p></div>"
         )
-    body += '</div><h2>Raw timing curves</h2><p class="muted">Problem size is iteration count; memory working set stays 64 KiB. Noisy references remain visible here but do not enter error summaries. Hover points for values.</p><div class="charts">'
-    for workload in ("integer", "memory", "branch"):
+    body += '</div><h2>Raw timing curves</h2><p class="muted">Each chart labels its sweep coordinate. All times include guest initialization, computation and output. Noisy references remain visible but do not enter error summaries. Hover points for values.</p><div class="charts">'
+    groups = (
+        report_manifest(report).get(
+            "workloads",
+            [dict(id=w, axis="iterations") for w in ("integer", "memory", "branch")],
+        )
+        if report["artifact_status"] == "pass"
+        else []
+    )
+    for group in groups:
+        workload = group["id"]
+        axis = group["axis"]
+        divisor, xlabel = {
+            "iterations": (1e6, "Iterations (millions)"),
+            "working_set_bytes": (1048576, "Working set (MiB)"),
+            "dimension": (1, "Matrix dimension n"),
+        }[axis]
         rows = [c for c in cases if c["id"].startswith(workload + "-")]
         series = []
         for name, color in (
@@ -507,8 +569,13 @@ def detail(report, entry, preview=False):
                     if name == "reference"
                     else c.get(name, {}).get("predicted_user_seconds")
                 )
-                if seconds:
-                    x = int(c["id"].split("-")[1]) / 1e6
+                if seconds is not None:
+                    point = int(c["id"].split("-")[1])
+                    x = (
+                        math.log2(point / group["points"][0])
+                        if axis == "working_set_bytes"
+                        else point / divisor
+                    )
                     values.append(
                         (
                             x,
@@ -517,9 +584,27 @@ def detail(report, entry, preview=False):
                         )
                     )
             series.append((name, values, color))
+        ticks = None
+        if axis == "working_set_bytes":
+            ticks = [
+                (
+                    math.log2(n / group["points"][0]),
+                    f"{n/1048576:g} MiB" if n >= 1048576 else f"{n/1024:g} KiB",
+                )
+                for n in group["points"]
+            ]
+            xlabel = "Working set (log₂ spacing)"
         body += chart(
-            workload.title(), series, "Iterations (millions)", "User time (ms)"
+            workload.upper() if workload == "mvt" else workload.title(),
+            series,
+            xlabel,
+            "User time (ms)",
+            x_ticks=ticks,
         )
+    if report.get("schema") == 1:
+        body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
+    elif report["artifact_status"] == "pass":
+        body += "<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: 4,194,304 accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
     usable_rows = [
         c for c in cases if c.get("reference_quality") == "usable" and c.get("head")
     ]
@@ -872,7 +957,9 @@ def home(index):
         )
         for split in ("calibration", "held_out"):
             summary = e["summary"].get(split, {})
-            coverage = f'{summary.get("comparable", 0)}/{summary.get("required", 2 if split == "calibration" else 4)}'
+            coverage = (
+                f'{summary.get("comparable", "—")}/{summary.get("required", "—")}'
+            )
             body += (
                 "<td>"
                 + number(summary.get("head", {}).get("mean_error_percent"), "%")

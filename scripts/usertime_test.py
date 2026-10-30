@@ -41,9 +41,7 @@ class UserTimeTests(unittest.TestCase):
         )
 
     def test_inventory(self):
-        self.assertEqual(
-            tuple((c["id"] for c in gate.inventory()["cases"])), gate.REQUIRED
-        )
+        self.assertEqual(len(gate.inventory()["cases"]), 24)
 
     def test_native_child_accounting(self):
         result = gate.child_usage("/bin/sh", ["sh", "-c", "printf hi"], {})
@@ -99,6 +97,11 @@ class UserTimeTests(unittest.TestCase):
             core_identity="unknown",
             instantaneous_frequency="unknown",
             harness_sha256=gate.digest(gate.native.__file__),
+            support_sha256={
+                "workload_contract.py": gate.digest(
+                    gate.ROOT / "scripts/workload_contract.py"
+                )
+            },
             manifest_sha256=gate.digest(gate.ROOT / "tests/usertime/manifest.json"),
             cases=[],
         )
@@ -134,9 +137,10 @@ class UserTimeTests(unittest.TestCase):
                 output=str(output),
             )
 
-            def execution(binary, c):
+            def execution(binary, c, mode=None):
                 return dict(
                     instructions=10,
+                    stdout_base64=base64.b64encode(golden).decode(),
                     build={"vcs.revision": "head", "vcs.modified": "false"},
                     timing=dict(
                         predicted_user_seconds=10 / c["frequency_hz"],
@@ -153,11 +157,15 @@ class UserTimeTests(unittest.TestCase):
 
             def run(data, runner=execution):
                 ref.write_text(json.dumps(data))
-                with patch.object(gate, "expected", return_value=golden), patch.object(
+                with patch.object(gate, "check_output"), patch.object(
+                    gate, "expected", return_value=golden
+                ), patch.object(
                     gate,
                     "source_state",
                     return_value=dict(commit="head", dirty=False, files={}),
-                ), patch.object(gate, "execute", side_effect=runner):
+                ), patch.object(
+                    gate, "execute", side_effect=runner
+                ):
                     return gate.compare(args)
 
             self.assertEqual(run(reference), 0)
@@ -174,12 +182,12 @@ class UserTimeTests(unittest.TestCase):
                 mutate(changed)
                 self.assertEqual(run(changed), 1)
 
-            def missing(binary, c):
+            def missing(binary, c, mode=None):
                 raise ValueError("head missing case")
 
             self.assertEqual(run(reference, missing), 1)
 
-            def wrong_revision(binary, c):
+            def wrong_revision(binary, c, mode=None):
                 r = execution(binary, c)
                 r["build"]["vcs.revision"] = "wrong"
                 return r
@@ -207,7 +215,7 @@ class UserTimeTests(unittest.TestCase):
                 ("branch_direction_hits", 1),
             ):
 
-                def malformed(binary, c):
+                def malformed(binary, c, mode=None):
                     r = execution(binary, c)
                     r["timing"][key] = bad
                     return r
@@ -221,7 +229,7 @@ class UserTimeTests(unittest.TestCase):
             args.base = str(base)
             args.base_unavailable = False
 
-            def available(binary, case):
+            def available(binary, case, mode=None):
                 result = execution(binary, case)
                 is_base = binary == str(base)
                 result["build"]["vcs.revision"] = "base" if is_base else "head"
@@ -241,7 +249,7 @@ class UserTimeTests(unittest.TestCase):
                 self.assertEqual(row["head"]["error_percent"], 0)
                 self.assertEqual(row["error_change_percentage_points"], -100)
 
-            def failed_base(binary, case):
+            def failed_base(binary, case, mode=None):
                 if binary == str(base):
                     raise ValueError("base-only execution failure")
                 return available(binary, case)
@@ -272,7 +280,9 @@ class UserTimeTests(unittest.TestCase):
         )
 
         def run(r):
-            with patch.object(gate, "expected", return_value=b"golden"), patch.object(
+            with patch.object(gate, "check_output"), patch.object(
+                gate, "expected", return_value=b"golden"
+            ), patch.object(
                 gate.subprocess,
                 "run",
                 return_value=SimpleNamespace(

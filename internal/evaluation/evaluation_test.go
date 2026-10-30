@@ -91,15 +91,15 @@ func logFor(t *testing.T, root string, required map[string]bool, omit string, ac
 func TestRegressionCoverage(t *testing.T) {
 	root := repo(t)
 	req, e := RequiredCases(root, "full")
-	if e != nil || len(req) != 90 {
+	if e != nil || len(req) != 88 {
 		t.Fatalf("%d %v", len(req), e)
 	}
 	good := logFor(t, root, req, "", "pass")
 	r, e := Regression(root, "full", "test", bytes.NewReader(good))
-	if e != nil || r.Status != "pass" || len(r.Cases) != 90 || len(r.Planned) != 6 {
+	if e != nil || r.Status != "pass" || len(r.Cases) != 88 || len(r.Planned) != 6 {
 		t.Fatalf("%+v %v", r, e)
 	}
-	for _, bad := range [][]byte{logFor(t, root, req, "TestV4Baseline/mvt/1", "pass"), logFor(t, root, req, "", "skip"), logFor(t, root, req, "", "fail"), good[:len(good)/2], nil} {
+	for _, bad := range [][]byte{logFor(t, root, req, "TestV4Baseline/atax/1", "pass"), logFor(t, root, req, "", "skip"), logFor(t, root, req, "", "fail"), good[:len(good)/2], nil} {
 		if _, e := Regression(root, "full", "test", bytes.NewReader(bad)); e == nil {
 			t.Fatal("accepted incomplete/failed report")
 		}
@@ -129,7 +129,7 @@ func TestPortableHookRequiresNumericalReference(t *testing.T) {
 				if (err == nil) != (action == "pass") {
 					t.Fatalf("status %s: %v", action, err)
 				}
-				if len(report.Cases) != 90 || len(report.IndependentChecks) != 2 || report.IndependentChecks[0].Status != action {
+				if len(report.Cases) != 88 || len(report.IndependentChecks) != 2 || report.IndependentChecks[0].Status != action {
 					t.Fatalf("incorrect coverage: %+v", report)
 				}
 			})
@@ -169,39 +169,15 @@ func TestFacesimReferenceRequired(t *testing.T) {
 	}
 }
 
-func TestReferenceRejectsWrongOutput(t *testing.T) {
-	n := 8
-	x1, x2, y1, y2, a := InitialMVT(n)
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			x1[i] += a[i*n+j] * y1[j]
-			x2[i] += a[j*n+i] * y2[j]
-		}
-	}
-	if e := CheckMVT(n, x1, x2); e != nil {
-		t.Fatal(e)
-	}
-	x1[3] += 1
-	if CheckMVT(n, x1, x2) == nil {
-		t.Fatal("accepted wrong result")
-	}
-}
 func TestMissingFixture(t *testing.T) {
 	if _, e := RequiredCases(t.TempDir(), "full"); e == nil {
 		t.Fatal("accepted missing fixture")
 	}
 }
-func TestPilotBounds(t *testing.T) {
-	for _, n := range []int{0, 1537} {
-		if CheckMVT(n, nil, nil) == nil {
-			t.Fatal("accepted bad dimension")
-		}
-	}
-}
 func TestFixtureIdentity(t *testing.T) {
 	root := repo(t)
 	for path, want := range map[string]string{
-		"akita-v4-baseline.jsonl": "7336f0d234ca7c15bda91e28bec1ae4e56b3ef51fb43f584714840c95c66b529", "pipeline-v4-baseline.jsonl": "2834a614b5147b0500cb000e7437e879e594af59339a8ee487bda13476d9820a",
+		"akita-v4-baseline.jsonl": "4e7f6639bade643ca713b37378b14d67345b31377f41a10fd1f1b6b5790c077f", "pipeline-v4-baseline.jsonl": "2834a614b5147b0500cb000e7437e879e594af59339a8ee487bda13476d9820a",
 	} {
 		b, e := os.ReadFile(filepath.Join(root, "pkg/cpu/testdata", path))
 		if e != nil {
@@ -213,22 +189,6 @@ func TestFixtureIdentity(t *testing.T) {
 	}
 }
 
-func TestManifestPilotSelection(t *testing.T) {
-	m, e := LoadManifest(repo(t))
-	if e != nil {
-		t.Fatal(e)
-	}
-	ns, e := m.PilotSizes(nil)
-	if e != nil || len(ns) != 6 || ns[2] != 120 {
-		t.Fatalf("%v %v", ns, e)
-	}
-	if _, e = m.PilotSizes([]int{9}); e == nil {
-		t.Fatal("accepted undeclared size")
-	}
-	if _, e = m.PilotSizes([]int{8, 8}); e == nil {
-		t.Fatal("accepted duplicate size")
-	}
-}
 func TestCaptureLogBinding(t *testing.T) {
 	dir := t.TempDir()
 	code := 0
@@ -329,5 +289,44 @@ func TestCaptureLifecycle(t *testing.T) {
 	}
 	if _, e = ReadCapture(filepath.Join(dir, "missing"), []byte("log")); e == nil {
 		t.Fatal("missing capture accepted")
+	}
+}
+
+func TestMigratedMVTInventoryRequired(t *testing.T) {
+	root := repo(t)
+	original, err := LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutation := range []string{"missing", "size", "status", "role"} {
+		t.Run(mutation, func(t *testing.T) {
+			data, _ := json.Marshal(original)
+			var m Manifest
+			if err := json.Unmarshal(data, &m); err != nil {
+				t.Fatal(err)
+			}
+			for i := range m.Workloads {
+				w := &m.Workloads[i]
+				if w.ID != "mvt" {
+					continue
+				}
+				switch mutation {
+				case "missing":
+					m.Workloads = append(m.Workloads[:i], m.Workloads[i+1:]...)
+				case "size":
+					w.Sizes[0].ID = "n12"
+					w.Sizes[0].Dimensions["n"] = 12
+					*w.Sizes[0].WorkingSetBytes = 8 * (12*12 + 4*12)
+				case "status":
+					w.Sizes[0].Status = "planned"
+				case "role":
+					w.Role = "validation"
+				}
+				break
+			}
+			if m.Validate(root) == nil {
+				t.Fatal("accepted incomplete or divergent MVT support")
+			}
+		})
 	}
 }

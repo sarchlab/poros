@@ -77,94 +77,6 @@ func All() []Benchmark {
 		return em
 	}
 
-	// setupMvtEmu creates a fresh emulator configured for the mvt kernel.
-	// MEDIUM dataset: N=400
-	setupMvtEmu := func() *emu.Emulator {
-		n := 400
-		x1 := make([]float64, n)
-		x2 := make([]float64, n)
-		y1 := make([]float64, n)
-		y2 := make([]float64, n)
-		A := make([]float64, n*n)
-
-		for i := 0; i < n; i++ {
-			x1[i] = float64(i%n) / float64(n)
-			x2[i] = float64((i+1)%n) / float64(n)
-			y1[i] = float64((i+3)%n) / float64(n)
-			y2[i] = float64((i+4)%n) / float64(n)
-			for j := 0; j < n; j++ {
-				A[i*n+j] = float64(i*j%n) / float64(n)
-			}
-		}
-
-		code := []uint32{
-			0x7100041f, 0x540004cb, 0xd2800009, 0xd37d7c0a,
-			0xaa0503eb, 0x2a0003e8, 0xfc697820, 0xaa0803ec,
-			0xaa0303ed, 0xaa0b03ee, 0xfc4085c1, 0xfc4085a2,
-			0x1f420020, 0xfc297820, 0xf100058c, 0x54ffff61,
-			0x91000529, 0x8b0a016b, 0xeb08013f, 0x54fffe61,
-			0x7100041f, 0x5400024b, 0xd2800009, 0xd37d7c0a,
-			0xfc697840, 0xaa0803eb, 0xaa0403ec, 0xaa0503ed,
-			0xfc408581, 0xfd4001a2, 0x1f410040, 0xfc297840,
-			0x8b0a01ad, 0xf100056b, 0x54ffff41, 0x91000529,
-			0x910020a5, 0xeb08013f, 0x54fffe41, 0xd65f03c0,
-		}
-
-		codeBase := uint64(0x10000)
-		x1Base := uint64(0x100000)
-		x2Base := uint64(0x200000)
-		y1Base := uint64(0x300000)
-		y2Base := uint64(0x400000)
-		aBase := uint64(0x500000)
-		haltPC := uint64(0xFFFF0000)
-
-		em := emu.NewEmulator()
-		em.MaxInst = 100_000_000
-		em.LoadProgram(codeBase, EncodeInsts(code))
-
-		x1Buf := make([]byte, n*8)
-		for i, v := range x1 {
-			binary.LittleEndian.PutUint64(x1Buf[i*8:], math.Float64bits(v))
-		}
-		em.LoadProgram(x1Base, x1Buf)
-
-		x2Buf := make([]byte, n*8)
-		for i, v := range x2 {
-			binary.LittleEndian.PutUint64(x2Buf[i*8:], math.Float64bits(v))
-		}
-		em.LoadProgram(x2Base, x2Buf)
-
-		y1Buf := make([]byte, n*8)
-		for i, v := range y1 {
-			binary.LittleEndian.PutUint64(y1Buf[i*8:], math.Float64bits(v))
-		}
-		em.LoadProgram(y1Base, y1Buf)
-
-		y2Buf := make([]byte, n*8)
-		for i, v := range y2 {
-			binary.LittleEndian.PutUint64(y2Buf[i*8:], math.Float64bits(v))
-		}
-		em.LoadProgram(y2Base, y2Buf)
-
-		aBuf := make([]byte, n*n*8)
-		for i, v := range A {
-			binary.LittleEndian.PutUint64(aBuf[i*8:], math.Float64bits(v))
-		}
-		em.LoadProgram(aBase, aBuf)
-
-		em.Regs.PC = codeBase
-		em.Regs.WriteX(0, uint64(n))
-		em.Regs.WriteX(1, x1Base)
-		em.Regs.WriteX(2, x2Base)
-		em.Regs.WriteX(3, y1Base)
-		em.Regs.WriteX(4, y2Base)
-		em.Regs.WriteX(5, aBase)
-		em.Regs.WriteX(30, haltPC)
-		em.Regs.SP = 0x800000 + 8192
-		em.SetHaltPC(haltPC)
-		return em
-	}
-
 	// setupGemmEmu creates a fresh emulator configured for the gemm kernel.
 	setupGemmEmu := func() *emu.Emulator {
 		ni, nj, nk := 60, 70, 80
@@ -2437,9 +2349,7 @@ func All() []Benchmark {
 		{Name: "atax", Suite: "polybench", Setup: setupAtaxEmu, NativeTime: 0.000408, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 1279200}, {Addr: 0x300000, Size: 3280}, {Addr: 0x400000, Size: 3280}, {Addr: 0x500000, Size: 3120},
 		}},
-		{Name: "mvt", Suite: "polybench", Setup: setupMvtEmu, NativeTime: 0.000574, Regions: []DataRegion{
-			{Addr: 0x100000, Size: 3200}, {Addr: 0x200000, Size: 3200}, {Addr: 0x300000, Size: 3200}, {Addr: 0x400000, Size: 3200}, {Addr: 0x500000, Size: 1280000},
-		}},
+
 		{Name: "gemm", Suite: "polybench", Setup: setupGemmEmu, NativeTime: 0.000271, Regions: []DataRegion{
 			{Addr: 0x100000, Size: 33600}, {Addr: 0x200000, Size: 38400}, {Addr: 0x300000, Size: 44800}, {Addr: 0x400000, Size: 8192},
 		}},

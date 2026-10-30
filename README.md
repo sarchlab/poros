@@ -1,12 +1,14 @@
 # Poros
 
-Poros is a cycle-accurate, execution-driven Apple M2 CPU simulator built on the [Akita](https://github.com/sarchlab/akita) discrete-event simulation framework in Go. It models the M2's Avalanche (P-core) out-of-order superscalar pipeline with multi-core support. It runs 41 benchmarks across two suites — [PolyBench/C](https://web.cse.ohio-state.edu/~pouchet.2/software/polybench/) (30 numerical kernels) and [PARSEC](https://parsec.cs.princeton.edu/) (11 parallel workloads) — with high accuracy.
+Poros is a cycle-accurate, execution-driven Apple M2 CPU simulator built on the [Akita](https://github.com/sarchlab/akita) discrete-event simulation framework in Go. It models the M2's Avalanche (P-core) out-of-order superscalar pipeline with multi-core support. Its legacy kernel registry contains 40 workloads: 29 [PolyBench/C](https://web.cse.ohio-state.edu/~pouchet.2/software/polybench/) kernels and 11 [PARSEC](https://parsec.cs.princeton.edu/) workloads. MVT now runs as a complete Linux ELF program, alongside integer, memory and branch workloads in the [24-case user-time report](evaluation/usertime/README.md). Hardware accuracy remains unverified.
 
-## Accuracy Results
+## Historical accuracy results
+
+The following figures and tables describe the pre-migration 41-kernel suite, including embedded-function MVT. They are historical measurements, not results for the current ELF suite or evidence of validated hardware accuracy.
 
 - **Average error: 15.8%** (target: ≤20%)
 - **Maximum error: 42.5%** on `swaptions` (target: ≤50%)
-- All 41 benchmarks pass the ≤50% error threshold
+- All 41 historical benchmarks passed the then-used ≤50% error threshold
 
 Error is calculated as `|sim_time - native_time| / min(sim_time, native_time)`.
 
@@ -79,7 +81,7 @@ go test ./... -timeout 45m # Run all tests (including long regressions)
 ### CLI Usage
 
 ```bash
-# List all 41 benchmarks
+# List all 40 legacy kernels
 ./poros list
 
 # Run a single benchmark
@@ -105,7 +107,7 @@ go test ./... -timeout 45m # Run all tests (including long regressions)
 ### Testing
 
 ```bash
-# Full comparison table (all 41 benchmarks, ~10 min)
+# Legacy comparison table (all 40 kernels, ~10 min)
 go test -v -run TestOoO_ComparisonTable ./pkg/cpu -timeout 20m
 
 # Quick evaluation (6 benchmarks, ~2 min)
@@ -140,7 +142,7 @@ go test -v -run TestOoO_PolyBenchAtax ./pkg/cpu
 - BTB: 2048 entries, 4-way set-associative
 - RAS: 32-entry circular buffer
 - 17-cycle misprediction penalty
-- Accuracy: 93–99.5% across the PolyBench suite
+- Historical branch prediction accuracy: 93–99.5% across the pre-migration PolyBench suite
 
 ### Cache Hierarchy
 
@@ -253,6 +255,7 @@ the runtime component schema and defaults.
 ## Evaluation and calibration
 
 See [the M0 evaluation contract](evaluation/README.md) for the versioned workload
-inventory, regression CI, and fresh M2 multi-size timing pilot. Historical
+inventory and regression CI. [Whole-program user-time evaluation](evaluation/usertime/README.md)
+runs MVT and three other workloads as complete Linux ELF programs at six points each. Historical
 regression data and provisional native measurements are different evidence
 classes; neither alone establishes a validated CPU model.

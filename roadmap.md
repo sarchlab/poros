@@ -67,7 +67,7 @@ gate. Missing assets and skipped tests are reported distinctly from passes.
 
 **Regression and rollback**
 
-Keep the 82 existing one/two-core baseline cases and eight pipeline variants.
+Keep the 80 remaining legacy one/two-core baseline cases and eight pipeline variants; MVT is covered by the complete ELF suite.
 See [baseline provenance](pkg/cpu/testdata/README.md). These preserve legacy
 behavior; they are not an independent ARM correctness oracle or fresh hardware
 validation. Do not regenerate golden data merely to pass a failing test.
@@ -298,3 +298,12 @@ The formula is versioned diff/min (absolute difference divided by the smaller
 positive time). Earlier percentage targets require a fresh decision under this
 formula and are not enabled gates. VM samples and unknown-core measurements stay
 unverified for bare-metal hardware accuracy. See evaluation/usertime/README.md.
+
+## MVT and six-point report suite (#48)
+
+MVT uses whole-program user time, superseding the issue’s original mandatory ROI
+wording. All six MVT dimensions and six points each for integer, memory and branch
+are required in the unified accuracy report. MVT has left the embedded registry;
+40 kernels remain for #49. Schema-1 archived reports remain readable while the
+versioned manifest defines the new 24-case suite. No hardware-accuracy promotion
+or parameter fitting is implied.

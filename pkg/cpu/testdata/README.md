@@ -3,7 +3,7 @@
 `akita-v4-baseline.jsonl` was captured from Poros commit
 `2a8abd5071f2774842255729f9d098dd477c9a6c` using Akita v4.9.0, before any
 migration edits. The two Facesim rows were subsequently replaced with validated
-finite M0 inputs and output digests, as documented below. It covers all 41 entries
+finite M0 inputs and output digests, as documented below. It originally covered all 41 entries
 returned by `benchmark.All()`, each on
 one and two independent cores sharing the existing L2 tag model. The frequency
 is 3490 MHz, default CPU/cache configuration, cache warm-up uses each benchmark's
@@ -30,7 +30,7 @@ same pre-migration commit. It records exact instruction/cycle counts and the sam
 architectural digest for raytrace, blackscholes, atax, and gemm in the in-order
 and OoO-without-branch-prediction modes. `TestV4PipelineVariants` enforces these
 values in eight automated cases. Separately, the migration validation runs the
-full CLI 41-kernel report and compares its output byte-for-byte with the frozen
+historical full CLI 41-kernel report and compares its output byte-for-byte with the frozen
 v4 report; that CLI comparison is not performed by TestV4PipelineVariants.
 
 ## Host-math portability
@@ -57,3 +57,11 @@ Instructions (8166) and cycles (5392) per core did not change. The other 80 rows
 and all eight pipeline-variant rows are unchanged. `TestRegistryFacesimNumericalReference`
 is required by both short and full evaluation reports; missing, skipped or failed
 reference execution rejects acceptance. There is no Facesim host-math exception.
+
+## MVT ELF migration
+
+MVT now runs as a complete ELF program in the 24-case user-time suite. Its two
+legacy CPU rows and one initial-state fingerprint were removed; all other rows
+are unchanged. The remaining registry has 40 kernels (29 PolyBench and 11 PARSEC),
+80 one/two-core baseline cases plus eight pipeline variants. Git history retains
+the superseded MVT fixtures for rollback.

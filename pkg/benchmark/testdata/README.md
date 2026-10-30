@@ -7,3 +7,11 @@ The Facesim row was deliberately replaced during M0 after its degenerate mesh wa
 corrected: 32 fixed nondegenerate tetrahedra cover all 20 vertices. The independent
 CPU reference validates its rest inverses, deformation domain and finite forces.
 No other initial fingerprint changed.
+
+## MVT ELF migration
+
+MVT now runs as a complete ELF program in the 24-case user-time suite. Its two
+legacy CPU rows and one initial-state fingerprint were removed; all other rows
+are unchanged. The remaining registry has 40 kernels (29 PolyBench and 11 PARSEC),
+80 one/two-core baseline cases plus eight pipeline variants. Git history retains
+the superseded MVT fixtures for rollback.

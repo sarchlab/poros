@@ -9,9 +9,9 @@ import math
 import statistics
 import subprocess
 import native_usertime as native
+from workload_contract import case_ids, check_output
 from native_usertime import (
     ROOT,
-    REQUIRED,
     digest,
     inventory,
     expected,
@@ -33,12 +33,12 @@ def error_percent(simulated, reference):
     return value
 
 
-def execute(poros, case):
+def execute(poros, case, mode=None):
     argv = [
         str(poros),
         "elf",
         "--mode",
-        case["model"],
+        mode or case["model"],
         "--frequency-hz",
         str(case["frequency_hz"]),
         "--timeout",
@@ -66,13 +66,11 @@ def execute(poros, case):
         or r["env"] != case["env"]
     ):
         raise ValueError("executed input provenance mismatch")
-    if (
-        r["termination"] != "exit"
-        or r["exit_status"] != 0
-        or base64.b64decode(r["stdout_base64"]) != expected(case)
-        or r["stderr_base64"]
-    ):
+    if r["termination"] != "exit" or r["exit_status"] != 0 or r["stderr_base64"]:
         raise ValueError("timing correctness failed: " + case["id"])
+    check_output(case, base64.b64decode(r["stdout_base64"]))
+    if mode == "functional":
+        return r
     t = r["timing"]
     if (
         t["configuration"] != inventory()["profile"]["configuration"]
@@ -135,7 +133,7 @@ def source_state():
 
 def compare(args):
     report = dict(
-        schema=1,
+        schema=2,
         formula=FORMULA,
         artifact_status="fail",
         accuracy_status="unverified",
@@ -143,10 +141,15 @@ def compare(args):
     )
     try:
         m = inventory()
+        if m.get("schema") != 2:
+            raise ValueError(
+                "current acceptance requires the schema-2 workload manifest"
+            )
         state = source_state()
         if state["dirty"]:
             raise ValueError("accuracy acceptance requires clean committed source")
         report.update(
+            workload_manifest=m,
             head=state,
             base_commit=args.base_commit,
             head_binary_sha256=digest(args.head),
@@ -168,12 +171,14 @@ def compare(args):
         }
         if reference["harness_sha256"] != digest(native.__file__):
             raise ValueError("measurement harness provenance mismatch")
-        if (
-            reference["manifest_sha256"]
-            != digest(ROOT / "tests/usertime/manifest.json")
-            or tuple((c["id"] for c in reference["cases"])) != REQUIRED
-        ):
+        if reference["manifest_sha256"] != digest(
+            ROOT / "tests/usertime/manifest.json"
+        ) or tuple((c["id"] for c in reference["cases"])) != case_ids(m):
             raise ValueError("reference inventory/provenance mismatch")
+        if reference.get("support_sha256") != {
+            "workload_contract.py": digest(ROOT / "scripts/workload_contract.py")
+        }:
+            raise ValueError("measurement support provenance mismatch")
         if bool(args.base) == bool(args.base_unavailable):
             raise ValueError("provide base binary or explicit unavailable revision")
         if args.base_unavailable:
@@ -190,12 +195,9 @@ def compare(args):
             if len(ref["samples"]) < 5:
                 raise ValueError("insufficient reference samples")
             for sample in ref["samples"]:
-                if (
-                    sample["exit_status"] != 0
-                    or base64.b64decode(sample["stdout_base64"]) != golden
-                    or sample["stderr_base64"]
-                ):
+                if sample["exit_status"] != 0 or sample["stderr_base64"]:
                     raise ValueError("invalid reference correctness")
+                check_output(c, base64.b64decode(sample["stdout_base64"]), golden)
             for key in (
                 "id",
                 "file",
@@ -219,6 +221,7 @@ def compare(args):
                 reference_user_seconds=ref["median_user_seconds"],
                 reference_quality=ref["quality"],
             )
+            functional = execute(args.head, c, mode="functional")
             for label, binary, revision in (
                 ("head", args.head, state["commit"]),
                 ("base", args.base, args.base_commit),
@@ -227,6 +230,12 @@ def compare(args):
                     continue
                 r = execute(binary, c)
                 validate_timing(r, c)
+                if label == "head" and (
+                    functional["instructions"] != r["instructions"]
+                    or functional["stdout_base64"] != r["stdout_base64"]
+                    or functional["build"] != r["build"]
+                ):
+                    raise ValueError("functional/timing architectural result mismatch")
                 if (
                     r["build"].get("vcs.revision") != revision
                     or r["build"].get("vcs.modified") != "false"
@@ -261,6 +270,7 @@ def compare(args):
                     row["error_change_percentage_points"] = (
                         row["head"]["error_percent"] - row["base"]["error_percent"]
                     )
+            row["functional_status"] = "pass"
             row["reason"] = (
                 "reference environment/core/frequency not hardware-validated; no accuracy threshold approved"
             )

@@ -61,7 +61,7 @@ func (m Manifest) Validate(root string) error {
 	if m.SchemaVersion != 1 || m.SplitVersion == "" || m.SplitLimitation == "" {
 		return fmt.Errorf("missing/unsupported manifest contract")
 	}
-	expected := map[string]bool{}
+	expected := map[string]bool{"mvt": true}
 	for _, b := range benchmark.All() {
 		expected[b.Name] = true
 	}
@@ -74,11 +74,11 @@ func (m Manifest) Validate(root string) error {
 		if w.Role != "calibration" && w.Role != "validation" && w.Role != "validation-legacy" {
 			return fmt.Errorf("invalid role %q", w.Role)
 		}
-		if w.Status != "legacy" && w.Status != "planned" {
+		if w.Status != "legacy" && w.Status != "planned" && w.Status != "elf" {
 			return fmt.Errorf("invalid status %q", w.Status)
 		}
 		if w.Status == "legacy" {
-			if !expected[w.ID] || w.Execution != "embedded-function" {
+			if w.ID == "mvt" || !expected[w.ID] || w.Execution != "embedded-function" {
 				return fmt.Errorf("unknown legacy workload %s", w.ID)
 			}
 			if w.Source == "" || filepath.IsAbs(w.Source) || strings.Contains(w.Source, "..") {
@@ -89,13 +89,56 @@ func (m Manifest) Validate(root string) error {
 			}
 			delete(expected, w.ID)
 		}
+		if w.Status == "elf" {
+			if w.ID != "mvt" || w.Role != "calibration" || w.Execution != "linux-elf-user" || w.Source != "tests/usertime/mvt.c" || len(w.Sizes) != 6 {
+				return fmt.Errorf("invalid migrated ELF workload")
+			}
+			if _, err := os.Stat(filepath.Join(root, w.Source)); err != nil {
+				return err
+			}
+			raw, err := os.ReadFile(filepath.Join(root, "tests/usertime/manifest.json"))
+			if err != nil {
+				return err
+			}
+			var suite struct {
+				Schema int `json:"schema"`
+				Cases  []struct {
+					ID, Workload string
+					Point        int
+				} `json:"cases"`
+			}
+			if err := json.Unmarshal(raw, &suite); err != nil {
+				return err
+			}
+			allowed := map[int]bool{}
+			for _, c := range suite.Cases {
+				if c.Workload != "mvt" {
+					continue
+				}
+				if allowed[c.Point] || c.ID != fmt.Sprintf("mvt-%d", c.Point) {
+					return fmt.Errorf("invalid MVT ELF inventory")
+				}
+				allowed[c.Point] = true
+			}
+			if suite.Schema != 2 || len(allowed) != len(w.Sizes) {
+				return fmt.Errorf("MVT inventory differs between manifests")
+			}
+			for _, size := range w.Sizes {
+				n := size.Dimensions["n"]
+				if size.Status != "elf" || size.ID != fmt.Sprintf("n%d", n) || !allowed[n] {
+					return fmt.Errorf("MVT size differs from ELF inventory")
+				}
+				delete(allowed, n)
+			}
+			delete(expected, w.ID)
+		}
 		sizes := map[string]bool{}
 		for _, s := range w.Sizes {
 			if s.ID == "" || sizes[s.ID] || s.Constraint == "" {
 				return fmt.Errorf("invalid size in %s", w.ID)
 			}
 			sizes[s.ID] = true
-			if s.Status != "legacy" && s.Status != "planned" && s.Status != "pilot" {
+			if s.Status != "legacy" && s.Status != "planned" && s.Status != "elf" {
 				return fmt.Errorf("invalid size status")
 			}
 			if w.Status == "planned" && s.Status != "planned" {
@@ -111,10 +154,10 @@ func (m Manifest) Validate(root string) error {
 					}
 				}
 			}
-			if s.Status == "pilot" {
+			if s.Status == "elf" {
 				n, ok := s.Dimensions["n"]
 				if w.ID != "mvt" || !ok || len(s.Dimensions) != 1 || n < 1 || n > 1536 || *s.WorkingSetBytes != uint64(8*(n*n+4*n)) {
-					return fmt.Errorf("invalid MVT pilot size")
+					return fmt.Errorf("invalid MVT ELF size")
 				}
 			}
 		}
@@ -123,40 +166,7 @@ func (m Manifest) Validate(root string) error {
 		}
 	}
 	if len(expected) > 0 {
-		return fmt.Errorf("missing legacy workloads: %v", expected)
+		return fmt.Errorf("missing required workloads: %v", expected)
 	}
 	return nil
-}
-
-func (m Manifest) PilotSizes(requested []int) ([]int, error) {
-	allowed := map[int]bool{}
-	defaults := []int{}
-	for _, w := range m.Workloads {
-		if w.ID == "mvt" {
-			for _, s := range w.Sizes {
-				if s.Status == "pilot" {
-					n := s.Dimensions["n"]
-					if allowed[n] || s.ID != fmt.Sprintf("n%d", n) {
-						return nil, fmt.Errorf("duplicate dimension or mismatched pilot ID")
-					}
-					allowed[n] = true
-					defaults = append(defaults, n)
-				}
-			}
-		}
-	}
-	if len(defaults) == 0 {
-		return nil, fmt.Errorf("manifest has no MVT pilot sizes")
-	}
-	if len(requested) == 0 {
-		return defaults, nil
-	}
-	seen := map[int]bool{}
-	for _, n := range requested {
-		if !allowed[n] || seen[n] {
-			return nil, fmt.Errorf("undeclared or duplicate pilot size %d", n)
-		}
-		seen[n] = true
-	}
-	return requested, nil
 }
