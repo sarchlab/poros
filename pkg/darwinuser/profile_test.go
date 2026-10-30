@@ -155,3 +155,52 @@ func TestRuntimeDirectoriesAreValidatedAndCopied(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestDTraceDOFSelectedCommpageByte(t *testing.T) {
+	for _, value := range []uint8{0, 1, 2} {
+		p := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, DTraceDOF: &value}
+		m := &usermem.AddressSpace{}
+		e := p.mapCommpage(m)
+		if value == 2 {
+			if e == nil {
+				t.Fatal("invalid capability")
+			}
+			continue
+		}
+		if e != nil {
+			t.Fatal(e)
+		}
+		var b [1]byte
+		if m.Read(0xfffffc092, b[:]) != nil || b[0] != value || m.Write(0xfffffc092, []byte{0}) == nil || m.Read(0xfffffc093, b[:]) == nil {
+			t.Fatal("wrong selected commpage mapping")
+		}
+	}
+	p := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3}
+	m := &usermem.AddressSpace{}
+	if e := p.mapCommpage(m); e != nil {
+		t.Fatal(e)
+	}
+	if m.Read(0xfffffc092, make([]byte, 1)) == nil {
+		t.Fatal("missing capability guessed")
+	}
+}
+
+func TestDTraceDOFNativeObservation(t *testing.T) {
+	var observed struct {
+		Offset, Width int
+		Value         uint8 `json:"dtrace_dof_enabled"`
+	}
+	kernelNativeResult(t, "commpage-dtrace.c", &observed)
+	if observed.Offset != 0x92 || observed.Width != 1 {
+		t.Fatal(observed)
+	}
+	p := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, DTraceDOF: &observed.Value}
+	m := &usermem.AddressSpace{}
+	if e := p.mapCommpage(m); e != nil {
+		t.Fatal(e)
+	}
+	var b [1]byte
+	if m.Read(0xfffffc000+uint64(observed.Offset), b[:]) != nil || b[0] != observed.Value {
+		t.Fatal("native byte mismatch")
+	}
+}

@@ -85,7 +85,8 @@ static int atomic_probe(unsigned offset) {
 static int ordered_probe(unsigned offset, unsigned load) {
  pid_t child=fork(); if(child<0)return -1;
  if(child==0) { _Alignas(16) unsigned char data[32]={0}; uint64_t value=9;
- if(load) __asm__ volatile("ldar %x[v],[%x[p]]" : [v]"=r"(value) : [p]"r"(data+offset) : "memory");
+ if(load==2) __asm__ volatile(".arch armv8.3-a\n\tldapr %x[v],[%x[p]]" : [v]"=r"(value) : [p]"r"(data+offset) : "memory");
+ else if(load) __asm__ volatile("ldar %x[v],[%x[p]]" : [v]"=r"(value) : [p]"r"(data+offset) : "memory");
  else __asm__ volatile("stlr %x[v],[%x[p]]" :: [v]"r"(value),[p]"r"(data+offset) : "memory");
  _exit(0); }
  int status;if(waitpid(child,&status,0)!=child)return -1;
@@ -199,12 +200,14 @@ int main(void) {
                   (mach_vm_address_t)&ro_kernel, &got) == KERN_SUCCESS && got == 1;
     int aligned=atomic_probe(0),within=atomic_probe(1),crossing=atomic_probe(9);
     if(aligned!=0 || crossing!=1 || within<0)return 3;
-    for(unsigned load=0;load<2;load++)if(ordered_probe(0,load)!=aligned||ordered_probe(1,load)!=within||ordered_probe(9,load)!=crossing)return 6;
+    for(unsigned load=0;load<3;load++)if(ordered_probe(0,load)!=aligned||ordered_probe(1,load)!=within||ordered_probe(9,load)!=crossing)return 6;
     const char *atomic_alignment=within==0?"within-16-byte":"natural";
+    if(p[0x92]>1)return 15;
+    printf("{\"dtrace_dof_enabled\":%u,",p[0x92]);
     uint32_t csr;
     int (*get_csr)(uint32_t *) = (int (*)(uint32_t *))dlsym(RTLD_DEFAULT, "csr_get_active_config");
     if (!get_csr || get_csr(&csr) != 0) return 2;
-    printf("{\"cpu_capabilities\":%llu,\"version\":%u,"
+    printf("\"cpu_capabilities\":%llu,\"version\":%u,"
            "\"user_page_shift_64_legacy\":%u,\"cache_line_size\":%u,"
            "\"cpu_family\":%u,\"user_timebase\":%u,"
            "\"continuous_hwclock\":%u,\"kdebug\":%u,"

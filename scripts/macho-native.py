@@ -60,6 +60,38 @@ def verify_captured_stat_absences(profile):
         raise ValueError("captured stat absence became present: " + name)
 
 
+def preserve_failure(result, destination, diagnostic):
+    """A failed gate still retains its native observations and bounded diagnosis."""
+    result["bringup_failure_diagnostic"] = diagnostic
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(result, indent=2) + "\n")
+
+
+def diagnose_startup(binary, options, case, profile, startup):
+    source = ROOT / "scripts/macho-diagnostic.go"
+    expected_source = digest(source)
+    with tempfile.TemporaryDirectory(prefix="poros-macho-diagnostic-") as directory:
+        folder = Path(directory)
+        configuration = dict(Binary=str(binary.resolve()), Dyld=options.dyld,
+                             Cache=options.shared_cache or "", ExecName=str(binary.resolve()),
+                             Args=case["args"], Runtime=profile, Startup=startup,
+                             MaxInstructions=options.max_instructions,
+                             TimeoutSeconds=options.execution_timeout_seconds)
+        config = folder / "configuration.json"
+        config.write_text(json.dumps(configuration))
+        with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+            status = run_owned_process(["go", "run", str(source), str(config)], 120,
+                                       cwd=ROOT, stdout=out, stderr=err)
+            out.seek(0); err.seek(0)
+            raw, errors = out.read(1 << 20), err.read(32768)
+        if status != 0:
+            raise ValueError(f"diagnostic failed: status={status}, stderr={errors.decode(errors='replace')}")
+        if digest(source) != expected_source:
+            raise ValueError("diagnostic source changed during execution")
+        return dict(source_sha256=expected_source, observation=json.loads(raw))
+
+
 def runtime_profile():
     native_dyld=Path("/usr/lib/dyld")
     before_dyld=digest(native_dyld)
@@ -253,7 +285,7 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--shared-cache", help="explicit matching native warm cache file")
     parser.add_argument("--samples", type=int, default=3)
-    parser.add_argument("--max-instructions", type=int, default=2_000_000)
+    parser.add_argument("--max-instructions", type=int, default=10_000_000)
     parser.add_argument("--execution-timeout-seconds", type=int, default=10)
     options = parser.parse_args()
     if platform.system() != "Darwin" or platform.machine() != "arm64":
@@ -345,11 +377,17 @@ def main():
                 witness["shared_cache_manifest_sha256"] = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
             if witness["binary"]["sha256"] != build["binaries"][binary.name] or witness["dyld"]["sha256"] != result["dyld_sha256"]:
                 raise ValueError("simulator/native input identity mismatch")
-            if witness["termination"] not in ("unsupported_instruction", "unsupported_syscall") or witness["instructions"] < 1:
-                raise ValueError("unexpected runtime bring-up outcome: " + str(witness))
             result["cases"].append(dict(id=case["id"], args=case["args"], binary_sha256=digest(binary),
                                          native_correct=True, stdout_base64=base64.b64encode(stdout).decode(),
                                          samples=samples, simulator=witness))
+            if witness["termination"] not in ("unsupported_instruction", "unsupported_syscall") or witness["instructions"] < 1:
+                try:
+                    diagnosis = diagnose_startup(binary, options, case, profile, metadata)
+                    verify_inputs()
+                except Exception as error:
+                    diagnosis = dict(error=str(error)[:32768])
+                preserve_failure(result, options.output, diagnosis)
+                raise ValueError("unexpected runtime bring-up outcome: " + str(witness))
     verify_inputs()
     destination = Path(options.output)
     destination.parent.mkdir(parents=True, exist_ok=True)

@@ -358,6 +358,10 @@ func SourceFPs(inst arm64asm.Inst) []int {
 		return srcs
 	}
 
+	// BSL reads the old destination as its bit selection mask.
+	if inst.Op == arm64asm.BSL {
+		add(ArgFP(inst.Args[0]))
+	}
 	// Vector BIC immediate preserves all destination bits outside its mask.
 	if inst.Op == arm64asm.BIC && inst.Enc&0xbff80c00 == 0x2f000400 {
 		add(ArgFP(inst.Args[0]))

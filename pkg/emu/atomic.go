@@ -60,6 +60,9 @@ func decodeAtomic(word uint32) (arm64asm.Inst, bool) {
 
 // InstructionString preserves extension mnemonics in diagnostics and traces.
 func InstructionString(inst arm64asm.Inst) string {
+	if inst.Op == OpLDAPR {
+		return "LDAPR " + inst.Args[0].String() + ", " + inst.Args[1].String()
+	}
 	if IsPointerStrip(inst.Op) {
 		name := "XPACI"
 		if inst.Op == OpXPACD {

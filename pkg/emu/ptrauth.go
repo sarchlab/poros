@@ -32,6 +32,9 @@ func DecodeChecked(code []byte, mode PointerAuthMode) (arm64asm.Inst, error) {
 	if inst, ok := decodePointerStrip(word); ok {
 		return inst, nil
 	}
+	if inst, ok := decodeRCpc(word); ok {
+		return inst, nil
+	}
 	if inst, ok := decodeAtomic(word); ok {
 		return inst, nil
 	}

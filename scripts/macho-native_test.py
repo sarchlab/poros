@@ -19,6 +19,38 @@ macho = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(macho)
 
 
+class FailureArtifactTests(unittest.TestCase):
+    def test_failure_keeps_case_samples_and_diagnostic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target=Path(directory)/"nested"/"report.json"
+            result={"cases":[{"id":"integer-1000","samples":[{"user_seconds":0.01}],"simulator":{"termination":"memory_fault"}}]}
+            macho.preserve_failure(result,target,{"error":"diagnostic timed out"})
+            saved=json.loads(target.read_text())
+            self.assertEqual(saved["cases"],result["cases"])
+            self.assertEqual(saved["bringup_failure_diagnostic"],{"error":"diagnostic timed out"})
+
+    def test_diagnostic_uses_owned_bounded_configuration(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            binary=Path(directory)/"program";binary.write_bytes(b"fixture")
+            options=SimpleNamespace(dyld="/explicit/dyld",shared_cache=None,max_instructions=2000000,execution_timeout_seconds=10)
+            def execute(command, timeout, **kwargs):
+                self.assertEqual(command[:2],["go","run"])
+                self.assertEqual(timeout,120)
+                config=json.loads(Path(command[3]).read_text())
+                self.assertEqual(config["Args"],["program","1000"])
+                self.assertEqual(config["Runtime"],{"captured":1})
+                self.assertEqual(config["Startup"],{"identity":"owned"})
+                self.assertEqual(config["MaxInstructions"],2000000)
+                self.assertIn("RecentSyscalls",Path(command[2]).read_text())
+                kwargs["stdout"].write(b'{"Result":{"termination":"memory_fault"}}')
+                return 0
+            with patch.object(macho,"run_owned_process",side_effect=execute):
+                result=macho.diagnose_startup(binary,options,{"args":["program","1000"]},{"captured":1},{"identity":"owned"})
+            self.assertEqual(result["observation"]["Result"]["termination"],"memory_fault")
+            self.assertEqual(result["source_sha256"],macho.digest(macho.ROOT/"scripts/macho-diagnostic.go"))
+
+
 class StatObservationTests(unittest.TestCase):
     def test_recheck_requires_exact_enoent(self):
         profile = {"stat_enoent_paths": ["/usr/lib/libSystem.B.dylib"]}

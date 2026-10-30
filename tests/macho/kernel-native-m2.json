@@ -5288,6 +5288,17 @@
           ]
         }
       ]
+    },
+    {
+      "source": "commpage-dtrace.c",
+      "source_sha256": "df150429aeffaf3dde3a0074621768424964a654b8c3140218ec8f87d452b75c",
+      "architecture": "arm64",
+      "binary_sha256": "387e3b9e5b7a28d91ab28a8c0d6d997ac3863bcf2b0acfa915ae7f7f491f11df",
+      "result": {
+        "offset": 146,
+        "width": 1,
+        "dtrace_dof_enabled": 1
+      }
     }
   ]
 }

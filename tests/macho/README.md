@@ -17,13 +17,9 @@ All initialization, arithmetic, output and exit remain native program work.
 
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
-The retained 24-case checkpoint from `7556bc3` predates the architectural
-CNEG and register-count shift fixes described below. Its raw native observations
-remain diagnostic history; its guest startup path is not a validated execution
-reference and must not be used for accuracy or progression claims.
-Current integer/1000 validation with those fixes, the captured runtime profile,
-and the explicit warm shared cache retires 1,556,080 instructions and stops at
-`UXTL V0.8H, V0.8B` at PC `0x180510808`, with no guest
+Current integer/1000 validation with the corrected ISA, captured runtime profile,
+and the explicit warm shared cache retires 2,232,651 instructions and stops at
+BSD `open("/dev/dtracehelper", O_RDWR)` at PC `0x18048d0a4`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -31,9 +27,11 @@ BTI and vector REV64, observes the captured stat64 absence of the disk libSystem
 path, and resolves the library in the real shared cache. The guest then constructs
 its version-7 kernel page-in linking request; the modeled kernel installs a private
 format-6 fixup pager over the signed main data page and applies BSD mprotect.
-The next missing SIMD operation is reached later in runtime startup. This remains incomplete startup, not benchmark
-main or successful exit. The 24-case dataset has not been relabeled as a run of
-this newer collector.
+It subsequently executes native-validated UXTL/UXTL2, BSL, SMAXV and LDAPR,
+and reads the captured DTrace DOF capability. The resulting device open is not
+yet implemented. This remains incomplete startup, not benchmark
+main or successful exit. The old superseded bring-up dataset has been removed. Current whole-program
+Mach-O calibration data will be retained after successful execution is validated.
 
 `scripts/macho-startup.c` captures documented kernel apple metadata from each
 explicit executable as a newly spawned, suspended child, then kills/reaps that
@@ -68,15 +66,14 @@ go build -o /tmp/poros ./cmd/poros
 python3 scripts/macho-native.py --poros /tmp/poros --output /tmp/macho-native.json
 ```
 
-`native-m2.json` preserves native correctness and three raw `wait4` user-time
-observations per case on the recorded Apple M2/macOS runtime. No sample-quality
-acceptance or accuracy claim follows from these observations. This bring-up
-collector uses Python `Popen`; on the recorded host it takes the fork/exec path,
-so child pre-exec overhead has not been excluded from its diagnostic samples.
+The bring-up collector emits native correctness and three raw `wait4` user-time
+observations per case as a CI artifact. These are diagnostic samples, with no
+sample-quality acceptance or accuracy claim. Its Python `Popen` launch takes the
+fork/exec path on the recorded host, so child pre-exec overhead is not excluded.
 The final calibration protocol must use explicit spawn and verify its accounting
-boundary. Incomplete
-simulator startup is recorded separately and must not be compared to native
-whole-program user time. Source, binary and dyld hashes identify the inputs.
+boundary. Incomplete simulator startup must not be compared to native whole-program
+user time. Source, binary and dyld hashes identify the inputs; there is currently
+no checked-in whole-program Mach-O calibration dataset.
 
 Apple system binaries are not redistributed. Portable tests use independently
 constructed fixtures from `internal/machotest`; these are not substitute native
@@ -326,3 +323,22 @@ execute transitions remain unsupported.
 Stat ENOENT observations apply only to exact captured stat64 paths, never to open,
 lstat or other unknown names. They are checked again before/after collection
 operations, and conflicting known file/directory identities are rejected.
+
+The collector uses an explicit 10-million-instruction/10-second execution budget
+for this later startup checkpoint (host runtime hashing remains outside that
+execution budget). An unexpected memory fault still fails CI. Before raising,
+it saves the native samples and simulator witness, then invokes an owned
+standalone diagnostic harness with the same inputs. That bounded diagnostic
+records the last 16 instructions/syscalls, arguments/results, original/current
+mapping protections, and whether main was reached; it uploads no Apple binaries.
+The macOS 15 CI runtime progressed beyond its previously unsupported BSD mprotect
+and exposed a later write-protection fault; this remains an unresolved failure,
+not an accepted bring-up outcome or a reason to weaken memory protection.
+
+LDAPR retains a distinct RCpc load opcode in functional and timing paths. Native
+value/NZCV, alias/ZR, access-fault, within-16-byte alignment and 6,000 reservation
+trials support its implemented behavior. The pipeline currently serializes
+acquire operations conservatively; this is not a calibrated throughput claim.
+The DTrace DOF byte is explicitly captured at commpage offset 0x92, including a
+native value of one; absent profile fields remain unmapped rather than defaulting
+to disabled. BSL reads its old destination mask in the timing dependency graph.

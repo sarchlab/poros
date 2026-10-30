@@ -8,6 +8,20 @@ import (
 // simdForm selects only implemented encodings. Byte operations keep size
 // bits in their mask; MOVI explicitly selects its implemented lane form.
 func simdForm(word uint32) uint32 {
+	if word&0xbf3ffc00 == 0x0e30a800 {
+		size := (word >> 22) & 3
+		if size < 2 || (size == 2 && word&(1<<30) != 0) {
+			return 0x0e30a800
+		}
+	} // SMAXV B/H/S reductions.
+
+	if word&0xbf80fc00 == 0x2f00a400 {
+		imm := (word >> 16) & 127
+		if imm == 8 || imm == 16 || imm == 32 {
+			return 0x2f00a400
+		}
+	} // UXTL/UXTL2 only; shifted USHLL is not admitted.
+
 	if word&0xbf3ffc00 == 0x0e200800 && (word>>22)&3 != 3 {
 		return 0x0e200800
 	} // REV64 B/H/S vector forms.
@@ -46,7 +60,7 @@ func simdForm(word uint32) uint32 {
 	} // INS (element), disassembled as MOV Vd.<T>[i],Vn.<T>[j]
 
 	switch form := word & 0xbfe0fc00; form {
-	case 0x0e201c00, 0x0e601c00, 0x0ea01c00, 0x0ee01c00, 0x2e201c00, 0x2e203400, 0x2e208c00:
+	case 0x0e201c00, 0x0e601c00, 0x0ea01c00, 0x0ee01c00, 0x2e201c00, 0x2e601c00, 0x2e203400, 0x2e208c00:
 		return form // ORR, EOR, CMHI
 	}
 	switch form := word & 0xbffffc00; form {
@@ -123,6 +137,18 @@ func (e *executor) execSIMD(word uint32) {
 			}
 		}
 	}
+	if form == 0x2f00a400 {
+		width := int((word>>16)&127) / 8
+		start := 0
+		if word&(1<<30) != 0 {
+			start = 8
+		}
+		for offset := 0; offset < 8; offset += width {
+			copy(out[offset*2:offset*2+width], a[start+offset:start+offset+width])
+		}
+		e.regs.WriteQ(int(word&31), binary.LittleEndian.Uint64(out[:8]), binary.LittleEndian.Uint64(out[8:]))
+		return
+	}
 	if form == 0x0e200800 {
 		width := 1 << ((word >> 22) & 3)
 		for block := 0; block < n; block += 8 {
@@ -130,6 +156,37 @@ func (e *executor) execSIMD(word uint32) {
 				copy(out[block+lane*width:block+(lane+1)*width], a[block+8-(lane+1)*width:block+8-lane*width])
 			}
 		}
+	}
+	if form == 0x0e30a800 {
+		width := 1 << ((word >> 22) & 3)
+		maximum := int64(-1 << 63)
+		for offset := 0; offset < n; offset += width {
+			var value uint64
+			for j := 0; j < width; j++ {
+				value |= uint64(a[offset+j]) << uint(8*j)
+			}
+			shift := uint(64 - width*8)
+			signed := int64(value<<shift) >> shift
+			if signed > maximum {
+				maximum = signed
+			}
+		}
+		for j := 0; j < width; j++ {
+			out[j] = byte(uint64(maximum) >> uint(8*j))
+		}
+		e.regs.WriteQ(int(word&31), binary.LittleEndian.Uint64(out[:8]), 0)
+		return
+	}
+	if form == 0x2e601c00 {
+		var mask [16]byte
+		previous := e.regs.FP[word&31]
+		binary.LittleEndian.PutUint64(mask[:8], previous.Lo)
+		binary.LittleEndian.PutUint64(mask[8:], previous.Hi)
+		for i := 0; i < n; i++ {
+			out[i] = (mask[i] & a[i]) | (^mask[i] & b[i])
+		}
+		e.regs.WriteQ(int(word&31), binary.LittleEndian.Uint64(out[:8]), binary.LittleEndian.Uint64(out[8:]))
+		return
 	}
 	var sum uint16
 	minimum := byte(255)

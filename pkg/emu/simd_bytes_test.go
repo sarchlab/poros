@@ -636,15 +636,16 @@ func testVectorMOVINative(t *testing.T, source string, count int) {
 	}
 }
 
-func TestVectorREV64NativeFullState(t *testing.T) {
+func checkNativeVectorFullState(t *testing.T, source string, count int) {
+	t.Helper()
 	var cases []struct {
 		Instruction, Encoding string
 		Before, After         [3]string
 		NZCVBefore            uint32 `json:"nzcv_before"`
 		NZCVAfter             uint32 `json:"nzcv_after"`
 	}
-	nativeAtomicObservation(t, "rev64-probe.c", &cases)
-	if len(cases) != 2304 {
+	nativeAtomicObservation(t, source, &cases)
+	if len(cases) != count {
 		t.Fatal(len(cases))
 	}
 	set := func(r *Registers, values [3]string) {
@@ -670,14 +671,41 @@ func TestVectorREV64NativeFullState(t *testing.T) {
 		set(&before, tc.After)
 		before.PC += 4
 		if r != before || tc.NZCVBefore != tc.NZCVAfter {
-			t.Fatal("native REV64 mismatch", tc, r.FP[:3])
+			t.Fatal("native vector mismatch", tc, r.FP[:3])
 		}
 	}
+}
+
+func TestVectorREV64NativeFullState(t *testing.T) {
+	checkNativeVectorFullState(t, "rev64-probe.c", 2304)
 	for _, word := range []uint32{0x0ee00800, 0x4ee00800} {
 		r := Registers{PC: 0x1000}
 		before := r
 		if _, e := StepChecked(&r, authMemory{word}); e == nil || r != before {
 			t.Fatal("unallocated D arrangement accepted")
+		}
+	}
+}
+
+func TestVectorUXTLNativeFullState(t *testing.T) {
+	checkNativeVectorFullState(t, "uxtl-probe.c", 2304)
+	for _, word := range []uint32{0x2f09a400, 0x6f11a400, 0x2f40a400} {
+		r := Registers{PC: 0x1000}
+		before := r
+		if _, e := StepChecked(&r, authMemory{word}); e == nil || r != before {
+			t.Fatal("shifted/unallocated widening accepted", word)
+		}
+	}
+}
+
+func TestVectorBSLAndSMAXVNativeFullState(t *testing.T) {
+	checkNativeVectorFullState(t, "bsl-probe.c", 1280)
+	checkNativeVectorFullState(t, "smaxv-probe.c", 1920)
+	for _, word := range []uint32{0x0eb0a800, 0x0ef0a800, 0x4ef0a800} {
+		r := Registers{PC: 0x1000}
+		before := r
+		if _, e := StepChecked(&r, authMemory{word}); e == nil || r != before {
+			t.Fatal("unallocated SMAXV arrangement accepted", word)
 		}
 	}
 }

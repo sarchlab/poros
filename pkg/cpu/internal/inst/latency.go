@@ -57,7 +57,7 @@ func IsLoad(op arm64asm.Op) bool {
 		return true
 	}
 	switch op {
-	case arm64asm.LDAR, arm64asm.LDR, arm64asm.LDRB, arm64asm.LDRH,
+	case emu.OpLDAPR, arm64asm.LDAR, arm64asm.LDR, arm64asm.LDRB, arm64asm.LDRH,
 		arm64asm.LDRSB, arm64asm.LDRSH, arm64asm.LDRSW,
 		arm64asm.LDUR, arm64asm.LDURB, arm64asm.LDURH,
 		arm64asm.LDURSB, arm64asm.LDURSH, arm64asm.LDURSW,
@@ -118,5 +118,5 @@ func UsesFlags(op arm64asm.Op) bool {
 
 // IsBarrier requires memory/retirement ordering; latency is not hardware calibrated.
 func IsBarrier(op arm64asm.Op) bool {
-	return emu.IsAtomicOperation(op) || emu.IsExclusiveLoad(op) || emu.IsExclusiveStore(op) || op == arm64asm.CLREX || op == arm64asm.STLR || op == arm64asm.LDAR || op == arm64asm.DMB || op == arm64asm.DSB || op == arm64asm.ISB
+	return emu.IsAtomicOperation(op) || emu.IsExclusiveLoad(op) || emu.IsExclusiveStore(op) || op == arm64asm.CLREX || op == arm64asm.STLR || op == arm64asm.LDAR || op == emu.OpLDAPR || op == arm64asm.DMB || op == arm64asm.DSB || op == arm64asm.ISB
 }

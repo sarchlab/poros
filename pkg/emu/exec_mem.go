@@ -200,7 +200,7 @@ func (e *executor) execOrderedMemory(inst arm64asm.Inst) error {
 	if err := e.checkAtomicAlignment(e.resolveMemAddr(inst.Args[1], false), width); err != nil {
 		return err
 	}
-	if inst.Op == arm64asm.LDAR {
+	if inst.Op == arm64asm.LDAR || inst.Op == OpLDAPR {
 		return e.load(inst, width, 1, false)
 	}
 	return e.store(inst, width, 1)

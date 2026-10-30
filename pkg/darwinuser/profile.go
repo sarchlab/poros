@@ -11,6 +11,7 @@ import (
 // native reference host. Unmodeled commpage fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
+	DTraceDOF           *uint8               `json:"dtrace_dof_enabled,omitempty"`
 	StatENOENTPaths     []string             `json:"stat_enoent_paths,omitempty"`
 	BranchTarget        string               `json:"branch_target_mode,omitempty"`
 	Directories         []RuntimeDirectory   `json:"directories,omitempty"`
@@ -63,6 +64,15 @@ func (p RuntimeProfile) validate() error {
 }
 
 func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
+	if p.DTraceDOF != nil {
+		if *p.DTraceDOF > 1 {
+			return fmt.Errorf("invalid DTrace DOF capability")
+		}
+		if err := m.Map(0xfffffc092, 1, usermem.Read, []byte{*p.DTraceDOF}); err != nil {
+			return err
+		}
+	}
+
 	if p.ExclusiveMonitor != "" && p.ExclusiveMonitor != "m2-local-64-byte" {
 		return fmt.Errorf("unsupported exclusive monitor profile")
 	}

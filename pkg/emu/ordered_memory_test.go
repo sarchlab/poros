@@ -7,22 +7,36 @@ import (
 )
 
 func TestOrderedMemoryNativeAlignmentAndValues(t *testing.T) {
+	replayNativeOrderedAlignment(t, "acquire-release-probe.c", false)
+}
+func TestRCpcNativeAlignment(t *testing.T) {
+	replayNativeOrderedAlignment(t, "ldapr-alignment-probe.c", true)
+}
+func replayNativeOrderedAlignment(t *testing.T, source string, rcpc bool) {
+	t.Helper()
 	var native struct {
 		Cases []struct {
 			Width, Offset, Exit, Signal int
 			Load, SP                    bool
 		}
 	}
-	nativeAtomicObservation(t, "acquire-release-probe.c", &native)
-	if len(native.Cases) != 192 {
+	nativeAtomicObservation(t, source, &native)
+	wantCount := 192
+	if rcpc {
+		wantCount = 96
+	}
+	if len(native.Cases) != wantCount {
 		t.Fatal("missing native cases")
 	}
 	for _, tc := range native.Cases {
 		word := uint32(0x889ffc61)
+		if rcpc {
+			word = 0xb8bfc061
+		}
 		if tc.Width == 8 {
 			word |= 1 << 30
 		}
-		if tc.Load {
+		if tc.Load && !rcpc {
 			word |= 1 << 22
 		}
 		if tc.SP {

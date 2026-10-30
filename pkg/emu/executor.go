@@ -207,7 +207,7 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execLDP(inst)
 	case arm64asm.LDPSW:
 		return false, e.execLDPSW(inst)
-	case arm64asm.STLR, arm64asm.LDAR:
+	case arm64asm.STLR, arm64asm.LDAR, OpLDAPR:
 		return false, e.execOrderedMemory(inst)
 	case arm64asm.STR:
 		return false, e.execSTR(inst)

@@ -170,3 +170,50 @@ func TestLDADDDependenciesAndClassification(t *testing.T) {
 		t.Fatal(i, g, f, SourceGPRs(i))
 	}
 }
+
+func TestBSLReadsDestinationMask(t *testing.T) {
+	var b [4]byte
+	binary.LittleEndian.PutUint32(b[:], 0x6e621c20)
+	decoded, e := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !reflect.DeepEqual(SourceFPs(decoded), []int{0, 1, 2}) {
+		t.Fatal("missing BSL mask/source", SourceFPs(decoded))
+	}
+	_, dest := DestRegs(decoded)
+	if dest != 0 {
+		t.Fatal(dest)
+	}
+}
+
+func TestRCpcLoadClassification(t *testing.T) {
+	for _, word := range []uint32{0xb8bfc128, 0xf8bfc128, 0xf8bfc3e8, 0xf8bfc13f} {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], word)
+		i, e := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if !IsLoad(i.Op) || IsStore(i.Op) || !IsBarrier(i.Op) || BaseWritebackGPR(i) != -1 {
+			t.Fatal("lost RCpc memory/order identity", i)
+		}
+		dest, fp := DestRegs(i)
+		want := int(word & 31)
+		if want == 31 {
+			want = -1
+		}
+		if dest != want || fp != -1 {
+			t.Fatal("RCpc destination", dest, fp)
+		}
+		src := SourceGPRs(i)
+		base := int((word >> 5) & 31)
+		if base == 31 {
+			if len(src) != 0 {
+				t.Fatal(src)
+			}
+		} else if !reflect.DeepEqual(src, []int{base}) {
+			t.Fatal(src)
+		}
+	}
+}

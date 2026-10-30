@@ -58,7 +58,7 @@ func newExtensionExecution(t *testing.T, words []uint32) *extensionExecution {
 func TestCheckedAtomicAndOrderedMemoryAcrossTimingModels(t *testing.T) {
 	// Load compare; CASA; load replacement; SWPL zero; load zero; DMB ISH;
 	// STLR replacement; LDAR result; NOP.
-	words := []uint32{0xb9400061, 0x88e17c62, 0xb9400064, 0xb87f8065, 0xb9400066, 0xd5033bbf, 0x889ffc62, 0x88dffc67, 0x885f7c61, 0x88057c62, 0x885f7c61, 0xd5033f5f, 0x88047c62, 0xb8270068, 0xb9400069, 0xd503201f}
+	words := []uint32{0xb9400061, 0x88e17c62, 0xb9400064, 0xb87f8065, 0xb9400066, 0xd5033bbf, 0x889ffc62, 0x88dffc67, 0x885f7c61, 0x88057c62, 0x885f7c61, 0xd5033f5f, 0x88047c62, 0xb8270068, 0xb9400069, 0xf8bfc06a, 0xd503201f}
 	for _, mode := range []string{"functional", "inorder", "ooo"} {
 		t.Run(mode, func(t *testing.T) {
 			x := newExtensionExecution(t, words)
@@ -100,7 +100,7 @@ func TestCheckedAtomicAndOrderedMemoryAcrossTimingModels(t *testing.T) {
 					}
 				}
 			}
-			if x.regs.GPR[1] != 9 || x.regs.GPR[4] != 1 || x.regs.GPR[5] != 0 || x.regs.GPR[6] != 0 || x.regs.GPR[7] != 9 || x.regs.GPR[8] != 9 || x.regs.GPR[9] != 18 {
+			if x.regs.GPR[1] != 9 || x.regs.GPR[4] != 1 || x.regs.GPR[5] != 0 || x.regs.GPR[6] != 0 || x.regs.GPR[7] != 9 || x.regs.GPR[8] != 9 || x.regs.GPR[9] != 18 || x.regs.GPR[10] != 18 {
 				t.Fatal(x.regs.GPR[:7])
 			}
 		})
@@ -411,5 +411,95 @@ func TestOoOREV64WaitsForLoadedVector(t *testing.T) {
 	}
 	if c.State.FpReady[1] <= c.State.FpReady[0] || c.State.GprReady[2] <= c.State.FpReady[1] {
 		t.Fatal("REV64 dependency missing", c.State.FpReady[:2], c.State.GprReady[2])
+	}
+}
+
+func TestOoOUXTLWaitsForLoadedVector(t *testing.T) {
+	// LDR D0,[X3]; UXTL V1.8H,V0.8B; UMOV X2,V1.D[0].
+	x := newExtensionExecution(t, []uint32{0xfd400060, 0x2f08a401, 0x4e083c22, 0xd503201f})
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.GPR[2] != 7 || x.regs.FP[1].Hi != 0 {
+		t.Fatal(c.State.Err, x.regs.GPR[2], x.regs.FP[1])
+	}
+	if c.State.FpReady[1] <= c.State.FpReady[0] || c.State.GprReady[2] <= c.State.FpReady[1] {
+		t.Fatal("UXTL dependency missing", c.State.FpReady[:2], c.State.GprReady[2])
+	}
+}
+
+func TestOoOBSLWaitsForLoadedMask(t *testing.T) {
+	// LDR D0,[X3]; BSL V0.16B,V1.16B,V2.16B; UMOV X2,V0.D[0].
+	x := newExtensionExecution(t, []uint32{0xfd400060, 0x6e621c20, 0x4e083c02, 0xd503201f})
+	x.regs.WriteQ(1, ^uint64(0), ^uint64(0))
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.GPR[2] != 7 || x.regs.FP[0].Hi != 0 {
+		t.Fatal(c.State.Err, x.regs.GPR[2], x.regs.FP[0])
+	}
+	if c.State.FpReady[0] < 40 || c.State.GprReady[2] <= c.State.FpReady[0] {
+		t.Fatal("BSL mask dependency missing", c.State.FpReady[:2], c.State.GprReady[2])
+	}
+}
+
+func TestOoOSMAXVWaitsForLoadedVector(t *testing.T) {
+	// LDR D0,[X3]; SMAXV S1,V0.4S; UMOV W2,V1.S[0].
+	x := newExtensionExecution(t, []uint32{0xfd400060, 0x4eb0a801, 0x0e043c22, 0xd503201f})
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if e := s.Initialize(); e != nil {
+		t.Fatal(e)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.GPR[2] != 7 || x.regs.FP[1].Hi != 0 {
+		t.Fatal(c.State.Err, x.regs.GPR[2], x.regs.FP[1])
+	}
+	if c.State.FpReady[1] <= c.State.FpReady[0] || c.State.GprReady[2] <= c.State.FpReady[1] {
+		t.Fatal("SMAXV dependency missing", c.State.FpReady[:2], c.State.GprReady[2])
+	}
+}
+
+func TestOoORCpcLoadLatencyAndDependency(t *testing.T) {
+	// LDAPR X1,[X3]; dependent ADD X2,X1,#1; independent ADD X4,X5,#1.
+	x := newExtensionExecution(t, []uint32{0xf8bfc061, 0x91000422, 0x910004a4, 0xd503201f})
+	x.regs.GPR[5] = 20
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if e := s.Initialize(); e != nil {
+		t.Fatal(e)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.GPR[2] != 8 || x.regs.GPR[4] != 21 || c.State.InstDone != 4 {
+		t.Fatal(c.State.Err, x.regs.GPR[:6])
+	}
+	if c.State.GprReady[1] < 40 || c.State.GprReady[2] <= c.State.GprReady[1] {
+		t.Fatal("RCpc load latency/dependency lost", c.State.GprReady[:5])
 	}
 }
