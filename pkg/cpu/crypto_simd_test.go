@@ -18,6 +18,7 @@ func TestOoOCryptoSIMDWaitsForEveryRealSource(t *testing.T) {
 		{"EXT_second_source", []uint32{0x3dc00061, 0x6e016002, 0x4e083c44, 0xd503201f}, 1, 2, 4, 7 << 32},
 		{"vector_ADD_source", []uint32{0x3dc00061, 0x4ee18422, 0x4e083c44, 0xd503201f}, 1, 2, 4, 14},
 		{"scalar_DUP_source", []uint32{0x3dc00063, 0x5e010461, 0x4e083c24, 0xd503201f}, 3, 1, 4, 7},
+		{"REV32_source", []uint32{0x3dc00061, 0x6e200822, 0x4e083c44, 0xd503201f}, 1, 2, 4, 7 << 24},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			x := newExtensionExecution(t, tc.words)
@@ -37,6 +38,28 @@ func TestOoOCryptoSIMDWaitsForEveryRealSource(t *testing.T) {
 				t.Fatal(c.State, x.regs.GPR)
 			}
 		})
+	}
+}
+
+func TestOoOSHA256WaitsForOldDestination(t *testing.T) {
+	for _, word := range []uint32{0x5e024020, 0x5e025020, 0x5e282820, 0x5e026020} {
+		x := newExtensionExecution(t, []uint32{0x3dc00060, word, 0x4e083c04, 0xd503201f})
+		s := sim.MakeBuilder().Build()
+		t.Cleanup(func() { _ = s.Terminate() })
+		spec := ooo.DefaultSpec()
+		spec.LoadLatency = 40
+		c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+		if err := s.Initialize(); err != nil {
+			t.Fatal(err)
+		}
+		for n := 0; n < 1000 && !c.State.Done; n++ {
+			c.Middlewares.Pipeline.Handle(nil)
+		}
+		// Old V0 comes from the slow load. Even though this instruction overwrites
+		// V0, its state/schedule input cannot become ready before that load.
+		if !c.State.Done || c.State.Err != "" || c.State.FpInFlight != 0 || c.State.FpReady[0] <= uint64(spec.LoadLatency) || c.State.GprReady[4] <= c.State.FpReady[0] {
+			t.Fatal(word, c.State)
+		}
 	}
 }
 func TestOoOINSAndAESEWaitForOldVectorAndGPR(t *testing.T) {

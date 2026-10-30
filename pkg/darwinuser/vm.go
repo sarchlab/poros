@@ -42,6 +42,9 @@ func (k *kernelState) mapAnonymous(r *emu.Registers, m *usermem.AddressSpace) bo
 	allocating := int32(r.GPR[16]) == -10
 	if allocating {
 		mask, flags, prot = 0, uint32(r.GPR[3]), 3
+		if flags&0x4000 != 0 {
+			return false // VM_FLAGS_OVERWRITE is supported for map, not allocate.
+		}
 	}
 	// Allocation tags are accounting metadata. Other valid flag families require
 	// actual semantics, so remain explicit unsupported interfaces.
@@ -90,7 +93,7 @@ func (k *kernelState) allocateAnonymous(m *usermem.AddressSpace, hint, size, mas
 
 // allocateMemory shares address selection and ownership accounting, not syscall ABI.
 func (k *kernelState) allocateMemory(m *usermem.AddressSpace, hint, size, mask uint64, flags, prot, maxProt uint32, source io.ReaderAt) (uint64, uint64, bool) {
-	if flags&^uint32(0xff000001) != 0 {
+	if flags&^uint32(0xff004001) != 0 || (flags&0x4000 != 0 && source != nil) {
 		return 0, 0, false
 	}
 
@@ -102,9 +105,6 @@ func (k *kernelState) allocateMemory(m *usermem.AddressSpace, hint, size, mask u
 		return 0, 0, false
 	} // Owned executable mappings need explicit Darwin signing/JIT policy.
 	size = (size + vmPage - 1) &^ (vmPage - 1)
-	if k.ownedBytes > maxOwnedMappingBytes || size > maxOwnedMappingBytes-k.ownedBytes || k.ownedMappings >= 4096 {
-		return 0, 3, true
-	}
 	alignmentMask := mask | (vmPage - 1)
 	align := func(value uint64) (uint64, bool) {
 		if alignmentMask > ^uint64(0)-value {
@@ -125,6 +125,15 @@ func (k *kernelState) allocateMemory(m *usermem.AddressSpace, hint, size, mask u
 			return 0, 3, true
 		}
 	} else if address&mask != 0 {
+		return 0, 3, true
+	}
+	if address > userAddressLimit-size {
+		return 0, 3, true
+	}
+	if !anywhere && flags&0x4000 != 0 {
+		return k.overwriteAnonymous(m, address, size, prot, maxProt)
+	}
+	if k.ownedBytes > maxOwnedMappingBytes || size > maxOwnedMappingBytes-k.ownedBytes || k.ownedMappings >= 4096 {
 		return 0, 3, true
 	}
 	ranges := append([]addressSpan(nil), k.reserved...)
@@ -160,6 +169,48 @@ func (k *kernelState) allocateMemory(m *usermem.AddressSpace, hint, size, mask u
 	k.ownedBytes += size
 	k.ownedMappings++
 	return address, 0, true
+}
+
+func (k *kernelState) overwriteAnonymous(m *usermem.AddressSpace, start, size uint64, prot, maxProt uint32) (uint64, uint64, bool) {
+	end := start + size // already range-checked by allocateMemory
+	for _, spans := range [][]addressSpan{k.protected, k.reserved} {
+		for _, span := range spans {
+			if start < span.hi && span.lo < end {
+				return 0, 0, false
+			}
+		}
+	}
+	// Only existing owned private mappings may be replaced. Unknown mappings
+	// (including kernel-maintained regions) cannot be erased by a generic flag.
+	for _, mapping := range m.Mappings() {
+		lo, hi := max(start, mapping.Start), min(end, mapping.End)
+		if lo >= hi {
+			continue
+		}
+		unowned := []addressSpan{{lo, hi}}
+		for _, owned := range k.ownedRanges {
+			unowned = subtractSpan(unowned, owned.lo, owned.hi)
+		}
+		if len(unowned) != 0 {
+			return 0, 0, false
+		}
+	}
+	ranges := append(subtractSpan(k.ownedRanges, start, end), addressSpan{start, end})
+	total := uint64(0)
+	for _, span := range ranges {
+		if span.hi-span.lo > maxOwnedMappingBytes-total {
+			return 0, 3, true
+		}
+		total += span.hi - span.lo
+	}
+	if len(ranges) > 4096 {
+		return 0, 3, true
+	}
+	if err := m.OverwriteReader(start, size, machPermissions(prot), machPermissions(maxProt), zeroMemory(size), vmPage); err != nil {
+		return 0, 3, true
+	}
+	k.ownedRanges, k.ownedBytes, k.ownedMappings = ranges, total, uint32(len(ranges))
+	return start, 0, true
 }
 
 func subtractSpan(spans []addressSpan, start, end uint64) []addressSpan {

@@ -446,12 +446,20 @@ func (m *AddressSpace) ReaderBacking(address, size uint64) (io.ReaderAt, uint64,
 // private writes. Invalid requests leave the address space unchanged. Kernel
 // personalities validate file identity and policy before calling this primitive.
 func (m *AddressSpace) ReplaceReader(start, size uint64, flags, maxFlags Permission, source io.ReaderAt, pageSize uint64) error {
+	if _, _, ok := m.ReaderBacking(start, size); !ok {
+		return fmt.Errorf("replacement is not one mapped reader backing")
+	}
+	return m.OverwriteReader(start, size, flags, maxFlags, source, pageSize)
+}
+
+// OverwriteReader installs a fresh private mapping over a range, including holes
+// and multiple old backings. Construction is validated before removing anything;
+// surviving pieces retain their private bytes. Kernel policy and ownership checks
+// belong to the caller. No source I/O is performed until guest access.
+func (m *AddressSpace) OverwriteReader(start, size uint64, flags, maxFlags Permission, source io.ReaderAt, pageSize uint64) error {
 	candidate := &AddressSpace{}
 	if err := candidate.MapReader(start, size, flags, maxFlags, source, pageSize); err != nil {
 		return err
-	}
-	if _, _, ok := m.ReaderBacking(start, size); !ok {
-		return fmt.Errorf("replacement is not one mapped reader backing")
 	}
 	if err := m.Unmap(start, size); err != nil {
 		return err

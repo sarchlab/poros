@@ -41,6 +41,10 @@ func TestCryptoSIMDReadModifyWriteAndTableSources(t *testing.T) {
 		{0x4e041c67, []int{7}, []int{3}, 7},
 		{0x5e010461, []int{3}, nil, 1},
 		{0x6e016002, []int{0, 1}, nil, 2},
+		{0x5e024020, []int{0, 1, 2}, nil, 0},
+		{0x5e025020, []int{0, 1, 2}, nil, 0},
+		{0x5e282820, []int{0, 1}, nil, 0},
+		{0x5e026020, []int{0, 1, 2}, nil, 0},
 	} {
 		var b [4]byte
 		binary.LittleEndian.PutUint32(b[:], tc.word)

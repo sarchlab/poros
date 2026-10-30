@@ -18,8 +18,8 @@ All initialization, arithmetic, output and exit remain native program work.
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 Current integer/1000 validation with the corrected ISA, captured runtime profile,
-the explicit clock anchor and warm shared cache retires 2,291,422 instructions and stops at
-unsupported vector `REV32 V0.16B, V0.16B`, PC `0x184bbd848`, with no guest
+the explicit clock anchor and warm shared cache retires 2,294,385 instructions and stops at
+unsupported task MIG request 4822, PC `0x180547c1c`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -540,10 +540,14 @@ without changing benchmark inputs, architectural results or CPU parameters.
 
 Corecrypto startup now executes contiguous LD1/ST1 register lists (one through
 four vectors, including V31 wrap), EXT, TBL, scalar DUP/MOV, GPR-to-vector-lane
-INS/MOV, AESE, AESMC and vector ADD. The owned native probes retain 20,620
+INS/MOV, AESE, AESMC, vector ADD/REV32, and SHA256H/H2/SU0/SU1. The owned native probes retain 21,880
 successful and fault observations with C and assembly dependency hashes; full
 register/flag results and store guards are checked. AES round and MixColumns
 semantics are instruction execution, not host library calls.
+The four SHA256 instructions are also composed into complete empty, short,
+padding-boundary and multiblock message digests, compared with Go's standard
+SHA256 implementation. Their old destination state is an explicit dependency;
+pipeline tests put that state behind a delayed load.
 
 LD1 publishes every FP destination in both pipelines. OoO reserves all required
 physical destinations before executing; temporary shortage waits for retirement,
@@ -561,3 +565,15 @@ these partial faults, inaccessible complete spans are explicitly unsupported
 before guest mutation. They are not presented as precise native atomic faults.
 Successful transfers use one checked read/write over the complete span, and
 successful stores apply the existing local-exclusive-monitor invalidation policy.
+
+Fixed anonymous Mach VM overwrite replaces only owned private mappings and gaps,
+with all policy, range and net resource checks before the address-space commit.
+Surviving pieces retain their private bytes; replaced bytes start zero, including
+private-file dirty pages. ANYWHERE retains its normal placement semantics. Native
+20-case replay covers rounding, permissions, copyout failure after replacement,
+and an address slot within the replaced range. Kernel-owned/protected or unknown
+mapping replacement remains unsupported. The timebase-info trap returns the
+captured runtime numerator/denominator; native copyout errors are ignored by the
+kernel, while partially writable output remains explicitly unsupported. Ten
+native observations pin this distinction. These additions extend functional
+startup; they do not establish whole-program completion or timing accuracy.

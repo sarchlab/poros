@@ -8,6 +8,9 @@ import (
 // simdForm selects only implemented encodings. Byte operations keep size
 // bits in their mask; MOVI explicitly selects its implemented lane form.
 func simdForm(word uint32) uint32 {
+	if word&0xbf3ffc00 == 0x2e200800 && (word>>22)&3 < 2 {
+		return 0x2e200800
+	} // REV32 B/H vectors.
 	if word&0xbf20fc00 == 0x0e208400 && ((word>>22)&3 != 3 || word&(1<<30) != 0) {
 		return 0x0e208400
 	} // ADD vector, excluding reserved 1D.
@@ -171,11 +174,15 @@ func (e *executor) execSIMD(word uint32) {
 		e.regs.WriteQ(int(word&31), binary.LittleEndian.Uint64(out[:8]), binary.LittleEndian.Uint64(out[8:]))
 		return
 	}
-	if form == 0x0e200800 {
+	if form == 0x0e200800 || form == 0x2e200800 {
 		width := 1 << ((word >> 22) & 3)
-		for block := 0; block < n; block += 8 {
-			for lane := 0; lane < 8/width; lane++ {
-				copy(out[block+lane*width:block+(lane+1)*width], a[block+8-(lane+1)*width:block+8-lane*width])
+		blockSize := 8
+		if form == 0x2e200800 {
+			blockSize = 4
+		}
+		for block := 0; block < n; block += blockSize {
+			for lane := 0; lane < blockSize/width; lane++ {
+				copy(out[block+lane*width:block+(lane+1)*width], a[block+blockSize-(lane+1)*width:block+blockSize-lane*width])
 			}
 		}
 	}

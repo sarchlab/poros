@@ -101,8 +101,9 @@ func TestINSGPRRecordedNativeCases(t *testing.T) {
 	}
 }
 func TestCryptoSIMDRejectsUnimplementedNeighbors(t *testing.T) {
-	for _, word := range []uint32{0x4e285820, 0x4e287820, 0x4e031041, 0x2e0440c1, 0x5e000420, 0x4e101c67, 0x0ee08420, 0x5ee08420} {
+	for _, word := range []uint32{0x4e285820, 0x4e287820, 0x4e031041, 0x2e0440c1, 0x5e000420, 0x4e101c67, 0x0ee08420, 0x5ee08420, 0x6ea00820, 0x6ee00820, 0x5e020020} {
 		// AESD/AESIMC, TBX, invalid 8B EXT offset, invalid scalar DUP/INS size.
+		// Reserved REV32 S/D forms and unimplemented SHA1C stay unsupported.
 		r := Registers{PC: 0x1000, N: true}
 		r.WriteQ(0, 1, 2)
 		before := r
@@ -113,3 +114,6 @@ func TestCryptoSIMDRejectsUnimplementedNeighbors(t *testing.T) {
 }
 
 func TestVectorADDRecordedNativeCases(t *testing.T) { replaySIMDNative(t, "vector-add-probe.c", 1260) }
+
+func TestREV32RecordedNativeCases(t *testing.T)  { replaySIMDNative(t, "rev32-probe.c", 576) }
+func TestSHA256RecordedNativeCases(t *testing.T) { replaySIMDNative(t, "sha256-probe.c", 684) }

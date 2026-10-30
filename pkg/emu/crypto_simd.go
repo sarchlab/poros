@@ -6,6 +6,14 @@ import (
 )
 
 func cryptoSIMDForm(word uint32) uint32 {
+	if word&0xfffffc00 == 0x5e282800 {
+		return 0x5e282800
+	}
+	switch form := word & 0xffe0fc00; form {
+	case 0x5e004000, 0x5e005000, 0x5e006000:
+		return form
+	}
+
 	if word&0xbfe08400 == 0x2e000000 && (word&(1<<30) != 0 || (word>>11)&15 < 8) {
 		return 0x2e000000
 	} // EXT
@@ -35,6 +43,9 @@ func (e *executor) execCryptoSIMD(word, form uint32) bool {
 		n = 16
 	}
 	switch form {
+	case 0x5e282800, 0x5e004000, 0x5e005000, 0x5e006000:
+		e.execSHA256(word, form)
+		return true
 	case 0x2e000000:
 		a, b := vectorBytes(e.regs, rn), vectorBytes(e.regs, rm)
 		var pair [32]byte

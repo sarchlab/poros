@@ -48,8 +48,8 @@
 {"Name":"adi","Cores":2,"Instructions":[6190807,6190807],"Cycles":[11566993,11566993],"Digest":["0a35405764ca8968fa42aaf20b62c5dd450358a872b8b1dc0798e59ded750e0b","0a35405764ca8968fa42aaf20b62c5dd450358a872b8b1dc0798e59ded750e0b"]}
 {"Name":"fdtd2d","Cores":1,"Instructions":[5711952],"Cycles":[2209749],"Digest":["c00bcdbc4155e0d35bcb4c98c05941b08c9551a944402b187487e451ea66608a"]}
 {"Name":"fdtd2d","Cores":2,"Instructions":[5711952,5711952],"Cycles":[2209749,2209749],"Digest":["c00bcdbc4155e0d35bcb4c98c05941b08c9551a944402b187487e451ea66608a","c00bcdbc4155e0d35bcb4c98c05941b08c9551a944402b187487e451ea66608a"]}
-{"Name":"heat3d","Cores":1,"Instructions":[10080927],"Cycles":[4206028],"Digest":["90f6846a4877ea51edb5373bf4aee65f50174690c2c80f272d746e9a29942441"]}
-{"Name":"heat3d","Cores":2,"Instructions":[10080927,10080927],"Cycles":[4206028,4206028],"Digest":["90f6846a4877ea51edb5373bf4aee65f50174690c2c80f272d746e9a29942441","90f6846a4877ea51edb5373bf4aee65f50174690c2c80f272d746e9a29942441"]}
+{"Name":"heat3d","Cores":1,"Instructions":[10080927],"Cycles":[4206135],"Digest":["90f6846a4877ea51edb5373bf4aee65f50174690c2c80f272d746e9a29942441"]}
+{"Name":"heat3d","Cores":2,"Instructions":[10080927,10080927],"Cycles":[4206135,4206135],"Digest":["90f6846a4877ea51edb5373bf4aee65f50174690c2c80f272d746e9a29942441","90f6846a4877ea51edb5373bf4aee65f50174690c2c80f272d746e9a29942441"]}
 {"Name":"jacobi2d","Cores":1,"Instructions":[8730144],"Cycles":[3232899],"Digest":["ab2b556fe2a1a42aea45090c723f6eb5f0c32e05e06fc92c5dbd44eba8a12392"]}
 {"Name":"jacobi2d","Cores":2,"Instructions":[8730144,8730144],"Cycles":[3232899,3232899],"Digest":["ab2b556fe2a1a42aea45090c723f6eb5f0c32e05e06fc92c5dbd44eba8a12392","ab2b556fe2a1a42aea45090c723f6eb5f0c32e05e06fc92c5dbd44eba8a12392"]}
 {"Name":"seidel2d","Cores":1,"Instructions":[10648656],"Cycles":[21580547],"Digest":["74203a46e74773522478e43e4b6e1b8fd8d5fe58048b560237afa12f49da5055"]}

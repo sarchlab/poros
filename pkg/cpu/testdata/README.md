@@ -157,3 +157,16 @@ Only audited cycle fields and their strict fixture SHA pins were updated.
 
 Including overlaps with the earlier corrections, this PR now changes 23 distinct
 historical cycle rows; all non-cycle fields remain unchanged by these dependency fixes.
+
+
+The multi-destination FP capacity correction changes only heat3d/1 and heat3d/2
+from 4,206,028 to 4,206,135 cycles per core. All 80 default and eight pipeline
+variant rows were audited: these were the only two differences; retired counts,
+result digests, inputs and CPU/cache parameters were unchanged. An isolated
+overlay of the old capacity check restored the old cycles. An instruction-level
+witness identified `LDP D4,D3,[X2,#-8]` (`0x6d7f8c44`) issuing with 71 physical
+FP destinations in flight and a limit of 72: it incorrectly allocated two and
+reached 73. The corrected preflight waits for enough slots. The existing
+capacity/retirement test now covers this exact D-register pair as well as Q pairs
+and four-register LD1; no instruction, workload or check was removed. The
+strict fixture identity pin includes only these two audited cycle changes.

@@ -32,7 +32,7 @@ type baselineRecord struct {
 
 // TestV4Baseline checks historical v4 fixtures, except the two Facesim rows
 // corrected in M0 after independent validation of finite, nondegenerate inputs,
-// and audited partial-register, RegSP and compare dependency cycle corrections (see testdata/README.md).
+// and audited partial-register, RegSP, compare dependency and FP capacity cycle corrections (see testdata/README.md).
 // Long mode tests one and two cores; short mode keeps a small functional/timing
 // regression and a repeated run so routine tests still exercise this contract.
 func TestV4Baseline(t *testing.T) {

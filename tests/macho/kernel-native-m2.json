@@ -10074,6 +10074,1359 @@
         "source_sha256": "23b74c699727803122a7c2e880a479e5d607962ea68e62911370a91af11d7749",
         "binary_sha256": "73217de8b13098b071324cff02ef6ee2828a11b864cf474c3cb13bd387ee647a"
       }
+    },
+    {
+      "source": "vm-overwrite-probe.c",
+      "source_sha256": "f71550759fde9d194be624a8c6d5c7597723ae6d7fbafac78c2df3247ee47ff5",
+      "binary_sha256": "1f15d39659a64320c1cbc18a85a798030697bb0c191e06b01ae0fa272aff93b2",
+      "architecture": "arm64",
+      "result": {
+        "cases": [
+          {
+            "case": 0,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 1,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 2,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 3,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 67,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 4,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": false,
+                "byte": 255,
+                "mapped": true,
+                "protection": 0,
+                "max_protection": 7
+              },
+              {
+                "readable": false,
+                "byte": 255,
+                "mapped": true,
+                "protection": 0,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 5,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 1,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 1,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 6,
+            "return": 4,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 66,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 67,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 7,
+            "return": 4,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 66,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 67,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 8,
+            "return": 268435459,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 66,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 67,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 9,
+            "return": 10,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 66,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 67,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 10,
+            "return": 10,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 11,
+            "return": 0,
+            "slot_delta": 147456,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 66,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 67,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 12,
+            "return": 3,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 66,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 67,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 13,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ],
+            "in_mapping_slot_delta": 32768
+          },
+          {
+            "case": 14,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 15,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 16,
+            "return": 3,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 66,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 67,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 17,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 18,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          },
+          {
+            "case": 19,
+            "return": 0,
+            "slot_delta": 32768,
+            "page_size": 16384,
+            "pages": [
+              {
+                "readable": true,
+                "byte": 64,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 65,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 0,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 68,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 69,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 70,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              },
+              {
+                "readable": true,
+                "byte": 71,
+                "mapped": true,
+                "protection": 3,
+                "max_protection": 7
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "timebase-trap-probe.c",
+      "source_sha256": "a67e2577313fd9d0d6ddb4ad7006d4ba82a9625288b48ab8032529d5bd7d13fc",
+      "binary_sha256": "9c107cf4d12d34ae68bf2a0c2e29d463cb53eed6ce9e505fa9e2e9eea67d8f49",
+      "architecture": "arm64",
+      "result": {
+        "numer": 125,
+        "denom": 3,
+        "cases": [
+          {
+            "case": 0,
+            "return": 0,
+            "bytes": "7d00000003000000"
+          },
+          {
+            "case": 1,
+            "return": 0,
+            "bytes": "7d00000003000000"
+          },
+          {
+            "case": 2,
+            "return": 0,
+            "bytes": "a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": 3,
+            "return": 0,
+            "bytes": "a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": 4,
+            "return": 0,
+            "bytes": "a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": 5,
+            "return": 0,
+            "bytes": "a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": 6,
+            "return": 0,
+            "bytes": "7d000000a5a5a5a5"
+          },
+          {
+            "case": 7,
+            "return": 0,
+            "bytes": "7d000000a5a5a5a5"
+          },
+          {
+            "case": 8,
+            "return": 0,
+            "bytes": "7d00000003000000"
+          },
+          {
+            "case": 9,
+            "return": 0,
+            "bytes": "7d000000030000a5"
+          }
+        ]
+      }
     }
   ]
 }

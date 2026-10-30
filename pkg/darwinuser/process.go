@@ -290,6 +290,9 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	}
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
 	kernel := kernelState{entropyState: entropyState, reserved: append([]addressSpan(nil), reserved...), protected: []addressSpan{{commpageRegionStart, commpageRegionEnd}}}
+	if o.RuntimeProfile != nil {
+		kernel.timebase = [2]uint32{o.RuntimeProfile.TimebaseNumer, o.RuntimeProfile.TimebaseDenom}
+	}
 	if o.StartupProfile != nil {
 		kernel.executableCDHash = o.StartupProfile.CDHash
 		if o.StartupProfile.ExecutableStat != nil {

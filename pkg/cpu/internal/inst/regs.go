@@ -423,8 +423,8 @@ func SourceFPs(inst arm64asm.Inst) []int {
 		add(ArgFP(inst.Args[0]))
 	}
 
-	// BSL reads the old destination as its bit selection mask.
-	if inst.Op == arm64asm.BSL || inst.Op == arm64asm.AESE {
+	// BSL consumes its old mask; AES/SHA rounds consume the old state or schedule.
+	if inst.Op == arm64asm.BSL || inst.Op == arm64asm.AESE || inst.Op == arm64asm.SHA256H || inst.Op == arm64asm.SHA256H2 || inst.Op == arm64asm.SHA256SU0 || inst.Op == arm64asm.SHA256SU1 {
 		add(ArgFP(inst.Args[0]))
 	}
 	// Vector BIC immediate preserves all destination bits outside its mask.

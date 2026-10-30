@@ -85,10 +85,11 @@ func TestOoOMultipleFPLoadWaitsForEnoughPhysicalSlots(t *testing.T) {
 	for _, tc := range []struct {
 		word  uint32
 		count int
-	}{{0x4c40207f, 4}, {0xad400460, 2}} {
+	}{{0x4c40207f, 4}, {0xad400460, 2}, {0x6d7f8c44, 2}} {
 		for free := 1; free < tc.count; free++ {
-			t.Run(fmt.Sprintf("%d/%d", tc.count, free), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%08x/%d", tc.word, free), func(t *testing.T) {
 				x := newExtensionExecution(t, []uint32{tc.word, 0xd503201f})
+				x.regs.GPR[2] = 0x2008 // heat3d's LDP D4,D3,[X2,#-8]
 				before := x.regs
 				s := sim.MakeBuilder().Build()
 				defer s.Terminate()
@@ -112,6 +113,9 @@ func TestOoOMultipleFPLoadWaitsForEnoughPhysicalSlots(t *testing.T) {
 				}
 				for n := 0; n < 1000 && !c.State.Done; n++ {
 					c.Middlewares.Pipeline.Handle(nil)
+					if c.State.FpInFlight > spec.FpPhysLimit {
+						t.Fatal("physical capacity exceeded", c.State.FpInFlight)
+					}
 				}
 				if !c.State.Done || c.State.Err != "" || c.State.InstDone != 3 || c.State.FpInFlight != 0 || x.regs.PC != x.end {
 					t.Fatal(c.State)
