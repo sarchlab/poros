@@ -12,7 +12,7 @@ func TestAtomicDependenciesAndMemoryClass(t *testing.T) {
 		word uint32
 		dest int
 		src  []int
-	}{{0x88e1fc62, 1, []int{1, 2, 3}}, {0xb8e18062, 2, []int{1, 3}}} {
+	}{{0x88e1fc62, 1, []int{1, 2, 3}}, {0xb8e18062, 2, []int{1, 3}}, {0x88fffc62, -1, []int{2, 3}}, {0xb8e1807f, -1, []int{1, 3}}} {
 		var b [4]byte
 		binary.LittleEndian.PutUint32(b[:], tc.word)
 		i, err := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
@@ -51,5 +51,48 @@ func TestByteHalfwordSIMDDependencyChain(t *testing.T) {
 			}
 		}
 		previous = dest
+	}
+}
+
+func TestPointerStripUnaryDependency(t *testing.T) {
+	for _, word := range []uint32{0xdac143f1, 0xdac147f1, 0xdac147ff} {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], word)
+		i, err := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, f := DestRegs(i)
+		want := 17
+		src := []int{17}
+		if word&31 == 31 {
+			want = -1
+			src = nil
+		}
+		if g != want || f != -1 || !reflect.DeepEqual(SourceGPRs(i), src) {
+			t.Fatal(g, f, SourceGPRs(i))
+		}
+	}
+}
+
+func TestOrderedMemoryDependencies(t *testing.T) {
+	for _, word := range []uint32{0xc89ffc61, 0xc8dffc61} {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], word)
+		i, err := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
+		if err != nil {
+			t.Fatal(err)
+		}
+		load := word&(1<<22) != 0
+		dest, _ := DestRegs(i)
+		want := -1
+		src := []int{1, 3}
+		if load {
+			want = 1
+			src = []int{3}
+		}
+		if dest != want || !reflect.DeepEqual(SourceGPRs(i), src) || !IsBarrier(i.Op) || IsLoad(i.Op) != load || IsStore(i.Op) == load {
+			t.Fatal(i, dest, SourceGPRs(i))
+		}
 	}
 }

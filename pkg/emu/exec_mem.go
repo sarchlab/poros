@@ -190,3 +190,16 @@ func (e *executor) execLDURSW(i arm64asm.Inst) error { return e.execLDRSW(i) }
 func (e *executor) execSTUR(i arm64asm.Inst) error   { return e.execSTR(i) }
 func (e *executor) execSTURB(i arm64asm.Inst) error  { return e.execSTRB(i) }
 func (e *executor) execSTURH(i arm64asm.Inst) error  { return e.execSTRH(i) }
+
+// execOrderedMemory uses the same checked transaction. The single-owner
+// stream is ordered; timing consumers conservatively serialize acquire/release.
+func (e *executor) execOrderedMemory(inst arm64asm.Inst) error {
+	width := memoryWidth(inst.Args[0])
+	if err := e.checkAtomicAlignment(e.resolveMemAddr(inst.Args[1], false), width); err != nil {
+		return err
+	}
+	if inst.Op == arm64asm.LDAR {
+		return e.load(inst, width, 1, false)
+	}
+	return e.store(inst, width, 1)
+}

@@ -17,8 +17,9 @@ All initialization, arithmetic, output and exit remain native program work.
 
 Current simulator status: the loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
-With the recorded native commpage profile, the installed M2 runtime presently
-stops at `task_self_trap` after completing its own chained fixups.
+With the captured native profile and explicit warm shared cache, the installed
+M2 runtime reaches `mach_vm_map` after 108,676 user instructions, including its
+own chained fixups and actual cache discovery. It has not reached benchmark main.
 This is **not successful benchmark execution or a whole-program accuracy
 measurement**. Missing dependencies remain failures with an exact guest PC.
 
@@ -46,3 +47,16 @@ SBFX alias-width semantics used by dyld's fixup walker. PAC negative cases are
 run both as arm64 and arm64e: the former has authentication disabled; the latter
 traps on incorrect authentication. These are functional ISA/ABI observations,
 not timing measurements. Probe sources are included for inspection/rebuilding.
+
+`--shared-cache /absolute/path/to/dyld_shared_cache_arm64e` supplies a matching
+warm cache to the CLI or native collection harness. Cache files are read-only,
+SHA-bound inputs; no Apple runtime files are committed. The retained data hoists
+common file identities and runtime state once, with per-case SHA references.
+The 120-second harness deadline includes host hashing/setup; guest instruction
+and runtime limits remain independent. Hosted checks without this option retain
+the explicit unsupported shared-region query witness.
+
+Owned XPAC probes replay both instruction/data strip results on tagged and
+noncanonical synthetic values in arm64 and arm64e. LDAR/STLR probes replay 192
+native width, alignment, base-register and value cases. These extend functional
+ISA evidence; release/acquire and pointer-strip latency are not calibrated.

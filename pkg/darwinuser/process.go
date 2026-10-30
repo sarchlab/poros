@@ -22,6 +22,8 @@ const (
 )
 
 type Options struct {
+	// SharedCache is borrowed and must remain open until all executions finish.
+	SharedCache    *loader.SharedCache
 	EntropySeed    uint64
 	Args, Env      []string
 	ExecName       string
@@ -140,6 +142,39 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	if err := mapImage(dyld, DyldBase); err != nil {
 		return nil, err
 	}
+	if o.SharedCache != nil {
+		if !o.SharedCache.IsOpen() {
+			return nil, fmt.Errorf("shared cache handle is closed")
+		}
+		if authMode != emu.PointerAuthDisabled {
+			return nil, fmt.Errorf("shared cache with enabled pointer authentication is not implemented")
+		}
+		for _, m := range o.SharedCache.Mappings() {
+			for _, r := range reserved {
+				if m.Address < r.hi && r.lo < m.Address+m.Size {
+					return nil, fmt.Errorf("shared cache overlaps reserved process region")
+				}
+			}
+			if err := memory.MapReader(m.Address, m.Size, machPermissions(m.Protection), machPermissions(m.MaxProtection), m, 16384); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if o.SharedCache != nil && o.SharedCache.DynamicSize != 0 {
+		lo := o.SharedCache.Base + o.SharedCache.DynamicOffset
+		hi := lo + o.SharedCache.DynamicSize
+		for _, r := range reserved {
+			if lo < r.hi && r.lo < hi {
+				return nil, fmt.Errorf("dynamic cache overlaps reserved process region")
+			}
+		}
+		if o.RuntimeProfile == nil || o.RuntimeProfile.CacheDynamic == nil {
+			return nil, fmt.Errorf("shared cache requires captured native dynamic-region fields")
+		}
+		if err := o.RuntimeProfile.CacheDynamic.mapRegion(memory, o.SharedCache); err != nil {
+			return nil, err
+		}
+	}
 	if o.RuntimeProfile != nil {
 		if err := o.RuntimeProfile.mapCommpage(memory); err != nil {
 			return nil, err
@@ -200,6 +235,13 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	}
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
 	kernel := kernelState{entropyState: o.EntropySeed}
+	if o.SharedCache != nil {
+		kernel.sharedCacheBase = o.SharedCache.Base
+	}
+	strip := emu.PointerStripUnspecified
+	if o.RuntimeProfile != nil && o.RuntimeProfile.PointerStrip == "darwin-47-bit" {
+		strip = emu.PointerStripDarwin47Bit
+	}
 	alignment := emu.AtomicNaturalAlignment
 	if o.RuntimeProfile != nil && o.RuntimeProfile.AtomicAlignment == "within-16-byte" {
 		alignment = emu.AtomicWithin16Bytes
@@ -208,5 +250,5 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		config := *o.RuntimeProfile.CSRConfig
 		kernel.csrConfig = &config
 	}
-	return &Process{kernel: kernel, Registers: emu.Registers{SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
+	return &Process{kernel: kernel, Registers: emu.Registers{PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
 }

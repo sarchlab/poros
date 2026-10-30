@@ -86,10 +86,18 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 	gpr, fp = -1, -1
 	op := inst.Op
 	if op == emu.OpCAS {
-		return ArgGPR(inst.Args[0]), -1
+		gpr = ArgGPR(inst.Args[0])
+		if gpr == 31 {
+			gpr = -1
+		}
+		return gpr, -1
 	}
 	if op == emu.OpSWP {
-		return ArgGPR(inst.Args[1]), -1
+		gpr = ArgGPR(inst.Args[1])
+		if gpr == 31 {
+			gpr = -1
+		}
+		return gpr, -1
 	}
 
 	// Stores don't write to a data register destination.
@@ -228,6 +236,10 @@ func SourceGPRs(inst arm64asm.Inst) []int {
 
 	op := inst.Op
 
+	if emu.IsPointerStrip(op) {
+		add(ArgGPR(inst.Args[0]))
+		return srcs
+	}
 	if emu.IsAtomicOperation(op) {
 		add(ArgGPR(inst.Args[0]))
 		if op == emu.OpCAS {

@@ -22,12 +22,16 @@ const (
 // operation in a process with address authentication disabled. Both functional
 // execution and timing Peek must use this decoder. PAC/AUT have no register
 // effects in that mode; authenticated branches still branch/link/return normally.
-// Unspecified/enabled profiles fail closed, and PACGA/XPAC/LDRAA are not lowered.
+// Unspecified/enabled profiles fail closed, and PACGA/LDRAA are not lowered. XPAC is decoded independently and needs an
+// explicit address-strip policy during execution.
 func DecodeChecked(code []byte, mode PointerAuthMode) (arm64asm.Inst, error) {
 	if len(code) < 4 {
 		return arm64asm.Inst{}, fmt.Errorf("truncated instruction")
 	}
 	word := binary.LittleEndian.Uint32(code)
+	if inst, ok := decodePointerStrip(word); ok {
+		return inst, nil
+	}
 	if inst, ok := decodeAtomic(word); ok {
 		return inst, nil
 	}

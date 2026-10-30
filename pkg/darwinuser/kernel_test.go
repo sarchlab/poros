@@ -73,7 +73,7 @@ func TestMachProtectRoundsAndChecksMaximum(t *testing.T) {
 		{0x100004001, 1, 1, 0, 0x103, 0},      // page rounding protects all of data page
 		{0x100004000, 0x4000, 7, 0, 0x103, 2}, // beyond Mach-O maximum
 		{0x300000000, 1, 1, 0, 0x103, 1},
-		{0x100004000, 1, 1, 0, 0x107, 4},
+		{0x100004000, 1, 1, 0, 0x107, 0x10000003},
 		{^uint64(0), 2, 1, 0, 0x103, 4},
 	} {
 		r.GPR[16] = 0xfffffff2

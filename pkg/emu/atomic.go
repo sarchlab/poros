@@ -17,6 +17,7 @@ const (
 func IsAtomicOperation(op arm64asm.Op) bool { return op == OpCAS || op == OpSWP }
 
 // AtomicAlignmentPolicy describes effective hardware/OS alignment behavior.
+// It covers atomic RMW and acquire/release single-register accesses.
 // The default is natural alignment; Darwin may supply a measured 16-byte policy.
 type AtomicAlignmentPolicy uint8
 
@@ -55,6 +56,13 @@ func decodeAtomic(word uint32) (arm64asm.Inst, bool) {
 
 // InstructionString preserves extension mnemonics in diagnostics and traces.
 func InstructionString(inst arm64asm.Inst) string {
+	if IsPointerStrip(inst.Op) {
+		name := "XPACI"
+		if inst.Op == OpXPACD {
+			name = "XPACD"
+		}
+		return name + " " + inst.Args[0].String()
+	}
 	if !IsAtomicOperation(inst.Op) {
 		return inst.String()
 	}
@@ -95,17 +103,8 @@ func (e *executor) execAtomic(inst arm64asm.Inst) error {
 	if rn == 31 {
 		addr = e.regs.SP
 	}
-	switch e.regs.AtomicAlignment {
-	case AtomicNaturalAlignment:
-		if addr%uint64(size) != 0 {
-			return &memoryAccessError{fmt.Errorf("unaligned atomic address %#x", addr)}
-		}
-	case AtomicWithin16Bytes:
-		if addr%16+uint64(size) > 16 {
-			return &memoryAccessError{fmt.Errorf("atomic access crosses 16-byte granule")}
-		}
-	default:
-		return &UnsupportedInstructionError{Instruction: inst}
+	if err := e.checkAtomicAlignment(addr, size); err != nil {
+		return err
 	}
 	var expected, replacement, old [8]byte
 	binary.LittleEndian.PutUint64(expected[:], e.regs.ReadX(rs))
@@ -122,5 +121,21 @@ func (e *executor) execAtomic(inst arm64asm.Inst) error {
 	}
 	value := binary.LittleEndian.Uint64(old[:])
 	e.regs.WriteX(rs, value)
+	return nil
+}
+
+func (e *executor) checkAtomicAlignment(addr uint64, size int) error {
+	switch e.regs.AtomicAlignment {
+	case AtomicNaturalAlignment:
+		if addr%uint64(size) != 0 {
+			return &memoryAccessError{fmt.Errorf("unaligned atomic address %#x", addr)}
+		}
+	case AtomicWithin16Bytes:
+		if addr%16+uint64(size) > 16 {
+			return &memoryAccessError{fmt.Errorf("atomic access crosses 16-byte granule")}
+		}
+	default:
+		return fmt.Errorf("unsupported atomic alignment policy")
+	}
 	return nil
 }

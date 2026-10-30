@@ -62,6 +62,7 @@ def main():
     parser.add_argument("--poros", required=True)
     parser.add_argument("--dyld", default="/usr/lib/dyld")
     parser.add_argument("--output", required=True)
+    parser.add_argument("--shared-cache", help="explicit matching native warm cache file")
     parser.add_argument("--samples", type=int, default=3)
     options = parser.parse_args()
     if platform.system() != "Darwin" or platform.machine() != "arm64":
@@ -87,6 +88,7 @@ def main():
                   protocol=dict(samples=options.samples, native_timeout_seconds=30, clock="wait4 child ru_utime", env={},
                                 quality="raw observations only; no acceptance threshold or accuracy comparison"),
                   build=build, cases=[])
+    shared_files = None
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as profile_file:
         json.dump(profile, profile_file)
         profile_file.flush()
@@ -98,11 +100,25 @@ def main():
                 check_output(case, stdout)
                 samples.append(usage)
             sim = subprocess.run([str(Path(options.poros).resolve()), "macho", "--dyld", options.dyld,
+                                  *( ["--shared-cache", options.shared_cache] if options.shared_cache else [] ),
                                   "--runtime-profile", profile_file.name, "--argv0", case["args"][0], str(binary), *case["args"][1:]],
-                                 capture_output=True, timeout=10)
+                                 capture_output=True, timeout=120)
             if sim.returncode != 1 or sim.stderr:
                 raise ValueError(f"unexpected bring-up command status: {sim.returncode}, {sim.stderr!r}")
             witness = json.loads(sim.stdout)
+            if witness.pop("runtime_profile", None) != profile:
+                raise ValueError("simulator profile differs from captured native profile")
+            witness["runtime_profile_sha256"] = hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()
+            files = witness.pop("shared_cache_files", None)
+            if options.shared_cache:
+                if not files:
+                    raise ValueError("shared cache identities missing")
+                if shared_files is None:
+                    shared_files = files
+                    result["shared_cache_files"] = files
+                elif files != shared_files:
+                    raise ValueError("runtime cache changed between cases")
+                witness["shared_cache_manifest_sha256"] = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
             if witness["binary"]["sha256"] != digest(binary) or witness["dyld"]["sha256"] != result["dyld_sha256"]:
                 raise ValueError("simulator/native input identity mismatch")
             if witness["termination"] not in ("unsupported_instruction", "unsupported_syscall") or witness["instructions"] < 1:

@@ -34,6 +34,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		// A single owner executes this memory stream synchronously. Timing
 		// consumers serialize these architectural ordering operations explicitly.
 		return false, nil
+	case OpXPACI, OpXPACD:
+		return false, e.execPointerStrip(inst)
 	case OpCAS, OpSWP:
 		return false, e.execAtomic(inst)
 	// Integer arithmetic
@@ -193,6 +195,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execLDP(inst)
 	case arm64asm.LDPSW:
 		return false, e.execLDPSW(inst)
+	case arm64asm.STLR, arm64asm.LDAR:
+		return false, e.execOrderedMemory(inst)
 	case arm64asm.STR:
 		return false, e.execSTR(inst)
 	case arm64asm.STRB:

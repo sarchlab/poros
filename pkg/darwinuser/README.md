@@ -24,8 +24,9 @@ It bounds individual files to 64 MiB and mapped bytes to 128 MiB per image.
 Reader mappings in `usermem` now provide bounded lazy private pages for the
 shared-cache loader. The backing files must remain open and unchanged; every
 store validates permissions and loads all affected pages before modifying any
-bytes. Protection transitions respect each image segment maximum. The cache
-parser and warm shared-region integration are still pending.
+bytes. Protection transitions respect each image segment maximum. The explicit cache handle parses bounded split-cache tables and slide-v5 chains,
+keeps pages private per process, and models the warm shared-region query. The
+caller owns its lifetime and closes it after all borrowing processes finish.
 
 Startup ABI: [Apple dyldStartup.s](https://github.com/apple-oss-distributions/dyld/blob/main/dyld/dyldStartup.s).
 
@@ -54,8 +55,9 @@ platform string routines. Modeled kernel calls provide task/thread/reply port
 names, thread ID/TLS, page-rounded `mach_vm_protect`, native-architecture
 crossarch errors, and CSR queries against an explicitly captured configuration.
 SVC immediates are checked by the OS runtime; they are not architectural state.
-The next local stop is the kernel shared-region query (294) at `0x70000644c`,
-after 103,971 user instructions for integer/1000. It has not reached benchmark
+With an explicit matching warm shared cache, the next local stop is Mach
+`mach_vm_map` (-15) at `0x7000015c0`, after 108,676 user instructions for
+integer/1000. It has not reached benchmark
 main. CAS/SWP execute as real read-modify-write operations; DMB/DSB/ISB preserve
 ordering. Both timing pipelines serialize atomic/barrier operations
 conservatively. Their latency has not been calibrated against native hardware.
@@ -85,3 +87,27 @@ plus 16 SP-offset cases are replayed by portable tests.
 not cryptographic randomness. Together with the fixed virtual address layout,
 it is a reproducibility policy, not a claim to reproduce the native process's
 random allocator addresses or exact startup path lengths.
+
+## Warm shared cache and pointer stripping
+
+`--shared-cache` maps validated root/subcache files as kernel-provided initial
+state, with zero slide and private lazy pages. The guest still executes dyld.
+Root header placement, VM/file bounds, UUIDs, safe suffixes, maximum protections,
+and slide chains are validated. Limits are 128 files, 256 mappings per file,
+4096 mappings overall, 32 GiB input bytes, 64 GiB virtual extent and the existing
+256 MiB resident lazy-page bound. All used file hashes are reported. Inputs must
+remain unchanged; metadata checks detect ordinary replacement/truncation, not
+adversarial same-size/mtime rewriting. This is not a whole-file snapshot.
+
+The native runtime helper captures defined dynamic-region fields and binds them
+to the cache UUID and extent. Magic/version are preserved; unknown v4 bytes are
+unmapped. A mismatched profile or collision with a reserved image span fails.
+Null shared-region detachment remains unsupported, rather than fake success.
+
+XPACI/XPACD use an independently captured effective address-strip policy. On
+the reference M2 it has 47 payload bits, bit 55 selecting the upper region and
+lower-region data top-byte tags preserved. This applies independently of PAC
+being enabled or disabled. Unspecified policies fail closed. It does not add
+implicit tagged-memory translation. Both timing scoreboards track the unary
+read/write dependency. LDAR/STLR use checked memory transactions and the
+measured atomic-alignment policy, with conservative acquire/release ordering.

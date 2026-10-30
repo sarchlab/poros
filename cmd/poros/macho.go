@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sarchlab/poros/pkg/darwinuser"
+	"github.com/sarchlab/poros/pkg/loader"
 )
 
 // runMachO reports actual runtime progress. Incomplete startup is a failing
@@ -18,6 +19,7 @@ import (
 func runMachO(args []string, out, diagnostics io.Writer) int {
 	fs := flag.NewFlagSet("macho", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
+	cachePath := fs.String("shared-cache", "", "explicit read-only dyld shared-cache root file")
 	entropySeed := fs.Uint64("entropy-seed", 0, "deterministic guest kernel entropy seed (not cryptographic randomness)")
 	profilePath := fs.String("runtime-profile", "", "explicit JSON native commpage capability profile")
 	dyld := fs.String("dyld", "", "explicit local runtime dyld file (read-only)")
@@ -66,6 +68,15 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		}
 		options.RuntimeProfile = &profile
 	}
+	if *cachePath != "" {
+		cache, err := loader.OpenSharedCache(*cachePath)
+		if err != nil {
+			fmt.Fprintln(diagnostics, err)
+			return 2
+		}
+		defer cache.Close()
+		options.SharedCache = cache
+	}
 	p, err := darwinuser.Load(fs.Arg(0), *dyld, options)
 	if err != nil {
 		fmt.Fprintln(diagnostics, err)
@@ -76,7 +87,12 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		fmt.Fprintln(diagnostics, err)
 		return 2
 	}
+	var cacheFiles []loader.CacheFileIdentity
+	if options.SharedCache != nil {
+		cacheFiles = options.SharedCache.Files
+	}
 	report := struct {
+		CacheFiles     []loader.CacheFileIdentity `json:"shared_cache_files,omitempty"`
 		EntropySeed    uint64                     `json:"entropy_seed"`
 		Schema         int                        `json:"schema"`
 		Binary         darwinuser.Identity        `json:"binary"`
@@ -87,7 +103,7 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		Policy         string                     `json:"policy"`
 		RuntimeProfile *darwinuser.RuntimeProfile `json:"runtime_profile,omitempty"`
 		darwinuser.Result
-	}{*entropySeed, 1, p.Binary, p.Dyld, options.Args, append([]string{}, options.Env...), options.ExecName, "actual dyld entry; functional clock is one native counter tick per retired instruction; runtime bring-up incomplete; no full-program timing prediction", options.RuntimeProfile, result}
+	}{cacheFiles, *entropySeed, 1, p.Binary, p.Dyld, options.Args, append([]string{}, options.Env...), options.ExecName, "actual dyld entry; functional clock is one native counter tick per retired instruction; runtime bring-up incomplete; no full-program timing prediction", options.RuntimeProfile, result}
 	if err := json.NewEncoder(out).Encode(report); err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 2

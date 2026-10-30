@@ -10,9 +10,10 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
-	nextPort     uint32
-	entropyState uint64
-	csrConfig    *uint32
+	nextPort        uint32
+	entropyState    uint64
+	sharedCacheBase uint64
+	csrConfig       *uint32
 }
 
 func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
@@ -34,7 +35,7 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 	switch number {
 	case -14: // mach_vm_protect, on this process's task map only.
 		if uint32(r.GPR[0]) != 0x103 {
-			r.GPR[0] = 4
+			r.GPR[0] = 0x10000003 // MACH_SEND_INVALID_DEST; kernelrpc rejects foreign task rights.
 			break
 		}
 		addr, size, prot := r.GPR[1], r.GPR[2], r.GPR[4]
@@ -71,6 +72,22 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		} else {
 			r.GPR[0] = uint64(k.nextPort)
 			k.nextPort += 4
+		}
+	case 294: // warm kernel shared region; dyld still performs discovery and binding.
+		addr := r.GPR[0]
+		if addr == 0 {
+			return false
+		} // null means detach/unmap; not modeled yet.
+		if k.sharedCacheBase == 0 {
+			return false
+		} // no implicit host-cache discovery.
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], k.sharedCacheBase)
+		r.GPR[0] = 0
+		r.C = false
+		if err := m.Write(addr, b[:]); err != nil {
+			r.GPR[0] = 14
+			r.C = true
 		}
 	case 500: // getentropy: deterministic guest kernel stream, not host randomness.
 		addr, n := r.GPR[0], r.GPR[1]

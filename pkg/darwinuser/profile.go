@@ -11,21 +11,23 @@ import (
 // native reference host. Unmodeled fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
-	AtomicAlignment    string      `json:"atomic_alignment,omitempty"`
-	CSRConfig          *uint32     `json:"csr_config,omitempty"`
-	DyldFlags          *uint64     `json:"dyld_flags,omitempty"`
-	KernelPageShift    uint8       `json:"kernel_page_shift,omitempty"`
-	ReadOnlyPageShifts *PageShifts `json:"read_only_page_shifts,omitempty"`
-	CPUCapabilities    uint64      `json:"cpu_capabilities"`
-	Version            uint16      `json:"version"`
-	UserPageShift      uint8       `json:"user_page_shift_64_legacy"`
-	CacheLineSize      uint16      `json:"cache_line_size"`
-	CPUFamily          uint32      `json:"cpu_family"`
-	UserTimebase       uint8       `json:"user_timebase"`
-	ContinuousHWClock  uint8       `json:"continuous_hwclock"`
-	KDebug             uint32      `json:"kdebug"`
-	TimebaseNumer      uint32      `json:"timebase_numer"`
-	TimebaseDenom      uint32      `json:"timebase_denom"`
+	PointerStrip       string               `json:"pointer_strip,omitempty"`
+	CacheDynamic       *CacheDynamicProfile `json:"cache_dynamic,omitempty"`
+	AtomicAlignment    string               `json:"atomic_alignment,omitempty"`
+	CSRConfig          *uint32              `json:"csr_config,omitempty"`
+	DyldFlags          *uint64              `json:"dyld_flags,omitempty"`
+	KernelPageShift    uint8                `json:"kernel_page_shift,omitempty"`
+	ReadOnlyPageShifts *PageShifts          `json:"read_only_page_shifts,omitempty"`
+	CPUCapabilities    uint64               `json:"cpu_capabilities"`
+	Version            uint16               `json:"version"`
+	UserPageShift      uint8                `json:"user_page_shift_64_legacy"`
+	CacheLineSize      uint16               `json:"cache_line_size"`
+	CPUFamily          uint32               `json:"cpu_family"`
+	UserTimebase       uint8                `json:"user_timebase"`
+	ContinuousHWClock  uint8                `json:"continuous_hwclock"`
+	KDebug             uint32               `json:"kdebug"`
+	TimebaseNumer      uint32               `json:"timebase_numer"`
+	TimebaseDenom      uint32               `json:"timebase_denom"`
 }
 
 type PageShifts struct {
@@ -34,6 +36,9 @@ type PageShifts struct {
 }
 
 func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
+	if p.PointerStrip != "" && p.PointerStrip != "darwin-47-bit" {
+		return fmt.Errorf("unsupported pointer strip profile")
+	}
 	if p.AtomicAlignment != "" && p.AtomicAlignment != "natural" && p.AtomicAlignment != "within-16-byte" {
 		return fmt.Errorf("unsupported atomic alignment profile")
 	}
@@ -79,6 +84,7 @@ func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
 		{0x25, 1, uint64(p.UserPageShift)}, {0x26, 2, uint64(p.CacheLineSize)},
 		{0x80, 4, uint64(p.CPUFamily)}, {0x90, 1, uint64(p.UserTimebase)},
 		{0x91, 1, uint64(p.ContinuousHWClock)}, {0x100, 4, uint64(p.KDebug)},
+		{0x88, 8, 0}, // virtual absolute-time counter offset
 		{0x98, 8, 0}, // virtual continuous-time offset; the guest never sleeps/suspends
 		{0xa8, 8, 0}, // virtual continuous hardware-counter base
 	}

@@ -55,9 +55,10 @@ func newExtensionExecution(t *testing.T, words []uint32) *extensionExecution {
 	x.regs.GPR[2] = 9
 	return x
 }
-func TestCheckedAtomicRMWAcrossTimingModels(t *testing.T) {
-	// load compare; CASA; load replacement; SWPL zero; load zero; DMB ISH.
-	words := []uint32{0xb9400061, 0x88e17c62, 0xb9400064, 0xb87f8065, 0xb9400066, 0xd5033bbf}
+func TestCheckedAtomicAndOrderedMemoryAcrossTimingModels(t *testing.T) {
+	// Load compare; CASA; load replacement; SWPL zero; load zero; DMB ISH;
+	// STLR replacement; LDAR result; NOP.
+	words := []uint32{0xb9400061, 0x88e17c62, 0xb9400064, 0xb87f8065, 0xb9400066, 0xd5033bbf, 0x889ffc62, 0x88dffc67, 0xd503201f}
 	for _, mode := range []string{"functional", "inorder", "ooo"} {
 		t.Run(mode, func(t *testing.T) {
 			x := newExtensionExecution(t, words)
@@ -93,12 +94,12 @@ func TestCheckedAtomicRMWAcrossTimingModels(t *testing.T) {
 					if !c.State.Done || c.State.Err != "" || c.State.InstDone != uint64(len(words)) {
 						t.Fatalf("%+v", c.State)
 					}
-					if c.State.GprReady[4] <= c.State.GprReady[1] || c.State.GprReady[6] <= c.State.GprReady[5] {
+					if c.State.GprReady[4] <= c.State.GprReady[1] || c.State.GprReady[6] <= c.State.GprReady[5] || c.State.GprReady[7] <= c.State.GprReady[6] {
 						t.Fatal("RMW/load ordering lost")
 					}
 				}
 			}
-			if x.regs.GPR[1] != 7 || x.regs.GPR[4] != 9 || x.regs.GPR[5] != 9 || x.regs.GPR[6] != 0 {
+			if x.regs.GPR[1] != 7 || x.regs.GPR[4] != 9 || x.regs.GPR[5] != 9 || x.regs.GPR[6] != 0 || x.regs.GPR[7] != 9 {
 				t.Fatal(x.regs.GPR[:7])
 			}
 		})
@@ -126,5 +127,29 @@ func TestOoOByteHalfwordDependenciesWaitForLoad(t *testing.T) {
 		if c.State.FpReady[i] <= c.State.FpReady[i-1] {
 			t.Fatal("lost subregister dependency", c.State.FpReady[:4])
 		}
+	}
+}
+
+func TestOoOPointerStripWaitsForLoad(t *testing.T) {
+	// LDR X1,[X3]; XPACD X1; ADD X2,X1,#1. XPAC has a destructive
+	// source operand; its result must wait for the original loaded pointer.
+	x := newExtensionExecution(t, []uint32{0xf9400061, 0xdac147e1, 0x91000422, 0xd503201f})
+	x.regs.PointerStrip = emu.PointerStripDarwin47Bit
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || c.State.InstDone != 4 || x.regs.GPR[2] != 8 {
+		t.Fatal(c.State.Err, c.State.InstDone, x.regs.GPR[2])
+	}
+	if c.State.GprReady[1] < 40 {
+		t.Fatal("lost XPAC read dependency", c.State.GprReady[:4])
 	}
 }
