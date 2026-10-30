@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// TestAllBenchmarkCount verifies that All() returns at least 34 benchmarks.
+// TestAllBenchmarkCount verifies that All() returns exactly 40 legacy benchmarks.
 func TestAllBenchmarkCount(t *testing.T) {
 	all := All()
-	if len(all) < 41 {
-		t.Errorf("All() returned %d benchmarks, want >= 41", len(all))
+	if len(all) != 40 {
+		t.Errorf("All() returned %d benchmarks, want 40", len(all))
 	}
 }
 
@@ -37,12 +37,12 @@ func TestAllSetupNonNil(t *testing.T) {
 	}
 }
 
-// TestBySuitePolybench verifies that BySuite("polybench") returns exactly 30
+// TestBySuitePolybench verifies that BySuite("polybench") returns exactly 29
 // benchmarks.
 func TestBySuitePolybench(t *testing.T) {
 	pb := BySuite("polybench")
-	if len(pb) != 30 {
-		t.Errorf("BySuite(\"polybench\") returned %d, want 30", len(pb))
+	if len(pb) != 29 {
+		t.Errorf("BySuite(\"polybench\") returned %d, want 29", len(pb))
 	}
 }
 

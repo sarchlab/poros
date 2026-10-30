@@ -25,83 +25,123 @@ Hand-derived tests check a minimal exit timeline. Deadline/cancellation is check
 at architectural steps; already-issued finite-latency work drains before return.
 The CLI uses fixed bounded latencies (maximum DRAM latency 335 cycles); it does
 not expose arbitrarily long pipeline stalls. Cancelled and timed-out loops are
-tested, including no execution for a pre-cancelled context. Legacy 90-case baselines stay
-unchanged. Existing function-level hooks remain a legacy adapter only.
+tested, including no execution for a pre-cancelled context. The 80 remaining legacy baseline cases and eight pipeline variants stay
+unchanged after removing MVT’s two superseded rows. Existing function-level hooks remain a legacy adapter only.
 
-## Native records
+## Workload suite and builds
 
-`scripts/usertime.py capture` runs the six required complete Linux ARM64 ELFs,
-covering integer recurrence, memory read/modify/write, and data-dependent
-branches at 2M and 8M iterations (compiler if-conversion is disabled and tested),
-using one warm-up process and 21 measured child processes per case in the
-retained record. `wait4.ru_utime` is per-child **user CPU time**, not wall time,
-system CPU time or simulator host cost. Child stdout/stderr/status are checked
-against an independent numerical oracle. Raw samples and system CPU time are
-retained, together with ELF/source/build-manifest identity, input/environment,
-measurement harness hash and environment description. The acquisition protocol
-is in `scripts/native_usertime.py`, independently hashed from report rendering;
-changing it requires a new capture. Measurements are serial;
-large tests and independent reviews are stopped while sampling. The runner
-measures direct children, not arbitrary subprocess trees.
+`tests/usertime/manifest.json` schema 2 defines four ordered six-point sweeps:
 
-The 100 microsecond quality floor is a conservative **policy**, not a measured
-hardware clock resolution. Nonpositive/nonfinite samples are invalid. A P10-P90
-spread greater than 20% of the median is marked noisy. These policies detect bad
-samples; they do not prove an isolated CPU, stable frequency or bare-metal
-validity. Rejected short initial experiments are not retained. The retained
-larger cases avoid zero user-time samples; noisy observations remain diagnostic
-and do not enter accuracy summaries. Do not subtract kernel time from wall time
-to synthesize user time: use the OS user accounting field directly.
+| Workload | Sweep coordinates | Split |
+| --- | --- | --- |
+| integer | 500000, 1000000, 2000000, 4000000, 6000000, 8000000 iterations | calibration |
+| memory | 8192, 65536, 262144, 1048576, 8388608, 33554432 working-set bytes | held_out |
+| branch | 500000, 1000000, 2000000, 4000000, 6000000, 8000000 iterations | held_out |
+| MVT | n=8,63,120,129,400,1536 | calibration |
 
-`m2-linuxvm-user-v1.json` is a Docker Linux ARM64 **VM** observation on an Apple
-M2 host. Core identity and instantaneous frequency are unknown. It is useful for
-exercising the same-ELF comparison and seeing errors, but does not validate a
-bare-metal M2 core. macOS `measure -- PROGRAM ARGS` exercises the generic native
-collector with a Mach-O counterpart; its separately retained witness is not an
-ELF reference. macOS startup/runtime and code differ. No Darwin ABI simulation
-or binary-equivalence claim is made.
+Memory performs 4,194,304 read/modify/write accesses per run, plus initialization
+of every element in the declared working set. Larger working sets therefore also
+have larger initialization costs. Its curve is not a pure cache-latency experiment
+or constant-total-work comparison. The largest set gets one full traversal;
+smaller sets get an integer number of traversals. Cache-size boundaries refer to
+the configured model (128 KiB L1, 16 MiB L2), not independently measured capacities.
 
-Raw valid measurements are frozen by ID. Reuse them for code-only simulator PRs;
-new workload bytes/inputs/protocol/environment require new measurements and
-explicit provenance. Do not rewrite references to make a regression disappear.
-Keep usable historical evidence; invalid superseded scratch experiments need
-not be checked in.
+MVT initializes the matrix/vectors inside the guest, computes both matrix-vector
+products and writes all 2*n binary64 output elements. Its active data bytes are
+`8*(n*n+4*n)`. Fixed maximum BSS buffers keep all six dimensions within the
+existing checked address-space limit; indexing uses the runtime dimension.
+Invalid/empty/overflowing arguments, oversized matrices and non-power-of-two
+memory sets are rejected before computation. No simulator address/name hook,
+manual argument register setup or function-byte extraction is used.
+
+Builds use GCC 14.2.0 / binutils 2.44 with the recorded build script, including scalar
+`-O1`, disabled vectorization/if-conversion/unrolling and `-ffp-contract=off`.
+The latter is a reproducibility choice, not a hardware FMA claim. Rebuild with:
+
+```sh
+CC_AARCH64=/opt/homebrew/opt/musl-cross/bin/aarch64-linux-musl-gcc tests/usertime/build.sh
+```
+
+Sources/build script and each ELF have SHA-256 identities in the manifest.
+`workload_contract.py` validates complete four-group/six-point inventories,
+coordinates, role, arguments and binary/source identities. Removing, reordering
+or duplicating cases fails. Schema 1 is supported only to read previously
+published six-case bundles; active measurements use schema 2.
+
+## Native records and correctness
+
+`scripts/usertime.py capture` directly executes these same Linux ARM64 ELFs,
+with one warm-up process followed by 21 retained child processes per case.
+`wait4.ru_utime` is direct-child user CPU time; wall time, system CPU time and
+simulator host cost are not substituted. Each output and exit status is checked.
+Scalar outputs use independent arithmetic oracles. The MVT oracle forms exact
+integer dot-product numerators and converts once, independently of the guest’s
+sequential floating-point accumulation. Every finite element must satisfy
+`abs(got-want) <= max(1e-11, 1e-12*abs(want))`; output truncation and NaN/Inf fail.
+Functional and timing executions must have identical output bytes and instruction
+counts in addition to each passing the independent oracle.
+
+`m2-linuxvm-user-v2.json` contains all 24 cases and all 504 samples from the first
+successful capture, plus system time, source/build/binary/input identities,
+measurement harness and imported contract hashes, container image identity and
+hardware description. It was collected on an Apple M2 Mac14,3 with 24 GiB RAM using
+native ARM64 execution in a Docker Linux VM. No QEMU timing is used. Heavy local
+simulation/testing was paused, but exclusive host isolation, aggregate host load,
+core type and instantaneous frequency were not measured or controlled. VM user
+accounting and unknown scheduling remain limitations, not bare-metal ground truth.
+The old six-case reference, separate Mach-O witness and MVT kernel-ROI data are
+superseded and removed from the active tree; published historical bundles remain
+self-contained and readable. Git preserves rollback history.
+
+Quality rules are unchanged: any nonpositive/nonfinite raw user-time sample
+marks the case invalid_nonpositive; a median below 100 microseconds is below the
+conservative policy floor; P10-P90 spread above 20% of median is noisy. This floor
+is not a measured clock resolution. All 24 cases remain visible. The retained
+capture qualifies only branch 6M/8M: calibration 0/12, held_out 2/12. MVT 400 and 1536
+medians are1.265ms and8.058ms respectively, but are unqualified (zero sample and
+noise respectively). No sample, point or workload was rerolled or removed to
+improve accuracy. Unqualified points have no reported error; empty means display
+an em dash, never0%.
+
+Example acquisition (existing native Linux ARM64 image):
+
+```sh
+docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,size=64m \
+  -e PYTHONDONTWRITEBYTECODE=1 -e POROS_REFERENCE_IMAGE=IMAGE_DIGEST \
+  -v "$PWD:/src:ro" -v /private/tmp:/out -w /src poros-elf-reference:local \
+  python3 scripts/usertime.py capture --samples 21 --measurement-id NEW_ID \
+  --environment virtualized --hardware 'exact machine/environment' --output /out/reference.json
+```
+
+Raw references
+are frozen by identity; changes to workload bytes, inputs, protocol or environment
+require a new capture. Generic `measure -- PROGRAM ARGS` remains available for
+native executables, but Mach-O measurements do not become same-ELF references.
 
 ## Required PR report
 
-`scripts/usertime-ci.sh BASE` builds the exact clean head and base and runs the
-same required six ELF inputs and hardware profile against one frozen reference.
-The complete CPU/cache profile is frozen in the manifest; both revisions must
-report an exact match, so changing defaults cannot silently change hardware.
-It runs on every PR and main push, including documentation PRs (no automatic
-reuse shortcut). Missing cases, wrong binary/source provenance, failed output,
-base build/run errors and mismatched profiles fail artifact acceptance. The
-single known predecessor before timing support is explicitly feature-unavailable;
-this does not fabricate a base score. Later missing base support fails.
+`scripts/usertime-ci.sh BASE` builds clean exact head/base binaries and runs all 24
+required cases: head functional mode and head/base OoO timing mode. Every case
+uses the same ELF/arguments and frozen CPU/cache profile across both revisions.
+Missing cases, wrong output, base failure, changed identities or mismatched
+profiles fail artifact acceptance. The comparison has a10minute per-execution
+budget and150million-instruction limit. It runs on every PR/main push; the full
+inventory is never silently reduced to smoke cases. A pre-timing predecessor is
+explicitly unavailable, not assigned a fabricated base score.
 
-Every JSON/Markdown report distinguishes **artifact_status** (complete reproducible
-report) from **accuracy_status** (currently unverified). Available usable VM
-references can produce diagnostic numeric errors, never hardware-validation pass.
-No accuracy cutoff has been approved, so there is no invented percentage gate.
-Calibration (integer) and held-out (memory/branch) coverage and aggregates are
-separate. Required inventory is independent of the manifest; cases cannot be
-silently removed. Reports bind final source hashes and clean build revisions.
+Schema2 report JSON embeds the validated workload manifest. The archived bundle
+retains the reference, manifest, source/ELF files, native collector and imported
+contract module. The publisher verifies their hashes against the exact source
+commit and can still render schema1 bundles without requiring new files.
+History trends separate different references/profiles, so the new suite is not
+spliced onto a six-case trend.
 
-Formula `absolute-difference-over-min-v2`:
-
-`100 * abs(predicted - reference) / min(predicted, reference)`
-
-Only finite positive qualified times contribute. A 2x slowdown and 2x speedup
-both have 100% error; direction is separately reported. Base/head errors and
-percentage-point changes share the same reference, inputs and profile. Former
-reference-denominator thresholds do not apply. New M0 pilot runs also label/use
-v2; historical M0 raw timing records and old derived fields retain their original
-meaning, and are not relabeled as new user-time measurements.
-
-For the first timing PR, all rows remain hardware-unverified and base timing is
-unavailable. That is an honest completed report, not a claim of calibrated
-accuracy. Future calibration must first establish valid hardware references,
-frequency/core policy and independently agreed thresholds.
+Formula `absolute-difference-over-min-v2` is unchanged:
+`100*abs(predicted-reference)/min(predicted,reference)`. Only finite positive,
+qualified times contribute. Base/head errors, direction and percentage-point
+changes use the same reference. Artifact completeness, functional correctness
+and hardware accuracy remain separate; hardware accuracy stays unverified and
+there is no numeric accuracy cutoff or tuning in this migration.
 
 ## Published accuracy dashboard
 

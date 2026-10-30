@@ -79,7 +79,7 @@ go test ./... -timeout 45m # Run all tests (including long regressions)
 ### CLI Usage
 
 ```bash
-# List all 41 benchmarks
+# List all 40 legacy kernels
 ./poros list
 
 # Run a single benchmark
@@ -105,7 +105,7 @@ go test ./... -timeout 45m # Run all tests (including long regressions)
 ### Testing
 
 ```bash
-# Full comparison table (all 41 benchmarks, ~10 min)
+# Legacy comparison table (all 40 kernels, ~10 min)
 go test -v -run TestOoO_ComparisonTable ./pkg/cpu -timeout 20m
 
 # Quick evaluation (6 benchmarks, ~2 min)
@@ -253,6 +253,7 @@ the runtime component schema and defaults.
 ## Evaluation and calibration
 
 See [the M0 evaluation contract](evaluation/README.md) for the versioned workload
-inventory, regression CI, and fresh M2 multi-size timing pilot. Historical
+inventory and regression CI. [Whole-program user-time evaluation](evaluation/usertime/README.md)
+runs MVT and three other workloads as complete Linux ELF programs at six points each. Historical
 regression data and provisional native measurements are different evidence
 classes; neither alone establishes a validated CPU model.

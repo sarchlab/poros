@@ -3,16 +3,13 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/sarchlab/poros/internal/evaluation"
 )
@@ -43,14 +40,13 @@ func write(path string, v any) (err error) {
 }
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: evaluate manifest|regression|pilot|capture|seal [flags]")
+		return fmt.Errorf("usage: evaluate manifest|regression|capture|seal [flags]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	root := fs.String("root", ".", "repository root")
 	out := fs.String("out", "", "JSON report path (default stdout)")
-	var tier, log, capture, sizes *string
-	var reps, exit *int
-	var timeout *time.Duration
+	var tier, log, capture *string
+	var exit *int
 	switch args[0] {
 	case "manifest", "capture":
 	case "seal":
@@ -61,10 +57,6 @@ func run(args []string) error {
 		tier = fs.String("tier", "full", "short or full")
 		log = fs.String("log", "", "go test JSON log")
 		capture = fs.String("capture", "", "sealed tested provenance; otherwise imported log provenance is unknown")
-	case "pilot":
-		sizes = fs.String("sizes", "", "comma-separated manifest pilot dimensions; default all declared pilot sizes")
-		reps = fs.Int("repetitions", 13, "samples per size")
-		timeout = fs.Duration("timeout", 30*time.Minute, "wall-time budget")
 	default:
 		return fmt.Errorf("unknown command %s", args[0])
 	}
@@ -75,7 +67,7 @@ func run(args []string) error {
 		return fmt.Errorf("unexpected arguments")
 	}
 	commit := ""
-	if args[0] == "regression" || args[0] == "pilot" {
+	if args[0] == "regression" {
 		b, e := exec.Command("git", "-C", *root, "rev-parse", "HEAD").Output()
 		if e != nil {
 			return e
@@ -138,35 +130,6 @@ func run(args []string) error {
 			}
 		}
 
-		if e = write(*out, r); e != nil {
-			return e
-		}
-		return check
-	case "pilot":
-		m, e := evaluation.LoadManifest(*root)
-		if e != nil {
-			return e
-		}
-		requested := []int{}
-		if *sizes != "" {
-			for _, s := range strings.Split(*sizes, ",") {
-				n, e := strconv.Atoi(s)
-				if e != nil {
-					return e
-				}
-				requested = append(requested, n)
-			}
-		}
-		ns, e := m.PilotSizes(requested)
-		if e != nil {
-			return e
-		}
-		if *timeout <= 0 {
-			return fmt.Errorf("timeout must be positive")
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), *timeout)
-		defer cancel()
-		r, check := evaluation.Pilot(ctx, *root, commit, ns, *reps)
 		if e = write(*out, r); e != nil {
 			return e
 		}

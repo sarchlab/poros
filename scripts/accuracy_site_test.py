@@ -42,11 +42,12 @@ class AccuracySiteTest(unittest.TestCase):
             site.failure(raw, commit, 'Build failed <script>alert("bad")</script>')
         else:
             manifest = site.read(ROOT / "tests/usertime/manifest.json")
-            reference = site.read(ROOT / "evaluation/usertime/m2-linuxvm-user-v1.json")
+            reference = site.read(ROOT / "evaluation/usertime/m2-linuxvm-user-v2.json")
             paths = [
                 "scripts/native_usertime.py",
+                "scripts/workload_contract.py",
                 "tests/usertime/manifest.json",
-                "evaluation/usertime/m2-linuxvm-user-v1.json",
+                "evaluation/usertime/m2-linuxvm-user-v2.json",
             ]
             paths += [
                 "tests/usertime/" + n
@@ -66,6 +67,7 @@ class AccuracySiteTest(unittest.TestCase):
                 cases.append(
                     {
                         "id": c["id"],
+                        "functional_status": "pass",
                         "split": c["split"],
                         "reference_user_seconds": ref["median_user_seconds"],
                         "reference_quality": ref["quality"],
@@ -94,7 +96,8 @@ class AccuracySiteTest(unittest.TestCase):
                         }
                     )
             report = {
-                "schema": 1,
+                "schema": 2,
+                "workload_manifest": manifest,
                 "artifact_status": "pass",
                 "accuracy_status": "unverified",
                 "formula": site.FORMULA,
@@ -105,7 +108,7 @@ class AccuracySiteTest(unittest.TestCase):
                 },
                 "base_commit": revision(0),
                 "reference_sha256": site.digest(
-                    ROOT / "evaluation/usertime/m2-linuxvm-user-v1.json"
+                    ROOT / "evaluation/usertime/m2-linuxvm-user-v2.json"
                 ),
                 "reference": reference,
                 "cases": cases,
@@ -215,6 +218,83 @@ class AccuracySiteTest(unittest.TestCase):
         self.assertEqual(index["entries"][0]["releases"], [metadata["release"]])
         self.assertEqual(index["latest_success"], commit)
 
+    def test_zero_calibration_coverage_and_four_sweep_axes(self):
+        commit = revision(10)
+        report, _ = site.validate_bundle(self.bundle(commit), commit)
+        self.assertEqual(
+            report["summary"]["calibration"], {"required": 12, "comparable": 0}
+        )
+        page = site.detail(report, self.metadata(commit))
+        self.assertIn("0 / 12", page)
+        self.assertIn("Mean head error: —", page)
+        self.assertIn("Matrix dimension n", page)
+        self.assertIn("Working set (log₂ spacing)", page)
+        self.assertIn("8 KiB", page)
+        self.assertIn("32 MiB", page)
+        self.assertIn("4,194,304 accesses", page)
+        self.assertIn("MVT", page)
+        self.assertIn("<th>Functional</th>", page)
+        self.assertEqual(len(report["cases"]), 24)
+
+    def test_schema2_cannot_embed_legacy_six_case_manifest(self):
+        with self.assertRaisesRegex(ValueError, "24-case"):
+            site.report_manifest(dict(schema=2, workload_manifest=dict(schema=1)))
+
+    def test_schema1_bundle_needs_no_new_support_file(self):
+        # Synthetic format fixture, not claimed measured evidence. Exercise the
+        # original six-case bundle shape without a contract-module dependency.
+        commit = revision(11)
+        directory = self.bundle(commit)
+        report = site.read(directory / "report.json")
+        inventory = site.read(directory / "manifest.json")
+        reference = site.read(directory / "reference.json")
+        rows, declarations, measurements = [], [], []
+        for i, name in enumerate(site.REQUIRED):
+            workload, n = name.split("-")
+            j = next(
+                j for j, c in enumerate(inventory["cases"]) if c["workload"] == workload
+            )
+            declaration = copy.deepcopy(inventory["cases"][j])
+            for key in ("workload", "point", "axis"):
+                declaration.pop(key)
+            declaration.update(id=name, args=["program", n])
+            measured = copy.deepcopy(reference["cases"][j])
+            measured.update(declaration)
+            row = copy.deepcopy(report["cases"][j])
+            row.update(id=name)
+            row.pop("functional_status")
+            rows.append(row)
+            declarations.append(declaration)
+            measurements.append(measured)
+        inventory.update(schema=1, cases=declarations)
+        for key in ("workloads", "suite", "reference_file"):
+            inventory.pop(key)
+        reference.update(schema=1, cases=measurements)
+        reference.pop("support_sha256")
+        report.update(schema=1, cases=rows)
+        report.pop("workload_manifest")
+        report["summary"] = {
+            split: {"required": sum(c["split"] == split for c in rows), "comparable": 0}
+            for split in ("calibration", "held_out")
+        }
+        site.write(directory / "manifest.json", inventory)
+        reference["manifest_sha256"] = site.digest(directory / "manifest.json")
+        site.write(directory / "reference.json", reference)
+        report["reference"] = reference
+        report["reference_sha256"] = site.digest(directory / "reference.json")
+        site.write(directory / "report.json", report)
+        (directory / "workload_contract.py").unlink()
+        bundle = site.read(directory / "bundle.json")
+        bundle["files"].pop("workload_contract.py")
+        bundle["files"] = {
+            name: site.digest(directory / name) for name in bundle["files"]
+        }
+        site.write(directory / "bundle.json", bundle)
+        retained, _ = site.validate_bundle(directory, commit)
+        rendered = site.detail(retained, self.metadata(commit))
+        self.assertIn("Historical memory sweep: 64 KiB", rendered)
+        self.assertIn("not separately recorded", rendered)
+
     def test_failure_missing_and_noisy_are_visible_and_escaped(self):
         commit = revision(1)
         index = site.archive(
@@ -224,13 +304,13 @@ class AccuracySiteTest(unittest.TestCase):
             [commit],
         )
         page = (self.pages / "calibration/runs" / commit / "index.html").read_text()
-        self.assertIn("Missing — report incomplete", page)
+        self.assertIn("Build failed", page)
         self.assertIn("&lt;script&gt;", page)
         self.assertNotIn("<script>alert", page)
         self.assertIsNone(index["latest_success"])
         report, _ = site.validate_bundle(self.bundle(revision(2)), revision(2))
         detail = site.detail(report, self.metadata(revision(2)))
-        self.assertIn("2 / 6", detail)
+        self.assertIn("2 / 24", detail)
         self.assertIn("noisy", detail)
         self.assertIn("Hardware accuracy: unverified", detail)
         index = site.archive(
@@ -239,7 +319,7 @@ class AccuracySiteTest(unittest.TestCase):
             self.metadata(revision(2), run=2),
             [revision(2), revision(1)],
         )
-        self.assertIn("10.0000% (1/4)", site.home(index))
+        self.assertIn("10.0000% (2/12)", site.home(index))
 
     def test_zero_errors_plotted_and_scatter_not_connected(self):
         chart = site.chart(
@@ -282,7 +362,9 @@ class AccuracySiteTest(unittest.TestCase):
         report, _ = site.validate_bundle(self.bundle(commit), commit)
         for mutate in (
             lambda r: r["cases"][0].pop("head"),
-            lambda r: r["cases"][0].update(reference_user_seconds=0),
+            lambda r: r["cases"][0].pop("functional_status"),
+            lambda r: r["workload_manifest"]["cases"].pop(),
+            lambda r: r["cases"][0].update(reference_user_seconds=-1),
             lambda r: r["summary"]["calibration"].update(comparable=99),
             lambda r: r.update(accuracy_status="pass"),
         ):

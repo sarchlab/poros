@@ -54,28 +54,19 @@
     },
     {
       "id": "mvt",
-      "status": "legacy",
+      "status": "elf",
       "role": "calibration",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "execution": "linux-elf-user",
+      "source": "tests/usertime/mvt.c",
       "sizes": [
-        {
-          "id": "legacy-default",
-          "dimensions": {
-            "n": 400
-          },
-          "working_set_bytes": 1292800,
-          "status": "legacy",
-          "constraint": "Data arrays only, excludes code/stack. Fixed legacy registry layout; historical compiler provenance unknown."
-        },
         {
           "id": "n8",
           "dimensions": {
             "n": 8
           },
           "working_set_bytes": 768,
-          "status": "pilot",
-          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+          "status": "elf",
+          "constraint": "Complete static ELF; guest initialization, computation and output; 1<=n<=1536; independent all-element check."
         },
         {
           "id": "n63",
@@ -83,8 +74,8 @@
             "n": 63
           },
           "working_set_bytes": 33768,
-          "status": "pilot",
-          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+          "status": "elf",
+          "constraint": "Complete static ELF; guest initialization, computation and output; 1<=n<=1536; independent all-element check."
         },
         {
           "id": "n120",
@@ -92,8 +83,8 @@
             "n": 120
           },
           "working_set_bytes": 119040,
-          "status": "pilot",
-          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+          "status": "elf",
+          "constraint": "Complete static ELF; guest initialization, computation and output; 1<=n<=1536; independent all-element check."
         },
         {
           "id": "n129",
@@ -101,8 +92,8 @@
             "n": 129
           },
           "working_set_bytes": 137256,
-          "status": "pilot",
-          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+          "status": "elf",
+          "constraint": "Complete static ELF; guest initialization, computation and output; 1<=n<=1536; independent all-element check."
         },
         {
           "id": "n400",
@@ -110,8 +101,8 @@
             "n": 400
           },
           "working_set_bytes": 1292800,
-          "status": "pilot",
-          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+          "status": "elf",
+          "constraint": "Complete static ELF; guest initialization, computation and output; 1<=n<=1536; independent all-element check."
         },
         {
           "id": "n1536",
@@ -119,8 +110,8 @@
             "n": 1536
           },
           "working_set_bytes": 18923520,
-          "status": "pilot",
-          "constraint": "Fresh compiled function; 1<=n<=1536; independent of legacy addresses and code."
+          "status": "elf",
+          "constraint": "Complete static ELF; guest initialization, computation and output; 1<=n<=1536; independent all-element check."
         }
       ]
     },

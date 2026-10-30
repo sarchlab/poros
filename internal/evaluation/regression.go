@@ -84,7 +84,7 @@ func RequiredCases(root, tier string) (map[string]bool, error) {
 		if e != nil {
 			return nil, e
 		}
-		want := 82
+		want := 80
 		if file == "pipeline-v4-baseline.jsonl" {
 			want = 8
 		}

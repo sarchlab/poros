@@ -38,11 +38,15 @@ def verify_source(source, bundle, commit):
         )
         if hashlib.sha256(data).hexdigest() != report["head"]["files"][path]:
             raise ValueError("report source hash differs from commit: " + path)
+    inputs = site.read(Path(bundle) / "manifest.json")
     bindings = {
-        "reference.json": "evaluation/usertime/m2-linuxvm-user-v1.json",
+        "reference.json": "evaluation/usertime/"
+        + site.safe_name(inputs.get("reference_file", "m2-linuxvm-user-v1.json")),
         "manifest.json": "tests/usertime/manifest.json",
         "native_usertime.py": "scripts/native_usertime.py",
     }
+    if inputs["schema"] == 2:
+        bindings["workload_contract.py"] = "scripts/workload_contract.py"
     bindings.update(
         {
             n: "tests/usertime/" + n[7:]
