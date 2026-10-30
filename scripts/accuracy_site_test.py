@@ -104,8 +104,11 @@ class AccuracySiteTest(unittest.TestCase):
         bundle = self.bundle(commit)
         site.archive(self.pages, bundle, self.metadata(commit, attempt=2), [commit])
         metadata = self.metadata(commit, "release", run=20)
+        metadata["release"]["publication_run_url"] = metadata["run_url"]
         site.archive(self.pages, bundle, metadata, [commit])
-        index = site.archive(self.pages, bundle, metadata, [commit])
+        retried = copy.deepcopy(metadata)
+        retried["release"]["publication_run_url"] = "https://github.com/sarchlab/poros/actions/runs/20/attempts/2"
+        index = site.archive(self.pages, bundle, retried, [commit])
         self.assertEqual(index["entries"][0]["releases"], [metadata["release"]])
         self.assertEqual(index["latest_success"], commit)
 
