@@ -1,0 +1,99 @@
+{
+  "compiler": "Apple clang version 17.0.0 (clang-1700.6.3.2)\nTarget: arm64-apple-darwin27.2.0\nThread model: posix\nInstalledDir: /Library/Developer/CommandLineTools/usr/bin\n",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.2\nBuildVersion:\t\t26B123\n",
+  "observations": [
+    {
+      "source": "bitfield-probe.c",
+      "source_sha256": "600400e5e57d161c3adcc562edbc7e405583fd5bffb7cbc9fa4c1a3a4cf07279",
+      "architecture": "arm64",
+      "binary_sha256": "3b5e83e4124fa7e571d9434b57ba1b0c15b301dc3b4af83b4a2000f7c7ee730c",
+      "result": {
+        "ubfx51_11": 4,
+        "sbfx51_3": -4,
+        "sbfx_w28_4": -8
+      }
+    },
+    {
+      "source": "ptrauth-probe.c",
+      "source_sha256": "d281a32d6622eaca0803b51d4aee6910a9eed9e1188b1de7a7abd7a6a1271072",
+      "architecture": "arm64",
+      "binary_sha256": "70775f1f27b42137b3f65677f536ff3a8d87fc9c72f7075500c9f731b79f1615",
+      "result": [
+        {
+          "test": "wrong_modifier",
+          "observed": "unexpected_valid_result",
+          "signal": 0
+        },
+        {
+          "test": "wrong_key",
+          "observed": "unexpected_valid_result",
+          "signal": 0
+        },
+        {
+          "test": "changed_pointer",
+          "observed": "unexpected_valid_result",
+          "signal": 0
+        }
+      ]
+    },
+    {
+      "source": "ptrauth-probe.c",
+      "source_sha256": "d281a32d6622eaca0803b51d4aee6910a9eed9e1188b1de7a7abd7a6a1271072",
+      "architecture": "arm64e",
+      "binary_sha256": "862cf68e275dad4c50a8aa4b0a7b2edb6e7de30c87043bcfbae8c9916d02f781",
+      "result": [
+        {
+          "test": "wrong_modifier",
+          "observed": "authentication_trap",
+          "signal": 10
+        },
+        {
+          "test": "wrong_key",
+          "observed": "authentication_trap",
+          "signal": 10
+        },
+        {
+          "test": "changed_pointer",
+          "observed": "authentication_trap",
+          "signal": 10
+        }
+      ]
+    },
+    {
+      "source": "ptrauth-branch-probe.c",
+      "source_sha256": "89f4ab6c97748bfca839c0f6d740286bd960e5adcc52bd83b1dc28ac887adde6",
+      "architecture": "arm64",
+      "binary_sha256": "4a344aa19032656e36b61cf8528ed38662976e66705e6763da86735f5ce04596",
+      "result": [
+        {
+          "modifier": "correct",
+          "observed": "returned_99",
+          "signal": 0
+        },
+        {
+          "modifier": "incorrect",
+          "observed": "returned_99",
+          "signal": 0
+        }
+      ]
+    },
+    {
+      "source": "ptrauth-branch-probe.c",
+      "source_sha256": "89f4ab6c97748bfca839c0f6d740286bd960e5adcc52bd83b1dc28ac887adde6",
+      "architecture": "arm64e",
+      "binary_sha256": "a66d5a42ca484ebae0a1a67ed35fb9eef16ef5f9dccaa17f4adf74dbf91439ff",
+      "result": [
+        {
+          "modifier": "correct",
+          "observed": "returned_99",
+          "signal": 0
+        },
+        {
+          "modifier": "incorrect",
+          "observed": "signal",
+          "signal": 11
+        }
+      ]
+    }
+  ]
+}

@@ -648,13 +648,23 @@ func (e *executor) execUBFIZ(inst arm64asm.Inst) error {
 }
 
 func (e *executor) execUBFX(inst arm64asm.Inst) error {
-	// UBFX is an alias of UBFM
-	return e.execUBFM(inst)
+	// The decoder presents alias operands lsb,width, not UBFM's immr,imms.
+	src := e.readOperandVal(inst.Args[1], is32bit(inst.Args[0]))
+	lsb, width := resolveImm(inst.Args[2]), resolveImm(inst.Args[3])
+	e.writeGPR(inst.Args[0], (src>>lsb)&((uint64(1)<<width)-1))
+	return nil
 }
 
 func (e *executor) execSBFX(inst arm64asm.Inst) error {
-	// SBFX is an alias of SBFM
-	return e.execSBFM(inst)
+	src := e.readOperandVal(inst.Args[1], is32bit(inst.Args[0]))
+	lsb, width := resolveImm(inst.Args[2]), resolveImm(inst.Args[3])
+	field := (src >> lsb) & ((uint64(1) << width) - 1)
+	value := uint64(int64(field<<(64-width)) >> (64 - width))
+	if is32bit(inst.Args[0]) {
+		value = mask32(value)
+	}
+	e.writeGPR(inst.Args[0], value)
+	return nil
 }
 
 func (e *executor) execBFM(inst arm64asm.Inst) error {

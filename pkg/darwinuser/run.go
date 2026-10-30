@@ -2,6 +2,7 @@ package darwinuser
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
@@ -21,6 +22,7 @@ type Result struct {
 	Termination  string `json:"termination"`
 	Instructions uint64 `json:"instructions"`
 	PC           uint64 `json:"pc"`
+	Encoding     uint32 `json:"instruction_encoding"`
 	Diagnostic   string `json:"diagnostic,omitempty"`
 }
 type Execution struct {
@@ -62,7 +64,7 @@ func (x *Execution) Peek(pc uint64) (arm64asm.Inst, error) {
 	if e := x.process.Memory.Fetch(pc, b[:]); e != nil {
 		return arm64asm.Inst{}, e
 	}
-	return arm64asm.Decode(b[:])
+	return emu.DecodeChecked(b[:], x.process.Registers.PointerAuth)
 }
 func (x *Execution) StepDetailed() (arm64asm.Inst, bool, error) {
 	x.memory.Accesses = x.memory.Accesses[:0]
@@ -74,6 +76,10 @@ func (x *Execution) StepDetailed() (arm64asm.Inst, bool, error) {
 		x.result.Termination = reason
 		x.result.PC = x.process.Registers.PC
 		x.result.Diagnostic = e.Error()
+		var bytes [4]byte
+		if err := x.process.Memory.Fetch(x.result.PC, bytes[:]); err == nil {
+			x.result.Encoding = binary.LittleEndian.Uint32(bytes[:])
+		}
 		return arm64asm.Inst{}, false, e
 	}
 	if x.result.Instructions >= x.limit {
@@ -95,9 +101,12 @@ func (x *Execution) StepDetailed() (arm64asm.Inst, bool, error) {
 		return finish(kind, e)
 	}
 	if step.Syscall {
-		return finish("unsupported_syscall", fmt.Errorf("Darwin syscall at PC=%#x is not implemented", x.process.Registers.PC))
+		return finish("unsupported_syscall", fmt.Errorf("Darwin trap %d at PC=%#x is not implemented", int64(x.process.Registers.GPR[16]), x.process.Registers.PC))
 	}
 	x.result.Instructions++
+	if x.process.Registers.Counter.Enabled {
+		x.process.Registers.Counter.Value++
+	}
 	x.result.PC = x.process.Registers.PC
 	return step.Instruction, step.Branched, nil
 }

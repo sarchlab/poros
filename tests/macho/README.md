@@ -17,13 +17,16 @@ All initialization, arithmetic, output and exit remain native program work.
 
 Current simulator status: the loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
-The installed runtime presently stops at its first unsupported instruction.
+With the recorded native commpage profile, the installed M2 runtime presently
+stops at `task_self_trap` after completing its own chained fixups.
 This is **not successful benchmark execution or a whole-program accuracy
 measurement**. Missing dependencies remain failures with an exact guest PC.
 
 ```
 go build -o /tmp/poros ./cmd/poros
 /tmp/poros macho --dyld /usr/lib/dyld tests/macho/integer.macho 500000
+# Omit --runtime-profile to diagnose the first required commpage read.
+# The collection command below captures and supplies a matching host profile.
 python3 scripts/macho-native.py --poros /tmp/poros --output /tmp/macho-native.json
 ```
 
@@ -36,3 +39,10 @@ whole-program user time. Source, binary and dyld hashes identify the inputs.
 Apple system binaries are not redistributed. Portable tests use independently
 constructed fixtures from `internal/machotest`; these are not substitute native
 runtimes. Native checks require ARM64 macOS and inspect that machine's real dyld.
+
+`isa-native-m2.json` records owned native bitfield and pointer-authentication
+probes. The signed/unsigned extraction cases independently confirm the UBFX/
+SBFX alias-width semantics used by dyld's fixup walker. PAC negative cases are
+run both as arm64 and arm64e: the former has authentication disabled; the latter
+traps on incorrect authentication. These are functional ISA/ABI observations,
+not timing measurements. Probe sources are included for inspection/rebuilding.

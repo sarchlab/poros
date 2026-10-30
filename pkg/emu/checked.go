@@ -7,6 +7,15 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
+// SyscallABI specifies the permitted SVC immediate at the checked execution boundary.
+// Zero preserves the existing Linux ABI. Darwin must opt in explicitly.
+type SyscallABI uint8
+
+const (
+	SyscallLinux SyscallABI = iota
+	SyscallDarwin
+)
+
 // CheckedMemory is the process execution boundary. Each operation must validate
 // the complete range before transferring bytes; failed writes must be atomic.
 // Fetch enforces execute permission independently of Read. Implementations must
@@ -63,14 +72,18 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 	if err := memory.Fetch(regs.PC, bytes[:]); err != nil {
 		return fail("memory_fault", err)
 	}
-	inst, err := arm64asm.Decode(bytes[:])
+	inst, err := DecodeChecked(bytes[:], regs.PointerAuth)
 	if err != nil {
 		return fail("unsupported_instruction", err)
 	}
 	result.Instruction = inst
 	if inst.Op == arm64asm.SVC {
-		if bytes != [4]byte{1, 0, 0, 0xd4} {
-			return fail("unsupported_instruction", fmt.Errorf("only SVC #0 is supported: %s", inst))
+		allowed := [4]byte{1, 0, 0, 0xd4}
+		if regs.SyscallABI == SyscallDarwin {
+			allowed = [4]byte{1, 0x10, 0, 0xd4}
+		}
+		if regs.SyscallABI > SyscallDarwin || bytes != allowed {
+			return fail("unsupported_instruction", fmt.Errorf("SVC immediate does not match process ABI %d: %s", regs.SyscallABI, inst))
 		}
 		result.Syscall = true
 		return result, nil

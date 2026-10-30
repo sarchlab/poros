@@ -264,6 +264,10 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 	case arm64asm.FCVTZU:
 		return false, e.execFCVTZU(inst)
 
+	// Explicitly configured virtual system counters.
+	case arm64asm.MRS:
+		return false, e.execMRS(inst)
+
 	// NOP
 	case arm64asm.NOP:
 		return false, nil

@@ -25,7 +25,7 @@ func TestMachOCLIReportsIncompleteRuntime(t *testing.T) {
 	if e := json.Unmarshal(output.Bytes(), &r); e != nil {
 		t.Fatal(e)
 	}
-	if code != 1 || diagnostic.Len() != 0 || r["termination"] != "unsupported_instruction" || r["instructions"] != float64(5) {
+	if code != 1 || diagnostic.Len() != 0 || r["termination"] != "unsupported_instruction" || r["instructions"] != float64(6) {
 		t.Fatalf("%d %s %s", code, output.String(), diagnostic.String())
 	}
 	if _, ok := r["timing"]; ok {

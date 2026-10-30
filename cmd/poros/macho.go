@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 func runMachO(args []string, out, diagnostics io.Writer) int {
 	fs := flag.NewFlagSet("macho", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
+	profilePath := fs.String("runtime-profile", "", "explicit JSON native commpage capability profile")
 	dyld := fs.String("dyld", "", "explicit local runtime dyld file (read-only)")
 	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
 	timeout := fs.Duration("timeout", 2*time.Second, "host execution timeout")
@@ -40,6 +42,29 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		}
 	}
 	options := darwinuser.Options{Args: append([]string{*argv0}, fs.Args()[1:]...), Env: []string(env), ExecName: *execName}
+	if *profilePath != "" {
+		f, err := os.Open(*profilePath)
+		if err != nil {
+			fmt.Fprintln(diagnostics, err)
+			return 2
+		}
+		decoder := json.NewDecoder(io.LimitReader(f, 4097))
+		decoder.DisallowUnknownFields()
+		var profile darwinuser.RuntimeProfile
+		err = decoder.Decode(&profile)
+		if err == nil {
+			var extra any
+			if trailing := decoder.Decode(&extra); trailing != io.EOF {
+				err = fmt.Errorf("runtime profile contains trailing data")
+			}
+		}
+		f.Close()
+		if err != nil {
+			fmt.Fprintln(diagnostics, err)
+			return 2
+		}
+		options.RuntimeProfile = &profile
+	}
 	p, err := darwinuser.Load(fs.Arg(0), *dyld, options)
 	if err != nil {
 		fmt.Fprintln(diagnostics, err)
@@ -51,15 +76,16 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		return 2
 	}
 	report := struct {
-		Schema   int                 `json:"schema"`
-		Binary   darwinuser.Identity `json:"binary"`
-		Dyld     darwinuser.Identity `json:"dyld"`
-		Args     []string            `json:"args"`
-		Env      []string            `json:"env"`
-		ExecName string              `json:"executable_path"`
-		Policy   string              `json:"policy"`
+		Schema         int                        `json:"schema"`
+		Binary         darwinuser.Identity        `json:"binary"`
+		Dyld           darwinuser.Identity        `json:"dyld"`
+		Args           []string                   `json:"args"`
+		Env            []string                   `json:"env"`
+		ExecName       string                     `json:"executable_path"`
+		Policy         string                     `json:"policy"`
+		RuntimeProfile *darwinuser.RuntimeProfile `json:"runtime_profile,omitempty"`
 		darwinuser.Result
-	}{1, p.Binary, p.Dyld, options.Args, append([]string{}, options.Env...), options.ExecName, "actual dyld entry; runtime bring-up incomplete; no full-program timing prediction", result}
+	}{1, p.Binary, p.Dyld, options.Args, append([]string{}, options.Env...), options.ExecName, "actual dyld entry; functional clock is one native counter tick per retired instruction; runtime bring-up incomplete; no full-program timing prediction", options.RuntimeProfile, result}
 	if err := json.NewEncoder(out).Encode(report); err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 2

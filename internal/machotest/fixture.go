@@ -8,7 +8,7 @@ const EntryOffset = 0x400
 
 // Image returns an ARM64 executable (2) or an arm64e dyld-shaped image (7).
 // The executable loops; the runtime establishes entry registers then encounters
-// PACIBSP, providing a deterministic unsupported-feature witness.
+// PACIBSP followed by BRK, providing a deterministic unsupported-feature witness.
 func Image(kind uint32) []byte {
 	u := binary.LittleEndian
 	b := make([]byte, 16384)
@@ -61,7 +61,7 @@ func Image(kind uint32) []byte {
 		copy(b[off+12:], "/usr/lib/dyld\x00")
 		off += 32
 		// mov x0,sp; and sp,x0,#~15; mov x29,#0; mov x30,#0; b +4; pacibsp.
-		for i, w := range []uint32{0x910003e0, 0x927cec1f, 0xd280001d, 0xd280001e, 0x14000001, 0xd503237f} {
+		for i, w := range []uint32{0x910003e0, 0x927cec1f, 0xd280001d, 0xd280001e, 0x14000001, 0xd503237f, 0xd4200000} {
 			put(EntryOffset+i*4, w)
 		}
 	}

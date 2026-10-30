@@ -25,3 +25,31 @@ The shared cache needs a separate sparse mapping implementation; increasing
 these bounds to eagerly allocate an entire runtime cache is not the design.
 
 Startup ABI: [Apple dyldStartup.s](https://github.com/apple-oss-distributions/dyld/blob/main/dyld/dyldStartup.s).
+
+## Pointer authentication and virtual time
+
+The main executable CPU subtype determines pointer-authentication mode. Generic
+ARM64 uses disabled address authentication, as XNU does; arm64e main programs
+retain enabled mode and fail explicitly until its semantics are implemented.
+The disabled profile preserves PAC/AUT raw encodings and instruction retirement,
+while their effective operation has no register effect. Authenticated branches
+still perform their real branch, link and return operations. This is process
+state, not a blanket instruction bypass. Native wrong-key/modifier tests differ
+between arm64 and arm64e; owned probes and observations are in `tests/macho/`.
+
+`--runtime-profile` supplies selected native commpage fields. The collection
+helper reads documented nonsecret capabilities only. Unmodeled fields remain
+unmapped; they are never silently populated with zero. The dynamic continuous
+clock offsets are explicitly zero in the virtual epoch. Functional execution
+advances the configured virtual counter one tick per retired instruction and
+uses the native timebase ratio; this is deterministic functional time, not a
+cycle-calibrated clock or a host wall-clock sample. Timing mode must supply its
+own consistent counter progression before a timing accuracy claim is possible.
+
+The current local M2 runtime executes its own chained self-fixup loop and stops
+at the first unimplemented Mach trap, `task_self_trap` (-28), after 87,073 user
+instructions. It has not yet reached benchmark main or completed a program.
+The checked-in native observations are separate from this incomplete execution.
+
+References: [XNU executable activation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exec.c),
+[XNU commpage definitions](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/arm/cpu_capabilities.h).

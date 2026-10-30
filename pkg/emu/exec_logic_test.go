@@ -292,3 +292,45 @@ func TestMVN(t *testing.T) {
 	stepN(t, em, 1)
 	assertX(t, em, 0, 0xFFFFFFFFFFFFFFFF)
 }
+
+func TestBitfieldExtractAliasWidth(t *testing.T) {
+	// Encode UBFM/SBFM with imms=lsb+width-1. The decoder exposes the
+	// UBFX/SBFX aliases as lsb,width; the handlers must not reinterpret width.
+	for _, size := range []uint{32, 64} {
+		for _, signed := range []bool{false, true} {
+			for lsb := uint(0); lsb < size-1; lsb++ {
+				for width := uint(1); width < size-lsb; width++ {
+					base := uint32(0x53000000)
+					if size == 64 {
+						base = 0xd3400000
+					}
+					if signed {
+						base &^= 0x40000000
+					}
+					opcode := base | uint32(lsb)<<16 | uint32(lsb+width-1)<<10 | 1<<5
+					for _, source := range []uint64{0, 1, 0x8000000080000000, 0x200000000a8d42, ^uint64(0)} {
+						regs := Registers{PC: 0x1000}
+						regs.GPR[1] = source
+						if _, err := StepChecked(&regs, authMemory{opcode}); err != nil {
+							t.Fatalf("%#x: %v", opcode, err)
+						}
+						if size == 32 {
+							source = uint64(uint32(source))
+						}
+						mask := (uint64(1) << width) - 1
+						want := (source >> lsb) & mask
+						if signed && want&(uint64(1)<<(width-1)) != 0 {
+							want |= ^mask
+						}
+						if size == 32 {
+							want = uint64(uint32(want))
+						}
+						if regs.GPR[0] != want {
+							t.Fatalf("size=%d signed=%v lsb=%d width=%d source=%#x got=%#x want=%#x", size, signed, lsb, width, source, regs.GPR[0], want)
+						}
+					}
+				}
+			}
+		}
+	}
+}

@@ -22,9 +22,10 @@ const (
 )
 
 type Options struct {
-	Args, Env []string
-	ExecName  string
-	StackSize uint64
+	Args, Env      []string
+	ExecName       string
+	StackSize      uint64
+	RuntimeProfile *RuntimeProfile
 }
 type Identity struct {
 	SHA256  string `json:"sha256"`
@@ -76,7 +77,14 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	if len(o.Args) > MaxArgumentCount || len(o.Env) > MaxArgumentCount {
 		return nil, fmt.Errorf("Darwin startup: too many arguments/environment entries")
 	}
+	authMode := emu.PointerAuthDisabled
+	if image.Subtype&0xffffff == 2 {
+		authMode = emu.PointerAuthEnabled
+	}
 	apple := []string{"executable_path=" + o.ExecName}
+	if authMode == emu.PointerAuthDisabled {
+		apple = append(apple, "ptrauth_disabled=1")
+	}
 	total := 0
 	for _, list := range [][]string{o.Args, o.Env, apple} {
 		for _, s := range list {
@@ -140,6 +148,11 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	if err := mapImage(dyld, DyldBase); err != nil {
 		return nil, err
 	}
+	if o.RuntimeProfile != nil {
+		if err := o.RuntimeProfile.mapCommpage(memory); err != nil {
+			return nil, err
+		}
+	}
 	stack := make([]byte, size)
 	sp := size
 	base := StackTop - size
@@ -188,6 +201,11 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	if err := memory.Map(base, size, usermem.Read|usermem.Write, stack); err != nil {
 		return nil, err
 	}
+	counter := emu.CounterState{}
+	if o.RuntimeProfile != nil {
+		counter.Enabled = true
+		counter.Frequency = 1_000_000_000 * uint64(o.RuntimeProfile.TimebaseDenom) / uint64(o.RuntimeProfile.TimebaseNumer)
+	}
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
-	return &Process{Registers: emu.Registers{PC: dyld.ThreadEntry + DyldBase, SP: base + sp}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
+	return &Process{Registers: emu.Registers{PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter, SyscallABI: emu.SyscallDarwin}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
 }
