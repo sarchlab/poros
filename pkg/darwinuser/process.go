@@ -270,6 +270,22 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
 	kernel := kernelState{entropyState: entropyState, reserved: append([]addressSpan(nil), reserved...), protected: []addressSpan{{commpageRegionStart, commpageRegionEnd}}}
 	if o.StartupProfile != nil {
+		if o.StartupProfile.ExecutableStat != nil {
+			stat := *o.StartupProfile.ExecutableStat
+			kernel.executableStat = &stat
+			kernel.executablePaths = []string{o.ExecName, o.StartupProfile.ExecutableFile.Path}
+		}
+		if len(o.StartupProfile.StandardIO) != 0 {
+			kernel.standardIO = true
+			kernel.descriptors = make(map[uint32]guestDescriptor)
+			for _, entry := range o.StartupProfile.StandardIO {
+				file := &guestOpenFile{initialFD: entry.FD, stat: entry.Stat, flags: entry.Flags}
+				kernel.descriptors[entry.FD] = guestDescriptor{flags: entry.Flags, file: file}
+				if entry.FD > 0 {
+					kernel.outputFiles[entry.FD-1] = file
+				}
+			}
+		}
 		kernel.files = []FileIdentity{o.StartupProfile.ExecutableFile, o.StartupProfile.DyldFile}
 		kernel.sandboxSyscalls = append([]SandboxSyscallPermission(nil), o.StartupProfile.SandboxSyscalls...)
 		if o.StartupProfile.AMFI != nil {

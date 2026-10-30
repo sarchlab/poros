@@ -34,6 +34,8 @@ type AMFIPolicy struct {
 }
 
 type StartupProfile struct {
+	ExecutableStat      *FileStat                  `json:"executable_stat,omitempty"`
+	StandardIO          []InitialDescriptor        `json:"standard_io,omitempty"`
 	AMFI                *AMFIPolicy                `json:"amfi_dyld_policy,omitempty"`
 	SandboxSyscalls     []SandboxSyscallPermission `json:"sandbox_syscall_permissions,omitempty"`
 	BinarySHA256        string                     `json:"binary_sha256"`
@@ -65,6 +67,18 @@ func nextEntropyWord(state *uint64) uint64 {
 }
 
 func (s *StartupProfile) validate(image, dyld *loader.MachOImage) error {
+	if err := validateInitialDescriptors(s.StandardIO); err != nil {
+		return err
+	}
+	if s.ExecutableStat != nil {
+		stat := s.ExecutableStat
+		if err := stat.validate(); err != nil {
+			return err
+		}
+		if stat.Mode&0xf000 != 0x8000 || stat.Size < 0 || uint64(stat.Size) != image.FileSize || stat.Inode != s.ExecutableFile.ObjectID {
+			return fmt.Errorf("executable stat does not match supplied image identity/size")
+		}
+	}
 	if len(s.SandboxSyscalls) > 32 {
 		return fmt.Errorf("too many captured sandbox syscall rules")
 	}

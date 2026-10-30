@@ -190,13 +190,12 @@ func TestParsecX264(t *testing.T) {
 	//   clang -target arm64-apple-macos -O1 -fno-vectorize
 	//         -fno-slp-vectorize -fno-unroll-loops -fno-stack-protector
 	//
-	// CNEG conditions patched to match emulator semantics:
-	//   cneg mi → cneg pl (condition field 5→4 in CSNEG encoding)
+	// Original architectural CNEG conditions; no emulator compensation.
 	code := []uint32{
 		0xd10283ff, 0xa90667fa, 0xa9075ff8, 0xa90857f6, 0xa9094ff4, 0x37f805a3, 0x52800009, 0x52800008,
 		0x4b0303eb, 0xaa0203ea, 0x93407d4a, 0x93407d6b, 0x1100046c, 0xaa2a03ed, 0x9b2305ad, 0x12b0000e,
 		0xaa0b03ef, 0xaa0d03f0, 0xaa0b03f1, 0xd2800007, 0x52800003, 0xaa0003f3, 0xaa1003f4, 0xd2800015,
-		0x38756a76, 0x38756a97, 0x6b1702d6, 0x5a9646d6, 0x0b0302c3, 0x910006b5, 0xf10042bf, 0x54ffff21,
+		0x38756a76, 0x38756a97, 0x6b1702d6, 0x5a9656d6, 0x0b0302c3, 0x910006b5, 0xf10042bf, 0x54ffff21,
 		0x910004e7, 0x8b0a0294, 0x8b0a0273, 0xf10040ff, 0x54fffe61, 0x6b0e007f, 0x1a88b1e8, 0x1a89b229,
 		0x1a8eb06e, 0x91000631, 0x91000610, 0x6b11019f, 0x54fffce1, 0x910005ef, 0x8b0a01ad, 0x6b0f019f,
 		0x54fffc21, 0x14000003, 0x52800008, 0x52800009, 0xd280000b, 0x5280000a, 0x93407c4c, 0x9b22050d,
@@ -209,7 +208,7 @@ func TestParsecX264(t *testing.T) {
 		0x928000e7, 0x8b070213, 0x79401274, 0x79402275, 0x79403276, 0x79404273, 0x0b1402b7, 0x4b150294,
 		0x0b160275, 0x0b1702b8, 0x8b070239, 0x79001338, 0x4b1302d3, 0x0b140276, 0x79002336, 0x4b1502f5,
 		0x79003335, 0x4b130293, 0x79004333, 0xb10008e7, 0x54fffda1, 0xd2800013, 0x78f36a34, 0x7100029f,
-		0x5a944694, 0x0b1400e7, 0x91000a73, 0xf100827f, 0x54ffff41, 0x110004e7, 0x0b47054a, 0x91001027,
+		0x5a945694, 0x0b1400e7, 0x91000a73, 0xf100827f, 0x54ffff41, 0x110004e7, 0x0b47054a, 0x91001027,
 		0x91001063, 0x91001042, 0xf100303f, 0xaa0703e1, 0x54fff683, 0x91001161, 0x8b0e01ad, 0x8b0e0000,
 		0xf100317f, 0xaa0103eb, 0x54fff563, 0xb900008a, 0xb90000a9, 0xb90000c8, 0xa9494ff4, 0xa94857f6,
 		0xa9475ff8, 0xa94667fa, 0x910283ff, 0xd65f03c0,
@@ -248,14 +247,14 @@ func TestParsecX264(t *testing.T) {
 
 	// Set up registers (match C function ABI)
 	em.Regs.PC = codeBase
-	em.Regs.WriteX(0, curBase+uint64(curOff))    // cur pointer
-	em.Regs.WriteX(1, refBase+uint64(curOff))    // ref pointer (same offset)
-	em.Regs.WriteX(2, uint64(frameW))            // stride (W2)
-	em.Regs.WriteX(3, uint64(searchRange))       // range (W3)
-	em.Regs.WriteX(4, outCostBase)               // best_cost output
-	em.Regs.WriteX(5, outMxBase)                 // best_mx output
-	em.Regs.WriteX(6, outMyBase)                 // best_my output
-	em.Regs.WriteX(30, haltPC)                   // return address
+	em.Regs.WriteX(0, curBase+uint64(curOff)) // cur pointer
+	em.Regs.WriteX(1, refBase+uint64(curOff)) // ref pointer (same offset)
+	em.Regs.WriteX(2, uint64(frameW))         // stride (W2)
+	em.Regs.WriteX(3, uint64(searchRange))    // range (W3)
+	em.Regs.WriteX(4, outCostBase)            // best_cost output
+	em.Regs.WriteX(5, outMxBase)              // best_mx output
+	em.Regs.WriteX(6, outMyBase)              // best_my output
+	em.Regs.WriteX(30, haltPC)                // return address
 	em.Regs.SP = stackBase + 8192
 	em.SetHaltPC(haltPC)
 

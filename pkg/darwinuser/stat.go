@@ -12,9 +12,8 @@ type StatTime struct {
 	Nanoseconds int64 `json:"nanoseconds,string"`
 }
 
-// DirectoryStat is the defined Darwin ARM64 stat64 payload for a captured
-// directory. Native capture verifies ABI padding and reserved fields are zero.
-type DirectoryStat struct {
+// FileStat is the defined Darwin ARM64 stat64 payload for a captured file. Native capture verifies ABI padding and reserved fields are zero.
+type FileStat struct {
 	Device       uint32   `json:"device"`
 	Mode         uint16   `json:"mode"`
 	Links        uint16   `json:"links"`
@@ -33,10 +32,7 @@ type DirectoryStat struct {
 	Generation   uint32   `json:"generation"`
 }
 
-func (s DirectoryStat) validate() error {
-	if s.Mode&0xf000 != 0x4000 {
-		return fmt.Errorf("captured directory stat has another file type")
-	}
+func (s FileStat) validate() error {
 	for _, stamp := range []StatTime{s.Access, s.Modification, s.Change, s.Birth} {
 		if stamp.Nanoseconds < 0 || stamp.Nanoseconds >= 1_000_000_000 {
 			return fmt.Errorf("invalid captured stat nanoseconds")
@@ -44,7 +40,7 @@ func (s DirectoryStat) validate() error {
 	}
 	return nil
 }
-func (s DirectoryStat) bytes() [144]byte {
+func (s FileStat) bytes() [144]byte {
 	var b [144]byte
 	binary.LittleEndian.PutUint32(b[0:], s.Device)
 	binary.LittleEndian.PutUint16(b[4:], s.Mode)
@@ -88,6 +84,37 @@ func (k *kernelState) statAt(r *emu.Registers, m *usermem.AddressSpace) bool {
 		}
 		b := entry.Stat.bytes()
 		if m.Write(r.GPR[2], b[:]) != nil {
+			return finish(14)
+		}
+		return finish(0)
+	}
+	return false
+}
+
+// stat answers only explicitly captured executable paths; other host paths are
+// not an implicit filesystem namespace.
+func (k *kernelState) stat(r *emu.Registers, m *usermem.AddressSpace) bool {
+	finish := func(errno uint64) bool { r.GPR[0] = errno; r.GPR[1] = 0; r.C = errno != 0; return true }
+	name, errno, handled := k.directoryPath(m, r.GPR[0], 0, false)
+	if !handled {
+		return false
+	}
+	if errno != 0 {
+		return finish(errno)
+	}
+	if k.executableStat == nil {
+		return false
+	}
+	for _, known := range k.executablePaths {
+		if name != known {
+			continue
+		}
+		output := r.GPR[1]
+		if m.Check(output, 144, usermem.Write, "stat64 copyout") != nil && m.Check(output, 1, usermem.Write, "stat64 copyout") == nil {
+			return false
+		}
+		b := k.executableStat.bytes()
+		if m.Write(output, b[:]) != nil {
 			return finish(14)
 		}
 		return finish(0)

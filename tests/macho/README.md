@@ -17,22 +17,18 @@ All initialization, arithmetic, output and exit remain native program work.
 
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
-The retained 24-case checkpoint from `7556bc3`, using captured native runtime
-and per-executable startup profiles and an explicit warm shared cache, reaches BSD trap 381 (`__mac_syscall`,
-Sandbox query) after 1,471,645 user instructions for integer/1000. It has executed
-the real cached dyld, retired the original dyld mapping, managed reply rights,
-and reserved its released address range through a real `mach_msg2`/`mach_vm_map`
-request. The 24 retained cases reach 1,471,269–1,556,144 instructions at that same
-read-only syscall-permission query. They have not reached benchmark main.
-That snapshot predates the selected sandbox-query handler. Current single-case
-validation completes the selected NAME2OID and captured integer-value queries,
-then consumes the explicitly captured AMFI policy and executes its SIMD flag
-packing, reads captured kernel settings and uses the selected runtime directory
-namespace. Integer/1000 now consumes the captured v4 roots bitmaps and cache file identity,
-queries its captured code-signing status, and allocates anonymous memory. It reaches
-BSD339 (`fstat64`) on stderr in dyld logging setup after 1,513,063 instructions.
-This remains incomplete startup.
-The 24-case samples have not been relabeled as a run of this newer collector.
+The retained 24-case checkpoint from `7556bc3` predates the architectural
+CNEG and register-count shift fixes described below. Its raw native observations
+remain diagnostic history; its guest startup path is not a validated execution
+reference and must not be used for accuracy or progression claims.
+Current integer/1000 validation with those fixes, the captured runtime profile,
+and the explicit warm shared cache retires 1,253,236 instructions and stops at
+BSD5 (`open`) on the captured main executable at PC `0x18048d0a4`, with no guest
+stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
+resolved selected runtime directories, queried main-file metadata and reached
+the next required file operation. This remains incomplete startup, not benchmark
+main or successful exit. The 24-case dataset has not been relabeled as a run of
+this newer collector.
 
 `scripts/macho-startup.c` captures documented kernel apple metadata from each
 explicit executable as a newly spawned, suspended child, then kills/reaps that
@@ -234,3 +230,34 @@ argument framing and zero-size behavior. Both preserve native map-before-copyout
 side effects for a read-only address slot; mixed-permission copyout stays unsupported.
 Owned native probes cover these contracts, including exact output extents and
 preserved Mach flags/registers. No CPU timing parameters change in this slice.
+
+### Scalar correctness and launch descriptors
+
+Native scalar oracles cover 7,168 CNEG conditions/flags/width/alias combinations,
+3,584 register-count LSL/LSR/ASR/ROR cases, and 48 REV16/REV32 cases. CNEG now
+negates when its displayed condition holds. The six historical CNEG opcode
+compensations in Canneal, VIPS and x264 were restored to their original compiler
+conditions together with this fix. No benchmark algorithms, input sizes, ELF
+binaries or CPU parameters changed. All 88 strict historical baseline cases pass
+with their existing counts, digests and cycles; no golden values were changed
+for this correction. Register-count preferred aliases now read
+and mask the count register; treating those operands as immediate zero had made
+dyld compare `__PAGEZERO` and `__LINKEDIT` equal. The actual comparison sequence
+and a delayed-load shift-count dependency are regression tests.
+
+The launch profile now records explicit `/dev/null` stdin and two distinct empty
+regular output files. Native child `dup2` actions establish those descriptors;
+Poros owns private buffers and shared open-file descriptions for dup aliases.
+BSD339 fstat64 and BSD4 write have native 10/15-case oracles. Combined output is
+bounded (default 1 MiB), retained in reports as base64, and never written through
+host guest descriptors. Post-write stat timestamps/blocks and partly accessible
+copy buffers remain explicit unsupported cases. Native temporary-file metadata
+is per launch, not a promise of identical inode/timestamps across samples.
+
+BSD338 stat64 resolves only captured main-executable aliases. Its optional
+metadata is captured from the same open file descriptor whose bytes are hashed;
+before/after identity, size, timestamps and hashes reject changed/replaced input.
+The profile must match the loaded image's SHA, size and inode. Eleven native
+stat64 cases verify the full 144-byte payload, errors and output boundaries;
+partly writable outputs remain unsupported before mutation. Unknown paths never
+become fabricated ENOENT results or implicit access to the host filesystem.

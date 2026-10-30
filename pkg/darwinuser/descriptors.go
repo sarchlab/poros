@@ -8,6 +8,7 @@ import (
 
 // Root is structural; descriptors never mount or expose the host filesystem.
 type guestDescriptor struct {
+	file  *guestOpenFile
 	path  string
 	flags uint32
 }
@@ -70,7 +71,11 @@ func (k *kernelState) allocateDescriptor(entry guestDescriptor) (uint32, bool) {
 	if k.descriptors == nil {
 		k.descriptors = make(map[uint32]guestDescriptor)
 	}
-	for fd := uint32(3); fd < maxGuestDescriptors; fd++ {
+	first := uint32(3)
+	if k.standardIO {
+		first = 0
+	}
+	for fd := first; fd < maxGuestDescriptors; fd++ {
 		if _, used := k.descriptors[fd]; !used {
 			k.descriptors[fd] = entry
 			return fd, true
@@ -81,7 +86,7 @@ func (k *kernelState) allocateDescriptor(entry guestDescriptor) (uint32, bool) {
 
 func (k *kernelState) duplicateDescriptor(r *emu.Registers) bool {
 	source := uint32(r.GPR[0])
-	if source < 3 {
+	if source < 3 && !k.standardIO {
 		return false
 	}
 	node, ok := k.descriptors[source]
@@ -103,9 +108,9 @@ func (k *kernelState) duplicateDescriptor(r *emu.Registers) bool {
 
 func (k *kernelState) closeDescriptor(r *emu.Registers) bool {
 	fd := uint32(r.GPR[0])
-	if fd < 3 {
+	if fd < 3 && !k.standardIO {
 		return false
-	} // Console lifetime is not modeled yet.
+	} // Uncaptured standard descriptors remain unsupported.
 	_, ok := k.descriptors[fd]
 	r.GPR[0] = 9
 	r.GPR[1] = 0
@@ -147,10 +152,13 @@ func (k *kernelState) directoryPath(m *usermem.AddressSpace, address uint64, dir
 		} // Darwin AT_FDCWD; no implicit guest cwd.
 		directory, ok := k.descriptors[dirfd]
 		if !ok {
-			if dirfd < 3 {
+			if dirfd < 3 && !k.standardIO {
 				return "", 0, false
 			}
 			return "", 9, true
+		}
+		if directory.file != nil {
+			return "", 0, false
 		}
 		if directory.path == "/" && (name == "." || name == "..") {
 			name = "/"
@@ -166,7 +174,7 @@ func (k *kernelState) fcntl(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return false
 	} // F_GETPATH only.
 	fd := uint32(r.GPR[0])
-	if fd < 3 {
+	if fd < 3 && !k.standardIO {
 		return false
 	}
 	finish := func(errno uint64) bool { r.GPR[0] = errno; r.GPR[1] = 0; r.C = errno != 0; return true }
@@ -174,6 +182,9 @@ func (k *kernelState) fcntl(r *emu.Registers, m *usermem.AddressSpace) bool {
 	if !ok {
 		return finish(9)
 	}
+	if node.file != nil {
+		return false
+	} // No host temporary path exposed.
 	value := append([]byte(node.path), 0)
 	if m.Check(r.GPR[2], len(value), usermem.Write, "F_GETPATH copyout") != nil && m.Check(r.GPR[2], 1, usermem.Write, "F_GETPATH copyout") == nil {
 		return false

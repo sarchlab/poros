@@ -12,6 +12,7 @@ import (
 )
 
 type RunOptions struct {
+	MaxOutput       int
 	MaxInstructions uint64
 	Timeout         time.Duration
 }
@@ -19,6 +20,8 @@ type RunOptions struct {
 // Result distinguishes an unsupported runtime dependency from successful exit.
 // No performance prediction is emitted for incomplete runtime bring-up.
 type Result struct {
+	Stdout       []byte `json:"stdout_base64"`
+	Stderr       []byte `json:"stderr_base64"`
 	Termination  string `json:"termination"`
 	Instructions uint64 `json:"instructions"`
 	PC           uint64 `json:"pc"`
@@ -50,12 +53,30 @@ func (p *Process) NewExecution(ctx context.Context, o RunOptions) (*Execution, e
 	if o.Timeout < 0 {
 		return nil, fmt.Errorf("negative timeout")
 	}
+	if o.MaxOutput == 0 {
+		o.MaxOutput = 1 << 20
+	}
+	if o.MaxOutput < 0 {
+		return nil, fmt.Errorf("negative output limit")
+	}
+	p.kernel.outputLimit = o.MaxOutput
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	p.ran = true
 	return &Execution{process: p, memory: emu.TrackedMemory{Space: p.Memory}, limit: o.MaxInstructions, ctx: ctx, cancel: cancel}, nil
 }
-func (x *Execution) Close()                          { x.cancel() }
-func (x *Execution) Result() Result                  { return x.result }
+func (x *Execution) Close() { x.cancel() }
+func (x *Execution) Result() Result {
+	result := x.result
+	result.Stdout = []byte{}
+	result.Stderr = []byte{}
+	if file := x.process.kernel.outputFiles[0]; file != nil {
+		result.Stdout = append(result.Stdout, file.data...)
+	}
+	if file := x.process.kernel.outputFiles[1]; file != nil {
+		result.Stderr = append(result.Stderr, file.data...)
+	}
+	return result
+}
 func (x *Execution) Stopped() bool                   { return x.done }
 func (x *Execution) CPURegisters() *emu.Registers    { return &x.process.Registers }
 func (x *Execution) MemoryAccesses() []emu.MemAccess { return x.memory.Accesses }

@@ -1,6 +1,7 @@
 package emu
 
 import (
+	"fmt"
 	"math/bits"
 
 	"golang.org/x/arch/arm64/arm64asm"
@@ -297,7 +298,7 @@ func (e *executor) execCNEG(inst arm64asm.Inst) error {
 	cond := inst.Args[2].(arm64asm.Cond)
 	val := e.readOperandVal(inst.Args[1], is32)
 	var result uint64
-	if e.regs.EvalCond(cond) {
+	if !e.regs.EvalCond(cond) {
 		result = val
 	} else {
 		if is32 {
@@ -372,7 +373,8 @@ func (e *executor) execLSL(inst arm64asm.Inst) error {
 	is32 := is32bit(inst.Args[0])
 	dst := inst.Args[0]
 	val := e.readOperandVal(inst.Args[1], is32)
-	shift := resolveImm(inst.Args[2])
+	// x/arch uses the preferred alias for both immediate and register forms.
+	shift := e.readOperandVal(inst.Args[2], is32)
 	if is32 {
 		result := uint64(uint32(val) << (shift & 31))
 		e.writeGPR(dst, mask32(result))
@@ -383,24 +385,15 @@ func (e *executor) execLSL(inst arm64asm.Inst) error {
 }
 
 func (e *executor) execLSLV(inst arm64asm.Inst) error {
-	is32 := is32bit(inst.Args[0])
-	dst := inst.Args[0]
-	val := e.readOperandVal(inst.Args[1], is32)
-	shift := e.readOperandVal(inst.Args[2], is32)
-	if is32 {
-		result := uint64(uint32(val) << (uint32(shift) & 31))
-		e.writeGPR(dst, mask32(result))
-	} else {
-		e.writeGPR(dst, val<<(shift&63))
-	}
-	return nil
+	return e.execLSL(inst)
 }
 
 func (e *executor) execLSR(inst arm64asm.Inst) error {
 	is32 := is32bit(inst.Args[0])
 	dst := inst.Args[0]
 	val := e.readOperandVal(inst.Args[1], is32)
-	shift := resolveImm(inst.Args[2])
+	// x/arch uses the preferred alias for both immediate and register forms.
+	shift := e.readOperandVal(inst.Args[2], is32)
 	if is32 {
 		result := uint32(val) >> (shift & 31)
 		e.writeGPR(dst, uint64(result))
@@ -411,24 +404,15 @@ func (e *executor) execLSR(inst arm64asm.Inst) error {
 }
 
 func (e *executor) execLSRV(inst arm64asm.Inst) error {
-	is32 := is32bit(inst.Args[0])
-	dst := inst.Args[0]
-	val := e.readOperandVal(inst.Args[1], is32)
-	shift := e.readOperandVal(inst.Args[2], is32)
-	if is32 {
-		result := uint32(val) >> (uint32(shift) & 31)
-		e.writeGPR(dst, uint64(result))
-	} else {
-		e.writeGPR(dst, val>>(shift&63))
-	}
-	return nil
+	return e.execLSR(inst)
 }
 
 func (e *executor) execASR(inst arm64asm.Inst) error {
 	is32 := is32bit(inst.Args[0])
 	dst := inst.Args[0]
 	val := e.readOperandVal(inst.Args[1], is32)
-	shift := resolveImm(inst.Args[2])
+	// x/arch uses the preferred alias for both immediate and register forms.
+	shift := e.readOperandVal(inst.Args[2], is32)
 	if is32 {
 		result := int32(val) >> (shift & 31)
 		e.writeGPR(dst, uint64(uint32(result)))
@@ -440,25 +424,15 @@ func (e *executor) execASR(inst arm64asm.Inst) error {
 }
 
 func (e *executor) execASRV(inst arm64asm.Inst) error {
-	is32 := is32bit(inst.Args[0])
-	dst := inst.Args[0]
-	val := e.readOperandVal(inst.Args[1], is32)
-	shift := e.readOperandVal(inst.Args[2], is32)
-	if is32 {
-		result := int32(val) >> (uint32(shift) & 31)
-		e.writeGPR(dst, uint64(uint32(result)))
-	} else {
-		result := int64(val) >> (shift & 63)
-		e.writeGPR(dst, uint64(result))
-	}
-	return nil
+	return e.execASR(inst)
 }
 
 func (e *executor) execROR(inst arm64asm.Inst) error {
 	is32 := is32bit(inst.Args[0])
 	dst := inst.Args[0]
 	val := e.readOperandVal(inst.Args[1], is32)
-	shift := resolveImm(inst.Args[2])
+	// x/arch uses the preferred alias for both immediate and register forms.
+	shift := e.readOperandVal(inst.Args[2], is32)
 	if is32 {
 		result := bits.RotateLeft32(uint32(val), -int(shift&31))
 		e.writeGPR(dst, uint64(result))
@@ -470,18 +444,7 @@ func (e *executor) execROR(inst arm64asm.Inst) error {
 }
 
 func (e *executor) execRORV(inst arm64asm.Inst) error {
-	is32 := is32bit(inst.Args[0])
-	dst := inst.Args[0]
-	val := e.readOperandVal(inst.Args[1], is32)
-	shift := e.readOperandVal(inst.Args[2], is32)
-	if is32 {
-		result := bits.RotateLeft32(uint32(val), -int(uint32(shift)&31))
-		e.writeGPR(dst, uint64(result))
-	} else {
-		result := bits.RotateLeft64(val, -int(shift&63))
-		e.writeGPR(dst, result)
-	}
-	return nil
+	return e.execROR(inst)
 }
 
 func (e *executor) execSXTW(inst arm64asm.Inst) error {
@@ -800,6 +763,30 @@ func (e *executor) execCSINV(inst arm64asm.Inst) error {
 		result = e.readOperandVal(inst.Args[1], is32)
 	} else {
 		result = ^e.readOperandVal(inst.Args[2], is32)
+	}
+	if is32 {
+		result = mask32(result)
+	}
+	e.writeGPR(inst.Args[0], result)
+	return nil
+}
+
+// REV16 reverses bytes in each halfword; scalar REV32 reverses bytes in each
+// word of Xd. Vector arrangements are separate unsupported forms.
+func (e *executor) execPartialREV(inst arm64asm.Inst) error {
+	if _, ok := inst.Args[0].(arm64asm.Reg); !ok {
+		return fmt.Errorf("unsupported vector byte reversal")
+	}
+	is32 := is32bit(inst.Args[0])
+	src := e.readOperandVal(inst.Args[1], is32)
+	var result uint64
+	if inst.Op == arm64asm.REV16 {
+		result = ((src & 0x00ff00ff00ff00ff) << 8) | ((src >> 8) & 0x00ff00ff00ff00ff)
+	} else {
+		if is32 {
+			return fmt.Errorf("invalid scalar REV32 width")
+		}
+		result = uint64(bits.ReverseBytes32(uint32(src))) | uint64(bits.ReverseBytes32(uint32(src>>32)))<<32
 	}
 	if is32 {
 		result = mask32(result)

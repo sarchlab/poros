@@ -31,10 +31,11 @@ class StartupIdentityTests(unittest.TestCase):
         fields = [dict(key=k, value=v) for k, v in values.items()]
         fields.append(dict(key="main_stack", stack_size=0x7fc000,
                            allocation_size=64<<20, top_minus_allocation_base=64<<20))
-        self.output = json.dumps(dict(filtered_apple=fields, cs_status=1, sandbox_syscall_permissions=[dict(number=550,decision="0")])).encode()
+        st=self.program.stat()
+        self.output = json.dumps(dict(executable_stat=dict(device=st.st_dev,inode=str(st.st_ino),size=str(st.st_size)), filtered_apple=fields, standard_io=[{"fd":i} for i in range(3)], cs_status=1, sandbox_syscall_permissions=[dict(number=550,decision="0")])).encode()
 
     def identity(self, value):
-        return dict(fsid="1", object_id="2" if value == "exe" else "3",
+        return dict(fsid="1", object_id=str(self.program.stat().st_ino) if value == "exe" else "3",
                     path=str(self.program if value == "exe" else self.dyld))
 
     def capture(self, identity=None):
@@ -47,9 +48,39 @@ class StartupIdentityTests(unittest.TestCase):
         self.assertEqual(result["binary_sha256"], macho.digest(self.program))
         self.assertEqual(result["dyld_sha256"], macho.digest(self.dyld))
 
+    def test_open_descriptor_binding_and_metadata_rejection(self):
+        def capture(command, **kwargs):
+            fds=kwargs["pass_fds"]
+            self.assertEqual(len(fds),4)
+            self.assertEqual(command[-4:], [str(fd) for fd in fds])
+            self.assertEqual(os.fstat(fds[-1]).st_ino,self.program.stat().st_ino)
+            return self.output
+        with patch.object(macho,"run_startup_helper",side_effect=capture):
+            self.capture()
+        for key in ("device","inode","size"):
+            data=json.loads(self.output)
+            data["executable_stat"][key]=str(int(data["executable_stat"][key])+1)
+            with patch.object(macho,"run_startup_helper",return_value=json.dumps(data).encode()):
+                with self.assertRaisesRegex(ValueError,"does not match opened input"):
+                    self.capture()
+
+    def test_same_bytes_path_replacement_rejected(self):
+        def replace(value):
+            identity=self.identity(value)
+            if value=="dyld":
+                replacement=self.program.with_name("replacement")
+                replacement.write_bytes(self.program.read_bytes())
+                replacement.replace(self.program)
+            return identity
+        with patch.object(macho,"run_startup_helper",return_value=self.output):
+            with self.assertRaisesRegex(ValueError,"changed during startup"):
+                self.capture(replace)
+
     def test_mutation_during_suspended_capture_rejected(self):
         for target in (self.program, self.dyld):
             with self.subTest(target=target.name):
+                self.program.write_bytes(b"owned executable")
+                self.dyld.write_bytes(b"owned runtime")
                 def capture(*args, **kwargs):
                     target.write_bytes(target.read_bytes()+b"changed")
                     return self.output

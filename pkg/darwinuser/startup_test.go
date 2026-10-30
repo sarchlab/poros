@@ -3,6 +3,7 @@ package darwinuser
 import (
 	"encoding/json"
 	"github.com/sarchlab/poros/internal/machotest"
+	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/loader"
 	"github.com/sarchlab/poros/pkg/usermem"
 	"reflect"
@@ -160,5 +161,37 @@ func TestStartupAMFIPolicyIsBoundAndCopied(t *testing.T) {
 	profile.AMFI.OutputFlags = 0
 	if p.kernel.amfi == nil || p.kernel.amfi.OutputFlags != 0x1df {
 		t.Fatal("mutable policy borrowed")
+	}
+}
+
+func TestExecutableStatBoundToOwnedImage(t *testing.T) {
+	profile := startupFixture(t)
+	profile.ExecutableStat = &FileStat{Mode: 0x81ed, Inode: profile.ExecutableFile.ObjectID, Size: int64(len(machotest.Image(2)))}
+	p := process(t, Options{StartupProfile: profile, ExecName: "/alias/program"})
+	profile.ExecutableStat.Size = 99
+	if p.kernel.executableStat.Size == 99 || !reflect.DeepEqual(p.kernel.executablePaths, []string{"/alias/program", "/guest/program"}) {
+		t.Fatal("executable metadata not privately bound")
+	}
+	for _, change := range []func(*FileStat){func(s *FileStat) { s.Size++ }, func(s *FileStat) { s.Size = -1 }, func(s *FileStat) { s.Inode++ }, func(s *FileStat) { s.Mode = 0x4000 }, func(s *FileStat) { s.Change.Nanoseconds = -1 }} {
+		profile := startupFixture(t)
+		profile.ExecutableStat = &FileStat{Mode: 0x81ed, Inode: profile.ExecutableFile.ObjectID, Size: int64(len(machotest.Image(2)))}
+		change(profile.ExecutableStat)
+		if _, e := Parse(machotest.Image(2), machotest.Image(7), Options{StartupProfile: profile}); e == nil {
+			t.Fatal("unbound executable stat accepted")
+		}
+	}
+	for _, name := range []string{"/alias/program", "/guest/program", "/unknown/program", "/guest/program/"} {
+		m := &usermem.AddressSpace{}
+		m.Map(0x1000, uint64(len(name)+1), usermem.Read, append([]byte(name), 0))
+		m.Map(0x2000, 144, usermem.Read|usermem.Write, nil)
+		r := emu.Registers{}
+		r.GPR[0] = 0x1000
+		r.GPR[1] = 0x2000
+		before := r
+		ok := p.kernel.stat(&r, m)
+		known := name == "/alias/program" || name == "/guest/program"
+		if ok != known || (!known && r != before) {
+			t.Fatal("unknown path fabricated", name, ok)
+		}
 	}
 }

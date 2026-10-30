@@ -115,7 +115,7 @@ func TestCapturedDevelopmentFirmwareCommpage(t *testing.T) {
 }
 
 func TestRuntimeDirectoriesAreValidatedAndCopied(t *testing.T) {
-	profile := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, Directories: []RuntimeDirectory{{Path: "/alias", CanonicalPath: "/canonical", Symlink: true, Stat: &DirectoryStat{Mode: 0x4000, Generation: 17}}}}
+	profile := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, Directories: []RuntimeDirectory{{Path: "/alias", CanonicalPath: "/canonical", Symlink: true, Stat: &FileStat{Mode: 0x4000, Generation: 17}}}}
 	p, e := Parse(machotest.Image(2), machotest.Image(7), Options{RuntimeProfile: &profile})
 	if e != nil {
 		t.Fatal(e)

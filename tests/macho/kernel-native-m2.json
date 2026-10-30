@@ -3557,6 +3557,393 @@
           "max_protection": -1
         }
       ]
+    },
+    {
+      "source": "fstat-stderr-probe.c",
+      "source_sha256": "3dd52cb0f313520a17220b347d5a4d136f9103c56b8bb7b7d39db71206f3c382",
+      "architecture": "arm64",
+      "binary_sha256": "76a633d789e16492272718d77df5accdd9ff8409be15b9910b3212510600d5b0",
+      "result": {
+        "cases": [
+          {
+            "case": "owned_regular_stderr",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "0d0000018081000097365b0e00000000f701000014000000000000000000000083dbe46a00000000069434110000000083dbe46a00000000069434110000000083dbe46a0000000074c835110000000083dbe46a000000000694341100000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "low32_fd",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "0d0000018081000097365b0e00000000f701000014000000000000000000000083dbe46a00000000069434110000000083dbe46a00000000069434110000000083dbe46a0000000074c835110000000083dbe46a000000000694341100000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "invalid_fd",
+            "x0": 9,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "null_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": ""
+          },
+          {
+            "case": "readonly_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "unmapped_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": ""
+          },
+          {
+            "case": "partial_eight",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "partial_128",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "0d0000018081000097365b0e00000000f701000014000000000000000000000083dbe46a00000000069434110000000083dbe46a00000000069434110000000083dbe46a0000000074c835110000000083dbe46a0000000006943411000000000000000000000000000000000000000000100000000000000000000000000000"
+          },
+          {
+            "case": "missing_last_byte",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "0d0000018081000097365b0e00000000f701000014000000000000000000000083dbe46a00000000069434110000000083dbe46a00000000069434110000000083dbe46a0000000074c835110000000083dbe46a0000000006943411000000000000000000000000000000000000000000100000000000000000000000000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "exact_144",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "0d0000018081000097365b0e00000000f701000014000000000000000000000083dbe46a00000000069434110000000083dbe46a00000000069434110000000083dbe46a0000000074c835110000000083dbe46a000000000694341100000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000"
+          }
+        ],
+        "decoded_fields": {
+          "device": 16777229,
+          "mode": 33152,
+          "links": 0,
+          "inode": "240858775",
+          "uid": 503,
+          "gid": 20,
+          "rdev": 0,
+          "size": "0",
+          "blocks": "0",
+          "block_size": 4096,
+          "flags": 0,
+          "generation": 0,
+          "atime": {
+            "seconds": "1793383299",
+            "nanoseconds": "288658438"
+          },
+          "mtime": {
+            "seconds": "1793383299",
+            "nanoseconds": "288658438"
+          },
+          "ctime": {
+            "seconds": "1793383299",
+            "nanoseconds": "288737396"
+          },
+          "birthtime": {
+            "seconds": "1793383299",
+            "nanoseconds": "288658438"
+          }
+        },
+        "decoded_fields_method": "Independent Python unpack of native 144-byte stat64 output; native probe compares it against libc fstat and checks the untouched tail."
+      }
+    },
+    {
+      "source": "write-probe.c",
+      "source_sha256": "b58f3b0b10888988b258dc3accecd0e1212b973d9b6cba84e727e391a897bf11",
+      "architecture": "arm64",
+      "binary_sha256": "24d92f00cbcc0ce5712744ab4b930eded651b23197bc0554738ba39893e4eff9",
+      "result": [
+        {
+          "case": "regular_bytes",
+          "x0": 7,
+          "x1": 0,
+          "x2": 7,
+          "carry": false,
+          "offset": 7,
+          "dup_offset": 7,
+          "contents": "68656c6c6f210a"
+        },
+        {
+          "case": "low32_fd",
+          "x0": 7,
+          "x1": 0,
+          "x2": 7,
+          "carry": false,
+          "offset": 7,
+          "dup_offset": 7,
+          "contents": "68656c6c6f210a"
+        },
+        {
+          "case": "zero_null",
+          "x0": 0,
+          "x1": 0,
+          "x2": 0,
+          "carry": false,
+          "offset": 0,
+          "dup_offset": 0,
+          "contents": ""
+        },
+        {
+          "case": "zero_unmapped",
+          "x0": 0,
+          "x1": 0,
+          "x2": 0,
+          "carry": false,
+          "offset": 0,
+          "dup_offset": 0,
+          "contents": ""
+        },
+        {
+          "case": "invalid_fd",
+          "x0": 9,
+          "x1": 0,
+          "x2": 7,
+          "carry": true,
+          "offset": 0,
+          "dup_offset": 0,
+          "contents": ""
+        },
+        {
+          "case": "invalid_fd_zero",
+          "x0": 9,
+          "x1": 0,
+          "x2": 0,
+          "carry": true,
+          "offset": 0,
+          "dup_offset": 0,
+          "contents": ""
+        },
+        {
+          "case": "readonly_fd",
+          "x0": 9,
+          "x1": 0,
+          "x2": 7,
+          "carry": true,
+          "offset": 0,
+          "dup_offset": 0,
+          "contents": ""
+        },
+        {
+          "case": "readonly_fd_zero",
+          "x0": 9,
+          "x1": 0,
+          "x2": 0,
+          "carry": true,
+          "offset": 0,
+          "dup_offset": 0,
+          "contents": ""
+        },
+        {
+          "case": "null_nonzero",
+          "x0": 14,
+          "x1": 0,
+          "x2": 7,
+          "carry": true,
+          "offset": 0,
+          "dup_offset": 0,
+          "contents": ""
+        },
+        {
+          "case": "unmapped_nonzero",
+          "x0": 14,
+          "x1": 0,
+          "x2": 7,
+          "carry": true,
+          "offset": 0,
+          "dup_offset": 0,
+          "contents": ""
+        },
+        {
+          "case": "readonly_input",
+          "x0": 7,
+          "x1": 0,
+          "x2": 7,
+          "carry": false,
+          "offset": 7,
+          "dup_offset": 7,
+          "contents": "5a5a5a5a5a5a5a"
+        },
+        {
+          "case": "exact_boundary",
+          "x0": 7,
+          "x1": 0,
+          "x2": 7,
+          "carry": false,
+          "offset": 7,
+          "dup_offset": 7,
+          "contents": "5a5a5a5a5a5a5a"
+        },
+        {
+          "case": "partial_one",
+          "x0": 14,
+          "x1": 0,
+          "x2": 7,
+          "carry": true,
+          "offset": 0,
+          "dup_offset": 0,
+          "contents": ""
+        },
+        {
+          "case": "partial_six",
+          "x0": 14,
+          "x1": 0,
+          "x2": 7,
+          "carry": true,
+          "offset": 0,
+          "dup_offset": 0,
+          "contents": ""
+        },
+        {
+          "case": "dup_shared_offset",
+          "x0": 7,
+          "x1": 0,
+          "x2": 7,
+          "carry": false,
+          "offset": 14,
+          "dup_offset": 14,
+          "contents": "7072656669783a68656c6c6f210a"
+        }
+      ]
+    },
+    {
+      "source": "stat-executable-probe.c",
+      "source_sha256": "9978e5250a005ad10d560855f102d26a10ae2d443d8d8353db7266f5bea3f1ba",
+      "architecture": "arm64",
+      "binary_sha256": "c862c66dba86e74d38356b84bd5b183c70a253c920c356d7c794df263e433417",
+      "result": {
+        "cases": [
+          {
+            "case": "owned_executable",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "0d000001ed8101006c485b0e00000000f7010000000000000000000000000000b4dee46a00000000e5737f0300000000b4dee46a00000000edc2c30000000000b4dee46a00000000edc2c30000000000b4dee46a00000000cfc6c20000000000c88400000000000048000000000000000010000000000000000000000000000000000000000000000000000000000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "empty_path",
+            "x0": 2,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "null_path",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "unmapped_path",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "null_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": ""
+          },
+          {
+            "case": "readonly_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "unmapped_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": ""
+          },
+          {
+            "case": "partial_eight",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "partial_128",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "0d000001ed8101006c485b0e00000000f7010000000000000000000000000000b4dee46a00000000e5737f0300000000b4dee46a00000000edc2c30000000000b4dee46a00000000edc2c30000000000b4dee46a00000000cfc6c20000000000c884000000000000480000000000000000100000000000000000000000000000"
+          },
+          {
+            "case": "missing_last_byte",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "0d000001ed8101006c485b0e00000000f7010000000000000000000000000000b4dee46a00000000e5737f0300000000b4dee46a00000000edc2c30000000000b4dee46a00000000edc2c30000000000b4dee46a00000000cfc6c20000000000c884000000000000480000000000000000100000000000000000000000000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "exact_144",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "0d000001ed8101006c485b0e00000000f7010000000000000000000000000000b4dee46a00000000e5737f0300000000b4dee46a00000000edc2c30000000000b4dee46a00000000edc2c30000000000b4dee46a00000000cfc6c20000000000c88400000000000048000000000000000010000000000000000000000000000000000000000000000000000000000000"
+          }
+        ],
+        "decoded_fields": {
+          "device": 16777229,
+          "mode": 33261,
+          "links": 1,
+          "inode": "240863340",
+          "uid": 503,
+          "gid": 0,
+          "rdev": 0,
+          "size": "33992",
+          "blocks": "72",
+          "block_size": 4096,
+          "flags": 0,
+          "generation": 0,
+          "atime": {
+            "seconds": "1793384116",
+            "nanoseconds": "58684389"
+          },
+          "mtime": {
+            "seconds": "1793384116",
+            "nanoseconds": "12829421"
+          },
+          "ctime": {
+            "seconds": "1793384116",
+            "nanoseconds": "12829421"
+          },
+          "birthtime": {
+            "seconds": "1793384116",
+            "nanoseconds": "12764879"
+          }
+        },
+        "decoded_fields_method": "Independent Python struct unpack of original native stat64 byte payload; ABI padding/reserved zero checked."
+      }
     }
   ]
 }

@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def observe(binary, args):
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        p = subprocess.Popen(args, executable=str(binary), env={}, stdout=out, stderr=err)
+        p = subprocess.Popen(args, executable=str(binary), env={}, stdout=out, stderr=err, stdin=subprocess.DEVNULL)
         deadline = time.monotonic() + 30
         while True:
             pid, status, usage = os.wait4(p.pid, os.WNOHANG)
@@ -58,7 +58,7 @@ def runtime_profile():
         cache_parent=str(Path(profile["cache_dynamic"]["cache_path"]).parent)
         if not any(d["canonical_path"]==cache_parent for d in profile["directories"]):
             raise ValueError("captured directory does not match native shared-cache location")
-        return profile, dict(source_sha256=digest(source), binary_sha256=digest(binary),
+        return profile, dict(source_sha256=digest(source), source_dependencies_sha256={"macho-stat.h":digest(ROOT/"scripts/macho-stat.h")}, binary_sha256=digest(binary),
                              compiler=subprocess.check_output([compiler, "--version"], text=True).strip())
 
 
@@ -76,9 +76,9 @@ def run_owned_process(command, timeout, **kwargs):
             process.wait()
 
 
-def run_startup_helper(command, timeout=10):
+def run_startup_helper(command, timeout=10, pass_fds=()):
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        code = run_owned_process(command, timeout, env={}, stdout=out, stderr=err)
+        code = run_owned_process(command, timeout, env={}, stdout=out, stderr=err,pass_fds=pass_fds)
         if code:
             raise subprocess.CalledProcessError(code, command)
         out.seek(0)
@@ -92,14 +92,28 @@ def run_startup_helper(command, timeout=10):
 
 def capture_startup_profile(helper, binary, dyld, identity):
     before_binary, before_dyld = digest(binary), digest(dyld)
-    captured = json.loads(run_startup_helper([str(helper), str(binary.resolve())]))
+    with open(binary,"rb") as executable, open(os.devnull,"rb") as stdin, tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        initial_stat=os.fstat(executable.fileno())
+        if hashlib.file_digest(executable,"sha256").hexdigest()!=before_binary:
+            raise ValueError("runtime input changed during startup metadata capture")
+        descriptors=(stdin.fileno(),stdout.fileno(),stderr.fileno(),executable.fileno())
+        captured = json.loads(run_startup_helper([str(helper),str(binary.resolve()),*(str(fd) for fd in descriptors)],pass_fds=descriptors))
+        final_stat=os.fstat(executable.fileno())
+        stable=lambda st:(st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns)
+        executable.seek(0)
+        if stable(initial_stat)!=stable(final_stat) or hashlib.file_digest(executable,"sha256").hexdigest()!=before_binary:
+            raise ValueError("runtime input changed during startup metadata capture")
+        metadata=captured["executable_stat"]
+        if (int(metadata["device"])!=initial_stat.st_dev or int(metadata["inode"])!=initial_stat.st_ino
+            or int(metadata["size"])!=initial_stat.st_size):
+            raise ValueError("captured executable stat does not match opened input")
     fields = {item["key"]: item for item in captured["filtered_apple"]}
     if len(fields) != len(captured["filtered_apple"]) or "ptrauth_disabled" in fields:
         raise ValueError("unsupported duplicate or downgraded arm64e startup metadata")
     stack = fields["main_stack"]
     if stack["top_minus_allocation_base"] != stack["allocation_size"]:
         raise ValueError("unsupported native stack reservation geometry")
-    profile = dict(binary_sha256=before_binary, dyld_sha256=before_dyld,
+    profile = dict(executable_stat=captured["executable_stat"], binary_sha256=before_binary, dyld_sha256=before_dyld,standard_io=captured["standard_io"],
                    sandbox_syscall_permissions=captured["sandbox_syscall_permissions"],
                    executable_file=identity(fields["executable_file"]["value"]),
                    dyld_file=identity(fields["dyld_file"]["value"]),
@@ -108,12 +122,18 @@ def capture_startup_profile(helper, binary, dyld, identity):
                    pfz=int(fields["pfz"]["value"],16), stack_size=stack["stack_size"],
                    stack_allocation_size=stack["allocation_size"],
                    security_config=int(fields["security_config"]["value"],16))
+    if int(profile["executable_file"]["object_id"])!=initial_stat.st_ino:
+        raise ValueError("captured executable identity does not match opened input")
     if "arm64e_abi" in fields:
         profile["arm64e_abi"] = fields["arm64e_abi"]["value"]
     for path, expected in [(binary, before_binary), (dyld, before_dyld),
                            (profile["executable_file"]["path"], before_binary),
                            (profile["dyld_file"]["path"], before_dyld)]:
         if digest(path) != expected:
+            raise ValueError("runtime input changed during startup metadata capture")
+    for path in (binary, profile["executable_file"]["path"]):
+        st=os.stat(path)
+        if (st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns)!=stable(final_stat):
             raise ValueError("runtime input changed during startup metadata capture")
     return profile, captured["cs_status"]
 
@@ -132,7 +152,7 @@ def capture_amfi_policy(binary, library, case, expected_status):
         fd=record.fileno()
         code=run_owned_process(case["args"],30,executable=str(binary),
             env={"DYLD_INSERT_LIBRARIES":str(library), "POROS_QUERY_FD":str(fd)},
-            stdout=out,stderr=err,pass_fds=(fd,))
+            stdout=out,stderr=err,stdin=subprocess.DEVNULL,pass_fds=(fd,))
         out.seek(0);err.seek(0);record.seek(0)
         stdout,stderr,data=out.read(65537),err.read(65537),record.read(4097)
         if code or stderr or len(data)>4096:
@@ -174,9 +194,9 @@ def startup_profiles(binaries, dyld, cases):
         sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
         command = [compiler, "-isysroot", sdk, "-arch", "arm64", "-Wall", "-Wextra", "-Werror", str(source), "-o", str(helper)]
         subprocess.run(command, check=True, timeout=30)
-        probe = dict(source_sha256=digest(source), binary_sha256=digest(helper),
+        probe = dict(source_sha256=digest(source), source_dependencies_sha256={"macho-stat.h":digest(ROOT/"scripts/macho-stat.h")}, binary_sha256=digest(helper),
                      compiler=subprocess.check_output([compiler, "--version"], text=True).strip(),
-                     protocol="own suspended child; fixed argv program/1, env{}; filtered KERN_PROCARGS2; kill/reap; fsgetpath of captured identities")
+                     protocol="own suspended child; fixed argv program/1, env{}; stdin=/dev/null, stdout/stderr=distinct empty owned regular files; exact launch descriptor stat64 capture; filtered KERN_PROCARGS2; kill/reap; fsgetpath of captured identities")
         library=Path(directory)/"amfi.dylib"
         amfi_source=ROOT/"scripts/macho-amfi.c"
         subprocess.run([compiler,"-isysroot",sdk,"-arch","arm64","-Wall","-Wextra","-Werror","-dynamiclib",str(amfi_source),"-o",str(library)],check=True,timeout=30)

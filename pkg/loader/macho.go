@@ -45,6 +45,7 @@ type MachOLinkedit struct {
 // imports, execute initializers, apply fixups, or verify an Apple code signature.
 // MainEntry belongs to dyld; ThreadEntry is the kernel entry for MH_DYLINKER.
 type MachOImage struct {
+	FileSize                                         uint64 // complete supplied file, including all universal slices
 	Type, Subtype, Flags                             uint32
 	HeaderAddress, MainEntry, ThreadEntry, StackSize uint64
 	AllImageInfoAddress, AllImageInfoSize            uint64
@@ -99,7 +100,7 @@ func ParseMachO(input []byte, fileType uint32) (*MachOImage, error) {
 		return nil, machoError("malformed", "load commands outside file")
 	}
 	hash := sha256.Sum256(input)
-	img := &MachOImage{Type: typ, Subtype: sub, Flags: u.Uint32(b[24:]), SHA256: hex.EncodeToString(hash[:])}
+	img := &MachOImage{FileSize: uint64(len(input)), Type: typ, Subtype: sub, Flags: u.Uint32(b[24:]), SHA256: hex.EncodeToString(hash[:])}
 	var mainSeen, threadSeen, headerSeen, dylinkerSeen, allImageInfoSeen bool
 	var entryOffset, total uint64
 	off, end := uint64(32), uint64(32)+uint64(size)

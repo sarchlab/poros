@@ -10,10 +10,10 @@ import (
 // verifies both aliases name the same directory and the canonical alias can be
 // opened without following symlinks. Symlink describes traversal of Path.
 type RuntimeDirectory struct {
-	Stat          *DirectoryStat `json:"stat,omitempty"`
-	Path          string         `json:"path"`
-	CanonicalPath string         `json:"canonical_path"`
-	Symlink       bool           `json:"symlink"`
+	Stat          *FileStat `json:"stat,omitempty"`
+	Path          string    `json:"path"`
+	CanonicalPath string    `json:"canonical_path"`
+	Symlink       bool      `json:"symlink"`
 }
 
 func validateDirectories(entries []RuntimeDirectory) error {
@@ -23,6 +23,9 @@ func validateDirectories(entries []RuntimeDirectory) error {
 	aliases := map[string]bool{"/": true}
 	for _, entry := range entries {
 		if entry.Stat != nil {
+			if entry.Stat.Mode&0xf000 != 0x4000 {
+				return fmt.Errorf("captured directory stat has another file type")
+			}
 			if e := entry.Stat.validate(); e != nil {
 				return e
 			}

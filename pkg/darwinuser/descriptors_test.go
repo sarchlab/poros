@@ -273,7 +273,7 @@ func TestDyldDirectoryTrailingSeparatorNativeOpen(t *testing.T) {
 	}
 	for _, tc := range cases {
 		const canonical = "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld"
-		node := RuntimeDirectory{Path: "/System/Cryptexes/OS/System/Library/dyld", CanonicalPath: canonical, Symlink: true, Stat: &DirectoryStat{Device: tc.Device, Inode: tc.Inode, Mode: tc.Mode}}
+		node := RuntimeDirectory{Path: "/System/Cryptexes/OS/System/Library/dyld", CanonicalPath: canonical, Symlink: true, Stat: &FileStat{Device: tc.Device, Inode: tc.Inode, Mode: tc.Mode}}
 		k := kernelState{directories: []RuntimeDirectory{node}, descriptors: map[uint32]guestDescriptor{3: {path: "/"}, 4: {path: "/System/Volumes/Preboot/Cryptexes/OS"}}}
 		m := &usermem.AddressSpace{}
 		m.Map(0x1000, uint64(len(tc.Path)+1), usermem.Read, append([]byte(tc.Path), 0))

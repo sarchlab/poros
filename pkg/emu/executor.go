@@ -163,6 +163,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execBFXIL(inst)
 	case arm64asm.EXTR:
 		return false, e.execEXTR(inst)
+	case arm64asm.REV16, arm64asm.REV32:
+		return false, e.execPartialREV(inst)
 	case arm64asm.REV:
 		return false, e.execREV(inst)
 	case arm64asm.RBIT:

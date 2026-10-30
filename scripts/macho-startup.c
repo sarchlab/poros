@@ -2,6 +2,8 @@
 // suspended child. Fixed argv and an empty environment prevent application
 // arguments from being mistaken for kernel apple keys. The child never runs.
 #include <spawn.h>
+#include <fcntl.h>
+#include "macho-stat.h"
 #include <sys/sysctl.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -51,7 +53,7 @@ static int hex_value(const char *s, uint64_t *value) {
     *value=(uint64_t)v; return 0;
 }
 extern int csops(pid_t,unsigned int,void*,size_t);
-static int emit(char *buffer, size_t size, uint64_t decision, uint32_t cs_status) {
+static int emit(char *buffer, size_t size, uint64_t decision, uint32_t cs_status, const struct stat stats[3],const int file_flags[3],const struct stat *executable_stat) {
     if (size < 4) return -1;
     int argc; memcpy(&argc,buffer,4); if (argc != 2) return -1;
     size_t pos=4; char *s;
@@ -99,16 +101,39 @@ static int emit(char *buffer, size_t size, uint64_t decision, uint32_t cs_status
         else printf(",\"value\":\"%s\"",values[k]);
         printf("}");
     }
-    printf("],\"cs_status\":%u,\"sandbox_syscall_permissions\":[{\"number\":550,\"decision\":\"%llu\"}]}\n",cs_status,(unsigned long long)decision); return 0;
+    printf("],\"cs_status\":%u,\"sandbox_syscall_permissions\":[{\"number\":550,\"decision\":\"%llu\"}]",cs_status,(unsigned long long)decision);
+ printf(",\"standard_io\":[");
+ for(unsigned i=0;i<3;i++){printf("%s{\"fd\":%u,\"flags\":%d,\"stat\":",i?",":"",i,file_flags[i]);if(print_file_stat(&stats[i]))return -1;printf("}");}
+ printf("],\"executable_stat\":");if(print_file_stat(executable_stat))return -1;printf("}\n");return 0;
 }
 int main(int argc,char **argv) {
-    if(argc!=2 || argv[1][0]!='/')return 2;
+    if(argc!=6 || argv[1][0]!='/')return 2;
+    int descriptors[3],file_flags[3];struct stat stats[3],null_stat;
+    if(stat("/dev/null",&null_stat))return 10;
+    for(unsigned i=0;i<3;i++) {
+      char *end;errno=0;long fd=strtol(argv[i+2],&end,10);
+      if(errno||*end||fd<3||fd>65535)return 10;descriptors[i]=(int)fd;
+      for(unsigned j=0;j<i;j++)if(descriptors[j]==fd)return 10;
+      file_flags[i]=fcntl((int)fd,F_GETFL);if(fstat((int)fd,&stats[i]))return 10;
+      if(i==0){if(file_flags[i]!=O_RDONLY||!S_ISCHR(stats[i].st_mode)||stats[i].st_rdev!=null_stat.st_rdev)return 10;}
+      else if(file_flags[i]!=O_RDWR||!S_ISREG(stats[i].st_mode)||stats[i].st_size||stats[i].st_blocks)return 10;
+    }
+    char *end;errno=0;long executable_fd=strtol(argv[5],&end,10);
+    if(errno||*end||executable_fd<3||executable_fd>65535)return 10;
+    for(unsigned i=0;i<3;i++)if(descriptors[i]==executable_fd)return 10;
+    struct stat executable_stat;if(fstat((int)executable_fd,&executable_stat)||!S_ISREG(executable_stat.st_mode))return 10;
     size_t capacity=1<<20;char *buffer=calloc(1,capacity);if(!buffer)return 3;
     posix_spawnattr_t attr;int error=posix_spawnattr_init(&attr);
     if(error){free(buffer);return 4;}
     error=posix_spawnattr_setflags(&attr,POSIX_SPAWN_START_SUSPENDED);
     pid_t child=-1;char *args[]={"program","1",NULL};char *env[]={NULL};
-    if(!error)error=posix_spawn(&child,argv[1],NULL,&attr,args,env);
+    posix_spawn_file_actions_t actions;int actions_ready=posix_spawn_file_actions_init(&actions)==0;
+    if(!actions_ready)error=EINVAL;
+    for(unsigned i=0;!error&&i<3;i++)error=posix_spawn_file_actions_adddup2(&actions,descriptors[i],(int)i);
+    for(unsigned i=0;!error&&i<3;i++)error=posix_spawn_file_actions_addclose(&actions,descriptors[i]);
+    if(!error)error=posix_spawn_file_actions_addclose(&actions,(int)executable_fd);
+    if(!error)error=posix_spawn(&child,argv[1],&actions,&attr,args,env);
+    if(actions_ready)posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attr);
     if(error){free(buffer);fprintf(stderr,"startup capture spawn failed: %d\n",error);return 5;}
     int mib[]={CTL_KERN,KERN_PROCARGS2,child};size_t size=capacity;
@@ -118,7 +143,7 @@ int main(int argc,char **argv) {
     if(reap(child)){free(buffer);fprintf(stderr,"startup capture could not reap its child\n");return 6;}
     if(result||size>capacity){free(buffer);fprintf(stderr,"startup capture query failed: %d\n",saved);return 7;}
     if(policy||signing){memset(buffer,0,capacity);free(buffer);fprintf(stderr,"owned child syscall permission query failed\n");return 9;}
-    result=emit(buffer,size,decision,cs_status);memset(buffer,0,capacity);free(buffer);
+    result=emit(buffer,size,decision,cs_status,stats,file_flags,&executable_stat);memset(buffer,0,capacity);free(buffer);
     if(result){fprintf(stderr,"unsupported or malformed kernel startup metadata\n");return 8;}
     return 0;
 }

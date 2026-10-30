@@ -163,7 +163,7 @@ func TestCNEG_CondTrue(t *testing.T) {
 	em.Regs.WriteX(4, 42) // equal, so EQ is true
 	em.Regs.WriteX(1, 7)
 	stepN(t, em, 2)
-	assertX(t, em, 0, 7) // cond true: Rd = Rn
+	assertX(t, em, 0, ^uint64(7)+1) // CNEG alias: negate when EQ is true.
 }
 
 func TestCNEG_CondFalse(t *testing.T) {
@@ -177,8 +177,8 @@ func TestCNEG_CondFalse(t *testing.T) {
 	em.Regs.WriteX(4, 99) // not equal, so EQ is false
 	em.Regs.WriteX(1, 5)
 	stepN(t, em, 2)
-	// cond false: Rd = -Rn = -5
-	want := ^uint64(5) + 1 // two's complement of 5
+	// CNEG alias: preserve when EQ is false.
+	want := uint64(5)
 	assertX(t, em, 0, want)
 }
 

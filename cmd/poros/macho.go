@@ -27,6 +27,7 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 	startupPath := fs.String("startup-profile", "", "explicit per-executable native kernel launch metadata JSON")
 	profilePath := fs.String("runtime-profile", "", "explicit JSON native commpage capability profile")
 	dyld := fs.String("dyld", "", "explicit local runtime dyld file (read-only)")
+	maxOutput := fs.Int("max-output", 1<<20, "combined guest stdout/stderr byte budget")
 	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
 	timeout := fs.Duration("timeout", 2*time.Second, "host execution timeout")
 	argv0 := fs.String("argv0", "program", "guest argv[0]")
@@ -79,7 +80,7 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		fmt.Fprintln(diagnostics, err)
 		return 2
 	}
-	result, err := p.Run(context.Background(), darwinuser.RunOptions{MaxInstructions: *steps, Timeout: *timeout})
+	result, err := p.Run(context.Background(), darwinuser.RunOptions{MaxInstructions: *steps, Timeout: *timeout, MaxOutput: *maxOutput})
 	if err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 2

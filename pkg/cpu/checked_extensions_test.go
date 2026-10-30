@@ -342,3 +342,27 @@ func TestOoOVectorShiftAndUnzipWaitForCountLoad(t *testing.T) {
 		t.Fatal(c.State.Err, x.regs.GPR[2], c.State.FpReady[:2], c.State.GprReady[2])
 	}
 }
+
+func TestOoORegisterShiftWaitsForLoadedCount(t *testing.T) {
+	// LDR X1,[X3]; LSR X2,X4,X1; EOR X5,X2,XZR; LSR X6,X4,#7.
+	// The independent immediate shift is the control for the loaded-count chain.
+	x := newExtensionExecution(t, []uint32{0xf9400061, 0x9ac12482, 0xca1f0045, 0xd347fc86, 0xd503201f})
+	x.regs.GPR[4] = 0x800
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || c.State.InstDone != 5 || x.regs.GPR[2] != 16 || x.regs.GPR[5] != 16 || x.regs.GPR[6] != 16 {
+		t.Fatal(c.State.Err, c.State.InstDone, x.regs.GPR[:7])
+	}
+	if c.State.GprReady[2] <= c.State.GprReady[1] || c.State.GprReady[5] <= c.State.GprReady[2] || c.State.GprReady[6] >= c.State.GprReady[1] {
+		t.Fatal("lost register-count dependency or false control dependency", c.State.GprReady[:7])
+	}
+}

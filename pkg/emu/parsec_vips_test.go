@@ -60,11 +60,7 @@ func TestParsecVips(t *testing.T) {
 	// Machine code: convolve2d function (66 instructions)
 	// Compiled from parsec/kernels/vips.c
 	//
-	// NOTE: CNEG conditions are inverted relative to the compiled
-	// code to match the emulator's CNEG implementation (condition
-	// sense is inverted relative to hardware):
-	//   cneg w10, w8, mi → cneg w10, w8, pl (0x5a88550a → 0x5a88450a)
-	//   cneg w16, w8, le → cneg w16, w8, gt (0x5a88c510 → 0x5a88d510)
+	// Original architectural CNEG conditions; no emulator compensation.
 	code := []uint32{
 		0x0b457ca8, // add   w8, w5, w5, lsr #31
 		0x13017d08, // asr   w8, w8, #1
@@ -77,14 +73,14 @@ func TestParsecVips(t *testing.T) {
 		0x52800009, // mov   w9, #0
 		0x4b08006e, // sub   w14, w3, w8
 		0x7100011f, // cmp   w8, #0
-		0x5a88450a, // cneg  w10, w8, pl  (patched: was mi)
+		0x5a88550a, // cneg  w10, w8, mi
 		0x93407d0b, // sxtw  x11, w8
 		0x93407c6c, // sxtw  x12, w3
 		0x93407dad, // sxtw  x13, w13
 		0x93407dce, // sxtw  x14, w14
 		0x4b0803ef, // neg   w15, w8
 		0x6b0f011f, // cmp   w8, w15
-		0x5a88d510, // cneg  w16, w8, gt  (patched: was le)
+		0x5a88c510, // cneg  w16, w8, le
 		0x0b100110, // add   w16, w8, w16
 		0x11000610, // add   w16, w16, #1
 		0xaa0b03f1, // mov   x17, x11
@@ -173,13 +169,13 @@ func TestParsecVips(t *testing.T) {
 
 	// Set up registers (match C function ABI)
 	em.Regs.PC = codeBase
-	em.Regs.WriteX(0, outputBase)  // output
-	em.Regs.WriteX(1, inputBase)   // input
-	em.Regs.WriteX(2, kernelBase)  // kernel
-	em.Regs.WriteX(3, uint64(W))   // width (W3)
-	em.Regs.WriteX(4, uint64(H))   // height (W4)
-	em.Regs.WriteX(5, uint64(K))   // ksize (W5)
-	em.Regs.WriteX(30, haltPC)     // return address
+	em.Regs.WriteX(0, outputBase) // output
+	em.Regs.WriteX(1, inputBase)  // input
+	em.Regs.WriteX(2, kernelBase) // kernel
+	em.Regs.WriteX(3, uint64(W))  // width (W3)
+	em.Regs.WriteX(4, uint64(H))  // height (W4)
+	em.Regs.WriteX(5, uint64(K))  // ksize (W5)
+	em.Regs.WriteX(30, haltPC)    // return address
 	em.Regs.SP = stackBase + 8192
 	em.SetHaltPC(haltPC)
 
