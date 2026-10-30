@@ -2,14 +2,10 @@ package darwinuser
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
-	"encoding/json"
 	"github.com/sarchlab/poros/internal/machotest"
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/usermem"
-	"os"
 	"testing"
 )
 
@@ -84,41 +80,16 @@ func TestMachMapNativeContract(t *testing.T) {
 }
 
 func TestHandledSVCClearsExclusiveLikeNative(t *testing.T) {
-	b, err := os.ReadFile("../../tests/macho/kernel-native-m2.json")
-	if err != nil {
-		t.Fatal(err)
+	var result struct {
+		Control int `json:"control_success"`
+		SVC     int `json:"svc_failed"`
+		Bad     int
 	}
-	var data struct {
-		Observations []struct {
-			Source string
-			Hash   string `json:"source_sha256"`
-			Result struct {
-				Control int `json:"control_success"`
-				SVC     int `json:"svc_failed"`
-				Bad     int
-			}
-		}
+	kernelNativeResult(t, "exclusive-svc-probe.c", &result)
+	if result.Bad != 0 || result.Control != 100 || result.SVC != 100 {
+		t.Fatal("native SVC evidence invalid", result)
 	}
-	if err = json.Unmarshal(b, &data); err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, ob := range data.Observations {
-		if ob.Source == "exclusive-svc-probe.c" {
-			src, e := os.ReadFile("../../tests/macho/" + ob.Source)
-			if e != nil {
-				t.Fatal(e)
-			}
-			hash := sha256.Sum256(src)
-			if hex.EncodeToString(hash[:]) != ob.Hash || ob.Result.Bad != 0 || ob.Result.Control != 100 || ob.Result.SVC != 100 {
-				t.Fatal("native SVC evidence invalid")
-			}
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("native SVC evidence missing")
-	}
+
 	for _, svc := range []bool{false, true} {
 		runtime := machotest.Image(7)
 		word := uint32(0xd503201f)
@@ -154,340 +125,259 @@ func TestHandledSVCClearsExclusiveLikeNative(t *testing.T) {
 }
 
 func TestMachDeallocateNativeContract(t *testing.T) {
-	var dataset struct {
-		Observations []struct {
-			Source string
-			Hash   string `json:"source_sha256"`
-			Result struct {
-				Cases []struct {
-					Case         int
-					Return       uint64
-					BeforeMask   uint32 `json:"before_mask"`
-					AfterMask    uint32 `json:"after_mask"`
-					MappedBefore uint32 `json:"mapped_before"`
-					MappedAfter  uint32 `json:"mapped_after"`
-					PageSize     uint64 `json:"page_size"`
-				}
-			}
+	var result struct {
+		Cases []struct {
+			Case         int
+			Return       uint64
+			BeforeMask   uint32 `json:"before_mask"`
+			AfterMask    uint32 `json:"after_mask"`
+			MappedBefore uint32 `json:"mapped_before"`
+			MappedAfter  uint32 `json:"mapped_after"`
+			PageSize     uint64 `json:"page_size"`
 		}
 	}
-	data, e := os.ReadFile("../../tests/macho/kernel-native-m2.json")
-	if e != nil {
-		t.Fatal(e)
+	kernelNativeResult(t, "vm-deallocate-probe.c", &result)
+	if len(result.Cases) != 14 {
+		t.Fatal("native case contract", result)
 	}
-	if e = json.Unmarshal(data, &dataset); e != nil {
-		t.Fatal(e)
-	}
-	found := false
-	for _, ob := range dataset.Observations {
-		if ob.Source != "vm-deallocate-probe.c" {
-			continue
+	for _, tc := range result.Cases {
+		if tc.PageSize != vmPage {
+			t.Fatal("native page mismatch")
 		}
-		found = true
-		src, e := os.ReadFile("../../tests/macho/" + ob.Source)
-		if e != nil {
+		const base uint64 = 0x200000000
+		m := &usermem.AddressSpace{}
+		if e := m.Map(base, 7*vmPage, usermem.Read|usermem.Write, nil); e != nil {
 			t.Fatal(e)
 		}
-		sum := sha256.Sum256(src)
-		if hex.EncodeToString(sum[:]) != ob.Hash || len(ob.Result.Cases) != 14 {
-			t.Fatal("native deallocate identity/cases")
+		r := emu.Registers{C: true}
+		r.GPR[16] = 0xfffffff4
+		r.GPR[0] = 0x103
+		r.GPR[1] = base
+		r.GPR[2] = 5 * vmPage
+		switch tc.Case {
+		case 0:
+		case 1:
+			r.GPR[1] += vmPage
+			r.GPR[2] = 0
+		case 2:
+			r.GPR[0] = 0
+		case 3:
+			r.GPR[1] += vmPage + 1
+			r.GPR[2] = 1
+		case 4:
+			r.GPR[1] += vmPage + 1
+			r.GPR[2] = vmPage
+		case 5:
+			m.Unmap(base+2*vmPage, vmPage)
+			r.GPR[1] += 2 * vmPage
+			r.GPR[2] = vmPage
+		case 6:
+			m.Unmap(base+2*vmPage, vmPage)
+		case 7:
+			r.GPR[1] = 0
+			r.GPR[2] = 0
+		case 8:
+			r.GPR[1] = 0
+			r.GPR[2] = 1
+		case 9:
+			r.GPR[1] = ^uint64(0)
+			r.GPR[2] = 1
+		case 10:
+			r.GPR[1] = 1 << 47
+			r.GPR[2] = vmPage
+		case 11:
+			r.GPR[1] = ^uint64(0) - vmPage + 1
+			r.GPR[2] = 2 * vmPage
+		case 12:
+			r.GPR[1] += vmPage
+			r.GPR[2] = vmPage
+			m.Protect(base+vmPage, vmPage, 0, false)
+		case 13:
+			r.GPR[1] += vmPage
+			r.GPR[2] = 3 * vmPage
+			m.Protect(base+2*vmPage, vmPage, usermem.Read, false)
+		default:
+			t.Fatal(tc.Case)
 		}
-		for _, tc := range ob.Result.Cases {
-			if tc.PageSize != vmPage {
-				t.Fatal("native page mismatch")
-			}
-			const base uint64 = 0x200000000
-			m := &usermem.AddressSpace{}
-			if e := m.Map(base, 7*vmPage, usermem.Read|usermem.Write, nil); e != nil {
-				t.Fatal(e)
-			}
-			r := emu.Registers{C: true}
-			r.GPR[16] = 0xfffffff4
-			r.GPR[0] = 0x103
-			r.GPR[1] = base
-			r.GPR[2] = 5 * vmPage
-			switch tc.Case {
-			case 0:
-			case 1:
-				r.GPR[1] += vmPage
-				r.GPR[2] = 0
-			case 2:
-				r.GPR[0] = 0
-			case 3:
-				r.GPR[1] += vmPage + 1
-				r.GPR[2] = 1
-			case 4:
-				r.GPR[1] += vmPage + 1
-				r.GPR[2] = vmPage
-			case 5:
-				m.Unmap(base+2*vmPage, vmPage)
-				r.GPR[1] += 2 * vmPage
-				r.GPR[2] = vmPage
-			case 6:
-				m.Unmap(base+2*vmPage, vmPage)
-			case 7:
-				r.GPR[1] = 0
-				r.GPR[2] = 0
-			case 8:
-				r.GPR[1] = 0
-				r.GPR[2] = 1
-			case 9:
-				r.GPR[1] = ^uint64(0)
-				r.GPR[2] = 1
-			case 10:
-				r.GPR[1] = 1 << 47
-				r.GPR[2] = vmPage
-			case 11:
-				r.GPR[1] = ^uint64(0) - vmPage + 1
-				r.GPR[2] = 2 * vmPage
-			case 12:
-				r.GPR[1] += vmPage
-				r.GPR[2] = vmPage
-				m.Protect(base+vmPage, vmPage, 0, false)
-			case 13:
-				r.GPR[1] += vmPage
-				r.GPR[2] = 3 * vmPage
-				m.Protect(base+2*vmPage, vmPage, usermem.Read, false)
-			default:
-				t.Fatal(tc.Case)
-			}
-			masks := func() (uint32, uint32) {
-				var read, mapped uint32
-				for i := uint32(0); i < 5; i++ {
-					a := base + uint64(i)*vmPage
-					if m.Check(a, 1, usermem.Read, "probe") == nil {
-						read |= 1 << i
-					}
-					for _, v := range m.Mappings() {
-						if v.Start <= a && a < v.End {
-							mapped |= 1 << i
-						}
+		masks := func() (uint32, uint32) {
+			var read, mapped uint32
+			for i := uint32(0); i < 5; i++ {
+				a := base + uint64(i)*vmPage
+				if m.Check(a, 1, usermem.Read, "probe") == nil {
+					read |= 1 << i
+				}
+				for _, v := range m.Mappings() {
+					if v.Start <= a && a < v.End {
+						mapped |= 1 << i
 					}
 				}
-				return read, mapped
 			}
-			read, mapped := masks()
-			if read != tc.BeforeMask || mapped != tc.MappedBefore {
-				t.Fatal("native setup mismatch", tc.Case, read, mapped)
-			}
-			k := kernelState{taskSendRefs: 1}
-			if !k.trap(&r, m) || r.GPR[0] != tc.Return || !r.C {
-				t.Fatal(tc, r)
-			}
-			read, mapped = masks()
-			if read != tc.AfterMask || mapped != tc.MappedAfter {
-				t.Fatal("native unmap mismatch", tc.Case, read, mapped)
-			}
+			return read, mapped
 		}
-	}
-	if !found {
-		t.Fatal("missing native deallocate observations")
+		read, mapped := masks()
+		if read != tc.BeforeMask || mapped != tc.MappedBefore {
+			t.Fatal("native setup mismatch", tc.Case, read, mapped)
+		}
+		k := kernelState{taskSendRefs: 1}
+		if !k.trap(&r, m) || r.GPR[0] != tc.Return || !r.C {
+			t.Fatal(tc, r)
+		}
+		read, mapped = masks()
+		if read != tc.AfterMask || mapped != tc.MappedAfter {
+			t.Fatal("native unmap mismatch", tc.Case, read, mapped)
+		}
 	}
 }
 
 func TestNativeFinalizedDyldRegistration(t *testing.T) {
-	var dataset struct {
-		Observations []struct {
-			Source string
-			Hash   string `json:"source_sha256"`
-			Result struct {
-				Completed bool `json:"startup_already_completed"`
-				Cases     []struct {
-					Case          int
-					X0, X1, Carry uint64
-					Unchanged     bool `json:"metadata_unchanged"`
-				}
-			}
+	var result struct {
+		Completed bool `json:"startup_already_completed"`
+		Cases     []struct {
+			Case          int
+			X0, X1, Carry uint64
+			Unchanged     bool `json:"metadata_unchanged"`
 		}
 	}
-	b, e := os.ReadFile("../../tests/macho/kernel-native-m2.json")
-	if e != nil {
-		t.Fatal(e)
+	kernelNativeResult(t, "proc-dyld-probe.c", &result)
+	if !result.Completed || len(result.Cases) != 8 {
+		t.Fatal("native case contract", result)
 	}
-	if e = json.Unmarshal(b, &dataset); e != nil {
-		t.Fatal(e)
-	}
-	found := false
-	for _, ob := range dataset.Observations {
-		if ob.Source != "proc-dyld-probe.c" {
-			continue
+	for _, tc := range result.Cases {
+		k := kernelState{taskSendRefs: 1, dyldInfoAddress: 0x2000, dyldInfoSize: 0x170, dyldInfoFinal: true}
+		r := emu.Registers{}
+		r.GPR[16] = 336
+		r.GPR[0] = 15
+		r.GPR[1] = 100
+		r.GPR[4] = 0x2000
+		r.GPR[5] = 0x170
+		switch tc.Case {
+		case 0:
+		case 1:
+			r.GPR[4] = 0
+		case 2:
+			r.GPR[1]++
+		case 3:
+			r.GPR[4] = 1
+			r.GPR[5] = 0
+		case 4:
+			r.GPR[4] = ^uint64(0)
+			r.GPR[5] = 1
+		case 5:
+			r.GPR[5] = 0
+		case 6:
+			r.GPR[5] = 0xffffffff
+		case 7:
+			r.GPR[2] = 99
+		default:
+			t.Fatal(tc.Case)
 		}
-		found = true
-		src, e := os.ReadFile("../../tests/macho/" + ob.Source)
-		if e != nil {
-			t.Fatal(e)
+		if !k.trap(&r, &usermem.AddressSpace{}) || r.GPR[0] != tc.X0 || r.GPR[1] != tc.X1 || r.C != (tc.Carry != 0) || !tc.Unchanged || k.dyldInfoAddress != 0x2000 || k.dyldInfoSize != 0x170 {
+			t.Fatal(tc, r, k)
 		}
-		sum := sha256.Sum256(src)
-		if hex.EncodeToString(sum[:]) != ob.Hash || !ob.Result.Completed || len(ob.Result.Cases) != 8 {
-			t.Fatal("native finalized metadata provenance")
-		}
-		for _, tc := range ob.Result.Cases {
-			k := kernelState{taskSendRefs: 1, dyldInfoAddress: 0x2000, dyldInfoSize: 0x170, dyldInfoFinal: true}
-			r := emu.Registers{}
-			r.GPR[16] = 336
-			r.GPR[0] = 15
-			r.GPR[1] = 100
-			r.GPR[4] = 0x2000
-			r.GPR[5] = 0x170
-			switch tc.Case {
-			case 0:
-			case 1:
-				r.GPR[4] = 0
-			case 2:
-				r.GPR[1]++
-			case 3:
-				r.GPR[4] = 1
-				r.GPR[5] = 0
-			case 4:
-				r.GPR[4] = ^uint64(0)
-				r.GPR[5] = 1
-			case 5:
-				r.GPR[5] = 0
-			case 6:
-				r.GPR[5] = 0xffffffff
-			case 7:
-				r.GPR[2] = 99
-			default:
-				t.Fatal(tc.Case)
-			}
-			if !k.trap(&r, &usermem.AddressSpace{}) || r.GPR[0] != tc.X0 || r.GPR[1] != tc.X1 || r.C != (tc.Carry != 0) || !tc.Unchanged || k.dyldInfoAddress != 0x2000 || k.dyldInfoSize != 0x170 {
-				t.Fatal(tc, r, k)
-			}
-		}
-	}
-	if !found {
-		t.Fatal("missing native finalized metadata")
 	}
 }
 
 func TestMunmapNativeContract(t *testing.T) {
-	var dataset struct {
-		Observations []struct {
-			Source string
-			Hash   string `json:"source_sha256"`
-			Result struct {
-				Cases []struct {
-					Case          int
-					X0, X1, Carry uint64
-					BeforeMask    uint32 `json:"before_mask"`
-					AfterMask     uint32 `json:"after_mask"`
-					MappedBefore  uint32 `json:"mapped_before"`
-					MappedAfter   uint32 `json:"mapped_after"`
-					PageSize      uint64 `json:"page_size"`
-				}
-			}
+	var result struct {
+		Cases []struct {
+			Case          int
+			X0, X1, Carry uint64
+			BeforeMask    uint32 `json:"before_mask"`
+			AfterMask     uint32 `json:"after_mask"`
+			MappedBefore  uint32 `json:"mapped_before"`
+			MappedAfter   uint32 `json:"mapped_after"`
+			PageSize      uint64 `json:"page_size"`
 		}
 	}
-	data, e := os.ReadFile("../../tests/macho/kernel-native-m2.json")
-	if e != nil {
-		t.Fatal(e)
+	kernelNativeResult(t, "munmap-probe.c", &result)
+	if len(result.Cases) != 14 {
+		t.Fatal("native case contract", result)
 	}
-	if e = json.Unmarshal(data, &dataset); e != nil {
-		t.Fatal(e)
-	}
-	found := false
-	for _, ob := range dataset.Observations {
-		if ob.Source != "munmap-probe.c" {
-			continue
+	for _, tc := range result.Cases {
+		if tc.PageSize != vmPage {
+			t.Fatal("native page mismatch")
 		}
-		found = true
-		src, e := os.ReadFile("../../tests/macho/" + ob.Source)
-		if e != nil {
+		const base uint64 = 0x200000000
+		m := &usermem.AddressSpace{}
+		if e := m.Map(base, 7*vmPage, usermem.Read|usermem.Write, nil); e != nil {
 			t.Fatal(e)
 		}
-		sum := sha256.Sum256(src)
-		if hex.EncodeToString(sum[:]) != ob.Hash || len(ob.Result.Cases) != 14 {
-			t.Fatal("native deallocate identity/cases")
+		r := emu.Registers{C: true}
+		r.GPR[16] = 73
+		r.GPR[0] = base
+		r.GPR[1] = 5 * vmPage
+		switch tc.Case {
+		case 0:
+		case 1:
+			r.GPR[0] += vmPage
+			r.GPR[1] = 0
+		case 2:
+			r.GPR[0] += vmPage
+			r.GPR[1] = 1
+		case 3:
+			r.GPR[0] += vmPage + 1
+			r.GPR[1] = 1
+		case 4:
+			r.GPR[0] += vmPage + 1
+			r.GPR[1] = vmPage
+		case 5:
+			m.Unmap(base+2*vmPage, vmPage)
+			r.GPR[0] += 2 * vmPage
+			r.GPR[1] = vmPage
+		case 6:
+			m.Unmap(base+2*vmPage, vmPage)
+		case 7:
+			r.GPR[0] = 0
+			r.GPR[1] = 0
+		case 8:
+			r.GPR[0] = 0
+			r.GPR[1] = 1
+		case 9:
+			r.GPR[0] = ^uint64(0)
+			r.GPR[1] = 1
+		case 10:
+			r.GPR[0] = 1 << 47
+			r.GPR[1] = vmPage
+		case 11:
+			r.GPR[0] = ^uint64(0) - vmPage + 1
+			r.GPR[1] = 2 * vmPage
+		case 12:
+			r.GPR[0] += vmPage
+			r.GPR[1] = vmPage
+			m.Protect(base+vmPage, vmPage, 0, false)
+		case 13:
+			r.GPR[0] += vmPage
+			r.GPR[1] = 3 * vmPage
+			m.Protect(base+2*vmPage, vmPage, usermem.Read, false)
+		default:
+			t.Fatal(tc.Case)
 		}
-		for _, tc := range ob.Result.Cases {
-			if tc.PageSize != vmPage {
-				t.Fatal("native page mismatch")
-			}
-			const base uint64 = 0x200000000
-			m := &usermem.AddressSpace{}
-			if e := m.Map(base, 7*vmPage, usermem.Read|usermem.Write, nil); e != nil {
-				t.Fatal(e)
-			}
-			r := emu.Registers{C: true}
-			r.GPR[16] = 73
-			r.GPR[0] = base
-			r.GPR[1] = 5 * vmPage
-			switch tc.Case {
-			case 0:
-			case 1:
-				r.GPR[0] += vmPage
-				r.GPR[1] = 0
-			case 2:
-				r.GPR[0] += vmPage
-				r.GPR[1] = 1
-			case 3:
-				r.GPR[0] += vmPage + 1
-				r.GPR[1] = 1
-			case 4:
-				r.GPR[0] += vmPage + 1
-				r.GPR[1] = vmPage
-			case 5:
-				m.Unmap(base+2*vmPage, vmPage)
-				r.GPR[0] += 2 * vmPage
-				r.GPR[1] = vmPage
-			case 6:
-				m.Unmap(base+2*vmPage, vmPage)
-			case 7:
-				r.GPR[0] = 0
-				r.GPR[1] = 0
-			case 8:
-				r.GPR[0] = 0
-				r.GPR[1] = 1
-			case 9:
-				r.GPR[0] = ^uint64(0)
-				r.GPR[1] = 1
-			case 10:
-				r.GPR[0] = 1 << 47
-				r.GPR[1] = vmPage
-			case 11:
-				r.GPR[0] = ^uint64(0) - vmPage + 1
-				r.GPR[1] = 2 * vmPage
-			case 12:
-				r.GPR[0] += vmPage
-				r.GPR[1] = vmPage
-				m.Protect(base+vmPage, vmPage, 0, false)
-			case 13:
-				r.GPR[0] += vmPage
-				r.GPR[1] = 3 * vmPage
-				m.Protect(base+2*vmPage, vmPage, usermem.Read, false)
-			default:
-				t.Fatal(tc.Case)
-			}
-			masks := func() (uint32, uint32) {
-				var read, mapped uint32
-				for i := uint32(0); i < 5; i++ {
-					a := base + uint64(i)*vmPage
-					if m.Check(a, 1, usermem.Read, "probe") == nil {
-						read |= 1 << i
-					}
-					for _, v := range m.Mappings() {
-						if v.Start <= a && a < v.End {
-							mapped |= 1 << i
-						}
+		masks := func() (uint32, uint32) {
+			var read, mapped uint32
+			for i := uint32(0); i < 5; i++ {
+				a := base + uint64(i)*vmPage
+				if m.Check(a, 1, usermem.Read, "probe") == nil {
+					read |= 1 << i
+				}
+				for _, v := range m.Mappings() {
+					if v.Start <= a && a < v.End {
+						mapped |= 1 << i
 					}
 				}
-				return read, mapped
 			}
-			read, mapped := masks()
-			if read != tc.BeforeMask || mapped != tc.MappedBefore {
-				t.Fatal("native setup mismatch", tc.Case, read, mapped)
-			}
-			k := kernelState{taskSendRefs: 1}
-			if !k.trap(&r, m) || r.GPR[0] != tc.X0 || r.GPR[1] != tc.X1 || r.C != (tc.Carry != 0) {
-				t.Fatal(tc, r)
-			}
-			read, mapped = masks()
-			if read != tc.AfterMask || mapped != tc.MappedAfter {
-				t.Fatal("native unmap mismatch", tc.Case, read, mapped)
-			}
+			return read, mapped
 		}
-	}
-	if !found {
-		t.Fatal("missing native deallocate observations")
+		read, mapped := masks()
+		if read != tc.BeforeMask || mapped != tc.MappedBefore {
+			t.Fatal("native setup mismatch", tc.Case, read, mapped)
+		}
+		k := kernelState{taskSendRefs: 1}
+		if !k.trap(&r, m) || r.GPR[0] != tc.X0 || r.GPR[1] != tc.X1 || r.C != (tc.Carry != 0) {
+			t.Fatal(tc, r)
+		}
+		read, mapped = masks()
+		if read != tc.AfterMask || mapped != tc.MappedAfter {
+			t.Fatal("native unmap mismatch", tc.Case, read, mapped)
+		}
 	}
 }

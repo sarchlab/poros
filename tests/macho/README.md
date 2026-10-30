@@ -17,17 +17,37 @@ All initialization, arithmetic, output and exit remain native program work.
 
 Current simulator status: the loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
-With the captured native profile and explicit warm shared cache, the installed
-M2 runtime reaches BSD trap 5 (`open`) after 1,479,984 user instructions for
-integer/1000. It has executed the real cached dyld, retired the original dyld
-mapping, managed reply rights, and reserved the released address range through
-a real `mach_msg2`/`mach_vm_map` request. The 24 retained cases reach
-1,479,614–1,564,489 instructions at that same open of their own executable.
-It has not reached benchmark main. The current apple vector includes only
-`executable_path` and the effective pointer-authentication mode. Native kernel
-file-identity and other startup hints still need explicit modeling; their
-absence may select extra fallback work such as this executable reopen.
-Successful bring-up alone will not establish equivalent native startup timing.
+With captured native runtime and per-executable startup profiles and an explicit
+warm shared cache, the installed M2 runtime reaches BSD trap 381 (`__mac_syscall`,
+Sandbox query) after 1,471,645 user instructions for integer/1000. It has executed
+the real cached dyld, retired the original dyld mapping, managed reply rights,
+and reserved its released address range through a real `mach_msg2`/`mach_vm_map`
+request. The 24 retained cases reach 1,471,269–1,556,144 instructions at that same
+read-only syscall-permission query. They have not reached benchmark main.
+The query is not assumed allowed; absent policy support remains a failure.
+
+`scripts/macho-startup.c` captures documented kernel apple metadata from each
+explicit executable as a newly spawned, suspended child, then kills/reaps that
+child without running its code. Fixed safe argv and an empty environment prevent
+arguments from spoofing metadata keys. Only nonsecret selected fields are
+retained; actual host stack guards, malloc entropy and pointer-munging values
+are omitted. The guest builds these from the recorded deterministic entropy seed,
+uses virtual stack addresses/port names, and retains native stack reservation
+geometry, file identities, CDHash, bootHash, PFZ pointer and security configuration.
+Generic arm64 does not synthesize `ptrauth_disabled`; that kernel key describes
+a different downgraded-arm64e launch. An observed `arm64e_abi` library hint is
+preserved independently of main subtype.
+
+`--startup-profile` binds this metadata to exact executable/dyld SHA identities.
+Capture verifies hashes before/after suspension and canonical identity resolution,
+and rejects changed files throughout measurement/simulation. Four profiles are
+hoisted once in the retained dataset with per-case hash references. BSD `fsgetpath`
+resolves only these explicit guest identities, never arbitrary host filesystem
+paths. Its 16 native cases cover copyin/error precedence, low-word FSID behavior,
+NUL-inclusive length and unchanged output on failure. Native submap evidence and
+XNU's arm64 contract reserve the entire [63GiB,64GiB) commpage region; unobserved
+PFZ instructions remain unavailable rather than invented. Successful bring-up
+alone will not establish equivalent native startup timing.
 This is **not successful benchmark execution or a whole-program accuracy
 measurement**. Missing dependencies remain failures with an exact guest PC.
 
@@ -108,3 +128,9 @@ that survive receive failure. These are kernel ABI operations, not skipped user
 library calls. Other services/descriptors/options and mixed-permission partial
 copyout faults remain explicit unsupported dependencies. All user runtime
 instructions before each trap still execute normally.
+
+Native SIMD coverage also includes 300 unsigned lane-to-GPR moves, 84 vector
+zero comparisons, and 200 ORN vector cases, including aliases and preserved
+register/flag state. Timing dependency tests link the vector load to the GPR
+consumer. The accompanying ordinary-RegSP classifier fix and its complete
+88-case cycle-impact audit are documented in `pkg/cpu/testdata/README.md`.

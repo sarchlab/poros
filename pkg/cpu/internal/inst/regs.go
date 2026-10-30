@@ -45,8 +45,15 @@ func FpIdx(r arm64asm.Reg) int {
 }
 
 func ArgGPR(arg arm64asm.Arg) int {
-	if r, ok := arg.(arm64asm.Reg); ok {
+	switch r := arg.(type) {
+	case arm64asm.Reg:
 		return GprIdx(r)
+	case arm64asm.RegSP:
+		// RegSP is an operand class: values 0..30 are ordinary GPRs.
+		// Actual SP/WSP stays outside the existing GPR scoreboard.
+		if idx := GprIdx(arm64asm.Reg(r)); idx >= 0 && idx < 31 {
+			return idx
+		}
 	}
 	return -1
 }
@@ -139,10 +146,8 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 	// Extract destination register from Args[0], handling both
 	// plain Reg and SIMD RegisterWithArrangement.
 	fp = ArgFP(inst.Args[0])
-	if r, ok := inst.Args[0].(arm64asm.Reg); ok {
-		if idx := GprIdx(r); idx >= 0 && idx < 31 {
-			gpr = idx
-		}
+	if idx := ArgGPR(inst.Args[0]); idx >= 0 && idx < 31 {
+		gpr = idx
 	}
 
 	// LDP writes two registers (Args[0] and Args[1]).
@@ -384,7 +389,7 @@ func ExtractArgGPRs(arg arm64asm.Arg, add func(int)) {
 	case arm64asm.Reg:
 		add(GprIdx(a))
 	case arm64asm.RegSP:
-		// SP — not tracked in scoreboard
+		add(ArgGPR(a))
 	case arm64asm.MemImmediate:
 		r := MemImmBase(a)
 		add(GprIdx(r))

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"math/bits"
 	"os"
+	"strconv"
 	"testing"
 )
 
@@ -307,6 +308,152 @@ func TestVectorLaneInsertNativeVectors(t *testing.T) {
 	for _, word := range []uint32{0x6e000420, 0x6e180c20} {
 		if simdForm(word) != 0 {
 			t.Fatal("reserved INS encoding accepted")
+		}
+	}
+}
+
+func TestUnsignedLaneMoveNativeVectors(t *testing.T) {
+	var cases []struct {
+		Encoding  string
+		Lo        string `json:"vector_lo"`
+		Hi        string `json:"vector_hi"`
+		Initial   string `json:"initial_x11"`
+		Result    string `json:"result_x11"`
+		Other     string `json:"preserved_x10"`
+		NZCV      string
+		Unchanged bool `json:"source_unchanged"`
+	}
+	nativeAtomicObservation(t, "umov-probe.c", &cases)
+	if len(cases) != 300 {
+		t.Fatal(len(cases))
+	}
+	parse := func(s string) uint64 {
+		v, e := strconv.ParseUint(s, 16, 64)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	for _, tc := range cases {
+		if !tc.Unchanged {
+			t.Fatal(tc)
+		}
+		flags := parse(tc.NZCV)
+		r := Registers{PC: 0x1000, N: flags&(1<<31) != 0, Z: flags&(1<<30) != 0, C: flags&(1<<29) != 0, V: flags&(1<<28) != 0}
+		r.GPR[10] = parse(tc.Other)
+		r.GPR[11] = parse(tc.Initial)
+		r.WriteQ(0, parse(tc.Lo), parse(tc.Hi))
+		before := r
+		if _, e := StepChecked(&r, authMemory{uint32(parse(tc.Encoding))}); e != nil {
+			t.Fatal(tc, e)
+		}
+		before.GPR[11] = parse(tc.Result)
+		before.PC += 4
+		if r != before {
+			t.Fatal("native lane transfer or preserved state mismatch", tc, r)
+		}
+	}
+	for _, word := range []uint32{0x0e003c00, 0x0e083c00, 0x4e043c00, 0x4e103c00} {
+		if simdForm(word) != 0 {
+			t.Fatal("reserved lane transfer accepted", word)
+		}
+	}
+}
+
+func TestVectorZeroComparisonNativeVectors(t *testing.T) {
+	var cases []struct {
+		Encoding string
+		Alias    bool
+		Lo       string `json:"input_lo"`
+		Hi       string `json:"input_hi"`
+		OutputLo string `json:"output_lo"`
+		OutputHi string `json:"output_hi"`
+		NZCV     string
+		Source   bool `json:"source_v1_unchanged"`
+		Other    bool `json:"other_v2_unchanged"`
+		GPR      bool `json:"gpr_x10_unchanged"`
+	}
+	nativeAtomicObservation(t, "cmeq-zero-probe.c", &cases)
+	if len(cases) != 84 {
+		t.Fatal(len(cases))
+	}
+	parse := func(s string) uint64 {
+		v, e := strconv.ParseUint(s, 16, 64)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	for _, tc := range cases {
+		if !tc.Source || !tc.Other || !tc.GPR {
+			t.Fatal(tc)
+		}
+		f := parse(tc.NZCV)
+		r := Registers{PC: 0x1000, N: f&(1<<31) != 0, Z: f&(1<<30) != 0, C: f&(1<<29) != 0, V: f&(1<<28) != 0}
+		r.GPR[10] = 0x12345678
+		r.WriteQ(0, ^uint64(0), ^uint64(0))
+		r.WriteQ(1, parse(tc.Lo), parse(tc.Hi))
+		r.WriteQ(2, 0x1234, 0xabcd)
+		if tc.Alias {
+			r.WriteQ(0, parse(tc.Lo), parse(tc.Hi))
+		}
+		before := r
+		if _, e := StepChecked(&r, authMemory{uint32(parse(tc.Encoding))}); e != nil {
+			t.Fatal(tc, e)
+		}
+		before.PC += 4
+		before.WriteQ(0, parse(tc.OutputLo), parse(tc.OutputHi))
+		if before != r {
+			t.Fatal("native zero comparison or preserved state", tc, r.FP[:3])
+		}
+	}
+	if simdForm(0x0ee09800) != 0 || simdForm(0x5ee09800) != 0 {
+		t.Fatal("unsupported 1D/scalar D comparison admitted")
+	}
+}
+
+func TestVectorORNNativeVectors(t *testing.T) {
+	var cases []struct {
+		Encoding  string
+		InitialLo string `json:"initial_lo"`
+		InitialHi string `json:"initial_hi"`
+		RnLo      string `json:"rn_lo"`
+		RnHi      string `json:"rn_hi"`
+		RmLo      string `json:"rm_lo"`
+		RmHi      string `json:"rm_hi"`
+		OutputLo  string `json:"output_lo"`
+		OutputHi  string `json:"output_hi"`
+		NZCV      string
+		Preserved bool `json:"v1_v2_unchanged"`
+	}
+	nativeAtomicObservation(t, "orn-probe.c", &cases)
+	if len(cases) != 200 {
+		t.Fatal(len(cases))
+	}
+	parse := func(s string) uint64 {
+		v, e := strconv.ParseUint(s, 16, 64)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return v
+	}
+	for _, tc := range cases {
+		if !tc.Preserved {
+			t.Fatal(tc)
+		}
+		f := parse(tc.NZCV)
+		r := Registers{PC: 0x1000, N: f&(1<<31) != 0, Z: f&(1<<30) != 0, C: f&(1<<29) != 0, V: f&(1<<28) != 0}
+		r.WriteQ(0, parse(tc.InitialLo), parse(tc.InitialHi))
+		r.WriteQ(1, parse(tc.RnLo), parse(tc.RnHi))
+		r.WriteQ(2, parse(tc.RmLo), parse(tc.RmHi))
+		before := r
+		if _, e := StepChecked(&r, authMemory{uint32(parse(tc.Encoding))}); e != nil {
+			t.Fatal(tc, e)
+		}
+		before.PC += 4
+		before.WriteQ(0, parse(tc.OutputLo), parse(tc.OutputHi))
+		if before != r {
+			t.Fatal("native ORN or preserved state mismatch", tc, r.FP[:3])
 		}
 	}
 }

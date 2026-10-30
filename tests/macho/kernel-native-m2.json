@@ -1391,6 +1391,172 @@
           }
         ]
       }
+    },
+    {
+      "source": "fsgetpath-probe.c",
+      "source_sha256": "cc107a54e27c91bdbd945f5faad23cb42db5054084decf309a57cf5ddcf70d98",
+      "architecture": "arm64",
+      "binary_sha256": "f8bfb76ed73e17eb3e10a706b39f1e79f49a0990691260e79c598d37cefc7874",
+      "result": [
+        {
+          "case": 0,
+          "x0": 35,
+          "x1": 0,
+          "carry": 0,
+          "path_length_with_nul": 35,
+          "path_matches": true,
+          "changed_extent": 35
+        },
+        {
+          "case": 1,
+          "x0": 22,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 2,
+          "x0": 28,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 3,
+          "x0": 35,
+          "x1": 0,
+          "carry": 0,
+          "path_length_with_nul": 35,
+          "path_matches": true,
+          "changed_extent": 35
+        },
+        {
+          "case": 4,
+          "x0": 14,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 5,
+          "x0": 14,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 6,
+          "x0": 14,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 7,
+          "x0": 45,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 8,
+          "x0": 35,
+          "x1": 0,
+          "carry": 0,
+          "path_length_with_nul": 35,
+          "path_matches": true,
+          "changed_extent": 35
+        },
+        {
+          "case": 9,
+          "x0": 2,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 10,
+          "x0": 22,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 11,
+          "x0": 28,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 12,
+          "x0": 35,
+          "x1": 0,
+          "carry": 0,
+          "path_length_with_nul": 35,
+          "path_matches": true,
+          "changed_extent": 35
+        },
+        {
+          "case": 13,
+          "x0": 22,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 14,
+          "x0": 22,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        },
+        {
+          "case": 15,
+          "x0": 14,
+          "x1": 0,
+          "carry": 1,
+          "path_length_with_nul": 35,
+          "path_matches": false,
+          "changed_extent": 0
+        }
+      ]
+    },
+    {
+      "source": "pfz-region-probe.c",
+      "source_sha256": "d69c5fec3f4ec7a73c5150462073f49010012bf7b0724525cb2670d67b991625",
+      "architecture": "arm64",
+      "binary_sha256": "fe8738f248dacacceb7a72cdb0bdc0d27c8bf861c5168fa9dda82e265d0ba0d0",
+      "result": {
+        "queried_pfz": "fffe78000",
+        "start": "fc0000000",
+        "size": 1073741824,
+        "protection": 0,
+        "max_protection": 0,
+        "depth": 0
+      }
     }
   ]
 }

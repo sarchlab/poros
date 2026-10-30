@@ -43,7 +43,7 @@ functional execution. Separate mathematical tests check all 1024 option prices
 and all 64 particle likelihoods on actual registry inputs. Full-state equality
 links these functional outputs to pipeline results. Logs and evaluation reports
 identify the alternatives and require the corresponding numerical tests. All
-other workloads retain frozen digests. The Facesim digests and the seven dependency-corrected cycle rows
+other workloads retain frozen digests. The Facesim digests and the dependency-corrected cycle rows
 below are explicit exceptions; other fields retain their historical values.
 
 ## Corrected Facesim exception to historical provenance
@@ -82,3 +82,39 @@ fluidanimate/1 16230→16231; fluidanimate/2 [16230,16230]→[16231,16231].
 Isolating BFI or BFM leaves these four rows unchanged. Workload inputs, instruction counts, architectural
 digests and CPU/cache parameters are unchanged. Strict comparisons remain.
 Historical cycle values remain in Git history rather than a second golden set.
+
+## Corrected ordinary RegSP operand dependencies
+
+The decoder's `RegSP` operand class includes ordinary X/W0..30, not just SP.
+The scoreboard previously discarded their source and destination dependencies
+for immediate arithmetic. Delayed-load→ADD→SUB tests now require the true RAW
+chain, while an independent ADD control remains ready early. A separate
+load→independent ADD overwrite→consumer test proves the replacement destination
+must supersede the stale load timestamp. Actual SP remains outside the existing
+GPR scoreboard; this change does not equate it with the zero register.
+
+All 88 cases were audited. Seventy-eight retain every value; the following ten
+rows change only `Cycles`. Each listed default-OoO value applies per core in both
+the one- and two-core rows. Replacing only the register-classification file with
+its pre-fix version restores all ten original assertions.
+
+| Workload / model | Old cycles | Corrected cycles | Rows |
+|---|---:|---:|---:|
+| trisolv / default OoO | 517718 | 517722 | 2 |
+| canneal / default OoO | 57396 | 57397 | 2 |
+| raytrace / default OoO | 474 | 475 | 2 |
+| facesim / default OoO | 5392 | 5335 | 2 |
+| raytrace / inorder | 1559 | 1569 | 1 |
+| atax / inorder | 10332347 | 10652147 | 1 |
+
+Facesim decreases because publishing the previously missing destination replaces
+stale producer readiness: destination-only isolation yields 5014 cycles,
+source-only isolation retains 5392, and both corrections yield 5335. The
+independent-overwrite test directly covers this false-stall mechanism. These are
+logical timing corrections, not hardware latency calibration. All retired
+counts, complete architectural digests, workload inputs, initial-state identity
+pins, and CPU/cache settings remain unchanged. Only these audited cycle fields
+and the corresponding strict fixture SHA pins were updated.
+
+Together with the earlier seven partial-register corrections (one overlapping
+raytrace/inorder row), this PR changes 16 distinct historical cycle rows.

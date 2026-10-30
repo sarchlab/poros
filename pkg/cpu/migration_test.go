@@ -32,7 +32,7 @@ type baselineRecord struct {
 
 // TestV4Baseline checks historical v4 fixtures, except the two Facesim rows
 // corrected in M0 after independent validation of finite, nondegenerate inputs,
-// and four audited MOVK dependency cycle corrections (see testdata/README.md).
+// and audited partial-register/RegSP dependency cycle corrections (see testdata/README.md).
 // Long mode tests one and two cores; short mode keeps a small functional/timing
 // regression and a repeated run so routine tests still exercise this contract.
 func TestV4Baseline(t *testing.T) {
@@ -158,8 +158,8 @@ func architectureDigest(em *emu.Emulator, b benchmark.Benchmark) string {
 
 // Exact counts for both other pipeline variants prevent rounded CLI CPI output
 // from masking an instruction or cycle regression in the in-order refactor.
-// The three raytrace/blackscholes cycle corrections document true MOVK/BFI
-// read-destination dependencies found during Mach-O bring-up. Counts/digests
+// Audited cycle corrections document true partial-register and ordinary RegSP
+// operand dependencies found during Mach-O bring-up. Counts/digests
 // are unchanged; strict assertions and all eight variant cases are retained.
 func TestV4PipelineVariants(t *testing.T) {
 	f, err := os.Open("testdata/pipeline-v4-baseline.jsonl")

@@ -217,3 +217,70 @@ func TestOoOVectorInsertWaitsForOldDestination(t *testing.T) {
 		t.Fatal(c.State.Err, x.regs.FP[2], c.State.FpReady[2])
 	}
 }
+
+func TestOoOUnsignedLaneMoveWaitsForVectorLoad(t *testing.T) {
+	// LDR Q0,[X3]; UMOV W1,V0.B[0]; EOR X2,X1,XZR.
+	x := newExtensionExecution(t, []uint32{0x3dc00060, 0x0e013c01, 0xca1f0022, 0xd503201f})
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if e := s.Initialize(); e != nil {
+		t.Fatal(e)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.GPR[2] != 7 || c.State.GprReady[1] <= c.State.FpReady[0] || c.State.GprReady[2] <= c.State.GprReady[1] {
+		t.Fatal(c.State.Err, x.regs.GPR[2], c.State.FpReady[0], c.State.GprReady[:3])
+	}
+}
+
+func TestOoOImmediateArithmeticTracksOrdinaryRegSPOperands(t *testing.T) {
+	// A delayed load feeds ADD then SUB. An independent ADD is the control:
+	// it must become ready before the load, not inherit the chain's delay.
+	x := newExtensionExecution(t, []uint32{0xf9400061, 0x91000422, 0xd1000c44, 0x910004c5, 0xd503201f})
+	x.regs.GPR[6] = 20
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || c.State.InstDone != 5 || x.regs.GPR[2] != 8 || x.regs.GPR[4] != 5 || x.regs.GPR[5] != 21 {
+		t.Fatal(c.State.Err, c.State.InstDone, x.regs.GPR[:7])
+	}
+	if c.State.GprReady[2] <= c.State.GprReady[1] || c.State.GprReady[4] <= c.State.GprReady[2] || c.State.GprReady[5] >= c.State.GprReady[1] {
+		t.Fatal("lost immediate arithmetic dependency or false control dependency", c.State.GprReady[:7])
+	}
+}
+
+func TestOoOImmediateOverwriteReplacesStaleProducerReadiness(t *testing.T) {
+	// The independent ADD overwrites X1 after the delayed load. With register
+	// renaming its consumer follows ADD, not the overwritten load's timestamp.
+	x := newExtensionExecution(t, []uint32{0xf9400061, 0x910004c1, 0xca1f0022, 0xd503201f})
+	x.regs.GPR[6] = 20
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || c.State.InstDone != 4 || x.regs.GPR[2] != 21 {
+		t.Fatal(c.State.Err, c.State.InstDone, x.regs.GPR[:7])
+	}
+	if c.State.GprReady[1] >= 40 || c.State.GprReady[2] >= 40 || c.State.GprReady[2] <= c.State.GprReady[1] {
+		t.Fatal("stale producer retained after overwrite", c.State.GprReady[:3])
+	}
+}

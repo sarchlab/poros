@@ -7,6 +7,7 @@ observations must not be compared to partial simulator instruction counts.
 import argparse
 import base64
 import datetime
+import ctypes
 import hashlib
 import json
 import os
@@ -57,6 +58,70 @@ def runtime_profile():
                              compiler=subprocess.check_output([compiler, "--version"], text=True).strip())
 
 
+def capture_startup_profile(helper, binary, dyld, identity):
+    before_binary, before_dyld = digest(binary), digest(dyld)
+    captured = json.loads(subprocess.check_output([str(helper), str(binary.resolve())], env={}, timeout=10))
+    fields = {item["key"]: item for item in captured["filtered_apple"]}
+    if len(fields) != len(captured["filtered_apple"]) or "ptrauth_disabled" in fields:
+        raise ValueError("unsupported duplicate or downgraded arm64e startup metadata")
+    stack = fields["main_stack"]
+    if stack["top_minus_allocation_base"] != stack["allocation_size"]:
+        raise ValueError("unsupported native stack reservation geometry")
+    profile = dict(binary_sha256=before_binary, dyld_sha256=before_dyld,
+                   executable_file=identity(fields["executable_file"]["value"]),
+                   dyld_file=identity(fields["dyld_file"]["value"]),
+                   cdhash=fields["executable_cdhash"]["value"].lower(),
+                   boot_hash=fields["executable_boothash"]["value"].lower(),
+                   pfz=int(fields["pfz"]["value"],16), stack_size=stack["stack_size"],
+                   stack_allocation_size=stack["allocation_size"],
+                   security_config=int(fields["security_config"]["value"],16))
+    if "arm64e_abi" in fields:
+        profile["arm64e_abi"] = fields["arm64e_abi"]["value"]
+    for path, expected in [(binary, before_binary), (dyld, before_dyld),
+                           (profile["executable_file"]["path"], before_binary),
+                           (profile["dyld_file"]["path"], before_dyld)]:
+        if digest(path) != expected:
+            raise ValueError("runtime input changed during startup metadata capture")
+    return profile
+
+
+def startup_profiles(binaries, dyld):
+    """Capture kernel metadata without executing these four child programs.
+
+    The helper uses fixed safe argv and env{}; workload argv cannot spoof keys.
+    fsgetpath resolves only the two identities just captured from our own child.
+    """
+    library = ctypes.CDLL(None, use_errno=True)
+    fsgetpath = library.fsgetpath
+    fsgetpath.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_uint64]
+    fsgetpath.restype = ctypes.c_ssize_t
+    def identity(value):
+        fsid, inode = (int(x, 16) for x in value.split(","))
+        raw_fsid = ctypes.c_uint64(fsid)
+        buffer = ctypes.create_string_buffer(8192)
+        length = fsgetpath(buffer, len(buffer), ctypes.byref(raw_fsid), inode)
+        if length < 1 or length > len(buffer) or buffer.raw[length-1] != 0:
+            raise ValueError("native captured file identity cannot be resolved")
+        path = buffer.raw[:length-1].decode("utf-8")
+        if not path.startswith("/") or "\0" in path:
+            raise ValueError("invalid native canonical identity path")
+        return dict(fsid=str(fsid), object_id=str(inode), path=path)
+    with tempfile.TemporaryDirectory(prefix="poros-startup-profile-") as directory:
+        helper = Path(directory) / "profile"
+        compiler = subprocess.check_output(["xcrun", "--find", "clang"], text=True).strip()
+        source = ROOT / "scripts/macho-startup.c"
+        sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
+        command = [compiler, "-isysroot", sdk, "-arch", "arm64", "-Wall", "-Wextra", "-Werror", str(source), "-o", str(helper)]
+        subprocess.run(command, check=True, timeout=30)
+        probe = dict(source_sha256=digest(source), binary_sha256=digest(helper),
+                     compiler=subprocess.check_output([compiler, "--version"], text=True).strip(),
+                     protocol="own suspended child; fixed argv program/1, env{}; filtered KERN_PROCARGS2; kill/reap; fsgetpath of captured identities")
+        profiles = {}
+        for binary in binaries:
+            profiles[binary.stem] = capture_startup_profile(helper, binary, dyld, identity)
+        return profiles, probe
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--poros", required=True)
@@ -82,12 +147,24 @@ def main():
     for name, expected in build["binaries"].items():
         if digest(folder / name) != expected:
             raise ValueError("Mach-O binary hash mismatch: " + name)
+    initial_dyld = digest(options.dyld)
     profile, probe = runtime_profile()
-    result = dict(runtime_profile=profile, runtime_probe=probe, schema=1, purpose="Mach-O native correctness and incomplete runtime bring-up",
+    startup, startup_probe = startup_profiles([folder / name for name in sorted(build["binaries"])], options.dyld)
+    for name, metadata in startup.items():
+        if metadata["binary_sha256"] != build["binaries"][name + ".macho"] or metadata["dyld_sha256"] != initial_dyld:
+            raise ValueError("captured startup metadata differs from frozen build/runtime")
+    def verify_inputs():
+        if digest(options.dyld) != initial_dyld:
+            raise ValueError("dyld changed during collection")
+        for name, expected in build["binaries"].items():
+            if digest(folder / name) != expected:
+                raise ValueError("workload changed during collection: " + name)
+    verify_inputs()
+    result = dict(startup_profiles=startup, startup_probe=startup_probe, runtime_profile=profile, runtime_probe=probe, schema=1, purpose="Mach-O native correctness and incomplete runtime bring-up",
                   accuracy_claim=False, collector_sha256=digest(__file__), collected_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   os=subprocess.check_output(["sw_vers"], text=True).strip(),
                   cpu=subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip(),
-                  architecture=platform.machine(), dyld_sha256=digest(options.dyld),
+                  architecture=platform.machine(), dyld_sha256=initial_dyld,
                   poros_sha256=digest(options.poros), manifest_sha256=digest(ROOT / "tests/usertime/manifest.json"),
                   protocol=dict(samples=options.samples, native_timeout_seconds=30,
                                 simulator_max_instructions=options.max_instructions,
@@ -96,25 +173,38 @@ def main():
                                 quality="raw observations only; no acceptance threshold or accuracy comparison"),
                   build=build, cases=[])
     shared_files = None
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as profile_file:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as profile_file, tempfile.TemporaryDirectory(prefix="poros-startup-inputs-") as startup_directory:
         json.dump(profile, profile_file)
         profile_file.flush()
+        startup_files = {}
+        for name, metadata in startup.items():
+            path = Path(startup_directory) / (name + ".json")
+            path.write_text(json.dumps(metadata))
+            startup_files[name] = path
         for case in manifest["cases"]:
             binary = folder / (case["workload"] + ".macho")
             samples = []
             for _ in range(options.samples):
+                verify_inputs()
                 stdout, usage = observe(binary, case["args"])
+                verify_inputs()
                 check_output(case, stdout)
                 samples.append(usage)
             sim = subprocess.run([str(Path(options.poros).resolve()), "macho", "--dyld", options.dyld,
                                   *( ["--shared-cache", options.shared_cache] if options.shared_cache else [] ),
                                   "--max-instructions", str(options.max_instructions),
                                   "--timeout", str(options.execution_timeout_seconds)+"s",
+                                  "--startup-profile", str(startup_files[case["workload"]]),
                                   "--runtime-profile", profile_file.name, "--argv0", case["args"][0], str(binary), *case["args"][1:]],
                                  capture_output=True, timeout=120)
             if sim.returncode != 1 or sim.stderr:
                 raise ValueError(f"unexpected bring-up command status: {sim.returncode}, {sim.stderr!r}")
+            verify_inputs()
             witness = json.loads(sim.stdout)
+            metadata = startup[case["workload"]]
+            if witness.pop("startup_profile", None) != metadata:
+                raise ValueError("simulator startup profile differs from native capture")
+            witness["startup_profile_sha256"] = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode()).hexdigest()
             if witness.pop("runtime_profile", None) != profile:
                 raise ValueError("simulator profile differs from captured native profile")
             witness["runtime_profile_sha256"] = hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()
@@ -128,13 +218,14 @@ def main():
                 elif files != shared_files:
                     raise ValueError("runtime cache changed between cases")
                 witness["shared_cache_manifest_sha256"] = hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
-            if witness["binary"]["sha256"] != digest(binary) or witness["dyld"]["sha256"] != result["dyld_sha256"]:
+            if witness["binary"]["sha256"] != build["binaries"][binary.name] or witness["dyld"]["sha256"] != result["dyld_sha256"]:
                 raise ValueError("simulator/native input identity mismatch")
             if witness["termination"] not in ("unsupported_instruction", "unsupported_syscall") or witness["instructions"] < 1:
                 raise ValueError("unexpected runtime bring-up outcome: " + str(witness))
             result["cases"].append(dict(id=case["id"], args=case["args"], binary_sha256=digest(binary),
                                          native_correct=True, stdout_base64=base64.b64encode(stdout).decode(),
                                          samples=samples, simulator=witness))
+    verify_inputs()
     destination = Path(options.output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(result, indent=2) + "\n")

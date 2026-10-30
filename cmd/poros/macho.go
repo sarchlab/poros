@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -21,6 +22,7 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 	fs.SetOutput(diagnostics)
 	cachePath := fs.String("shared-cache", "", "explicit read-only dyld shared-cache root file")
 	entropySeed := fs.Uint64("entropy-seed", 0, "deterministic guest kernel entropy seed (not cryptographic randomness)")
+	startupPath := fs.String("startup-profile", "", "explicit per-executable native kernel launch metadata JSON")
 	profilePath := fs.String("runtime-profile", "", "explicit JSON native commpage capability profile")
 	dyld := fs.String("dyld", "", "explicit local runtime dyld file (read-only)")
 	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
@@ -46,27 +48,20 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 	}
 	options := darwinuser.Options{EntropySeed: *entropySeed, Args: append([]string{*argv0}, fs.Args()[1:]...), Env: []string(env), ExecName: *execName}
 	if *profilePath != "" {
-		f, err := os.Open(*profilePath)
-		if err != nil {
-			fmt.Fprintln(diagnostics, err)
-			return 2
-		}
-		decoder := json.NewDecoder(io.LimitReader(f, 4097))
-		decoder.DisallowUnknownFields()
 		var profile darwinuser.RuntimeProfile
-		err = decoder.Decode(&profile)
-		if err == nil {
-			var extra any
-			if trailing := decoder.Decode(&extra); trailing != io.EOF {
-				err = fmt.Errorf("runtime profile contains trailing data")
-			}
-		}
-		f.Close()
-		if err != nil {
+		if err := readMachOProfile(*profilePath, 4096, &profile); err != nil {
 			fmt.Fprintln(diagnostics, err)
 			return 2
 		}
 		options.RuntimeProfile = &profile
+	}
+	if *startupPath != "" {
+		var profile darwinuser.StartupProfile
+		if err := readMachOProfile(*startupPath, 32768, &profile); err != nil {
+			fmt.Fprintln(diagnostics, err)
+			return 2
+		}
+		options.StartupProfile = &profile
 	}
 	if *cachePath != "" {
 		cache, err := loader.OpenSharedCache(*cachePath)
@@ -102,11 +97,39 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		ExecName       string                     `json:"executable_path"`
 		Policy         string                     `json:"policy"`
 		RuntimeProfile *darwinuser.RuntimeProfile `json:"runtime_profile,omitempty"`
+		StartupProfile *darwinuser.StartupProfile `json:"startup_profile,omitempty"`
 		darwinuser.Result
-	}{cacheFiles, *entropySeed, 1, p.Binary, p.Dyld, options.Args, append([]string{}, options.Env...), options.ExecName, "actual dyld entry; functional clock is one native counter tick per retired instruction; runtime bring-up incomplete; no full-program timing prediction", options.RuntimeProfile, result}
+	}{cacheFiles, *entropySeed, 1, p.Binary, p.Dyld, options.Args, append([]string{}, options.Env...), options.ExecName, "actual dyld entry; functional clock is one native counter tick per retired instruction; runtime bring-up incomplete; no full-program timing prediction", options.RuntimeProfile, options.StartupProfile, result}
 	if err := json.NewEncoder(out).Encode(report); err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 2
 	}
 	return 1
+}
+
+// Decode bounded explicit inputs completely; truncating a longer file to an
+// apparently valid prefix would hide malformed or mismatched provenance.
+func readMachOProfile(path string, limit int64, value any) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(b)) > limit {
+		return fmt.Errorf("Mach-O profile exceeds %d bytes", limit)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		return fmt.Errorf("Mach-O profile contains trailing data")
+	}
+	return nil
 }

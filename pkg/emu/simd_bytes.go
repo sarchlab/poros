@@ -8,6 +8,17 @@ import (
 // simdForm selects only implemented encodings. Byte operations keep size
 // bits in their mask; MOVI explicitly selects its implemented lane form.
 func simdForm(word uint32) uint32 {
+	if word&0xbf3ffc00 == 0x0e209800 && ((word>>22)&3 != 3 || word&(1<<30) != 0) {
+		return 0x0e209800
+	} // CMEQ vector,#0
+
+	if word&0xbfe0fc00 == 0x0e003c00 {
+		size := bits.TrailingZeros32((word >> 16) & 31)
+		if (word&(1<<30) == 0 && size <= 2) || (word&(1<<30) != 0 && size == 3) {
+			return 0x0e003c00
+		}
+	} // UMOV, including the MOV W/X, Vn.S/D[index] aliases.
+
 	if word&0xffe08400 == 0x6e000400 {
 		size := bits.TrailingZeros32((word >> 16) & 31)
 		if size <= 3 && ((word>>11)&15)&((1<<size)-1) == 0 {
@@ -16,7 +27,7 @@ func simdForm(word uint32) uint32 {
 	} // INS (element), disassembled as MOV Vd.<T>[i],Vn.<T>[j]
 
 	switch form := word & 0xbfe0fc00; form {
-	case 0x0e201c00, 0x0ea01c00, 0x2e201c00, 0x2e203400, 0x2e208c00:
+	case 0x0e201c00, 0x0ea01c00, 0x0ee01c00, 0x2e201c00, 0x2e203400, 0x2e208c00:
 		return form // ORR, EOR, CMHI
 	}
 	switch form := word & 0xbffffc00; form {
@@ -48,6 +59,20 @@ func (e *executor) execSIMD(word uint32) {
 	binary.LittleEndian.PutUint64(a[8:], src.Hi)
 	binary.LittleEndian.PutUint64(b[:8], rhs.Lo)
 	binary.LittleEndian.PutUint64(b[8:], rhs.Hi)
+	if form == 0x0e003c00 {
+		imm5 := (word >> 16) & 31
+		size := bits.TrailingZeros32(imm5)
+		width := 1 << size
+		offset := int(imm5>>uint(size+1)) * width
+		var value uint64
+		for i := 0; i < width; i++ {
+			value |= uint64(a[offset+i]) << uint(8*i)
+		}
+		if rd := word & 31; rd != 31 {
+			e.regs.GPR[rd] = value
+		}
+		return
+	}
 	var sum uint16
 	minimum := byte(255)
 	for i := 0; i < n; i++ {
@@ -56,6 +81,8 @@ func (e *executor) execSIMD(word uint32) {
 			out[i] = a[i] & b[i]
 		case 0x0ea01c00:
 			out[i] = a[i] | b[i]
+		case 0x0ee01c00:
+			out[i] = a[i] | ^b[i]
 		case 0x2e201c00:
 			out[i] = a[i] ^ b[i]
 		case 0x2e203400:
@@ -72,6 +99,20 @@ func (e *executor) execSIMD(word uint32) {
 			minimum = min(minimum, a[i])
 		case 0x2e303800:
 			sum += uint16(a[i])
+		}
+	}
+	if form == 0x0e209800 {
+		width := 1 << ((word >> 22) & 3)
+		for off := 0; off < n; off += width {
+			zero := true
+			for i := 0; i < width; i++ {
+				zero = zero && a[off+i] == 0
+			}
+			if zero {
+				for i := 0; i < width; i++ {
+					out[off+i] = 255
+				}
+			}
 		}
 	}
 	if form == 0x6e000400 {

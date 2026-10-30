@@ -29,6 +29,7 @@ type Options struct {
 	ExecName       string
 	StackSize      uint64
 	RuntimeProfile *RuntimeProfile
+	StartupProfile *StartupProfile
 }
 type Identity struct {
 	SHA256  string `json:"sha256"`
@@ -92,8 +93,12 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		authMode = emu.PointerAuthEnabled
 	}
 	apple := []string{"executable_path=" + o.ExecName}
-	if authMode == emu.PointerAuthDisabled {
-		apple = append(apple, "ptrauth_disabled=1")
+	entropyState := o.EntropySeed
+	if o.StartupProfile != nil {
+		if err := o.StartupProfile.validate(image, dyld); err != nil {
+			return nil, err
+		}
+		apple, entropyState = o.StartupProfile.apple(o.ExecName, o.EntropySeed)
 	}
 	total := 0
 	for _, list := range [][]string{o.Args, o.Env, apple} {
@@ -105,6 +110,12 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		}
 	}
 	size := o.StackSize
+	if o.StartupProfile != nil {
+		if size != 0 && size != o.StartupProfile.StackSize {
+			return nil, fmt.Errorf("stack override differs from captured startup geometry")
+		}
+		size = o.StartupProfile.StackSize
+	}
 	if size == 0 {
 		size = image.StackSize
 	}
@@ -115,7 +126,11 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		return nil, fmt.Errorf("Darwin startup: stack must be 16 KiB aligned, between 16 KiB and 8 MiB")
 	}
 	memory := &usermem.AddressSpace{}
-	reserved := []addressSpan{{StackTop - size, StackTop}, {0xfffffc000, 0x1000000000}, {0xfffff4000, 0xfffff8000}}
+	reservation := size
+	if o.StartupProfile != nil {
+		reservation = o.StartupProfile.StackAllocationSize
+	}
+	reserved := []addressSpan{{StackTop - reservation, StackTop}, {commpageRegionStart, commpageRegionEnd}}
 	mapImage := func(img *loader.MachOImage, slide uint64) error {
 		for _, s := range img.Segments {
 			if s.Size == 0 {
@@ -245,7 +260,11 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		counter.Frequency = 1_000_000_000 * uint64(o.RuntimeProfile.TimebaseDenom) / uint64(o.RuntimeProfile.TimebaseNumer)
 	}
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
-	kernel := kernelState{entropyState: o.EntropySeed, reserved: append([]addressSpan(nil), reserved...), protected: []addressSpan{{0xfffffc000, 0x1000000000}, {0xfffff4000, 0xfffff8000}}}
+	kernel := kernelState{entropyState: entropyState, reserved: append([]addressSpan(nil), reserved...), protected: []addressSpan{{commpageRegionStart, commpageRegionEnd}}}
+	if o.StartupProfile != nil {
+		kernel.files = []FileIdentity{o.StartupProfile.ExecutableFile, o.StartupProfile.DyldFile}
+		kernel.threadSendRefs = 1 // XNU installs one pinned main-thread send reference.
+	}
 	if dyld.AllImageInfoAddress != 0 || dyld.AllImageInfoSize != 0 {
 		kernel.dyldInfoAddress = dyld.AllImageInfoAddress + DyldBase
 		kernel.dyldInfoSize = dyld.AllImageInfoSize

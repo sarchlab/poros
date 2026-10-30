@@ -49,10 +49,10 @@ func TestKernelToDyldStackAndPermissions(t *testing.T) {
 	if p.Registers.PC != DyldBase+0x400 || p.MainEntry != 0x100000400 || sp%16 != 0 {
 		t.Fatal(p.Registers)
 	}
-	if word(t, p, sp) != 0x100000000 || word(t, p, sp+8) != 2 || word(t, p, sp+32) != 0 || word(t, p, sp+48) != 0 || word(t, p, sp+72) != 0 {
+	if word(t, p, sp) != 0x100000000 || word(t, p, sp+8) != 2 || word(t, p, sp+32) != 0 || word(t, p, sp+48) != 0 || word(t, p, sp+64) != 0 {
 		t.Fatal("stack vector layout")
 	}
-	if textAt(t, p, word(t, p, sp+16)) != "bench" || textAt(t, p, word(t, p, sp+24)) != "63" || textAt(t, p, word(t, p, sp+40)) != "A=B" || textAt(t, p, word(t, p, sp+56)) != "executable_path=bench" || textAt(t, p, word(t, p, sp+64)) != "ptrauth_disabled=1" {
+	if textAt(t, p, word(t, p, sp+16)) != "bench" || textAt(t, p, word(t, p, sp+24)) != "63" || textAt(t, p, word(t, p, sp+40)) != "A=B" || textAt(t, p, word(t, p, sp+56)) != "executable_path=bench" {
 		t.Fatal("startup strings")
 	}
 	if word(t, p, 0x100004000) != 0 {

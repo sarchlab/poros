@@ -175,12 +175,12 @@ func TestMissingFixture(t *testing.T) {
 	}
 }
 
-// The fixture hashes include the seven audited MOVK/BFI dependency corrections
+// The fixture hashes include the audited partial-register/RegSP dependency corrections
 // documented in pkg/cpu/testdata/README.md; the strict identity gate remains.
 func TestFixtureIdentity(t *testing.T) {
 	root := repo(t)
 	for path, want := range map[string]string{
-		"akita-v4-baseline.jsonl": "8f9b5bd1f6514d5d1b69a293e466fb3ca84ae4fb12bdaf04a8d4ded92ebe4721", "pipeline-v4-baseline.jsonl": "94ce28a3b21e94b20cacd3fcabc7035605b412ffa886d172c30c4de06afc46e4",
+		"akita-v4-baseline.jsonl": "b0d9fc50c3ab54f6963b2f6b9f91a542bfa16296f782057e48bced84190cb0e1", "pipeline-v4-baseline.jsonl": "55df3d582c7cceb888efcd98668b53e8707a15a6fe5e2c365dda9277d5fe9c1e",
 	} {
 		b, e := os.ReadFile(filepath.Join(root, "pkg/cpu/testdata", path))
 		if e != nil {

@@ -10,6 +10,7 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
+	files                                      []FileIdentity
 	reserved                                   []addressSpan
 	protected                                  []addressSpan
 	anonymous                                  []addressSpan
@@ -42,6 +43,8 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return true
 	}
 	switch number {
+	case 427:
+		return k.fsgetpath(r, m)
 	case 73:
 		return k.munmap(r, m)
 	case -47:
@@ -137,11 +140,7 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 			var b [256]byte
 			state := k.entropyState
 			for i := uint64(0); i < n; i += 8 {
-				state += 0x9e3779b97f4a7c15
-				v := state
-				v = (v ^ (v >> 30)) * 0xbf58476d1ce4e5b9
-				v = (v ^ (v >> 27)) * 0x94d049bb133111eb
-				v ^= v >> 31
+				v := nextEntropyWord(&state)
 				for j := uint64(0); j < 8 && i+j < n; j++ {
 					b[i+j] = byte(v >> (8 * j))
 				}
