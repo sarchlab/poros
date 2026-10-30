@@ -1,0 +1,6 @@
+#include <mach/mach.h>
+#include <mach/mach_host.h>
+#include <stdint.h>
+#include <stdio.h>
+static void row(const char*n,int status,mach_port_t p,int comma){mach_port_urefs_t refs=0;mach_port_type_t type=0;int kr=mach_port_get_refs(mach_task_self(),p,MACH_PORT_RIGHT_SEND,&refs),kt=mach_port_type(mach_task_self(),p,&type);printf("%s{\"name\":\"%s\",\"operation_result\":%d,\"port\":%u,\"refs_result\":%d,\"refs\":%u,\"type_result\":%d,\"type\":%u}",comma?",":"",n,status,p,kr,refs,kt,type);}
+int main(void){mach_port_t host=mach_host_self(),a=0,b=0,c=0;int r=host_get_clock_service(host,1,&a);printf("{\"clock_id\":1,\"cases\":[");row("first",r,a,0);r=host_get_clock_service(host,1,&b);row("second",r,b,1);r=mach_port_deallocate(mach_task_self(),a);row("release-first",r,a,1);r=mach_port_deallocate(mach_task_self(),b);row("release-last",r,b,1);r=host_get_clock_service(host,1,&c);row("reacquire",r,c,1);row("old-name-after-reacquire",0,a,1);r=mach_port_deallocate(mach_task_self(),a);row("release-stale",r,a,1);r=mach_port_deallocate(mach_task_self(),c);row("release-reacquired",r,c,1);int h=mach_port_deallocate(mach_task_self(),host);printf("],\"host_cleanup\":%d}\n",h);return a==b&&a!=c&&h==0?0:2;}

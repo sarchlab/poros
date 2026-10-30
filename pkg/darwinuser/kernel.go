@@ -15,6 +15,8 @@ type kernelState struct {
 	pthreadStackHint                           uint64
 	hostName                                   uint32
 	hostPriorities                             *[8]int32
+	clocks                                     [2]clockService
+	semaphores                                 map[uint32]semaphore
 	accessENOENTPaths                          []string
 	dtrace                                     *DTracePolicy
 	dofs                                       map[uint64][80]byte

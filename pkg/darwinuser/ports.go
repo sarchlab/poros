@@ -39,6 +39,10 @@ func (k *kernelState) modifyPortRefs(r *emu.Registers) bool {
 		return false
 	}
 	refs := k.selfSendRefs(name)
+	semaphore, semaphoreRight := k.semaphores[name]
+	if refs == nil && semaphoreRight {
+		refs = &semaphore.sendRefs
+	}
 	if refs == nil {
 		return false
 	}
@@ -50,6 +54,9 @@ func (k *kernelState) modifyPortRefs(r *emu.Registers) bool {
 		return false
 	}
 	*refs = uint32(next)
+	if semaphoreRight {
+		k.semaphores[name] = semaphore
+	}
 	r.GPR[0] = 0
 	return true
 }
@@ -98,6 +105,25 @@ func (k *kernelState) deallocatePort(r *emu.Registers) bool {
 			k.hostName = name
 		}
 		(*refs)--
+		r.GPR[0] = 0
+		return true
+	}
+	for i := range k.clocks {
+		if clock := &k.clocks[i]; clock.name == name && clock.sendRefs != 0 {
+			clock.sendRefs--
+			r.GPR[0] = 0
+			return true
+		}
+	}
+	if semaphore, known := k.semaphores[name]; known {
+		// The last send reference invokes no-senders, removing the task-owned
+		// object. There are no modeled waiters or outstanding kernel users.
+		semaphore.sendRefs--
+		if semaphore.sendRefs == 0 {
+			delete(k.semaphores, name)
+		} else {
+			k.semaphores[name] = semaphore
+		}
 		r.GPR[0] = 0
 		return true
 	}

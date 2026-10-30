@@ -1,0 +1,5 @@
+#include <mach/mach.h>
+#include <mach/semaphore.h>
+#include <stdio.h>
+static void row(const char*n,int result,mach_port_t p,int comma){mach_port_urefs_t refs=0;mach_port_type_t type=0;int kr=mach_port_get_refs(mach_task_self(),p,MACH_PORT_RIGHT_SEND,&refs),kt=mach_port_type(mach_task_self(),p,&type);printf("%s{\"name\":\"%s\",\"operation_result\":%d,\"port\":%u,\"refs_result\":%d,\"refs\":%u,\"type_result\":%d,\"type\":%u}",comma?",":"",n,result,p,kr,refs,kt,type);}
+int main(void){mach_port_t task=mach_task_self(),a=0,b=0;int r=semaphore_create(task,&a,0,0);printf("{\"cases\":[");row("create",r,a,0);r=mach_port_mod_refs(task,a,MACH_PORT_RIGHT_SEND,1);row("copy-send",r,a,1);r=mach_port_deallocate(task,a);row("release-first",r,a,1);r=mach_port_deallocate(task,a);row("release-last",r,a,1);r=semaphore_create(task,&b,0,1);row("new-object",r,b,1);row("old-name-after-new",0,a,1);r=mach_port_deallocate(task,a);row("release-stale",r,a,1);r=semaphore_destroy(task,b);row("destroy-new",r,b,1);printf("]}\n");return a!=b&&r==0?0:1;}

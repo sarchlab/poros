@@ -27,11 +27,20 @@ func (k *kernelState) message2(r *emu.Registers, m *usermem.AddressSpace) bool {
 	if _, ok := k.receivePorts[reply]; !ok {
 		return false
 	}
-	if id == 200 {
+	if id == 200 || id == 206 {
 		if target != k.hostRightName() || k.hostSendRefs == 0 || bits != 0x1513 || descriptors != 0 {
 			return false
 		}
+		if id == 206 {
+			return k.messageClockService(r, m, data, size, reply, receiveSize)
+		}
 		return k.messageHostPriority(r, m, data, size, reply, receiveSize)
+	}
+	if id == 3418 {
+		if !k.currentTaskRight(target) || bits != 0x1513 || descriptors != 0 {
+			return false
+		}
+		return k.messageSemaphoreCreate(r, m, data, size, reply, receiveSize)
 	}
 	if id != 4811 || bits != 0x80001513 || size != 100 || descriptors != 1 || !k.currentTaskRight(target) {
 		return false
@@ -61,7 +70,7 @@ func (k *kernelState) message2(r *emu.Registers, m *usermem.AddressSpace) bool {
 	// Handle complete writable buffers and faults at their first byte; reject a
 	// mixed-permission output before any VM mutation rather than inventing atomic
 	// kernel copyout semantics. Only bytes this receive could copy are checked.
-	if count := min(receiveSize, uint32(52)); count >= 24 && m.Check(data, int(count), usermem.Write, "Mach reply") != nil && m.Check(data, 1, usermem.Write, "Mach reply") == nil {
+	if count := messageCopyoutSize(receiveSize, 52); count >= 24 && m.Check(data, int(count), usermem.Write, "Mach reply") != nil && m.Check(data, 1, usermem.Write, "Mach reply") == nil {
 		return false
 	}
 	address, result, supported := k.allocateAnonymous(m, hint, length, mask, flags, current, maximum)
@@ -90,6 +99,13 @@ func messageReply(r *emu.Registers, m *usermem.AddressSpace, data uint64, reply,
 	binary.LittleEndian.PutUint32(response[32:36], result)
 	copy(response[36:responseSize], payload)
 	binary.LittleEndian.PutUint32(response[responseSize+4:responseSize+8], 8)
+	return deliverMessageReply(r, m, data, receiveSize, response)
+}
+
+// deliverMessageReply consumes an already prepared reply, retaining its complex
+// header bit even when an undersized receiver receives only a bare header.
+func deliverMessageReply(r *emu.Registers, m *usermem.AddressSpace, data uint64, receiveSize uint32, response []byte) bool {
+	responseSize := binary.LittleEndian.Uint32(response[4:8])
 	// Kernel work precedes receive delivery, including a too-small receiver.
 	// Without MACH_RCV_LARGE the reply is consumed and replaced by a bare header.
 	count := responseSize + 8
@@ -128,7 +144,7 @@ func (k *kernelState) messageHostPriority(r *emu.Registers, m *usermem.AddressSp
 	if size == 40 && binary.LittleEndian.Uint32(request[32:36]) != 5 {
 		return false
 	}
-	if count := min(receiveSize, uint32(80)); count >= 24 && m.Check(data, int(count), usermem.Write, "Mach reply") != nil && m.Check(data, 1, usermem.Write, "Mach reply") == nil {
+	if count := messageCopyoutSize(receiveSize, 80); count >= 24 && m.Check(data, int(count), usermem.Write, "Mach reply") != nil && m.Check(data, 1, usermem.Write, "Mach reply") == nil {
 		return false
 	}
 	// MIG validates the fixed request size before calling host_info.
@@ -146,4 +162,82 @@ func (k *kernelState) messageHostPriority(r *emu.Registers, m *usermem.AddressSp
 		}
 	}
 	return messageReply(r, m, data, reply, 200, receiveSize, result, payload)
+}
+
+// SYSTEM_CLOCK and CALENDAR_CLOCK identify private kernel service objects. No
+// host clock is consulted and obtaining a service right does not read time.
+type clockService struct{ name, sendRefs uint32 }
+
+func (k *kernelState) messageClockService(r *emu.Registers, m *usermem.AddressSpace, data uint64, size, reply, receiveSize uint32) bool {
+	if size != 32 && size != 36 && size != 40 {
+		return false
+	}
+	var request [40]byte
+	if data > ^uint64(0)-uint64(size) || m.Read(data+24, request[24:size]) != nil {
+		r.GPR[0] = 0x10000002
+		return true
+	}
+	if !bytes.Equal(request[24:32], nativeNDR[:]) {
+		return false
+	}
+	responseLength := uint32(44)
+	clockID := binary.LittleEndian.Uint32(request[32:36])
+	valid := size == 36 && clockID < 2
+	if valid {
+		responseLength = 48
+	}
+	if count := messageCopyoutSize(receiveSize, responseLength); count >= 24 && m.Check(data, int(count), usermem.Write, "Mach reply") != nil && m.Check(data, 1, usermem.Write, "Mach reply") == nil {
+		return false
+	}
+	if size != 36 {
+		return messageReply(r, m, data, reply, 206, receiveSize, 0xfffffed0, nil)
+	}
+	if !valid {
+		return messageReply(r, m, data, reply, 206, receiveSize, 4, nil)
+	}
+	response := portMessageReply(reply, 206)
+	// Rights are installed by full receive before user-buffer copyout. A short
+	// receive destroys the undelivered message instead, without installing a name.
+	if receiveSize >= 48 {
+		service := &k.clocks[clockID]
+		if service.sendRefs == 65535 {
+			return false
+		}
+		if service.sendRefs == 0 {
+			name := k.allocatePortName()
+			if name == 0 {
+				return false
+			}
+			service.name = name
+		}
+		service.sendRefs++
+		binary.LittleEndian.PutUint32(response[28:32], service.name)
+	}
+	return deliverMessageReply(r, m, data, receiveSize, response)
+}
+
+// portMessageReply is the MIG success shape for one returned send right. The
+// service installs the private namespace name only on a full-sized receive.
+func portMessageReply(reply, id uint32) []byte {
+	response := make([]byte, 48)
+	binary.LittleEndian.PutUint32(response[0:4], 0x80001200)
+	binary.LittleEndian.PutUint32(response[4:8], 40)
+	binary.LittleEndian.PutUint32(response[12:16], reply)
+	binary.LittleEndian.PutUint32(response[20:24], id+100)
+	binary.LittleEndian.PutUint32(response[24:28], 1)
+	response[38] = 17 // MACH_MSG_TYPE_PORT_SEND
+	binary.LittleEndian.PutUint32(response[44:48], 8)
+	return response
+}
+
+// A too-small receive copies a bare header and only the trailer bytes that fit.
+// Fields of the original full body outside this span are never accessed.
+func messageCopyoutSize(receiveSize, fullSize uint32) uint32 {
+	if receiveSize < 24 {
+		return 0
+	}
+	if receiveSize < fullSize {
+		return min(receiveSize, uint32(32))
+	}
+	return fullSize
 }

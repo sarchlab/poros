@@ -18,8 +18,8 @@ All initialization, arithmetic, output and exit remain native program work.
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 Current integer/1000 validation with the corrected ISA, captured runtime profile,
-and the explicit warm shared cache retires 2,256,197 instructions and stops at
-Mach message ID206 (`host_get_clock_service`) at PC `0x180547c1c`, with no guest
+and the explicit warm shared cache retires 2,261,364 instructions and stops at
+BSD `shm_open("com.apple.featureflags.shm", O_RDONLY)` at PC `0x18054954c`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -38,6 +38,23 @@ bring-up counts followed incorrect COPY error returns and are not comparable
 progress measures. This remains incomplete startup, not benchmark
 main or successful exit. The old superseded bring-up dataset has been removed. Current whole-program
 Mach-O calibration data will be retained after successful execution is validated.
+
+Mach host clock-service requests create private send rights for SYSTEM_CLOCK and
+CALENDAR_CLOCK. The 14 native message cases verify complex MIG replies and short
+receives; three copyout cases establish that a full readonly receive retains the
+installed right. Partial writable copyouts remain explicitly unsupported. Eight
+native lifecycle transitions verify reference counts, last-reference removal and
+fresh names after reacquisition. Getting a service port does not read host time;
+clock-time RPCs remain unsupported until modeled. Semaphore creation retains the
+initial count, policy and guest-owned send right. Twenty native reply cases and
+eight copyout/namespace cases cover accepted queue policies, invalid input, short
+receives and authority retained after readonly copyout failure. The last send
+reference removes the object; native lifecycle evidence also verifies copied send
+references and stale-name rejection. Explicit semaphore destruction, blocking/waiting
+and scheduling remain unsupported until exercised and modeled.
+Shared-memory runtime content is a separate, currently unsupported dependency.
+The object lifecycle follows XNU `sync_sema.c` no-senders/free behavior; all
+objects and rights remain private to the simulated task.
 
 `scripts/macho-startup.c` captures documented kernel apple metadata from each
 explicit executable as a newly spawned, suspended child, then kills/reaps that
