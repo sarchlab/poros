@@ -1,0 +1,102 @@
+name: Publish accuracy reports
+on:
+  workflow_run:
+    workflows: [Evaluation]
+    types: [completed]
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+permissions:
+  contents: read
+# Preserve queued publications instead of replacing pending main/release runs.
+concurrency:
+  group: accuracy-pages
+  queue: max
+jobs:
+  build:
+    if: github.event_name != 'workflow_run' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Trusted publishing tools
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: tools
+          persist-credentials: false
+      - name: Exact release or main source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+      - name: Reuse retained evidence or measure the exact target
+        id: measure
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          target=$(git -C source rev-parse HEAD)
+          echo "TARGET_SHA=$target" >> "$GITHUB_ENV"
+          git clone --depth 1 --branch gh-pages "https://github.com/$GITHUB_REPOSITORY.git" pages
+          if [ "$EVENT_NAME" = release ] && [ -f "pages/calibration/runs/$target/bundle.json" ]; then
+            mkdir -p evidence
+            cp -R "pages/calibration/runs/$target/." evidence/
+            exit 0
+          fi
+          mkdir -p raw
+          if [ -x source/scripts/usertime-ci.sh ]; then
+            (cd source && scripts/usertime-ci.sh HEAD^ "$GITHUB_WORKSPACE/raw")
+          else
+            python3 tools/scripts/accuracy_site.py failure --output raw --commit "$target" --message 'This target predates whole-program accuracy support.'
+            exit 1
+          fi
+      - name: Package exact-source evidence, including failures
+        if: always()
+        run: |
+          target=$(git -C source rev-parse HEAD)
+          if [ ! -f evidence/bundle.json ]; then
+            if [ ! -f raw/report.json ]; then
+              python3 tools/scripts/accuracy_site.py failure --output raw --commit "$target" --message 'Accuracy build failed before producing a report; inspect the workflow logs.'
+            fi
+            python3 tools/scripts/accuracy_site.py bundle --report raw/report.json --source source --output evidence --commit "$target"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-accuracy-evidence
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
+  publish:
+    needs: [build]
+    if: always() && (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+      pages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download release/manual evidence
+        if: github.event_name != 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: release-accuracy-evidence
+          path: evidence/
+      - name: Publish branch and request Pages build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_CONCLUSION: ${{ needs.build.result }}
+        run: |
+          gh auth setup-git
+          python3 scripts/publish_accuracy.py --bundle evidence --build-conclusion "$BUILD_CONCLUSION"

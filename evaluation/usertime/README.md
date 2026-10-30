@@ -102,3 +102,74 @@ For the first timing PR, all rows remain hardware-unverified and base timing is
 unavailable. That is an honest completed report, not a claim of calibrated
 accuracy. Future calibration must first establish valid hardware references,
 frequency/core policy and independently agreed thresholds.
+
+## Published accuracy dashboard
+
+The dashboard is published at <https://sarchlab.github.io/poros/calibration/>.
+GitHub Pages must be configured as **Deploy from a branch → gh-pages → / (root)**.
+No personal access token or extra service is required. The publishing job uses
+`contents: write` to update that branch and `pages: write` to explicitly request
+a Pages build, then waits for a successful build that contains its publication.
+A default `GITHUB_TOKEN` push alone does not trigger a branch-based Pages build.
+
+Every PR update produces an HTML preview plus JSON/Markdown and a complete
+evidence bundle in the `user-time-accuracy` artifact, retained for 30 days. PR
+reports never enter the public archive. Each main push evaluates its latest
+commit; intermediate commits in one push are not individually measured.
+`Publish accuracy reports` consumes only completed main-push Evaluation runs,
+verifying their workflow, repository, commit and attempt. Failed/cancelled runs
+are visible, including an explicit missing-report record when no artifact exists.
+Only a complete report with a successful Evaluation run can become the latest
+successful main report. The homepage separately queries current main's public
+GitHub status; if that query is unavailable it labels the displayed snapshot.
+
+The archive retains the **20 newest ordinary main commits**, ordered by main's
+first-parent ancestry rather than completion time. Published releases permanently
+pin the exact tag commit and do not occupy those 20 slots. Releasing a commit
+already in the archive reuses its original successful report bytes, base revision
+and measurements. If no report exists, a read-only job builds the exact release
+commit; versions predating this protocol receive an explicit unsupported/failure
+report. Published prereleases follow the same permanent retention policy. Deleting
+a GitHub release does not automatically delete its evidence.
+
+Each report is self-contained: raw native samples, manifest/hardware profile,
+measurement harness, workload sources and ELF files accompany the original report
+and checksums. This deliberately duplicates a small amount of evidence across
+reports so cleanup has no shared-data dependency: removing an expired ordinary
+report cannot remove data used by another report or release. All cleanup is
+limited to owned `calibration/runs/` directories. Other files on `gh-pages` are
+preserved; an absent root index links to the dashboard and `.nojekyll` makes the
+site static. Normal Git history is retained; pruning the live site is not a
+rewrite of the Pages branch's commit history.
+
+Publishing uses `concurrency.queue: max` to preserve queued events, with bounded
+optimistic Git push retries for concurrent manual changes. Non-PR evaluations
+have unique concurrency groups; PR updates cancel superseded PR evaluations.
+Late reports cannot move the latest pointer backward. A release and main report
+for the same SHA share one directory. Successful report evidence is immutable;
+later successful Evaluation attempts can establish CI success without replacing
+that original evidence. A failed report can be replaced by a successful retry.
+
+The site renders the report's numeric fields directly. It does not recalculate
+errors, subtract fitted overheads, invent thresholds, or turn noisy observations
+into qualified accuracy points. It includes per-case base/head times and errors,
+coverage by calibration/held-out split, size curves, qualified reference/prediction
+scatter, and history curves separated by reference, formula and full profile.
+The current Linux VM limitations remain prominent on every report.
+
+Validation entry points:
+
+```sh
+python3 scripts/accuracy_site_test.py
+python3 scripts/accuracy_site.py bundle --report /path/report.json \
+  --source . --output /tmp/accuracy-preview --commit "$(git rev-parse HEAD)"
+python3 -m http.server 8000 --directory /tmp/accuracy-preview
+```
+
+The archive tests exercise retention, permanent pins, failed/successful retries,
+out-of-order arrivals, malformed evidence, escaping, zero-error charts, provenance
+boundaries and a real local bare-Git publish. A Pages workflow becomes active only
+once this change and its whole-program timing dependency are merged into `main`.
+A PR artifact/local preview is not proof that automatic production deployment has
+already run. `workflow_dispatch` on main supports recovery without creating a
+release. Publication failure is a failed Actions job, not a silent green result.
