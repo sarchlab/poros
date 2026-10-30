@@ -4660,6 +4660,634 @@
           "bytes": "1425364758697a8b9cadbecfe0f10213"
         }
       ]
+    },
+    {
+      "source": "stat-cache-library-probe.c",
+      "source_sha256": "afdd953d79c413b27152599963415681d0abcfdee7742eba727579948f128cee",
+      "architecture": "arm64",
+      "binary_sha256": "5c99cdc05033f214ebfd394ca3ff493b3fbbf49fc85b4b53690a1a8431e849ce",
+      "result": {
+        "path": "/usr/lib/libSystem.B.dylib",
+        "libc_return": -1,
+        "libc_errno": 2,
+        "cases": [
+          {
+            "case": "writable_output",
+            "x0": 2,
+            "x1": 0,
+            "carry": true,
+            "output_unchanged": true
+          },
+          {
+            "case": "null_output",
+            "x0": 2,
+            "x1": 0,
+            "carry": true,
+            "output_unchanged": true
+          },
+          {
+            "case": "unmapped_output",
+            "x0": 2,
+            "x1": 0,
+            "carry": true,
+            "output_unchanged": true
+          },
+          {
+            "case": "readonly_output",
+            "x0": 2,
+            "x1": 0,
+            "carry": true,
+            "output_unchanged": true
+          },
+          {
+            "case": "partial_eight",
+            "x0": 2,
+            "x1": 0,
+            "carry": true,
+            "output_unchanged": true
+          },
+          {
+            "case": "missing_last_byte",
+            "x0": 2,
+            "x1": 0,
+            "carry": true,
+            "output_unchanged": true
+          }
+        ]
+      }
+    },
+    {
+      "source": "linking-startup-probe.c",
+      "source_sha256": "1395472d0c8a1b948510f5a343204d81267b891a95e66d9d21beb0f00b1c7bfc",
+      "architecture": "arm64",
+      "binary_sha256": "30ccd8983fa439bbd2c007835af89c5b0010ce5b63ea8ac239798053c70ea473",
+      "protocol": "Owned ordinary Mach-O startup; DYLD_PRINT_SEGMENTS/DYLD_PRINT_FIXUPS diagnostic environment; actual relocated pointers independently compared to dlsym/marker addresses. Startup end-state, not a direct syscall-return or timing observation.",
+      "startup_diagnostics": [
+        "dyld[65477]: re-using existing shared cache ((null)):",
+        "dyld[65477]:         0x18EEE8000->0x18EF9BFFF init=5, max=5 __TEXT",
+        "dyld[65477]:         0x18F2E8000->0x196F4FFFF init=5, max=5 __TEXT"
+      ],
+      "result": {
+        "preferred_base": "0000000100000000",
+        "runtime_base": "000000010217c000",
+        "slide": "000000000217c000",
+        "pointer_format": 6,
+        "section_file_offset": 16488,
+        "protection": 1,
+        "max_protection": 3,
+        "cases": [
+          {
+            "index": 0,
+            "encoding": "0010000000000a80",
+            "actual": "000000010217ca80",
+            "expected": "000000010217ca80"
+          },
+          {
+            "index": 1,
+            "encoding": "0010000000000a87",
+            "actual": "000000010217ca87",
+            "expected": "000000010217ca87"
+          },
+          {
+            "index": 2,
+            "encoding": "801000000000000a",
+            "actual": "000000018f4ba2a8",
+            "expected": "000000018f4ba2a8"
+          },
+          {
+            "index": 3,
+            "encoding": "801000000700000a",
+            "actual": "000000018f4ba2af",
+            "expected": "000000018f4ba2af"
+          },
+          {
+            "index": 4,
+            "encoding": "80100000ff00000a",
+            "actual": "000000018f4ba3a7",
+            "expected": "000000018f4ba3a7"
+          },
+          {
+            "index": 5,
+            "encoding": "8010000000000009",
+            "actual": "000000018f4bad7c",
+            "expected": "000000018f4bad7c"
+          },
+          {
+            "index": 6,
+            "encoding": "800000000000000d",
+            "actual": "0000000190d61ce8",
+            "expected": "0000000190d61ce8"
+          }
+        ]
+      }
+    },
+    {
+      "source": "mprotect-probe.c",
+      "source_sha256": "bcabb4a9212bd31d1869a9cc6489f592cf68ac282e9d1b059846cacd02ebade1",
+      "architecture": "arm64",
+      "binary_sha256": "fc531d31066712449ddccfdf8fe393d6003c2e5c79448c5a08618ff63cfdb96d",
+      "result": [
+        {
+          "case": "read",
+          "length": 16384,
+          "requested_protection": 1,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 1,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "write",
+          "length": 16384,
+          "requested_protection": 2,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "readwrite",
+          "length": 16384,
+          "requested_protection": 3,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "none",
+          "length": 16384,
+          "requested_protection": 0,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 0,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "execute_above_max",
+          "length": 16384,
+          "requested_protection": 5,
+          "x0": 13,
+          "x1": 0,
+          "carry": true,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "unknown_protection_bit",
+          "length": 16384,
+          "requested_protection": 8,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 0,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "prot_low32",
+          "length": 16384,
+          "requested_protection": 4294967297,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 1,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "unaligned_start",
+          "length": 16384,
+          "requested_protection": 1,
+          "x0": 22,
+          "x1": 0,
+          "carry": true,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "length_one",
+          "length": 1,
+          "requested_protection": 1,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 1,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "length_page_plus_one",
+          "length": 16385,
+          "requested_protection": 1,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 1,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 1,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "zero_length",
+          "length": 0,
+          "requested_protection": 1,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "zero_length_null",
+          "length": 0,
+          "requested_protection": 1,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "null_address",
+          "length": 16384,
+          "requested_protection": 1,
+          "x0": 12,
+          "x1": 0,
+          "carry": true,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "address_overflow",
+          "length": 16384,
+          "requested_protection": 1,
+          "x0": 22,
+          "x1": 0,
+          "carry": true,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "length_overflow",
+          "length": 18446744073709551615,
+          "requested_protection": 1,
+          "x0": 22,
+          "x1": 0,
+          "carry": true,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "unmapped_middle",
+          "length": 16384,
+          "requested_protection": 1,
+          "x0": 12,
+          "x1": 0,
+          "carry": true,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": false,
+              "protection": 0,
+              "max_protection": 0
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "range_spans_hole",
+          "length": 49152,
+          "requested_protection": 1,
+          "x0": 12,
+          "x1": 0,
+          "carry": true,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": false,
+              "protection": 0,
+              "max_protection": 0
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "zero_length_unaligned",
+          "length": 0,
+          "requested_protection": 1,
+          "x0": 22,
+          "x1": 0,
+          "carry": true,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "zero_length_high",
+          "length": 0,
+          "requested_protection": 1,
+          "x0": 0,
+          "x1": 0,
+          "carry": false,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 3,
+              "max_protection": 3
+            }
+          ]
+        },
+        {
+          "case": "mixed_maximum",
+          "length": 49152,
+          "requested_protection": 3,
+          "x0": 13,
+          "x1": 0,
+          "carry": true,
+          "regions": [
+            {
+              "mapped": true,
+              "protection": 1,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 1,
+              "max_protection": 3
+            },
+            {
+              "mapped": true,
+              "protection": 1,
+              "max_protection": 1
+            }
+          ]
+        }
+      ]
     }
   ]
 }

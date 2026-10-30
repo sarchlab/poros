@@ -19,6 +19,21 @@ macho = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(macho)
 
 
+class StatObservationTests(unittest.TestCase):
+    def test_recheck_requires_exact_enoent(self):
+        profile = {"stat_enoent_paths": ["/usr/lib/libSystem.B.dylib"]}
+        with patch.object(macho.os, "stat", side_effect=FileNotFoundError(2, "absent")) as query:
+            macho.verify_captured_stat_absences(profile)
+            query.assert_called_once_with(profile["stat_enoent_paths"][0])
+        for outcome in (None, PermissionError(13, "denied")):
+            with self.subTest(outcome=outcome), patch.object(macho.os, "stat", side_effect=outcome):
+                with self.assertRaises(ValueError):
+                    macho.verify_captured_stat_absences(profile)
+        with patch.object(macho.os, "stat") as query:
+            macho.verify_captured_stat_absences({})
+            query.assert_not_called()
+
+
 class StartupIdentityTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

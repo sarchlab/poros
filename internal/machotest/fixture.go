@@ -2,7 +2,11 @@
 // These bytes are not Apple runtime binaries and cannot stand in for native dyld.
 package machotest
 
-import "encoding/binary"
+import (
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+)
 
 const EntryOffset = 0x400
 
@@ -101,4 +105,45 @@ func WithAllImageInfo(image []byte) []byte {
 	u.PutUint64(b[216:], 0x170)
 	u.PutUint32(b[240:], 1)
 	return b
+}
+
+// SignedDataImage constructs a repo-owned integrity fixture. Its ad-hoc
+// CodeDirectory is not a native trust or execution oracle.
+func SignedDataImage(data []byte) ([]byte, string) {
+	b := append(Image(2), make([]byte, 16384)...)
+	copy(b[16384:], data)
+	l := binary.LittleEndian
+	l.PutUint64(b[144:], 16384)
+	l.PutUint64(b[152:], 16384)
+	end := 32 + int(l.Uint32(b[20:]))
+	l.PutUint32(b[16:], 5)
+	l.PutUint32(b[20:], uint32(end+16-32))
+	l.PutUint32(b[end:], 0x1d)
+	l.PutUint32(b[end+4:], 16)
+	l.PutUint32(b[end+8:], 32768)
+	l.PutUint32(b[end+12:], 20+88+8*32)
+	u := binary.BigEndian
+	cd := make([]byte, 88+8*32)
+	u.PutUint32(cd, 0xfade0c02)
+	u.PutUint32(cd[4:], uint32(len(cd)))
+	u.PutUint32(cd[8:], 0x20400)
+	u.PutUint32(cd[16:], 88)
+	u.PutUint32(cd[28:], 8)
+	u.PutUint32(cd[32:], 32768)
+	cd[36] = 32
+	cd[37] = 2
+	cd[39] = 12
+	for p := 0; p < 8; p++ {
+		hash := sha256.Sum256(b[p*4096 : (p+1)*4096])
+		copy(cd[88+p*32:], hash[:])
+	}
+	hash := sha256.Sum256(cd)
+	super := make([]byte, 20)
+	u.PutUint32(super, 0xfade0cc0)
+	u.PutUint32(super[4:], uint32(20+len(cd)))
+	u.PutUint32(super[8:], 1)
+	u.PutUint32(super[16:], 20)
+	b = append(b, super...)
+	b = append(b, cd...)
+	return b, hex.EncodeToString(hash[:20])
 }

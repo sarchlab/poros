@@ -396,3 +396,53 @@ func (m *AddressSpace) Unmap(start, size uint64) error {
 	}
 	return nil
 }
+
+// ReaderBacking reports the immutable source and source-relative offset for a
+// wholly mapped range belonging to one reader backing. It neither materializes
+// pages nor exposes private guest writes. Protection splits preserve identity;
+// holes and independent replacement mappings cannot masquerade as that backing.
+func (m *AddressSpace) ReaderBacking(address, size uint64) (io.ReaderAt, uint64, bool) {
+	if size == 0 || size > ^uint64(0)-address {
+		return nil, 0, false
+	}
+	index := m.first(address)
+	if index >= len(m.regions) || m.regions[index].Start > address {
+		return nil, 0, false
+	}
+	first := m.regions[index]
+	if first.backing.source == nil {
+		return nil, 0, false
+	}
+	offset := first.offset + address - first.Start
+	end := address + size
+	position := address
+	for ; index < len(m.regions) && position < end; index++ {
+		r := m.regions[index]
+		if r.Start > position || r.backing != first.backing || r.offset+position-r.Start != offset+position-address {
+			return nil, 0, false
+		}
+		position = min(end, r.End)
+	}
+	if position != end {
+		return nil, 0, false
+	}
+	return first.backing.source, offset, true
+}
+
+// ReplaceReader replaces one fully mapped reader-backed range, discarding its
+// private writes. Invalid requests leave the address space unchanged. Kernel
+// personalities validate file identity and policy before calling this primitive.
+func (m *AddressSpace) ReplaceReader(start, size uint64, flags, maxFlags Permission, source io.ReaderAt, pageSize uint64) error {
+	candidate := &AddressSpace{}
+	if err := candidate.MapReader(start, size, flags, maxFlags, source, pageSize); err != nil {
+		return err
+	}
+	if _, _, ok := m.ReaderBacking(start, size); !ok {
+		return fmt.Errorf("replacement is not one mapped reader backing")
+	}
+	if err := m.Unmap(start, size); err != nil {
+		return err
+	}
+	m.install(candidate.regions[0])
+	return nil
+}

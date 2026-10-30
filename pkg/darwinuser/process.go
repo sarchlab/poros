@@ -77,10 +77,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		return nil, fmt.Errorf("captured branch-target mode requires generic ARM64 main")
 	}
 	if o.RuntimeProfile != nil {
-		if err := validateDirectories(o.RuntimeProfile.Directories); err != nil {
-			return nil, err
-		}
-		if err := validateSysctlNames(o.RuntimeProfile.SysctlNames); err != nil {
+		if err := o.RuntimeProfile.validate(); err != nil {
 			return nil, err
 		}
 	}
@@ -143,7 +140,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	}
 	reserved := []addressSpan{{StackTop - reservation, StackTop}, {commpageRegionStart, commpageRegionEnd}}
 	mapImage := func(img *loader.MachOImage, slide uint64) error {
-		for index, s := range img.Segments {
+		for _, s := range img.Segments {
 			if s.Size == 0 {
 				continue
 			}
@@ -160,11 +157,8 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 			if s.Protection == 0 {
 				continue
 			}
-			data, err := img.SegmentData(index)
-			if err != nil {
-				return err
-			}
-			if err := memory.MapProtected(lo, s.Size, machPermissions(s.Protection), machPermissions(s.MaxProtection), data); err != nil {
+			source := imageSegment{image: img, segment: s}
+			if err := memory.MapReader(lo, s.Size, machPermissions(s.Protection), machPermissions(s.MaxProtection), source, vmPage); err != nil {
 				return err
 			}
 		}
@@ -277,6 +271,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
 	kernel := kernelState{entropyState: entropyState, reserved: append([]addressSpan(nil), reserved...), protected: []addressSpan{{commpageRegionStart, commpageRegionEnd}}}
 	if o.StartupProfile != nil {
+		kernel.executableCDHash = o.StartupProfile.CDHash
 		if o.StartupProfile.ExecutableStat != nil {
 			stat := *o.StartupProfile.ExecutableStat
 			kernel.executableStat = &stat
@@ -348,6 +343,17 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		alignment = emu.AtomicWithin16Bytes
 	}
 	if o.RuntimeProfile != nil {
+		kernel.statENOENTPaths = append([]string(nil), o.RuntimeProfile.StatENOENTPaths...)
+		for _, name := range kernel.statENOENTPaths {
+			if name == o.ExecName || name == image.Dylinker {
+				return nil, fmt.Errorf("stat ENOENT conflicts with process image path")
+			}
+			for _, file := range kernel.files {
+				if name == file.Path {
+					return nil, fmt.Errorf("stat ENOENT conflicts with captured file identity")
+				}
+			}
+		}
 		kernel.directories = append([]RuntimeDirectory(nil), o.RuntimeProfile.Directories...)
 		for i := range kernel.directories {
 			if kernel.directories[i].Stat != nil {

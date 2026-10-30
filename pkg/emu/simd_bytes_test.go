@@ -635,3 +635,49 @@ func testVectorMOVINative(t *testing.T, source string, count int) {
 		}
 	}
 }
+
+func TestVectorREV64NativeFullState(t *testing.T) {
+	var cases []struct {
+		Instruction, Encoding string
+		Before, After         [3]string
+		NZCVBefore            uint32 `json:"nzcv_before"`
+		NZCVAfter             uint32 `json:"nzcv_after"`
+	}
+	nativeAtomicObservation(t, "rev64-probe.c", &cases)
+	if len(cases) != 2304 {
+		t.Fatal(len(cases))
+	}
+	set := func(r *Registers, values [3]string) {
+		for i, s := range values {
+			b, e := hex.DecodeString(s)
+			if e != nil || len(b) != 16 {
+				t.Fatal(s, e)
+			}
+			r.WriteQ(i, binary.LittleEndian.Uint64(b[:8]), binary.LittleEndian.Uint64(b[8:]))
+		}
+	}
+	for _, tc := range cases {
+		word, e := strconv.ParseUint(tc.Encoding, 16, 32)
+		if e != nil {
+			t.Fatal(e)
+		}
+		r := Registers{PC: 0x1000, N: tc.NZCVBefore&(1<<31) != 0, Z: tc.NZCVBefore&(1<<30) != 0, C: tc.NZCVBefore&(1<<29) != 0, V: tc.NZCVBefore&(1<<28) != 0}
+		set(&r, tc.Before)
+		before := r
+		if _, e := StepChecked(&r, authMemory{uint32(word)}); e != nil {
+			t.Fatal(tc.Instruction, e)
+		}
+		set(&before, tc.After)
+		before.PC += 4
+		if r != before || tc.NZCVBefore != tc.NZCVAfter {
+			t.Fatal("native REV64 mismatch", tc, r.FP[:3])
+		}
+	}
+	for _, word := range []uint32{0x0ee00800, 0x4ee00800} {
+		r := Registers{PC: 0x1000}
+		before := r
+		if _, e := StepChecked(&r, authMemory{word}); e == nil || r != before {
+			t.Fatal("unallocated D arrangement accepted")
+		}
+	}
+}

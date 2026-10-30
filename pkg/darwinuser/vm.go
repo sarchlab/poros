@@ -2,6 +2,7 @@ package darwinuser
 
 import (
 	"encoding/binary"
+	"errors"
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/usermem"
 	"io"
@@ -235,4 +236,36 @@ func (k *kernelState) munmap(r *emu.Registers, m *usermem.AddressSpace) bool {
 	r.GPR[0], r.GPR[1] = 0, 0
 	r.C = false
 	return true
+}
+
+// mprotect models BSD page rounding and write-implies-read separately from the
+// Mach protect trap. Execute transitions and extra protection flags need an
+// explicit signing/guarded-page policy and remain unsupported.
+func (k *kernelState) mprotect(r *emu.Registers, m *usermem.AddressSpace) bool {
+	address, size, prot := r.GPR[0], r.GPR[1], uint32(r.GPR[2])
+	finish := func(errno uint64) bool { r.GPR[0] = errno; r.GPR[1] = 0; r.C = errno != 0; return true }
+	if address%vmPage != 0 {
+		return finish(22)
+	}
+	if size == 0 {
+		return finish(0)
+	}
+	if size > ^uint64(0)-address || address+size > ^uint64(0)-(vmPage-1) {
+		return finish(22)
+	}
+	if prot&^uint32(3) != 0 {
+		return false
+	}
+	if prot&2 != 0 {
+		prot |= 1
+	}
+	size = (size + vmPage - 1) &^ (vmPage - 1)
+	e := m.Protect(address, size, machPermissions(prot), false)
+	if errors.Is(e, usermem.ErrProtection) {
+		return finish(13)
+	}
+	if e != nil {
+		return finish(12)
+	}
+	return finish(0)
 }

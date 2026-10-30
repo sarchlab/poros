@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestNativeDyldIdentityMustMatchSelectedSlice(t *testing.T) {
+func nativeDyldFixture() ([]byte, RuntimeDyldIdentity) {
 	runtime := machotest.Image(7)
 	offset := int(binary.LittleEndian.Uint32(runtime[20:])) + 32
 	binary.LittleEndian.PutUint32(runtime[16:], 5)
@@ -20,6 +20,11 @@ func TestNativeDyldIdentityMustMatchSelectedSlice(t *testing.T) {
 		runtime[offset+8+i] = byte(i + 1)
 	}
 	identity := RuntimeDyldIdentity{UUID: "0102030405060708090a0b0c0d0e0f10", Subtype: 0x80000002}
+	return runtime, identity
+}
+
+func TestNativeDyldIdentityMustMatchSelectedSlice(t *testing.T) {
+	runtime, identity := nativeDyldFixture()
 	profile := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, NativeDyld: &identity}
 	if _, err := Parse(machotest.Image(2), runtime, Options{RuntimeProfile: &profile}); err != nil {
 		t.Fatal(err)

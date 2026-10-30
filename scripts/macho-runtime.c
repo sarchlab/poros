@@ -176,6 +176,16 @@ static int print_runtime_directories(void) {
  }
  printf("]");return 0;
 }
+// Only observed stat ENOENT is retained; this does not claim lstat/open absence.
+static int print_stat_enoent_paths(void){
+ const char*paths[]={"/usr/lib/libSystem.B.dylib"};unsigned emitted=0;
+ printf("[");for(unsigned i=0;i<sizeof(paths)/sizeof(paths[0]);i++){
+  struct stat metadata;errno=0;int result=stat(paths[i],&metadata);
+  if(result==0)continue;
+  if(errno!=ENOENT){fprintf(stderr,"selected runtime stat observation failed: %d\n",errno);return 1;}
+  printf("%s\"%s\"",emitted++?",":"",paths[i]);
+ }printf("]");return 0;
+}
 int main(void) {
     if(!pointer_strip_probe()||!exclusive_probe()||!exclusive_signature())return 5;
     const volatile uint8_t *p = (const volatile uint8_t *)0xfffffc000ULL;
@@ -213,5 +223,6 @@ int main(void) {
     if(print_cache_dynamic()!=0)return 4;
     printf(",\"sysctl_names\":");if(print_sysctl_names()!=0)return 8;
     printf(",\"directories\":");int directory_error=print_runtime_directories();if(directory_error){fprintf(stderr,"runtime directory capture failed at check %d\n",directory_error);return 9;}
+    printf(",\"stat_enoent_paths\":");if(print_stat_enoent_paths()!=0)return 10;
     puts("}");
 }

@@ -391,3 +391,25 @@ func TestOoOBICSFlagsWaitForDelayedSource(t *testing.T) {
 		t.Fatal("BICS flag dependency missing", c.State.FlagsReady, c.State.GprReady[:8])
 	}
 }
+
+func TestOoOREV64WaitsForLoadedVector(t *testing.T) {
+	// LDR D0,[X3]; REV64 V1.2S,V0.2S; UMOV X2,V1.D[0].
+	x := newExtensionExecution(t, []uint32{0xfd400060, 0x0ea00801, 0x4e083c22, 0xd503201f})
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.GPR[2] != 7<<32 || x.regs.FP[1].Hi != 0 {
+		t.Fatal(c.State.Err, x.regs.GPR[2], x.regs.FP[1])
+	}
+	if c.State.FpReady[1] <= c.State.FpReady[0] || c.State.GprReady[2] <= c.State.FpReady[1] {
+		t.Fatal("REV64 dependency missing", c.State.FpReady[:2], c.State.GprReady[2])
+	}
+}

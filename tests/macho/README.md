@@ -22,13 +22,16 @@ CNEG and register-count shift fixes described below. Its raw native observations
 remain diagnostic history; its guest startup path is not a validated execution
 reference and must not be used for accuracy or progression claims.
 Current integer/1000 validation with those fixes, the captured runtime profile,
-and the explicit warm shared cache retires 1,281,130 instructions and stops at
-`REV64 V0.2S, V0.2S` at PC `0x180514308`, with no guest
+and the explicit warm shared cache retires 1,556,080 instructions and stops at
+`UXTL V0.8H, V0.8B` at PC `0x180510808`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
-and resolved their canonical path. It then executes scalar BICS and reaches the
-stack-probe BTI under captured non-enforcement, then reaches the next missing
-SIMD operation while processing the libSystem dependency. This remains incomplete startup, not benchmark
+and resolved their canonical path. It executes scalar BICS, captured non-enforced
+BTI and vector REV64, observes the captured stat64 absence of the disk libSystem
+path, and resolves the library in the real shared cache. The guest then constructs
+its version-7 kernel page-in linking request; the modeled kernel installs a private
+format-6 fixup pager over the signed main data page and applies BSD mprotect.
+The next missing SIMD operation is reached later in runtime startup. This remains incomplete startup, not benchmark
 main or successful exit. The 24-case dataset has not been relabeled as a run of
 this newer collector.
 
@@ -304,3 +307,22 @@ stack-probe entry and the instruction after its BTI. Capture repeats those check
 in owned children, discovers the stack-probe symbol from bounded UUID-matched
 Mach-O metadata, verifies its native opcode, and binds the result to runtime/cache
 identity and source/binary hashes. Unknown HINT instructions still fail closed.
+
+The page-in linking model verifies the original mapped file identity through
+permission splits, complete-file offsets for universal binaries, and coverage
+against the captured CDHash and SHA256 CodeDirectory page hashes. Private writes
+are discarded on pager replacement and subsequent writes remain private; no host
+file descriptors or mappings are used. Chain metadata and the original file
+snapshot remain immutable. Missing segment coverage, out-of-page chains, invalid
+bind ordinals and unmodeled formats fail explicitly. Seven native startup pointer
+observations independently check two rebases and puts/printf/malloc binds,
+including unsigned addends 7 and 255; the owned helper's dyld diagnostic confirms
+kernel page-in linking. This is startup end-state evidence, not a raw syscall
+return or performance observation. Post-startup calls are disabled by the real
+shared-region sentinel. Twenty native BSD mprotect observations cover range,
+alignment, maximum-protection and error behavior; extra protection flags and
+execute transitions remain unsupported.
+
+Stat ENOENT observations apply only to exact captured stat64 paths, never to open,
+lstat or other unknown names. They are checked again before/after collection
+operations, and conflicting known file/directory identities are rejected.

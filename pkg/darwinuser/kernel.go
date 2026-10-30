@@ -11,6 +11,9 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
+	mapLinkingDisabled                         bool
+	executableCDHash                           string
+	statENOENTPaths                            []string
 	executableCanonical                        string
 	executableImage                            *loader.MachOImage
 	executablePaths                            []string
@@ -56,6 +59,8 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return true
 	}
 	switch number {
+	case 550:
+		return k.mapWithLinking(r, m)
 	case 197:
 		return k.mmapFile(r, m)
 	case 3:
@@ -86,6 +91,8 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return k.macSyscall(r, m)
 	case 427:
 		return k.fsgetpath(r, m)
+	case 74:
+		return k.mprotect(r, m)
 	case 73:
 		return k.munmap(r, m)
 	case -47:
@@ -165,6 +172,13 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		r.C = false
 	case 294: // warm kernel shared region; dyld still performs discovery and binding.
 		addr := r.GPR[0]
+		if addr == ^uint64(0) {
+			k.mapLinkingDisabled = true
+			r.GPR[0] = 0
+			r.GPR[1] = 0
+			r.C = false
+			return true
+		}
 		if addr == 0 {
 			return false
 		} // null means detach/unmap; not modeled yet.

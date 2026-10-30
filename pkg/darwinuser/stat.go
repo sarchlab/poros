@@ -91,8 +91,8 @@ func (k *kernelState) statAt(r *emu.Registers, m *usermem.AddressSpace) bool {
 	return false
 }
 
-// stat answers only explicitly captured executable paths; other host paths are
-// not an implicit filesystem namespace.
+// stat answers captured executable metadata and explicit stat error observations.
+// Other host paths are not an implicit filesystem namespace.
 func (k *kernelState) stat(r *emu.Registers, m *usermem.AddressSpace) bool {
 	finish := func(errno uint64) bool { r.GPR[0] = errno; r.GPR[1] = 0; r.C = errno != 0; return true }
 	name, errno, handled := k.directoryPath(m, r.GPR[0], 0, false)
@@ -101,6 +101,11 @@ func (k *kernelState) stat(r *emu.Registers, m *usermem.AddressSpace) bool {
 	}
 	if errno != 0 {
 		return finish(errno)
+	}
+	for _, absent := range k.statENOENTPaths {
+		if name == absent {
+			return finish(2)
+		}
 	}
 	if k.executableStat == nil {
 		return false

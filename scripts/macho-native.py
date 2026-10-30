@@ -48,6 +48,18 @@ def observe(binary, args):
                             minor_faults=usage.ru_minflt, major_faults=usage.ru_majflt)
 
 
+def verify_captured_stat_absences(profile):
+    """Recheck exact stat observations without inventing an open/lstat namespace."""
+    for name in profile.get("stat_enoent_paths", []):
+        try:
+            os.stat(name)
+        except OSError as error:
+            if error.errno == 2:
+                continue
+            raise ValueError("captured stat absence changed: " + name) from error
+        raise ValueError("captured stat absence became present: " + name)
+
+
 def runtime_profile():
     native_dyld=Path("/usr/lib/dyld")
     before_dyld=digest(native_dyld)
@@ -76,6 +88,7 @@ def runtime_profile():
             or digest(native_dyld)!=before_dyld):
             raise ValueError("branch target evidence differs from captured native runtime")
         profile["branch_target_mode"]=observed["mode"]
+        verify_captured_stat_absences(profile)
         return profile, dict(source_sha256=digest(source), source_dependencies_sha256={"macho-stat.h":digest(ROOT/"scripts/macho-stat.h"),"macho_symbols.py":digest(ROOT/"scripts/macho_symbols.py")}, binary_sha256=digest(binary),
                              branch_target_probe=dict(source_sha256=digest(bti_source),binary_sha256=digest(bti_binary),dyld_sha256=before_dyld,observation=observed,
                                 protocol="generic-arm64 helper; UUID-matched dyld symbol; own child plain/mismatched landing and actual stack-probe entry/after-entry checks; no guarded-page enforcement claim"),
@@ -265,6 +278,7 @@ def main():
         if metadata["binary_sha256"] != build["binaries"][name + ".macho"] or metadata["dyld_sha256"] != initial_dyld:
             raise ValueError("captured startup metadata differs from frozen build/runtime")
     def verify_inputs():
+        verify_captured_stat_absences(profile)
         if digest(options.dyld) != initial_dyld:
             raise ValueError("dyld changed during collection")
         for name, expected in build["binaries"].items():

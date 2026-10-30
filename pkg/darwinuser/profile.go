@@ -11,6 +11,7 @@ import (
 // native reference host. Unmodeled commpage fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
+	StatENOENTPaths     []string             `json:"stat_enoent_paths,omitempty"`
 	BranchTarget        string               `json:"branch_target_mode,omitempty"`
 	Directories         []RuntimeDirectory   `json:"directories,omitempty"`
 	DevFirmware         *uint32              `json:"development_firmware,omitempty"`
@@ -42,10 +43,26 @@ type PageShifts struct {
 	Kernel uint8 `json:"kernel"`
 }
 
-func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
+func (p RuntimeProfile) validate() error {
+	if err := validateDirectories(p.Directories); err != nil {
+		return err
+	}
+	if err := validateSysctlNames(p.SysctlNames); err != nil {
+		return err
+	}
+	if len(p.StatENOENTPaths) != 0 && p.NativeDyld == nil {
+		return fmt.Errorf("captured stat paths require native runtime identity")
+	}
+	if err := validateStatENOENTPaths(p.StatENOENTPaths, p.Directories); err != nil {
+		return err
+	}
 	if p.BranchTarget != "" && (p.BranchTarget != "non-enforced" || p.NativeDyld == nil) {
 		return fmt.Errorf("unsupported/unbound branch target profile")
 	}
+	return nil
+}
+
+func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
 	if p.ExclusiveMonitor != "" && p.ExclusiveMonitor != "m2-local-64-byte" {
 		return fmt.Errorf("unsupported exclusive monitor profile")
 	}

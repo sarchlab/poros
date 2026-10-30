@@ -1,0 +1,14 @@
+#include <stdint.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+struct result{uint64_t x0,x1,nzcv;};
+static struct result call(uint64_t address,uint64_t size,uint64_t prot){register uint64_t a __asm__("x0")=address,b __asm__("x1")=size,c __asm__("x2")=prot,n __asm__("x16")=74;uint64_t f;__asm__ volatile("svc #0x80\nmrs %2,nzcv":"+r"(a),"+r"(b),"=&r"(f):"r"(c),"r"(n):"memory","cc");return(struct result){a,b,f};}
+static void region(uint64_t address){mach_vm_address_t a=address;mach_vm_size_t size=0;vm_region_basic_info_data_64_t info={0};mach_msg_type_number_t n=VM_REGION_BASIC_INFO_COUNT_64;mach_port_t object=0;kern_return_t kr=mach_vm_region(mach_task_self(),&a,&size,VM_REGION_BASIC_INFO_64,(vm_region_info_t)&info,&n,&object);if(object)mach_port_deallocate(mach_task_self(),object);printf("{\"mapped\":%s,\"protection\":%d,\"max_protection\":%d}",(kr==0&&a<=address&&address-a<size)?"true":"false",(kr==0&&a<=address&&address-a<size)?info.protection:0,(kr==0&&a<=address&&address-a<size)?info.max_protection:0);}
+int main(void){long ps=sysconf(_SC_PAGESIZE);if(ps!=16384)return 2;struct {const char*name;int kind;uint64_t length,prot;}cases[]={
+{"read",0,16384,1},{"write",0,16384,2},{"readwrite",0,16384,3},{"none",0,16384,0},{"execute_above_max",0,16384,5},{"unknown_protection_bit",0,16384,8},{"prot_low32",0,16384,0x100000001ULL},
+{"unaligned_start",1,16384,1},{"length_one",0,1,1},{"length_page_plus_one",0,16385,1},{"zero_length",0,0,1},{"zero_length_null",2,0,1},{"null_address",2,16384,1},{"address_overflow",3,16384,1},{"length_overflow",0,UINT64_MAX,1},{"unmapped_middle",4,16384,1},{"range_spans_hole",5,49152,1},{"zero_length_unaligned",1,0,1},{"zero_length_high",7,0,1},{"mixed_maximum",6,49152,3}};
+printf("[");for(unsigned i=0;i<sizeof(cases)/sizeof(cases[0]);i++){unsigned char*m=mmap(NULL,3*ps,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON,-1,0);if(m==MAP_FAILED)return 3;for(int j=0;j<3;j++)m[j*ps]=0x5a;if(mach_vm_protect(mach_task_self(),(uintptr_t)m,3*ps,TRUE,VM_PROT_READ|VM_PROT_WRITE))return 4;uint64_t address=(uintptr_t)m;if(cases[i].kind==1)address++;if(cases[i].kind==2)address=0;if(cases[i].kind==3)address=UINT64_MAX-4095;if(cases[i].kind==7)address=UINT64_MAX-16383;if(cases[i].kind==6){if(mach_vm_protect(mach_task_self(),(uintptr_t)m,3*ps,FALSE,VM_PROT_READ)||mach_vm_protect(mach_task_self(),(uintptr_t)m+2*ps,ps,TRUE,VM_PROT_READ))return 7;}if(cases[i].kind==4||cases[i].kind==5){if(munmap(m+ps,ps))return 5;if(cases[i].kind==4)address+=ps;}
+struct result r=call(address,cases[i].length,cases[i].prot);printf("%s{\"case\":\"%s\",\"length\":%llu,\"requested_protection\":%llu,\"x0\":%llu,\"x1\":%llu,\"carry\":%s,\"regions\":[",i?",\n":"",cases[i].name,cases[i].length,cases[i].prot,r.x0,r.x1,(r.nzcv&(1ULL<<29))?"true":"false");for(int j=0;j<3;j++){if(j)putchar(',');region((uintptr_t)m+j*ps);}printf("]}");if(munmap(m,3*ps))return 6;}puts("]");return 0;}

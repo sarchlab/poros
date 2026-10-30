@@ -45,6 +45,7 @@ type MachOLinkedit struct {
 // imports, execute initializers, apply fixups, or verify an Apple code signature.
 // MainEntry belongs to dyld; ThreadEntry is the kernel entry for MH_DYLINKER.
 type MachOImage struct {
+	sliceOffset                                      uint64
 	source, slice                                    []byte // one private immutable file snapshot; slice aliases source
 	FileSize                                         uint64 // complete supplied file, including all universal slices
 	Type, Subtype, Flags                             uint32
@@ -87,7 +88,7 @@ func parseMachOOwned(input []byte, fileType uint32) (*MachOImage, error) {
 	if len(input) > MaxMachOFileBytes {
 		return nil, machoError("limit", "file exceeds %d bytes", MaxMachOFileBytes)
 	}
-	b, e := machoSlice(input, fileType)
+	b, sliceOffset, e := machoSlice(input, fileType)
 	if e != nil {
 		return nil, e
 	}
@@ -107,7 +108,7 @@ func parseMachOOwned(input []byte, fileType uint32) (*MachOImage, error) {
 		return nil, machoError("malformed", "load commands outside file")
 	}
 	hash := sha256.Sum256(input)
-	img := &MachOImage{source: input, slice: b, FileSize: uint64(len(input)), Type: typ, Subtype: sub, Flags: u.Uint32(b[24:]), SHA256: hex.EncodeToString(hash[:])}
+	img := &MachOImage{source: input, slice: b, sliceOffset: sliceOffset, FileSize: uint64(len(input)), Type: typ, Subtype: sub, Flags: u.Uint32(b[24:]), SHA256: hex.EncodeToString(hash[:])}
 	var mainSeen, threadSeen, headerSeen, dylinkerSeen, allImageInfoSeen bool
 	var entryOffset, total uint64
 	off, end := uint64(32), uint64(32)+uint64(size)
@@ -315,16 +316,16 @@ func parseMachOOwned(input []byte, fileType uint32) (*MachOImage, error) {
 	return img, nil
 }
 
-func machoSlice(b []byte, typ uint32) ([]byte, error) {
+func machoSlice(b []byte, typ uint32) ([]byte, uint64, error) {
 	if len(b) < 4 {
-		return nil, machoError("malformed", "truncated magic")
+		return nil, 0, machoError("malformed", "truncated magic")
 	}
 	magic := binary.BigEndian.Uint32(b)
 	if magic != 0xcafebabe && magic != 0xcafebabf {
-		return b, nil
+		return b, 0, nil
 	}
 	if len(b) < 8 {
-		return nil, machoError("malformed", "truncated universal header")
+		return nil, 0, machoError("malformed", "truncated universal header")
 	}
 	u := binary.BigEndian
 	count := uint64(u.Uint32(b[4:]))
@@ -333,11 +334,12 @@ func machoSlice(b []byte, typ uint32) ([]byte, error) {
 		width = 32
 	}
 	if count == 0 || count > 32 || count > (uint64(len(b))-8)/width {
-		return nil, machoError("malformed", "universal architecture table")
+		return nil, 0, machoError("malformed", "universal architecture table")
 	}
 	type extent struct{ a, z uint64 }
 	var extents []extent
 	var chosen []byte
+	var chosenOffset uint64
 	best := -1
 	for i := uint64(0); i < count; i++ {
 		c := b[8+i*width:]
@@ -348,11 +350,11 @@ func machoSlice(b []byte, typ uint32) ([]byte, error) {
 			a, z, align = u.Uint64(c[8:]), u.Uint64(c[16:]), u.Uint32(c[24:])
 		}
 		if z < 32 || align > 63 || a < 8+count*width || a > uint64(len(b)) || z > uint64(len(b))-a || a%(uint64(1)<<align) != 0 {
-			return nil, machoError("malformed", "universal slice bounds/alignment")
+			return nil, 0, machoError("malformed", "universal slice bounds/alignment")
 		}
 		for _, e := range extents {
 			if a < e.a+e.z && e.a < a+z {
-				return nil, machoError("malformed", "overlapping universal slices")
+				return nil, 0, machoError("malformed", "overlapping universal slices")
 			}
 		}
 		extents = append(extents, extent{a, z})
@@ -360,7 +362,7 @@ func machoSlice(b []byte, typ uint32) ([]byte, error) {
 			continue
 		}
 		if binary.LittleEndian.Uint32(b[a:]) != 0xfeedfacf || binary.LittleEndian.Uint32(b[a+4:]) != cpu || binary.LittleEndian.Uint32(b[a+8:]) != sub {
-			return nil, machoError("malformed", "universal table/header architecture mismatch")
+			return nil, 0, machoError("malformed", "universal table/header architecture mismatch")
 		}
 		score := 0
 		if (typ == MachODylinker && sub&0xffffff == 2) || (typ == MachOExecutable && sub&0xffffff == 0) {
@@ -368,13 +370,14 @@ func machoSlice(b []byte, typ uint32) ([]byte, error) {
 		}
 		if score > best {
 			chosen = b[a : a+z]
+			chosenOffset = a
 			best = score
 		}
 	}
 	if best < 0 {
-		return nil, machoError("unsupported", "universal file has no supported ARM64 slice")
+		return nil, 0, machoError("unsupported", "universal file has no supported ARM64 slice")
 	}
-	return chosen, nil
+	return chosen, chosenOffset, nil
 }
 
 // ReadAt reads the complete original file, including universal container bytes.
@@ -395,3 +398,6 @@ func (i *MachOImage) SegmentData(index int) ([]byte, error) {
 	}
 	return append([]byte(nil), i.slice[s.FileOffset:s.FileOffset+s.FileSize]...), nil
 }
+
+// SliceOffset is the selected image's offset in the complete original file.
+func (i *MachOImage) SliceOffset() uint64 { return i.sliceOffset }
