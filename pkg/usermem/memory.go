@@ -2,6 +2,7 @@
 package usermem
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -260,5 +261,49 @@ func (m *AddressSpace) Protect(start, size uint64, flags Permission, setMaximum 
 		}
 	}
 	m.regions = out
+	return nil
+}
+
+// CompareExchange is indivisible in the address-space owner's execution stream.
+// Both access permissions are checked even when the comparison fails.
+func (m *AddressSpace) CompareExchange(addr uint64, expected, replacement, old []byte) (bool, error) {
+	n := len(expected)
+	if (n != 4 && n != 8) || len(replacement) != n || len(old) != n || addr%16+uint64(n) > 16 {
+		return false, &MemoryError{addr, n, "atomic", "invalid width or alignment"}
+	}
+	if err := m.Check(addr, n, Read|Write, "atomic"); err != nil {
+		return false, err
+	}
+	if err := m.prepare(addr, n, "atomic"); err != nil {
+		return false, err
+	}
+	var compare, value, current [8]byte
+	copy(compare[:], expected)
+	copy(value[:], replacement)
+	m.transfer(addr, current[:n], false)
+	swapped := bytes.Equal(current[:n], compare[:n])
+	if swapped {
+		m.transfer(addr, value[:n], true)
+	}
+	copy(old, current[:n])
+	return swapped, nil
+}
+
+func (m *AddressSpace) Exchange(addr uint64, replacement, old []byte) error {
+	n := len(replacement)
+	if (n != 4 && n != 8) || len(old) != n || addr%16+uint64(n) > 16 {
+		return &MemoryError{addr, n, "atomic", "invalid width or alignment"}
+	}
+	if err := m.Check(addr, n, Read|Write, "atomic"); err != nil {
+		return err
+	}
+	if err := m.prepare(addr, n, "atomic"); err != nil {
+		return err
+	}
+	var value, current [8]byte
+	copy(value[:], replacement)
+	m.transfer(addr, current[:n], false)
+	m.transfer(addr, value[:n], true)
+	copy(old, current[:n])
 	return nil
 }

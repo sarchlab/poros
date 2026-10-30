@@ -2,7 +2,7 @@
 #include <stdio.h>
 static void hex(const uint8_t *v){putchar('"');for(unsigned i=0;i<16;i++)printf("%02x",v[i]);putchar('"');}
 int main(void) {
- uint8_t a[16],b[16],got_or[16],got_xor[16],got_hi[16], got_cnt[16];
+ uint8_t a[16],b[16],got_or[16],got_xor[16],got_hi[16], got_cnt[16], got_eq[16],got_and[16];
  unsigned minimum, sum, tests=0;
  puts("{\"vectors\":[");
  for(unsigned trial=0;trial<256;trial++){
@@ -13,9 +13,11 @@ int main(void) {
    "eor v3.16b,v0.16b,v1.16b\n\tstr q3,[%[x]]\n\t"
    "cmhi v4.16b,v0.16b,v1.16b\n\tstr q4,[%[h]]\n\t"
    "cnt v6.8b,v0.8b\n\tstr q6,[%[c]]\n\tuaddlv h7,v0.8b\n\tumov %w[s],v7.h[0]\n\t"
+   "cmeq v8.16b,v0.16b,v1.16b\n\tstr q8,[%[e]]\n\t"
+   "and v9.16b,v0.16b,v1.16b\n\tstr q9,[%[d]]\n\t"
    "uminv b5,v0.16b\n\tumov %w[m],v5.b[0]"
-   : [m]"=r"(minimum), [s]"=&r"(sum) : [a]"r"(a),[b]"r"(b),[o]"r"(got_or),[x]"r"(got_xor),[h]"r"(got_hi),[c]"r"(got_cnt)
-   : "v0","v1","v2","v3","v4","v5","v6","v7","memory");
+   : [m]"=r"(minimum), [s]"=&r"(sum) : [a]"r"(a),[b]"r"(b),[o]"r"(got_or),[x]"r"(got_xor),[h]"r"(got_hi),[c]"r"(got_cnt),[e]"r"(got_eq),[d]"r"(got_and)
+   : "v0","v1","v2","v3","v4","v5","v6","v7","v8","v9","memory");
   unsigned wantmin=255;
   for(unsigned i=0;i<16;i++){if(a[i]<wantmin)wantmin=a[i];if(got_or[i]!=(uint8_t)(a[i]|b[i])||got_xor[i]!=(uint8_t)(a[i]^b[i])||got_hi[i]!=(a[i]>b[i]?255:0))return 1;tests+=3;}
   if(minimum!=wantmin)return 2;tests++;
@@ -26,10 +28,11 @@ int main(void) {
    if(i<8)wantsum+=a[i];tests++;
   }
   if(sum!=wantsum)return 4;tests++;
+  for(unsigned i=0;i<16;i++){if(got_eq[i]!=(a[i]==b[i]?255:0))return 5;tests++;if(got_and[i]!=(uint8_t)(a[i]&b[i]))return 6;tests++;}
   if(trial)putchar(',');
   printf("{\"a\":");hex(a);printf(",\"b\":");hex(b);
   printf(",\"or\":");hex(got_or);printf(",\"xor\":");hex(got_xor);
-  printf(",\"hi\":");hex(got_hi);printf(",\"cnt\":");hex(got_cnt);
+  printf(",\"hi\":");hex(got_hi);printf(",\"cnt\":");hex(got_cnt);printf(",\"eq\":");hex(got_eq);printf(",\"and\":");hex(got_and);
   printf(",\"min\":%u,\"sum\":%u}",minimum,sum);
  }
  printf("],\"cases\":%u,\"all_native_outputs_match_scalar_oracles\":true}\n",tests);

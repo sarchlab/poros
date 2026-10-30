@@ -18,6 +18,7 @@ import (
 func runMachO(args []string, out, diagnostics io.Writer) int {
 	fs := flag.NewFlagSet("macho", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
+	entropySeed := fs.Uint64("entropy-seed", 0, "deterministic guest kernel entropy seed (not cryptographic randomness)")
 	profilePath := fs.String("runtime-profile", "", "explicit JSON native commpage capability profile")
 	dyld := fs.String("dyld", "", "explicit local runtime dyld file (read-only)")
 	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
@@ -41,7 +42,7 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 			return 2
 		}
 	}
-	options := darwinuser.Options{Args: append([]string{*argv0}, fs.Args()[1:]...), Env: []string(env), ExecName: *execName}
+	options := darwinuser.Options{EntropySeed: *entropySeed, Args: append([]string{*argv0}, fs.Args()[1:]...), Env: []string(env), ExecName: *execName}
 	if *profilePath != "" {
 		f, err := os.Open(*profilePath)
 		if err != nil {
@@ -76,6 +77,7 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		return 2
 	}
 	report := struct {
+		EntropySeed    uint64                     `json:"entropy_seed"`
 		Schema         int                        `json:"schema"`
 		Binary         darwinuser.Identity        `json:"binary"`
 		Dyld           darwinuser.Identity        `json:"dyld"`
@@ -85,7 +87,7 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		Policy         string                     `json:"policy"`
 		RuntimeProfile *darwinuser.RuntimeProfile `json:"runtime_profile,omitempty"`
 		darwinuser.Result
-	}{1, p.Binary, p.Dyld, options.Args, append([]string{}, options.Env...), options.ExecName, "actual dyld entry; functional clock is one native counter tick per retired instruction; runtime bring-up incomplete; no full-program timing prediction", options.RuntimeProfile, result}
+	}{*entropySeed, 1, p.Binary, p.Dyld, options.Args, append([]string{}, options.Env...), options.ExecName, "actual dyld entry; functional clock is one native counter tick per retired instruction; runtime bring-up incomplete; no full-program timing prediction", options.RuntimeProfile, result}
 	if err := json.NewEncoder(out).Encode(report); err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 2

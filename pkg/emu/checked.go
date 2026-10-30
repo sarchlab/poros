@@ -34,7 +34,7 @@ type StepResult struct {
 type UnsupportedInstructionError struct{ Instruction arm64asm.Inst }
 
 func (e *UnsupportedInstructionError) Error() string {
-	return fmt.Sprintf("unimplemented instruction: %s", e.Instruction)
+	return fmt.Sprintf("unimplemented instruction: %s", InstructionString(e.Instruction))
 }
 
 type memoryAccessError struct{ error }
@@ -74,6 +74,22 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 		result.SyscallImmediate = uint16((inst.Enc >> 5) & 0xffff)
 		result.Syscall = true
 		return result, nil
+	}
+	if regs.SPAlignmentCheck && regs.SP%16 != 0 {
+		for _, arg := range inst.Args {
+			var base arm64asm.RegSP
+			switch a := arg.(type) {
+			case arm64asm.MemImmediate:
+				base = a.Base
+			case arm64asm.MemExtend:
+				base = a.Base
+			default:
+				continue
+			}
+			if base == arm64asm.RegSP(arm64asm.SP) {
+				return fail("memory_fault", fmt.Errorf("SP-based memory access with unaligned SP %#x", regs.SP))
+			}
+		}
 	}
 	// Scalar semantics do not implement SIMD arrangements or element operands.
 	// Reject these before handlers that assume scalar register forms.

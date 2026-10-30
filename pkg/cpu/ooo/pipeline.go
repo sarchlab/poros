@@ -217,7 +217,7 @@ func (p *middleware) fetchAndProcess() {
 			}
 			return
 		}
-		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC && p.comp.State.RobCount != 0 {
+		if (instinfo.IsBarrier(inst.Op) || (p.comp.Resources.processMode() && inst.Op == arm64asm.SVC)) && p.comp.State.RobCount != 0 {
 			return
 		}
 
@@ -263,7 +263,7 @@ func (p *middleware) fetchAndProcess() {
 		// 5. Address-based load-store disambiguation (after StepDetailed
 		//    so actual addresses are available in p.comp.Resources.backend().MemoryAccesses()).
 		forwarded := false
-		if instinfo.IsLoad(inst.Op) {
+		if instinfo.IsLoad(inst.Op) && !emu.IsAtomicOperation(inst.Op) {
 			accesses := p.comp.Resources.backend().MemoryAccesses()
 			allForwarded := len(accesses) > 0
 			for _, acc := range accesses {
@@ -355,6 +355,9 @@ func (p *middleware) fetchAndProcess() {
 		// 8. For stores: add to store buffer.
 		if instinfo.IsStore(inst.Op) {
 			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+				if !acc.IsWrite {
+					continue
+				}
 				entry := storeBufferEntry{
 					Addr:          acc.Addr,
 					Size:          acc.Size,
@@ -422,7 +425,7 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		fetched++
-		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC {
+		if instinfo.IsBarrier(inst.Op) || (p.comp.Resources.processMode() && inst.Op == arm64asm.SVC) {
 			p.comp.State.Serializing = true
 			return
 		}

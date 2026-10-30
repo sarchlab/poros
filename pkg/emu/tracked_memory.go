@@ -1,5 +1,7 @@
 package emu
 
+import "fmt"
+
 // TrackedMemory records committed data accesses for CPU timing consumers.
 type TrackedMemory struct {
 	Space    CheckedMemory
@@ -30,4 +32,33 @@ func (m *TrackedMemory) record(a uint64, n int, w bool) {
 		a += uint64(width)
 		n -= width
 	}
+}
+
+func (m *TrackedMemory) CompareExchange(a uint64, expected, replacement, old []byte) (bool, error) {
+	memory, ok := m.Space.(AtomicMemory)
+	if !ok {
+		return false, fmt.Errorf("memory does not implement atomic RMW")
+	}
+	swapped, err := memory.CompareExchange(a, expected, replacement, old)
+	if err != nil {
+		return false, err
+	}
+	m.record(a, len(old), false)
+	if swapped {
+		m.record(a, len(old), true)
+	}
+	return swapped, nil
+}
+
+func (m *TrackedMemory) Exchange(a uint64, replacement, old []byte) error {
+	memory, ok := m.Space.(AtomicMemory)
+	if !ok {
+		return fmt.Errorf("memory does not implement atomic RMW")
+	}
+	if err := memory.Exchange(a, replacement, old); err != nil {
+		return err
+	}
+	m.record(a, len(old), false)
+	m.record(a, len(old), true)
+	return nil
 }

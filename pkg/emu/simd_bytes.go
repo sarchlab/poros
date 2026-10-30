@@ -9,7 +9,7 @@ import (
 // bits remain in the mask so halfword/word variants cannot silently execute.
 func byteSIMDForm(word uint32) uint32 {
 	switch form := word & 0xbfe0fc00; form {
-	case 0x0ea01c00, 0x2e201c00, 0x2e203400:
+	case 0x0e201c00, 0x0ea01c00, 0x2e201c00, 0x2e203400, 0x2e208c00:
 		return form // ORR, EOR, CMHI
 	}
 	switch form := word & 0xbffffc00; form {
@@ -39,12 +39,18 @@ func (e *executor) execByteSIMD(word uint32) {
 	minimum := byte(255)
 	for i := 0; i < n; i++ {
 		switch form {
+		case 0x0e201c00:
+			out[i] = a[i] & b[i]
 		case 0x0ea01c00:
 			out[i] = a[i] | b[i]
 		case 0x2e201c00:
 			out[i] = a[i] ^ b[i]
 		case 0x2e203400:
 			if a[i] > b[i] {
+				out[i] = 255
+			}
+		case 0x2e208c00:
+			if a[i] == b[i] {
 				out[i] = 255
 			}
 		case 0x0e205800:

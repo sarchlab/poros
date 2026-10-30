@@ -1,6 +1,7 @@
 package inst
 
 import (
+	"github.com/sarchlab/poros/pkg/emu"
 	"unsafe"
 
 	"golang.org/x/arch/arm64/arm64asm"
@@ -21,6 +22,12 @@ func GprIdx(r arm64asm.Reg) int {
 }
 
 func FpIdx(r arm64asm.Reg) int {
+	if r >= arm64asm.B0 && r <= arm64asm.B31 {
+		return int(r - arm64asm.B0)
+	}
+	if r >= arm64asm.H0 && r <= arm64asm.H31 {
+		return int(r - arm64asm.H0)
+	}
 	if r >= arm64asm.D0 && r <= arm64asm.D31 {
 		return int(r - arm64asm.D0)
 	}
@@ -78,6 +85,12 @@ func ArgFP(arg arm64asm.Arg) int {
 func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 	gpr, fp = -1, -1
 	op := inst.Op
+	if op == emu.OpCAS {
+		return ArgGPR(inst.Args[0]), -1
+	}
+	if op == emu.OpSWP {
+		return ArgGPR(inst.Args[1]), -1
+	}
 
 	// Stores don't write to a data register destination.
 	if IsStore(op) {
@@ -172,6 +185,9 @@ func RegExtReg(rea arm64asm.RegExtshiftAmount) arm64asm.Reg {
 // by pre/post-indexed load/store instructions (e.g., "ldr d1, [x22], #8"
 // writes x22 = x22+8). Returns -1 if no writeback occurs.
 func BaseWritebackGPR(inst arm64asm.Inst) int {
+	if emu.IsAtomicOperation(inst.Op) {
+		return -1
+	}
 	var memArg arm64asm.Arg
 	if IsLoad(inst.Op) {
 		if inst.Op == arm64asm.LDP || inst.Op == arm64asm.LDPSW {
@@ -211,6 +227,15 @@ func SourceGPRs(inst arm64asm.Inst) []int {
 	}
 
 	op := inst.Op
+
+	if emu.IsAtomicOperation(op) {
+		add(ArgGPR(inst.Args[0]))
+		if op == emu.OpCAS {
+			add(ArgGPR(inst.Args[1]))
+		}
+		ExtractMemSrcGPRs(inst.Args[2], add)
+		return srcs
+	}
 
 	// For stores: Args[0] is the value, Args[1] is the address.
 	if IsStore(op) {

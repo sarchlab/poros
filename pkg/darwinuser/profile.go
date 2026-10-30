@@ -11,6 +11,7 @@ import (
 // native reference host. Unmodeled fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
+	AtomicAlignment    string      `json:"atomic_alignment,omitempty"`
 	CSRConfig          *uint32     `json:"csr_config,omitempty"`
 	DyldFlags          *uint64     `json:"dyld_flags,omitempty"`
 	KernelPageShift    uint8       `json:"kernel_page_shift,omitempty"`
@@ -33,6 +34,9 @@ type PageShifts struct {
 }
 
 func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
+	if p.AtomicAlignment != "" && p.AtomicAlignment != "natural" && p.AtomicAlignment != "within-16-byte" {
+		return fmt.Errorf("unsupported atomic alignment profile")
+	}
 	if p.Version != 3 || p.UserPageShift != 14 || p.CacheLineSize == 0 || p.CacheLineSize&(p.CacheLineSize-1) != 0 || p.TimebaseNumer == 0 || p.TimebaseDenom == 0 || p.UserTimebase > 3 || p.ContinuousHWClock > 1 {
 		return fmt.Errorf("unsupported/invalid Darwin commpage profile")
 	}

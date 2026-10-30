@@ -22,6 +22,20 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, nil
 	}
 	switch inst.Op {
+	case arm64asm.DMB, arm64asm.DSB, arm64asm.ISB:
+		option := (inst.Enc >> 8) & 15
+		if inst.Op == arm64asm.ISB {
+			if option != 15 {
+				return false, &UnsupportedInstructionError{inst}
+			}
+		} else if option == 0 || option == 4 || option == 8 || option == 12 {
+			return false, &UnsupportedInstructionError{inst}
+		}
+		// A single owner executes this memory stream synchronously. Timing
+		// consumers serialize these architectural ordering operations explicitly.
+		return false, nil
+	case OpCAS, OpSWP:
+		return false, e.execAtomic(inst)
 	// Integer arithmetic
 	case arm64asm.ADD:
 		return false, e.execADD(inst)

@@ -1,6 +1,7 @@
 package darwinuser
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"github.com/sarchlab/poros/pkg/emu"
@@ -148,5 +149,40 @@ func TestDarwinSuccessfulTrapRetiresOnce(t *testing.T) {
 	result, err := p.Run(context.Background(), RunOptions{MaxInstructions: 1})
 	if err != nil || result.Instructions != 1 || result.Termination != "instruction_limit" || p.Registers.PC != 0x200000004 || p.Registers.GPR[0] != 1 {
 		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestEntropyBoundsFaultsAndDeterminism(t *testing.T) {
+	m := &usermem.AddressSpace{}
+	if err := m.Map(0x1000, 256, usermem.Read|usermem.Write, nil); err != nil {
+		t.Fatal(err)
+	}
+	var k kernelState
+	for _, tc := range []struct{ addr, n, want uint64 }{{0, 0, 0}, {0, 1, 14}, {1, 4, 14}, {0x1000, 257, 22}} {
+		before := k.entropyState
+		r := emu.Registers{}
+		r.GPR[16] = 500
+		r.GPR[0] = tc.addr
+		r.GPR[1] = tc.n
+		if !k.trap(&r, m) || r.GPR[0] != tc.want || r.C != (tc.want != 0) || k.entropyState != before {
+			t.Fatalf("%+v %+v", tc, r)
+		}
+	}
+	invoke := func(seed uint64) []byte {
+		k = kernelState{entropyState: seed}
+		r := emu.Registers{}
+		r.GPR[16] = 500
+		r.GPR[0] = 0x1000
+		r.GPR[1] = 256
+		if !k.trap(&r, m) || r.GPR[0] != 0 || r.C {
+			t.Fatal(r)
+		}
+		b := make([]byte, 256)
+		m.Read(0x1000, b)
+		return b
+	}
+	a, b, c := invoke(0), invoke(0), invoke(1)
+	if !bytes.Equal(a, b) || bytes.Equal(a, c) || bytes.Equal(a, make([]byte, 256)) {
+		t.Fatal("entropy state contract")
 	}
 }

@@ -163,7 +163,7 @@ func (p *middleware) stageExecute() bool {
 
 	// First cycle: call the emulator for functional execution.
 	if !p.comp.State.Execute.Executed {
-		if p.comp.Resources.processMode() && p.comp.State.Execute.Op == arm64asm.SVC && (p.comp.State.Memory.Valid || p.comp.State.Writeback.Valid) {
+		if (instinfo.IsBarrier(p.comp.State.Execute.Op) || (p.comp.Resources.processMode() && p.comp.State.Execute.Op == arm64asm.SVC)) && (p.comp.State.Memory.Valid || p.comp.State.Writeback.Valid) {
 			return true
 		}
 
@@ -184,7 +184,7 @@ func (p *middleware) stageExecute() bool {
 
 		// Handle taken branch: flush fetch and decode stages.
 		// This also covers halt (RET to haltPC): flush + pipeline drains.
-		if branched || (p.comp.Resources.processMode() && (inst.Op == arm64asm.SVC || p.comp.Resources.backend().Stopped())) {
+		if branched || instinfo.IsBarrier(inst.Op) || (p.comp.Resources.processMode() && (inst.Op == arm64asm.SVC || p.comp.Resources.backend().Stopped())) {
 			p.flush()
 		}
 	}

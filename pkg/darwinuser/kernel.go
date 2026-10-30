@@ -10,8 +10,9 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
-	nextPort  uint32
-	csrConfig *uint32
+	nextPort     uint32
+	entropyState uint64
+	csrConfig    *uint32
 }
 
 func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
@@ -71,6 +72,32 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 			r.GPR[0] = uint64(k.nextPort)
 			k.nextPort += 4
 		}
+	case 500: // getentropy: deterministic guest kernel stream, not host randomness.
+		addr, n := r.GPR[0], r.GPR[1]
+		errno := uint64(0)
+		if n > 256 {
+			errno = 22
+		} else if n != 0 {
+			var b [256]byte
+			state := k.entropyState
+			for i := uint64(0); i < n; i += 8 {
+				state += 0x9e3779b97f4a7c15
+				v := state
+				v = (v ^ (v >> 30)) * 0xbf58476d1ce4e5b9
+				v = (v ^ (v >> 27)) * 0x94d049bb133111eb
+				v ^= v >> 31
+				for j := uint64(0); j < 8 && i+j < n; j++ {
+					b[i+j] = byte(v >> (8 * j))
+				}
+			}
+			if err := m.Write(addr, b[:n]); err != nil {
+				errno = 14
+			} else {
+				k.entropyState = state
+			}
+		}
+		r.GPR[0] = errno
+		r.C = errno != 0
 	case 483:
 		if k.csrConfig == nil {
 			return false

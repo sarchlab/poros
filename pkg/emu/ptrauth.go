@@ -28,6 +28,9 @@ func DecodeChecked(code []byte, mode PointerAuthMode) (arm64asm.Inst, error) {
 		return arm64asm.Inst{}, fmt.Errorf("truncated instruction")
 	}
 	word := binary.LittleEndian.Uint32(code)
+	if inst, ok := decodeAtomic(word); ok {
+		return inst, nil
+	}
 	op, args, recognized := disabledAuthOperation(word)
 	if !recognized {
 		return arm64asm.Decode(code)

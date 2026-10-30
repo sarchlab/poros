@@ -22,6 +22,7 @@ const (
 )
 
 type Options struct {
+	EntropySeed    uint64
 	Args, Env      []string
 	ExecName       string
 	StackSize      uint64
@@ -198,10 +199,14 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		counter.Frequency = 1_000_000_000 * uint64(o.RuntimeProfile.TimebaseDenom) / uint64(o.RuntimeProfile.TimebaseNumer)
 	}
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
-	var kernel kernelState
+	kernel := kernelState{entropyState: o.EntropySeed}
+	alignment := emu.AtomicNaturalAlignment
+	if o.RuntimeProfile != nil && o.RuntimeProfile.AtomicAlignment == "within-16-byte" {
+		alignment = emu.AtomicWithin16Bytes
+	}
 	if o.RuntimeProfile != nil && o.RuntimeProfile.CSRConfig != nil {
 		config := *o.RuntimeProfile.CSRConfig
 		kernel.csrConfig = &config
 	}
-	return &Process{kernel: kernel, Registers: emu.Registers{PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
+	return &Process{kernel: kernel, Registers: emu.Registers{SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
 }

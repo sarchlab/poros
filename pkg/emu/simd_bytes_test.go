@@ -11,7 +11,7 @@ import (
 )
 
 func TestByteSIMDScalarOraclesAndAliasing(t *testing.T) {
-	for _, form := range []uint32{0x0ea01c00, 0x2e201c00, 0x2e203400, 0x2e31a800, 0x0e205800, 0x2e303800, 0x6f00e400} {
+	for _, form := range []uint32{0x0e201c00, 0x0ea01c00, 0x2e201c00, 0x2e203400, 0x2e208c00, 0x2e31a800, 0x0e205800, 0x2e303800, 0x6f00e400} {
 		for _, n := range []int{8, 16} {
 			if form == 0x6f00e400 && n == 8 {
 				continue
@@ -30,7 +30,7 @@ func TestByteSIMDScalarOraclesAndAliasing(t *testing.T) {
 					if n == 16 {
 						word |= 1 << 30
 					}
-					if form == 0x0ea01c00 || form == 0x2e201c00 || form == 0x2e203400 {
+					if form == 0x0e201c00 || form == 0x0ea01c00 || form == 0x2e201c00 || form == 0x2e203400 || form == 0x2e208c00 {
 						word |= 2 << 16
 					}
 					if form == 0x6f00e400 {
@@ -40,12 +40,18 @@ func TestByteSIMDScalarOraclesAndAliasing(t *testing.T) {
 					minimum := byte(255)
 					for i := 0; i < n; i++ {
 						switch form {
+						case 0x0e201c00:
+							want[i] = a[i] & b[i]
 						case 0x0ea01c00:
 							want[i] = a[i] | b[i]
 						case 0x2e201c00:
 							want[i] = a[i] ^ b[i]
 						case 0x2e203400:
 							if a[i] > b[i] {
+								want[i] = 255
+							}
+						case 0x2e208c00:
+							if a[i] == b[i] {
 								want[i] = 255
 							}
 						case 0x0e205800:
@@ -119,8 +125,8 @@ func TestByteSIMDRecordedNativeVectors(t *testing.T) {
 		}
 		var result struct {
 			Vectors []struct {
-				A, B, Or, Xor, Hi, Cnt string
-				Min, Sum               uint64
+				A, B, Or, Xor, Hi, Cnt, Eq, And string
+				Min, Sum                        uint64
 			}
 		}
 		if err = json.Unmarshal(observation.Result, &result); err != nil {
@@ -139,7 +145,7 @@ func TestByteSIMDRecordedNativeVectors(t *testing.T) {
 				word   uint32
 				vector string
 				scalar uint64
-			}{{0x4ea21c20, v.Or, 0}, {0x6e221c20, v.Xor, 0}, {0x6e223420, v.Hi, 0}, {0x0e205820, v.Cnt, 0}, {0x6e31a820, "", v.Min}, {0x2e303820, "", v.Sum}} {
+			}{{0x4ea21c20, v.Or, 0}, {0x6e221c20, v.Xor, 0}, {0x6e223420, v.Hi, 0}, {0x6e228c20, v.Eq, 0}, {0x4e221c20, v.And, 0}, {0x0e205820, v.Cnt, 0}, {0x6e31a820, "", v.Min}, {0x2e303820, "", v.Sum}} {
 				r := Registers{PC: 0x1000}
 				r.WriteQ(1, binary.LittleEndian.Uint64(a[:8]), binary.LittleEndian.Uint64(a[8:]))
 				r.WriteQ(2, binary.LittleEndian.Uint64(b[:8]), binary.LittleEndian.Uint64(b[8:]))

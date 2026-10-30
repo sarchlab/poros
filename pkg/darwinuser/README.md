@@ -54,13 +54,16 @@ platform string routines. Modeled kernel calls provide task/thread/reply port
 names, thread ID/TLS, page-rounded `mach_vm_protect`, native-architecture
 crossarch errors, and CSR queries against an explicitly captured configuration.
 SVC immediates are checked by the OS runtime; they are not architectural state.
-The next local stop is CASA in the real pthread runtime at `0x70007dd34`, after
-88,856 user instructions for integer/1000. It has not reached benchmark main.
+The next local stop is the kernel shared-region query (294) at `0x70000644c`,
+after 103,971 user instructions for integer/1000. It has not reached benchmark
+main. CAS/SWP execute as real read-modify-write operations; DMB/DSB/ISB preserve
+ordering. Both timing pipelines serialize atomic/barrier operations
+conservatively. Their latency has not been calibrated against native hardware.
 The checked-in native observations remain separate from incomplete execution.
 
-The byte-vector ISA slice includes ORR, EOR, CMHI, UMINV, CNT, UADDLV and the
+The byte-vector ISA slice includes AND, ORR, EOR, CMHI, CMEQ, UMINV, CNT, UADDLV and the
 zero `MOVI Vd.2D` form. Owned native tests record 256 input/output vectors and
-16,896 scalar comparisons; portable tests replay native outputs, overlap and
+25,088 scalar comparisons; portable tests replay native outputs, overlap and
 upper-register clearing cases. Other SIMD forms continue to fail explicitly.
 
 References: [XNU executable activation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exec.c),
@@ -69,3 +72,16 @@ References: [XNU executable activation](https://github.com/apple-oss-distributio
 Kernel references: [platform TLS](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/arm64/machine_routines.c),
 [crossarch namespace](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_crossarch.c),
 [CSR query contract](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_csr.c).
+
+The native runtime profile records measured CAS alignment behavior, independently
+of CPU feature-bit interpretation: this M2 accepts a 32/64-bit data access within
+one 16-byte granule, and faults on a crossing access. SP-based memory accesses
+also require a 16-byte-aligned SP. Ordinary Linux/default emulator callers retain
+their existing defaults. Native CAS/SWP results, alias cases and 64 offset cases
+plus 16 SP-offset cases are replayed by portable tests.
+
+`getentropy` produces bounded deterministic guest bytes from `--entropy-seed`
+(default zero), with native Darwin size/pointer error semantics. This stream is
+not cryptographic randomness. Together with the fixed virtual address layout,
+it is a reproducibility policy, not a claim to reproduce the native process's
+random allocator addresses or exact startup path lengths.

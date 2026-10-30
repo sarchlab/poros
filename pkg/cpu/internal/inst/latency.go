@@ -1,6 +1,9 @@
 package inst
 
-import "golang.org/x/arch/arm64/arm64asm"
+import (
+	"github.com/sarchlab/poros/pkg/emu"
+	"golang.org/x/arch/arm64/arm64asm"
+)
 
 // ExecuteLatency returns the execute-stage latency in cycles for an instruction.
 func ExecuteLatency(op arm64asm.Op) int {
@@ -50,6 +53,9 @@ func ExecuteLatency(op arm64asm.Op) int {
 
 // IsLoad returns true if the instruction is a load operation.
 func IsLoad(op arm64asm.Op) bool {
+	if emu.IsAtomicOperation(op) {
+		return true
+	}
 	switch op {
 	case arm64asm.LDR, arm64asm.LDRB, arm64asm.LDRH,
 		arm64asm.LDRSB, arm64asm.LDRSH, arm64asm.LDRSW,
@@ -63,6 +69,9 @@ func IsLoad(op arm64asm.Op) bool {
 
 // IsStore returns true if the instruction is a store operation.
 func IsStore(op arm64asm.Op) bool {
+	if emu.IsAtomicOperation(op) {
+		return true
+	}
 	switch op {
 	case arm64asm.STR, arm64asm.STRB, arm64asm.STRH,
 		arm64asm.STUR, arm64asm.STURB, arm64asm.STURH,
@@ -105,4 +114,9 @@ func UsesFlags(op arm64asm.Op) bool {
 		return true
 	}
 	return false
+}
+
+// IsBarrier requires memory/retirement ordering; latency is not hardware calibrated.
+func IsBarrier(op arm64asm.Op) bool {
+	return emu.IsAtomicOperation(op) || op == arm64asm.DMB || op == arm64asm.DSB || op == arm64asm.ISB
 }
