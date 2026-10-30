@@ -93,7 +93,8 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 	}
 	// Scalar semantics do not implement SIMD arrangements or element operands.
 	// Reject these before handlers that assume scalar register forms.
-	if simdForm(inst.Enc) == 0 {
+	_, _, multipleMemory := multipleSIMDShape(inst.Enc)
+	if simdForm(inst.Enc) == 0 && !multipleMemory {
 		for _, arg := range inst.Args {
 			switch a := arg.(type) {
 			case arm64asm.RegisterWithArrangement, arm64asm.RegisterWithArrangementAndIndex:

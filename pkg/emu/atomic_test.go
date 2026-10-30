@@ -139,9 +139,10 @@ func nativeAtomicObservation(t *testing.T, source string, out any) {
 	}
 	var e struct {
 		Observations []struct {
-			Source string
-			Hash   string `json:"source_sha256"`
-			Result json.RawMessage
+			Source       string
+			Hash         string            `json:"source_sha256"`
+			Dependencies map[string]string `json:"source_dependencies"`
+			Result       json.RawMessage
 		}
 	}
 	if err = json.Unmarshal(b, &e); err != nil {
@@ -158,6 +159,16 @@ func nativeAtomicObservation(t *testing.T, source string, out any) {
 		hash := sha256.Sum256(b)
 		if hex.EncodeToString(hash[:]) != o.Hash {
 			t.Fatal("native source identity changed")
+		}
+		for path, want := range o.Dependencies {
+			b, err := os.ReadFile("../../tests/macho/" + path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := sha256.Sum256(b)
+			if hex.EncodeToString(got[:]) != want {
+				t.Fatal("native dependency identity changed", path)
+			}
 		}
 		if err = json.Unmarshal(o.Result, out); err != nil {
 			t.Fatal(err)

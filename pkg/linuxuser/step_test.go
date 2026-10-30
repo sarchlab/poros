@@ -92,7 +92,7 @@ func TestCheckedRejectsUnsupportedOperandForms(t *testing.T) {
 		opcode uint32
 	}{
 		{"scalar-simd-add", 0x5ee28420}, {"scalar-simd-sub", 0x7ee28420}, {"scalar-simd-neg", 0x7ee0b820},
-		{"simd", 0x4ea28420}, {"half-fp", 0x1ee22820}, {"paciasp-hint", 0xd503233f},
+		{"simd-sub", 0x6ea28420}, {"half-fp", 0x1ee22820}, {"paciasp-hint", 0xd503233f},
 		{"scvtf-vector-scalar", 0x5e61d800}, {"ucvtf-vector-scalar", 0x7e61d800}, {"fcvtzs-vector-scalar", 0x5ee1b800}, {"fcvtzu-vector-scalar", 0x7ee1b800},
 		{"scvtf-fixed", 0x9e42fc00}, {"ucvtf-fixed", 0x1e03fc00}, {"fcvtzs-fixed", 0x9e58fc00}, {"fcvtzu-fixed", 0x1e19fc00},
 	} {
@@ -176,4 +176,17 @@ func testAddressSpace(t *testing.T, regions ...testRegion) *AddressSpace {
 		}
 	}
 	return m
+}
+
+func TestCheckedVectorAddUsesSharedISASemantics(t *testing.T) {
+	regs := emu.Registers{PC: 0x1000, N: true}
+	regs.WriteQ(1, 0xffffffff00000001, 0x8000000000000007)
+	regs.WriteQ(2, 0x0000000100000002, 0x80000000ffffffff)
+	if _, err := emu.StepChecked(&regs, instructionMemory(t, 0x4ea28420)); err != nil {
+		t.Fatal(err)
+	}
+	low, high := regs.ReadQ(0)
+	if low != 3 || high != 6 || !regs.N || regs.Z || regs.C || regs.V || regs.PC != 0x1004 {
+		t.Fatal(regs)
+	}
 }

@@ -44,15 +44,17 @@ type State struct {
 	Err                                       string
 }
 type stageReg struct {
-	Valid                              bool
-	PC                                 uint64
-	Word                               uint32
-	Op                                 arm64asm.Op
-	SourceGPRs, SourceFPs              []int
-	DestGPR, DestFP, DestGPR2, DestFP2 int
-	CyclesLeft                         int
-	Executed, Branched                 bool
-	MemLatency                         int
+	Valid                 bool
+	PC                    uint64
+	Word                  uint32
+	Op                    arm64asm.Op
+	SourceGPRs, SourceFPs []int
+	DestGPR, DestGPR2     int
+	DestFPs               [4]int
+	NumDestFPs            int
+	CyclesLeft            int
+	Executed, Branched    bool
+	MemLatency            int
 }
 
 func (s *State) Initialize(c *Comp) {
@@ -116,20 +118,15 @@ func (p *middleware) stageWriteback() {
 	}
 
 	// Clear scoreboard for destination registers.
-	gpr, fp := p.comp.State.Writeback.DestGPR, p.comp.State.Writeback.DestFP
-	if gpr >= 0 {
-		p.comp.State.GprPending[gpr]--
+	stage := &p.comp.State.Writeback
+	if stage.DestGPR >= 0 {
+		p.comp.State.GprPending[stage.DestGPR]--
 	}
-	if fp >= 0 {
+	if stage.DestGPR2 >= 0 {
+		p.comp.State.GprPending[stage.DestGPR2]--
+	}
+	for _, fp := range stage.DestFPs[:stage.NumDestFPs] {
 		p.comp.State.FpPending[fp]--
-	}
-	if gpr2, fp2 := p.comp.State.Writeback.DestGPR2, p.comp.State.Writeback.DestFP2; gpr2 >= 0 || fp2 >= 0 {
-		if gpr2 >= 0 {
-			p.comp.State.GprPending[gpr2]--
-		}
-		if fp2 >= 0 {
-			p.comp.State.FpPending[fp2]--
-		}
 	}
 
 	p.comp.State.InstDone++
@@ -232,20 +229,15 @@ func (p *middleware) stageDecode() bool {
 	p.comp.State.Decode.CyclesLeft = instinfo.ExecuteLatency(p.comp.State.Decode.Op) - 1
 
 	// Mark destination registers as pending in scoreboard.
-	gpr, fp := p.comp.State.Decode.DestGPR, p.comp.State.Decode.DestFP
-	if gpr >= 0 {
-		p.comp.State.GprPending[gpr]++
+	stage := &p.comp.State.Decode
+	if stage.DestGPR >= 0 {
+		p.comp.State.GprPending[stage.DestGPR]++
 	}
-	if fp >= 0 {
+	if stage.DestGPR2 >= 0 {
+		p.comp.State.GprPending[stage.DestGPR2]++
+	}
+	for _, fp := range stage.DestFPs[:stage.NumDestFPs] {
 		p.comp.State.FpPending[fp]++
-	}
-	if gpr2, fp2 := p.comp.State.Decode.DestGPR2, p.comp.State.Decode.DestFP2; gpr2 >= 0 || fp2 >= 0 {
-		if gpr2 >= 0 {
-			p.comp.State.GprPending[gpr2]++
-		}
-		if fp2 >= 0 {
-			p.comp.State.FpPending[fp2]++
-		}
 	}
 
 	p.comp.State.Execute = p.comp.State.Decode
@@ -278,15 +270,16 @@ func (p *middleware) stageFetch() {
 		return
 	}
 
-	gpr, fp := instinfo.DestRegs(inst)
-	gpr2, fp2 := instinfo.DestRegs2(inst)
+	gpr, _ := instinfo.DestRegs(inst)
+	gpr2, _ := instinfo.DestRegs2(inst)
+	fps, fpCount := instinfo.DestFPs(inst)
 	p.comp.State.Decode = stageReg{
 		Valid:      true,
 		PC:         p.comp.State.FetchPC,
 		Word:       inst.Enc,
 		Op:         inst.Op,
 		SourceGPRs: instinfo.SourceGPRs(inst), SourceFPs: instinfo.SourceFPs(inst),
-		DestGPR: gpr, DestFP: fp, DestGPR2: gpr2, DestFP2: fp2,
+		DestGPR: gpr, DestGPR2: gpr2, DestFPs: fps, NumDestFPs: fpCount,
 	}
 	p.comp.State.FetchPC += 4 // predict not-taken
 }

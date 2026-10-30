@@ -18,8 +18,8 @@ All initialization, arithmetic, output and exit remain native program work.
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 Current integer/1000 validation with the corrected ISA, captured runtime profile,
-and the explicit warm shared cache retires 2,277,892 instructions and stops at
-unsupported multi-register `LD1 {V3.4S-V5.4S}, [X2]`, PC `0x184bce7d0`, with no guest
+the explicit clock anchor and warm shared cache retires 2,291,422 instructions and stops at
+unsupported vector `REV32 V0.16B, V0.16B`, PC `0x184bbd848`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -536,3 +536,28 @@ classification. These instructions read their first operand and write no data
 register; conditional comparisons additionally consume NZCV. Legacy cycle
 assertions remain strict, and any resulting differences are audited separately
 without changing benchmark inputs, architectural results or CPU parameters.
+
+
+Corecrypto startup now executes contiguous LD1/ST1 register lists (one through
+four vectors, including V31 wrap), EXT, TBL, scalar DUP/MOV, GPR-to-vector-lane
+INS/MOV, AESE, AESMC and vector ADD. The owned native probes retain 20,620
+successful and fault observations with C and assembly dependency hashes; full
+register/flag results and store guards are checked. AES round and MixColumns
+semantics are instruction execution, not host library calls.
+
+LD1 publishes every FP destination in both pipelines. OoO reserves all required
+physical destinations before executing; temporary shortage waits for retirement,
+while an impossible configured capacity drains older work then reports an error
+without executing the instruction. ST1 consumes every vector source. Register
+post-index addressing waits for the increment register, including store address
+writeback. Tests exercise third/fourth destinations, wrap, one/two/three available
+slots, delayed producers and complete unaligned spans crossing cache lines.
+Loads/stores stay on the memory unit; other AdvSIMD forms use the existing FP
+resources. Latency parameters are unchanged and crypto timing is not calibrated.
+
+Native M2 guard-page probes observe partial SIMD-register or memory updates for
+some faulting LD1/ST1 accesses. Since checked execution does not model resuming
+these partial faults, inaccessible complete spans are explicitly unsupported
+before guest mutation. They are not presented as precise native atomic faults.
+Successful transfers use one checked read/write over the complete span, and
+successful stores apply the existing local-exclusive-monitor invalidation policy.

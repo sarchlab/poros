@@ -186,3 +186,10 @@ The virtual kernel refreshes the calendar tuple at whole virtual-second boundari
 through a scoped read-only mapping update capability. Guest writes remain denied;
 no sleep, later wall-clock adjustment or NTP updates are synthesized. Without an
 anchor, boot and calendar commpage fields stay unmapped.
+
+
+The observed corecrypto path now executes multi-register LD1/ST1, EXT, TBL,
+scalar DUP/INS aliases, AESE/AESMC and vector ADD. Both CPU pipelines account for
+all vector operands; these functional and dependency checks do not calibrate
+crypto latency. Faulting multi-register spans stop explicitly because native
+partial exception state is outside the checked runtime's resume contract.

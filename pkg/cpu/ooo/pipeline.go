@@ -221,6 +221,19 @@ func (p *middleware) fetchAndProcess() {
 			return
 		}
 
+		fpRegisters, fpDests := instinfo.DestFPs(inst)
+		if fpDests > p.comp.Spec.FpPhysLimit {
+			if p.comp.State.RobCount != 0 {
+				return
+			} // Preserve retirement of older work.
+			p.comp.State.Err = fmt.Sprintf("instruction requires %d FP destinations, configured limit is %d", fpDests, p.comp.Spec.FpPhysLimit)
+			p.comp.State.Done = true
+			return
+		}
+		if fpDests > p.comp.Spec.FpPhysLimit-p.comp.State.FpInFlight {
+			return // Wait for older destinations to retire, before any Step.
+		}
+
 		// 2. Compute source operand readiness.
 		var srcReady uint64
 		for _, gpr := range instinfo.SourceGPRs(inst) {
@@ -240,7 +253,7 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		// 3. Classify instruction and find execution unit.
-		ut := classifyUnit(inst.Op)
+		ut := classifyUnit(inst)
 		dispatchCycle := p.comp.State.Cycles
 		issueCycle := dispatchCycle
 		if srcReady > issueCycle {
@@ -307,25 +320,15 @@ func (p *middleware) fetchAndProcess() {
 		completeCycle := issueCycle + latency
 
 		// 7. Update destination register readiness.
-		gpr, fp := instinfo.DestRegs(inst)
+		gpr, _ := instinfo.DestRegs(inst)
 		if gpr >= 0 && gpr < 31 {
 			p.comp.State.GprReady[gpr] = completeCycle
 		}
-		if fp >= 0 {
+		if gpr2, _ := instinfo.DestRegs2(inst); gpr2 >= 0 {
+			p.comp.State.GprReady[gpr2] = completeCycle
+		}
+		for _, fp := range fpRegisters[:fpDests] {
 			p.comp.State.FpReady[fp] = completeCycle
-		}
-		fpDests := 0
-		if fp >= 0 {
-			fpDests++
-		}
-		if gpr2, fp2 := instinfo.DestRegs2(inst); gpr2 >= 0 || fp2 >= 0 {
-			if gpr2 >= 0 {
-				p.comp.State.GprReady[gpr2] = completeCycle
-			}
-			if fp2 >= 0 {
-				p.comp.State.FpReady[fp2] = completeCycle
-				fpDests++
-			}
 		}
 
 		// 7b. Track base register writeback for pre/post-indexed addressing.
@@ -337,6 +340,9 @@ func (p *middleware) fetchAndProcess() {
 				// For stores, base writeback depends only on the base
 				// register, not on the store data operand.
 				baseReady := p.comp.State.GprReady[base]
+				if index := instinfo.PostIndexGPR(inst); index >= 0 && p.comp.State.GprReady[index] > baseReady {
+					baseReady = p.comp.State.GprReady[index]
+				}
 				if dispatchCycle > baseReady {
 					baseReady = dispatchCycle
 				}
@@ -433,9 +439,18 @@ func (p *middleware) fetchAndProcess() {
 }
 
 // classifyUnit determines which execution unit type an instruction needs.
-func classifyUnit(op arm64asm.Op) unitType {
+func classifyUnit(instruction arm64asm.Inst) unitType {
+	op := instruction.Op
 	if instinfo.IsLoad(op) || instinfo.IsStore(op) {
 		return unitLDST
+	}
+	// AdvSIMD operations share the existing FP/SIMD resources. Memory
+	// operations were classified first; their vector operands remain LDST.
+	for _, arg := range instruction.Args {
+		switch arg.(type) {
+		case arm64asm.RegisterWithArrangement, arm64asm.RegisterWithArrangementAndIndex:
+			return unitFP
+		}
 	}
 	switch op {
 	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FMUL,

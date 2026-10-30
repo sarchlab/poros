@@ -22,6 +22,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, nil
 	}
 	switch inst.Op {
+	case arm64asm.LD1, arm64asm.ST1:
+		return false, e.execSIMDMemory(inst)
 	case arm64asm.LDXR, arm64asm.LDAXR, arm64asm.STXR, arm64asm.STLXR, arm64asm.CLREX:
 		return false, e.execExclusive(inst)
 	case arm64asm.DMB, arm64asm.DSB, arm64asm.ISB:

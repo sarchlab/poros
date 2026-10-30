@@ -161,6 +161,35 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 	return
 }
 
+// DestFPs enumerates every FP destination, including LD1 register lists and
+// wrap from V31 to V0. Both timing models use the same fixed-size enumeration.
+func DestFPs(inst arm64asm.Inst) (regs [4]int, count int) {
+	if inst.Op == arm64asm.LD1 {
+		if arg, ok := inst.Args[0].(arm64asm.RegisterWithArrangement); ok {
+			list := *(*rwaLayout)(unsafe.Pointer(&arg))
+			first := FpIdx(arm64asm.Reg(list.r))
+			if first >= 0 && list.cnt >= 1 && list.cnt <= 4 {
+				for i := 0; i < int(list.cnt); i++ {
+					regs[i] = (first + i) & 31
+				}
+				return regs, int(list.cnt)
+			}
+		}
+		return
+	}
+	_, first := DestRegs(inst)
+	if first >= 0 {
+		regs[count] = first
+		count++
+	}
+	_, second := DestRegs2(inst)
+	if second >= 0 {
+		regs[count] = second
+		count++
+	}
+	return
+}
+
 // DestRegs2 returns the second destination for pair instructions (LDP).
 func DestRegs2(inst arm64asm.Inst) (gpr, fp int) {
 	gpr, fp = -1, -1
@@ -237,10 +266,21 @@ func BaseWritebackGPR(inst arm64asm.Inst) int {
 	}
 	s := *(*memImmLayout)(unsafe.Pointer(&mi))
 	mode := arm64asm.AddrMode(s.Mode)
-	if mode != arm64asm.AddrPostIndex && mode != arm64asm.AddrPreIndex {
+	if mode != arm64asm.AddrPostIndex && mode != arm64asm.AddrPreIndex && mode != arm64asm.AddrPostReg {
 		return -1
 	}
 	return GprIdx(arm64asm.Reg(s.Base))
+}
+
+// PostIndexGPR is the optional register increment used by a memory operation.
+// Its readiness participates in address writeback independently of store data.
+func PostIndexGPR(inst arm64asm.Inst) int {
+	for _, arg := range inst.Args {
+		if m, ok := arg.(arm64asm.MemImmediate); ok && m.Mode == arm64asm.AddrPostReg {
+			return int((*memImmLayout)(unsafe.Pointer(&m)).Imm)
+		}
+	}
+	return -1
 }
 
 // SourceGPRs returns all GPR indices read by the instruction.
@@ -354,6 +394,18 @@ func SourceFPs(inst arm64asm.Inst) []int {
 		}
 	}
 
+	if inst.Op == arm64asm.ST1 {
+		if arg, ok := inst.Args[0].(arm64asm.RegisterWithArrangement); ok {
+			list := *(*rwaLayout)(unsafe.Pointer(&arg))
+			first := FpIdx(arm64asm.Reg(list.r))
+			if first >= 0 && list.cnt >= 1 && list.cnt <= 4 {
+				for i := 0; i < int(list.cnt); i++ {
+					add((first + i) & 31)
+				}
+			}
+		}
+		return srcs
+	}
 	if IsStore(inst.Op) {
 		add(ArgFP(inst.Args[0]))
 		if inst.Op == arm64asm.STNP || inst.Op == arm64asm.STP {
@@ -372,7 +424,7 @@ func SourceFPs(inst arm64asm.Inst) []int {
 	}
 
 	// BSL reads the old destination as its bit selection mask.
-	if inst.Op == arm64asm.BSL {
+	if inst.Op == arm64asm.BSL || inst.Op == arm64asm.AESE {
 		add(ArgFP(inst.Args[0]))
 	}
 	// Vector BIC immediate preserves all destination bits outside its mask.
@@ -381,6 +433,15 @@ func SourceFPs(inst arm64asm.Inst) []int {
 	}
 	if _, partial := inst.Args[0].(arm64asm.RegisterWithArrangementAndIndex); partial {
 		add(ArgFP(inst.Args[0]))
+	}
+	if inst.Op == arm64asm.TBL {
+		first := int((inst.Enc >> 5) & 31)
+		count := int((inst.Enc>>13)&3) + 1
+		for i := 0; i < count; i++ {
+			add((first + i) & 31)
+		}
+		add(int((inst.Enc >> 16) & 31))
+		return srcs
 	}
 	for i := 1; i < len(inst.Args); i++ {
 		if inst.Args[i] == nil {
@@ -399,6 +460,10 @@ func ExtractMemSrcGPRs(arg arm64asm.Arg, add func(int)) {
 	case arm64asm.MemImmediate:
 		r := MemImmBase(m)
 		add(GprIdx(r))
+		if m.Mode == arm64asm.AddrPostReg {
+			layout := *(*memImmLayout)(unsafe.Pointer(&m))
+			add(int(layout.Imm))
+		}
 	case arm64asm.MemExtend:
 		add(GprIdx(arm64asm.Reg(m.Base)))
 		add(GprIdx(m.Index))

@@ -57,7 +57,7 @@ func IsLoad(op arm64asm.Op) bool {
 		return true
 	}
 	switch op {
-	case emu.OpLDAPR, arm64asm.LDAR, arm64asm.LDR, arm64asm.LDRB, arm64asm.LDRH,
+	case arm64asm.LD1, emu.OpLDAPR, arm64asm.LDAR, arm64asm.LDR, arm64asm.LDRB, arm64asm.LDRH,
 		arm64asm.LDRSB, arm64asm.LDRSH, arm64asm.LDRSW,
 		arm64asm.LDUR, arm64asm.LDURB, arm64asm.LDURH,
 		arm64asm.LDURSB, arm64asm.LDURSH, arm64asm.LDURSW,
@@ -73,6 +73,8 @@ func IsStore(op arm64asm.Op) bool {
 		return true
 	}
 	switch op {
+	case arm64asm.ST1:
+		return true
 	case arm64asm.STLR, arm64asm.STR, arm64asm.STRB, arm64asm.STRH,
 		arm64asm.STUR, arm64asm.STURB, arm64asm.STURH,
 		arm64asm.STNP, arm64asm.STP:

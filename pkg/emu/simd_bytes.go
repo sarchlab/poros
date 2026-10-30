@@ -8,6 +8,12 @@ import (
 // simdForm selects only implemented encodings. Byte operations keep size
 // bits in their mask; MOVI explicitly selects its implemented lane form.
 func simdForm(word uint32) uint32 {
+	if word&0xbf20fc00 == 0x0e208400 && ((word>>22)&3 != 3 || word&(1<<30) != 0) {
+		return 0x0e208400
+	} // ADD vector, excluding reserved 1D.
+	if form := cryptoSIMDForm(word); form != 0 {
+		return form
+	}
 	if word&0xbf3ffc00 == 0x0e30a800 {
 		size := (word >> 22) & 3
 		if size < 2 || (size == 2 && word&(1<<30) != 0) {
@@ -84,6 +90,9 @@ func simdForm(word uint32) uint32 {
 
 func (e *executor) execSIMD(word uint32) {
 	form := simdForm(word)
+	if e.execCryptoSIMD(word, form) {
+		return
+	}
 	n := 8
 	if word&(1<<30) != 0 {
 		n = 16
@@ -95,6 +104,19 @@ func (e *executor) execSIMD(word uint32) {
 	binary.LittleEndian.PutUint64(a[8:], src.Hi)
 	binary.LittleEndian.PutUint64(b[:8], rhs.Lo)
 	binary.LittleEndian.PutUint64(b[8:], rhs.Hi)
+	if form == 0x0e208400 {
+		width := 1 << ((word >> 22) & 3)
+		for offset := 0; offset < n; offset += int(width) {
+			var carry uint16
+			for j := 0; j < int(width); j++ {
+				sum := uint16(a[offset+j]) + uint16(b[offset+j]) + carry
+				out[offset+j] = byte(sum)
+				carry = sum >> 8
+			}
+		}
+		e.regs.WriteQ(int(word&31), binary.LittleEndian.Uint64(out[:8]), binary.LittleEndian.Uint64(out[8:]))
+		return
+	}
 	if form == 0x0e000c00 {
 		width := int((word >> 16) & 31)
 		var value uint64
