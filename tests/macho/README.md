@@ -18,8 +18,8 @@ All initialization, arithmetic, output and exit remain native program work.
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 Current integer/1000 validation with the corrected ISA, captured runtime profile,
-and the explicit warm shared cache retires 2,270,834 instructions and stops at
-BSD `ioctl(2, FIODTYPE, ...)` at PC `0x18054c340`, with no guest
+and the explicit warm shared cache retires 2,276,482 instructions and stops on an
+unmapped eight-byte commpage read at `0xfffffc0a0`, PC `0x18055cd78`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -52,6 +52,8 @@ receives and authority retained after readonly copyout failure. The last send
 reference removes the object; native lifecycle evidence also verifies copied send
 references and stale-name rejection. Explicit semaphore destruction, blocking/waiting
 and scheduling remain unsupported until exercised and modeled.
+The object lifecycle follows XNU `sync_sema.c` no-senders/free behavior; all
+objects and rights remain private to the simulated task.
 The selected `com.apple.featureflags.shm` object is captured as an immutable launch
 snapshot, bound by full stat64 metadata, byte count, SHA256 and native runtime
 identity. The collector maps it read-only twice, requires equal bytes/metadata,
@@ -64,8 +66,6 @@ reads remain explicit unsupported operations. Snapshots have a 64 KiB aggregate
 bound; the JSON profile has a 128 KiB bound for the base64 payload. Portable tests
 use synthetic owned snapshots plus the small native windows recorded by the ABI
 oracles; there is no second checked-in full host configuration blob.
-The object lifecycle follows XNU `sync_sema.c` no-senders/free behavior; all
-objects and rights remain private to the simulated task.
 The published commpage active/physical/logical CPU counts and cluster count are
 explicit captured launch fields, checked against native observations and mapped
 read-only. They guide guest library initialization; they do not retune Poros CPU
@@ -485,3 +485,28 @@ Scalar BIC complements its shifted second operand while preserving NZCV; SIMD BI
 continues through the existing vector path. Native4,864 full-state observations
 cover W/X, shifts, alias and zero-register forms, and an OoO delayed-load chain
 checks its data dependency without introducing a flag dependency.
+
+Descriptor ioctl handling follows the native descriptor kind: FIODTYPE and
+TIOCGETA on regular files/directories/POSIX shared memory return ENOTTY before
+output-pointer checks. The explicitly declared `/dev/null` stdin returns device
+type 2 for FIODTYPE and ENODEV for TIOCGETA; this does not apply to arbitrary
+character devices. Two native 19-case probes cover errors, byte preservation,
+low-32-bit descriptors and full-width command decoding. Duplicated descriptors
+retain the same private object identity. No host ioctl is forwarded.
+
+PSTATE.DIT is explicit architectural state. Darwin launch initializes it clear:
+XNU `load_main` calls `thread_state_initialize`, and
+`machine_thread_state_initialize` uses `PSR64_USER64_DEFAULT`, which excludes DIT.
+Captured commpage CPU capability bit57 enables the modeled DIT MRS/MSR forms;
+bit45 independently enables SB. The shared decoder retains original encodings
+for both immediate DIT writes and SB. Native 224-case evidence covers register
+and immediate writes, zero registers, preserved NZCV and SB's functional state.
+Unavailable features and neighboring unsupported operations fail without mutation.
+Both pipelines serialize MSR and SB through the existing retirement barrier path;
+delayed-load tests verify state dependencies and older/younger memory ordering.
+This is functional/ordering coverage, not calibrated DIT latency or a speculative
+side-channel/security model. Primary references are Apple's
+[ARM64 platform guidance](https://developer.apple.com/documentation/xcode/writing-arm64-code-for-apple-platforms),
+[XNU Mach-O startup](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/mach_loader.c),
+[thread initialization](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/arm64/status.c)
+and [PSTATE defaults](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/arm64/proc_reg.h).

@@ -25,6 +25,17 @@ type AppleThreadProtectionState struct {
 }
 
 func (e *executor) execMRS(inst arm64asm.Inst) error {
+	if inst.Enc&^31 == 0xd53b42a0 {
+		if !e.regs.DIT.Available {
+			return &UnsupportedInstructionError{Instruction: inst}
+		}
+		var value uint64
+		if e.regs.DIT.Value {
+			value = 1 << 24
+		}
+		e.regs.WriteX(int(inst.Enc&31), value)
+		return nil
+	}
 	if inst.Enc&^31 == 0xd53ef1a0 {
 		if !e.regs.AppleThreadProtection.Enabled {
 			return &UnsupportedInstructionError{Instruction: inst}

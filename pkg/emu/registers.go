@@ -8,6 +8,8 @@ import (
 
 // Registers holds the complete ARM64 register state.
 type Registers struct {
+	DIT                   DITState                   `json:",omitzero"`
+	SpeculationBarrier    bool                       `json:",omitempty"`
 	AppleThreadProtection AppleThreadProtectionState `json:",omitzero"`
 	BranchTarget          BranchTargetMode           `json:",omitempty"`
 	Exclusive             ExclusiveState             `json:",omitzero"`

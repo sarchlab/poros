@@ -56,12 +56,13 @@ func validateInitialDescriptors(entries []InitialDescriptor) error {
 // guestOpenFile is a private open-file description. Dup aliases share its
 // metadata and, once IO occurs, its byte content and current offset.
 type guestOpenFile struct {
-	reader    io.ReaderAt // immutable explicitly supplied regular input, nil for outputs/null
-	initialFD uint32
-	stat      FileStat
-	flags     uint32
-	offset    uint64
-	data      []byte
+	nullDevice bool        // explicit validated stdin=/dev/null launch contract; preserved by dup
+	reader     io.ReaderAt // immutable explicitly supplied regular input, nil for outputs/null
+	initialFD  uint32
+	stat       FileStat
+	flags      uint32
+	offset     uint64
+	data       []byte
 }
 
 func (k *kernelState) fstat(r *emu.Registers, m *usermem.AddressSpace) bool {

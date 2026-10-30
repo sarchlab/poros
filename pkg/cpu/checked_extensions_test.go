@@ -575,3 +575,101 @@ func TestOoOScalarBICWaitsForDataWithoutWritingFlags(t *testing.T) {
 		t.Fatal("BIC data/flags dependencies", c.State.GprReady[:7], c.State.FlagsReady)
 	}
 }
+
+type observedExtensionExecution struct {
+	*extensionExecution
+	beforeStep func()
+}
+
+func (x *observedExtensionExecution) StepDetailed() (arm64asm.Inst, bool, error) {
+	if x.beforeStep != nil {
+		x.beforeStep()
+	}
+	return x.extensionExecution.StepDetailed()
+}
+
+func TestDITStateAndSBOrderAcrossTimingModels(t *testing.T) {
+	for _, kind := range []string{"dit", "sb"} {
+		for _, mode := range []string{"functional", "inorder", "ooo"} {
+			t.Run(kind+"/"+mode, func(t *testing.T) {
+				// The first load is deliberately slow. DIT writes must consume its value;
+				// SB must drain it even though the later load has no data dependency.
+				words := []uint32{0xf9400061, 0xd51b42a1, 0xd53b42a2, 0xd503405f, 0xd53b42a4, 0xd503201f}
+				if kind == "sb" {
+					words = []uint32{0xf9400061, 0xd50330ff, 0xf9400462, 0xd503201f}
+				}
+				x := &observedExtensionExecution{extensionExecution: newExtensionExecution(t, words)}
+				x.regs.DIT = emu.DITState{Available: true}
+				x.regs.SpeculationBarrier = true
+				var data [16]byte
+				binary.LittleEndian.PutUint64(data[:], 1<<24)
+				binary.LittleEndian.PutUint64(data[8:], 42)
+				if e := x.memory.Space.Write(0x2000, data[:]); e != nil {
+					t.Fatal(e)
+				}
+				var retired func() uint64
+				observed := map[uint64]uint64{}
+				x.beforeStep = func() {
+					if retired != nil {
+						observed[x.regs.PC] = retired()
+					}
+				}
+				if mode == "functional" {
+					for !x.Stopped() {
+						if _, _, e := x.StepDetailed(); e != nil {
+							t.Fatal(e)
+						}
+					}
+				} else {
+					s := sim.MakeBuilder().Build()
+					defer s.Terminate()
+					if mode == "ooo" {
+						spec := ooo.DefaultSpec()
+						spec.LoadLatency = 40
+						c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+						retired = func() uint64 { return c.State.InstDone }
+						if e := s.Initialize(); e != nil {
+							t.Fatal(e)
+						}
+						for i := 0; i < 500 && !c.State.Done; i++ {
+							c.Middlewares.Pipeline.Handle(nil)
+						}
+						if !c.State.Done || c.State.Err != "" || c.State.InstDone != uint64(len(words)) {
+							t.Fatal(c.State)
+						}
+						if c.State.GprReady[1] < 40 || (kind == "dit" && c.State.GprReady[2] <= c.State.GprReady[1]) {
+							t.Fatal("delayed dependency lost", c.State.GprReady[:5])
+						}
+					} else {
+						spec := inorder.DefaultSpec()
+						spec.LoadLatency = 40
+						c := modeling.MakeBuilder[*inorder.Comp](spec).WithSimulation(s).WithResources(inorder.Resources{Execution: x}).Build("CPU")
+						retired = func() uint64 { return c.State.InstDone }
+						if e := s.Initialize(); e != nil {
+							t.Fatal(e)
+						}
+						for i := 0; i < 500 && !c.State.Done; i++ {
+							c.Middlewares.Pipeline.Handle(nil)
+						}
+						if !c.State.Done || c.State.Err != "" || c.State.InstDone != uint64(len(words)) {
+							t.Fatal(c.State)
+						}
+					}
+					if observed[0x1004] < 1 || observed[0x1008] < 2 {
+						t.Fatal("barrier did not drain older work and block younger step", observed)
+					}
+					if kind == "dit" && (observed[0x100c] < 3 || observed[0x1010] < 4) {
+						t.Fatal("immediate MSR ordering", observed)
+					}
+				}
+				if kind == "dit" {
+					if x.regs.GPR[2] != 1<<24 || x.regs.GPR[4] != 0 || x.regs.DIT.Value {
+						t.Fatal("DIT state chain", x.regs)
+					}
+				} else if x.regs.GPR[1] != 1<<24 || x.regs.GPR[2] != 42 {
+					t.Fatal("SB memory chain", x.regs)
+				}
+			})
+		}
+	}
+}

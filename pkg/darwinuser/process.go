@@ -267,8 +267,15 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	if err := memory.Map(base, size, usermem.Read|usermem.Write, stack); err != nil {
 		return nil, err
 	}
+	// XNU load_main calls thread_state_initialize, whose USER64 default clears
+	// PSTATE.DIT. Availability comes from captured commpage capabilities, not
+	// from the host CPU executing this simulation.
+	dit := emu.DITState{}
+	speculationBarrier := false
 	counter := emu.CounterState{}
 	if o.RuntimeProfile != nil {
+		dit.Available = o.RuntimeProfile.CPUCapabilities&(1<<57) != 0
+		speculationBarrier = o.RuntimeProfile.CPUCapabilities&(1<<45) != 0
 		counter.Enabled = true
 		counter.Frequency = 1_000_000_000 * uint64(o.RuntimeProfile.TimebaseDenom) / uint64(o.RuntimeProfile.TimebaseNumer)
 	}
@@ -287,7 +294,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 			kernel.standardIO = true
 			kernel.descriptors = make(map[uint32]guestDescriptor)
 			for _, entry := range o.StartupProfile.StandardIO {
-				file := &guestOpenFile{initialFD: entry.FD, stat: entry.Stat, flags: entry.Flags}
+				file := &guestOpenFile{nullDevice: entry.FD == 0, initialFD: entry.FD, stat: entry.Stat, flags: entry.Flags}
 				kernel.descriptors[entry.FD] = guestDescriptor{flags: entry.Flags, file: file}
 				if entry.FD > 0 {
 					kernel.outputFiles[entry.FD-1] = file
@@ -429,5 +436,5 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		}
 		threadProtection = emu.AppleThreadProtectionState{Enabled: true, Value: *o.StartupProfile.ThreadProtectionRegister}
 	}
-	return &Process{kernel: kernel, Registers: emu.Registers{AppleThreadProtection: threadProtection, BranchTarget: branchTarget, Exclusive: exclusive, PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
+	return &Process{kernel: kernel, Registers: emu.Registers{DIT: dit, SpeculationBarrier: speculationBarrier, AppleThreadProtection: threadProtection, BranchTarget: branchTarget, Exclusive: exclusive, PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
 }

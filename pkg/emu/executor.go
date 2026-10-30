@@ -301,6 +301,15 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 	// Explicitly configured virtual system counters.
 	case arm64asm.MRS:
 		return false, e.execMRS(inst)
+	case arm64asm.MSR:
+		return false, e.execMSR(inst)
+	case OpSB:
+		if !e.regs.SpeculationBarrier {
+			return false, &UnsupportedInstructionError{Instruction: inst}
+		}
+		// Functional execution is sequential. Timing pipelines serialize SB using
+		// their existing barrier path; no speculative side-channel model is claimed.
+		return false, nil
 
 	// NOP
 	case arm64asm.NOP:

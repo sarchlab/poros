@@ -384,3 +384,20 @@ func TestCPUCountsNativeCaptureAndReadOnlyMapping(t *testing.T) {
 		}
 	}
 }
+
+func TestDITLaunchDefaultAndSeparateSBAvailability(t *testing.T) {
+	for _, caps := range []uint64{0, 1 << 57, 1 << 45, (1 << 57) | (1 << 45)} {
+		profile := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, CPUCapabilities: caps}
+		p, e := Parse(machotest.Image(2), machotest.Image(7), Options{RuntimeProfile: &profile})
+		if e != nil {
+			t.Fatal(e)
+		}
+		if p.Registers.DIT.Value || p.Registers.DIT.Available != (caps&(1<<57) != 0) || p.Registers.SpeculationBarrier != (caps&(1<<45) != 0) {
+			t.Fatal("Darwin launch feature/default", p.Registers)
+		}
+	}
+	p, e := Parse(machotest.Image(2), machotest.Image(7), Options{})
+	if e != nil || p.Registers.DIT.Available || p.Registers.SpeculationBarrier {
+		t.Fatal("uncaptured features inferred", e)
+	}
+}

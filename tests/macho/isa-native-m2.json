@@ -668114,6 +668114,1590 @@
           "nzcv_after": 4026531840
         }
       ]
+    },
+    {
+      "source": "dit-probe.c",
+      "source_sha256": "fd3238740489d928554f11fb3859ed1487c48a69db37886aab70cfaa87640784",
+      "architecture": "arm64",
+      "binary_sha256": "589183ec4fab49070e7b92aeec028deedb2d91d7a9cb3ddf117160c1ae928b2a",
+      "result": {
+        "initial_main": 0,
+        "feature": 1,
+        "cases": [
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 0,
+            "output": 0,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 0,
+            "output": 0,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 0,
+            "output": 0,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 0,
+            "output": 16777216,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 0,
+            "output": 16777216,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 0,
+            "output": 16777216,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 0,
+            "output": 0,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 0,
+            "output": 0,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 0,
+            "output": 16777216,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 0,
+            "output": 0,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 0,
+            "output": 16777216,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 0,
+            "output": 0,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 0,
+            "output": 16777216,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 0,
+            "output": 16777216,
+            "output_nzcv": 0
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 268435456,
+            "output": 0,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 268435456,
+            "output": 0,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 268435456,
+            "output": 0,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 268435456,
+            "output": 16777216,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 268435456,
+            "output": 16777216,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 268435456,
+            "output": 16777216,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 268435456,
+            "output": 0,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 268435456,
+            "output": 0,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 268435456,
+            "output": 16777216,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 268435456,
+            "output": 0,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 268435456,
+            "output": 16777216,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 268435456,
+            "output": 0,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 268435456,
+            "output": 16777216,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 268435456,
+            "output": 16777216,
+            "output_nzcv": 268435456
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 536870912,
+            "output": 0,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 536870912,
+            "output": 0,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 536870912,
+            "output": 0,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 536870912,
+            "output": 16777216,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 536870912,
+            "output": 16777216,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 536870912,
+            "output": 16777216,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 536870912,
+            "output": 0,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 536870912,
+            "output": 0,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 536870912,
+            "output": 16777216,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 536870912,
+            "output": 0,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 536870912,
+            "output": 16777216,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 536870912,
+            "output": 0,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 536870912,
+            "output": 16777216,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 536870912,
+            "output": 16777216,
+            "output_nzcv": 536870912
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 805306368,
+            "output": 0,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 805306368,
+            "output": 0,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 805306368,
+            "output": 0,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 805306368,
+            "output": 16777216,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 805306368,
+            "output": 16777216,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 805306368,
+            "output": 16777216,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 805306368,
+            "output": 0,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 805306368,
+            "output": 0,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 805306368,
+            "output": 16777216,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 805306368,
+            "output": 0,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 805306368,
+            "output": 16777216,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 805306368,
+            "output": 0,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 805306368,
+            "output": 16777216,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 805306368,
+            "output": 16777216,
+            "output_nzcv": 805306368
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 1073741824,
+            "output": 0,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 1073741824,
+            "output": 0,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 1073741824,
+            "output": 0,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 1073741824,
+            "output": 16777216,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 1073741824,
+            "output": 16777216,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 1073741824,
+            "output": 16777216,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 1073741824,
+            "output": 0,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 1073741824,
+            "output": 0,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 1073741824,
+            "output": 16777216,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 1073741824,
+            "output": 0,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 1073741824,
+            "output": 16777216,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 1073741824,
+            "output": 0,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 1073741824,
+            "output": 16777216,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 1073741824,
+            "output": 16777216,
+            "output_nzcv": 1073741824
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 1342177280,
+            "output": 0,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 1342177280,
+            "output": 0,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 1342177280,
+            "output": 0,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 1342177280,
+            "output": 16777216,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 1342177280,
+            "output": 16777216,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 1342177280,
+            "output": 16777216,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 1342177280,
+            "output": 0,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 1342177280,
+            "output": 0,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 1342177280,
+            "output": 16777216,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 1342177280,
+            "output": 0,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 1342177280,
+            "output": 16777216,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 1342177280,
+            "output": 0,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 1342177280,
+            "output": 16777216,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 1342177280,
+            "output": 16777216,
+            "output_nzcv": 1342177280
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 1610612736,
+            "output": 0,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 1610612736,
+            "output": 0,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 1610612736,
+            "output": 0,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 1610612736,
+            "output": 16777216,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 1610612736,
+            "output": 16777216,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 1610612736,
+            "output": 16777216,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 1610612736,
+            "output": 0,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 1610612736,
+            "output": 0,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 1610612736,
+            "output": 16777216,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 1610612736,
+            "output": 0,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 1610612736,
+            "output": 16777216,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 1610612736,
+            "output": 0,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 1610612736,
+            "output": 16777216,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 1610612736,
+            "output": 16777216,
+            "output_nzcv": 1610612736
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 1879048192,
+            "output": 0,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 1879048192,
+            "output": 0,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 1879048192,
+            "output": 0,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 1879048192,
+            "output": 16777216,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 1879048192,
+            "output": 16777216,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 1879048192,
+            "output": 16777216,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 1879048192,
+            "output": 0,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 1879048192,
+            "output": 0,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 1879048192,
+            "output": 16777216,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 1879048192,
+            "output": 0,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 1879048192,
+            "output": 16777216,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 1879048192,
+            "output": 0,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 1879048192,
+            "output": 16777216,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 1879048192,
+            "output": 16777216,
+            "output_nzcv": 1879048192
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 2147483648,
+            "output": 0,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 2147483648,
+            "output": 0,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 2147483648,
+            "output": 0,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 2147483648,
+            "output": 16777216,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 2147483648,
+            "output": 16777216,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 2147483648,
+            "output": 16777216,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 2147483648,
+            "output": 0,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 2147483648,
+            "output": 0,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 2147483648,
+            "output": 16777216,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 2147483648,
+            "output": 0,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 2147483648,
+            "output": 16777216,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 2147483648,
+            "output": 0,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 2147483648,
+            "output": 16777216,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 2147483648,
+            "output": 16777216,
+            "output_nzcv": 2147483648
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 2415919104,
+            "output": 0,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 2415919104,
+            "output": 0,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 2415919104,
+            "output": 0,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 2415919104,
+            "output": 16777216,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 2415919104,
+            "output": 16777216,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 2415919104,
+            "output": 16777216,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 2415919104,
+            "output": 0,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 2415919104,
+            "output": 0,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 2415919104,
+            "output": 16777216,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 2415919104,
+            "output": 0,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 2415919104,
+            "output": 16777216,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 2415919104,
+            "output": 0,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 2415919104,
+            "output": 16777216,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 2415919104,
+            "output": 16777216,
+            "output_nzcv": 2415919104
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 2684354560,
+            "output": 0,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 2684354560,
+            "output": 0,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 2684354560,
+            "output": 0,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 2684354560,
+            "output": 16777216,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 2684354560,
+            "output": 16777216,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 2684354560,
+            "output": 16777216,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 2684354560,
+            "output": 0,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 2684354560,
+            "output": 0,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 2684354560,
+            "output": 16777216,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 2684354560,
+            "output": 0,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 2684354560,
+            "output": 16777216,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 2684354560,
+            "output": 0,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 2684354560,
+            "output": 16777216,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 2684354560,
+            "output": 16777216,
+            "output_nzcv": 2684354560
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 2952790016,
+            "output": 0,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 2952790016,
+            "output": 0,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 2952790016,
+            "output": 0,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 2952790016,
+            "output": 16777216,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 2952790016,
+            "output": 16777216,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 2952790016,
+            "output": 16777216,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 2952790016,
+            "output": 0,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 2952790016,
+            "output": 0,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 2952790016,
+            "output": 16777216,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 2952790016,
+            "output": 0,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 2952790016,
+            "output": 16777216,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 2952790016,
+            "output": 0,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 2952790016,
+            "output": 16777216,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 2952790016,
+            "output": 16777216,
+            "output_nzcv": 2952790016
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 3221225472,
+            "output": 0,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 3221225472,
+            "output": 0,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 3221225472,
+            "output": 0,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 3221225472,
+            "output": 16777216,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 3221225472,
+            "output": 16777216,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 3221225472,
+            "output": 16777216,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 3221225472,
+            "output": 0,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 3221225472,
+            "output": 0,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 3221225472,
+            "output": 16777216,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 3221225472,
+            "output": 0,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 3221225472,
+            "output": 16777216,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 3221225472,
+            "output": 0,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 3221225472,
+            "output": 16777216,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 3221225472,
+            "output": 16777216,
+            "output_nzcv": 3221225472
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 3489660928,
+            "output": 0,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 3489660928,
+            "output": 0,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 3489660928,
+            "output": 0,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 3489660928,
+            "output": 16777216,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 3489660928,
+            "output": 16777216,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 3489660928,
+            "output": 16777216,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 3489660928,
+            "output": 0,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 3489660928,
+            "output": 0,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 3489660928,
+            "output": 16777216,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 3489660928,
+            "output": 0,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 3489660928,
+            "output": 16777216,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 3489660928,
+            "output": 0,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 3489660928,
+            "output": 16777216,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 3489660928,
+            "output": 16777216,
+            "output_nzcv": 3489660928
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 3758096384,
+            "output": 0,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 3758096384,
+            "output": 0,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 3758096384,
+            "output": 0,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 3758096384,
+            "output": 16777216,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 3758096384,
+            "output": 16777216,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 3758096384,
+            "output": 16777216,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 3758096384,
+            "output": 0,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 3758096384,
+            "output": 0,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 3758096384,
+            "output": 16777216,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 3758096384,
+            "output": 0,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 3758096384,
+            "output": 16777216,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 3758096384,
+            "output": 0,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 3758096384,
+            "output": 16777216,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 3758096384,
+            "output": 16777216,
+            "output_nzcv": 3758096384
+          },
+          {
+            "operation": "register",
+            "input": 0,
+            "input_nzcv": 4026531840,
+            "output": 0,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "register",
+            "input": 1,
+            "input_nzcv": 4026531840,
+            "output": 0,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "register",
+            "input": 16777215,
+            "input_nzcv": 4026531840,
+            "output": 0,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "register",
+            "input": 16777216,
+            "input_nzcv": 4026531840,
+            "output": 16777216,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "register",
+            "input": 16777217,
+            "input_nzcv": 4026531840,
+            "output": 16777216,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "register",
+            "input": 33554431,
+            "input_nzcv": 4026531840,
+            "output": 16777216,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "register",
+            "input": 33554432,
+            "input_nzcv": 4026531840,
+            "output": 0,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "register",
+            "input": 9223372036854775808,
+            "input_nzcv": 4026531840,
+            "output": 0,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "register",
+            "input": 18446744073709551615,
+            "input_nzcv": 4026531840,
+            "output": 16777216,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "immediate",
+            "input": 0,
+            "input_nzcv": 4026531840,
+            "output": 0,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "immediate",
+            "input": 1,
+            "input_nzcv": 4026531840,
+            "output": 16777216,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "write-xzr",
+            "input": 16777216,
+            "input_nzcv": 4026531840,
+            "output": 0,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "read-xzr",
+            "input": 16777216,
+            "input_nzcv": 4026531840,
+            "output": 16777216,
+            "output_nzcv": 4026531840
+          },
+          {
+            "operation": "sb",
+            "input": 16777216,
+            "input_nzcv": 4026531840,
+            "output": 16777216,
+            "output_nzcv": 4026531840
+          }
+        ],
+        "restored": 0,
+        "count": 224,
+        "source_sha256": "fd3238740489d928554f11fb3859ed1487c48a69db37886aab70cfaa87640784",
+        "binary_sha256": "589183ec4fab49070e7b92aeec028deedb2d91d7a9cb3ddf117160c1ae928b2a"
+      }
     }
   ]
 }

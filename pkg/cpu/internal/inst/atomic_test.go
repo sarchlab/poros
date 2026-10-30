@@ -217,3 +217,34 @@ func TestRCpcLoadClassification(t *testing.T) {
 		}
 	}
 }
+
+func TestDITAndSBClassification(t *testing.T) {
+	for _, tc := range []struct {
+		word    uint32
+		dest    int
+		src     []int
+		barrier bool
+		text    string
+	}{
+		{0xd51b42a1, -1, []int{1}, true, "MSR S3_3_C4_C2_5, X1"},
+		{0xd51b42bf, -1, nil, true, "MSR S3_3_C4_C2_5, XZR"},
+		{0xd503415f, -1, nil, true, "MSR DIT, #1"},
+		{0xd503405f, -1, nil, true, "MSR DIT, #0"},
+		{0xd53b42a2, 2, nil, false, "MRS X2, S3_3_C4_C2_5"},
+		{0xd50330ff, -1, nil, true, "SB"},
+	} {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], tc.word)
+		i, e := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
+		if e != nil {
+			t.Fatal(e)
+		}
+		g, f := DestRegs(i)
+		if g != tc.dest || f != -1 || !reflect.DeepEqual(SourceGPRs(i), tc.src) || IsBarrier(i.Op) != tc.barrier || emu.InstructionString(i) != tc.text || i.Enc != tc.word {
+			t.Fatal(tc, i, g, f, SourceGPRs(i))
+		}
+		if SetsFlags(i.Op) || UsesFlags(i.Op) || IsLoad(i.Op) || IsStore(i.Op) {
+			t.Fatal("system operation misclassified", i)
+		}
+	}
+}

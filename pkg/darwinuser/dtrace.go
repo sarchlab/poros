@@ -10,10 +10,10 @@ const dtraceHelperPath = "/dev/dtracehelper"
 const dtraceAddDOF = 0x80086804
 const dtraceRemoveDOF = 0x20006802
 
-// ioctl implements only the captured lazy helper contract. Registrations belong
+// ioctlDTrace implements only the captured lazy helper contract. Registrations belong
 // to this process, survive descriptor close, and never reach a host device.
 // XNU dtrace_lazy_dofs_add stores helper metadata without reading a DOF header.
-func (k *kernelState) ioctl(r *emu.Registers, m *usermem.AddressSpace) bool {
+func (k *kernelState) ioctlDTrace(r *emu.Registers, m *usermem.AddressSpace) bool {
 	fd, command, arg := uint32(r.GPR[0]), r.GPR[1], r.GPR[2]
 	if command != dtraceAddDOF && command != dtraceRemoveDOF && command != 0x200068ff {
 		return false

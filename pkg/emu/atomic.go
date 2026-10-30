@@ -60,6 +60,12 @@ func decodeAtomic(word uint32) (arm64asm.Inst, bool) {
 
 // InstructionString preserves extension mnemonics in diagnostics and traces.
 func InstructionString(inst arm64asm.Inst) string {
+	if inst.Op == OpSB {
+		return "SB"
+	}
+	if inst.Op == arm64asm.MSR && (inst.Enc == 0xd503405f || inst.Enc == 0xd503415f) {
+		return fmt.Sprintf("MSR DIT, #%d", (inst.Enc>>8)&1)
+	}
 	if inst.Op == OpLDAPR {
 		return "LDAPR " + inst.Args[0].String() + ", " + inst.Args[1].String()
 	}
