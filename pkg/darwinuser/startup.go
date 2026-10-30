@@ -42,6 +42,7 @@ type DTracePolicy struct {
 }
 
 type StartupProfile struct {
+	Reclaim *ReclaimPolicy `json:"reclaim,omitempty"`
 	Pthread *PthreadPolicy `json:"pthread_registration,omitempty"`
 	// ThreadProtectionRegister is observed at the actual native TPRO startup
 	// call entry/return. Earlier guest reads/writes remain audited explicitly.

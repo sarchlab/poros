@@ -11,6 +11,9 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <pthread.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#include <mach/mach_time.h>
 
 struct result{uint64_t x0,x1,nzcv;};
 static struct result query(const void *policy,const void *request){
@@ -55,12 +58,32 @@ static void observe_tpro(void(*callback)(void*),void*context){
  if(i<16)tpro_after[i]=value;
 }
 #endif
+#if POROS_CAPTURE_RECLAIM
+extern int mach_vm_reclaim_ring_allocate(void**,uint32_t,uint32_t);
+static volatile unsigned reclaim_calls;
+static volatile uint32_t reclaim_length,reclaim_max_length;
+static volatile int reclaim_result;
+static volatile uint64_t reclaim_address,reclaim_before_tick,reclaim_after_tick;
+static volatile unsigned char reclaim_initial[128];
+static int observe_reclaim(void**address,uint32_t length,uint32_t maximum){
+ unsigned call=reclaim_calls++;
+ if(call==0){reclaim_length=length;reclaim_max_length=maximum;reclaim_before_tick=mach_absolute_time();}
+ int result=mach_vm_reclaim_ring_allocate(address,length,maximum);
+ if(call==0){reclaim_after_tick=mach_absolute_time();reclaim_result=result;
+  if(result==0&&address&&*address&&length>0){reclaim_address=(uint64_t)(uintptr_t)*address;
+   for(unsigned i=0;i<128;i++)reclaim_initial[i]=((volatile unsigned char*)*address)[i];}}
+ return result;
+}
+#endif
 __attribute__((used,section("__DATA,__interpose"))) static struct {
  const void *replacement,*original;
 } startup_interpose[]={
  {observe_registration,__bsdthread_register},
 #if POROS_CAPTURE_TPRO
  {observe_tpro,_dyld_call_with_writable_tpro_memory},
+#endif
+#if POROS_CAPTURE_RECLAIM
+ {observe_reclaim,mach_vm_reclaim_ring_allocate},
 #endif
 };
 __attribute__((constructor)) static void capture(void){
@@ -98,6 +121,19 @@ __attribute__((constructor)) static void capture(void){
  dprintf((int)fd,"]");
 #else
  dprintf((int)fd,"\"interposed\":false,\"calls\":0,\"values\":[]");
+#endif
+ dprintf((int)fd,"},\"reclaim\":{\"stage\":\"native-reclaim-ring-return\",");
+#if POROS_CAPTURE_RECLAIM
+ mach_vm_address_t region_address=reclaim_address;mach_vm_size_t region_size=0;
+ vm_region_basic_info_data_64_t region={0};mach_msg_type_number_t region_count=VM_REGION_BASIC_INFO_COUNT_64;
+ mach_port_t object=MACH_PORT_NULL;
+ kern_return_t region_result=reclaim_address?mach_vm_region(mach_task_self(),&region_address,&region_size,VM_REGION_BASIC_INFO_64,(vm_region_info_t)&region,&region_count,&object):KERN_INVALID_ADDRESS;
+ kern_return_t object_cleanup=object?mach_port_deallocate(mach_task_self(),object):0;
+ dprintf((int)fd,"\"interposed\":true,\"calls\":%u,\"length\":%u,\"max_length\":%u,\"result\":%d,\"before_absolute\":\"%llu\",\"after_absolute\":\"%llu\",\"region_result\":%u,\"region_base_matches\":%s,\"region_size\":\"%llu\",\"protection\":%u,\"max_protection\":%u,\"object_cleanup\":%u,\"initial_hex\":\"",reclaim_calls,reclaim_length,reclaim_max_length,reclaim_result,(unsigned long long)reclaim_before_tick,(unsigned long long)reclaim_after_tick,region_result,region_address==reclaim_address?"true":"false",(unsigned long long)region_size,region.protection,region.max_protection,object_cleanup);
+ for(unsigned i=0;i<128;i++)dprintf((int)fd,"%02x",reclaim_initial[i]);
+ dprintf((int)fd,"\"");
+#else
+ dprintf((int)fd,"\"interposed\":false,\"calls\":0");
 #endif
  dprintf((int)fd,"}}\n");
 }

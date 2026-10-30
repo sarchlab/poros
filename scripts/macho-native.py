@@ -421,14 +421,60 @@ def capture_main_policies(binary, library, case, expected_status, runtime):
                 dict(mode="lazy-untraced",code_signing_status=expected_status),pthread,observed)
 
 
+def captured_reclaim_policy(observed, runtime):
+    """Recognize only the native-verified 128-byte/deadline ABI.
+
+    The ten-second release policy is checked against the original call's clock
+    bracket. Store its duration, never a host timestamp. Unknown ABIs fail closed.
+    """
+    if observed.get("stage") != "native-reclaim-ring-return":
+        raise ValueError("unknown native reclaim observation stage")
+    if observed.get("calls") == 0:
+        if type(observed.get("interposed")) is not bool:
+            raise ValueError("invalid reclaim observation availability")
+        return None
+    if observed.get("interposed") is not True or observed.get("calls") != 1 or observed.get("result") != 0:
+        raise ValueError("native reclaim allocation was not observed successfully")
+    length, maximum = observed["length"], observed["max_length"]
+    if type(length) is not int or type(maximum) is not int or not 0 < length <= maximum <= (128*1024*1024-128)//16:
+        raise ValueError("invalid native reclaim capacities")
+    page_shift=runtime["kernel_page_shift"]
+    if page_shift != 14:
+        raise ValueError("unsupported reclaim kernel page size")
+    expected_size=(128+maximum*16+(1<<page_shift)-1)&~((1<<page_shift)-1)
+    if (observed["region_result"] or observed["object_cleanup"] or observed["region_base_matches"] is not True
+        or int(observed["region_size"])!=expected_size or observed["protection"]!=3 or observed["max_protection"]!=3):
+        raise ValueError("native reclaim mapping differs from supported ABI")
+    initial=bytes.fromhex(observed["initial_hex"])
+    if len(initial)!=128:
+        raise ValueError("invalid native reclaim header extent")
+    if int.from_bytes(initial[16:20],"little")!=length or int.from_bytes(initial[20:24],"little")!=maximum:
+        raise ValueError("native reclaim header capacities differ")
+    # Installed wrapper writes only len/max, pre-call timestamp and next deadline.
+    known=set(range(16,24))|set(range(56,72))
+    if any(v for i,v in enumerate(initial) if i not in known):
+        raise ValueError("unknown native reclaim header state")
+    numerator,denominator=runtime["timebase_numer"],runtime["timebase_denom"]
+    if type(numerator) is not int or type(denominator) is not int or numerator<=0 or denominator<=0:
+        raise ValueError("invalid reclaim timebase")
+    interval,remainder=divmod(10_000_000_000*denominator,numerator)
+    before,after=int(observed["before_absolute"]),int(observed["after_absolute"])
+    start=int.from_bytes(initial[56:64],"little")
+    deadline=int.from_bytes(initial[64:72],"little")
+    if remainder or not 0<interval<2**64 or not 0<before<=start<=after<2**64 or not before<=deadline-interval<=after:
+        raise ValueError("native reclaim deadline is outside the supported clock bracket")
+    return dict(abi="deadline-128-v1",interval_ticks=str(interval))
+
+
 def startup_profiles(binaries, dyld, cases, runtime):
-    """Capture suspended kernel metadata, then separate diagnostic AMFI and lazy DTrace results.
+    """Capture suspended metadata, then separate diagnostic policy and startup-call observations.
 
     The helper uses fixed safe argv and env{}; workload argv cannot spoof keys.
     fsgetpath resolves only the two identities just captured from our own child.
     """
     thread_protection_capability=runtime["thread_protection_capability_byte"]
     library = ctypes.CDLL(None, use_errno=True)
+    capture_reclaim=hasattr(library,"mach_vm_reclaim_ring_allocate")
     fsgetpath = library.fsgetpath
     fsgetpath.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_uint64]
     fsgetpath.restype = ctypes.c_ssize_t
@@ -458,15 +504,18 @@ def startup_profiles(binaries, dyld, cases, runtime):
         if type(thread_protection_capability) is not int or not 0<=thread_protection_capability<=255:
             raise ValueError("invalid captured thread-protection capability")
         capture_tpro=thread_protection_capability==3
-        subprocess.run([compiler,"-isysroot",sdk,"-arch","arm64","-Wall","-Wextra","-Werror",f"-DPOROS_CAPTURE_TPRO={int(capture_tpro)}","-dynamiclib",str(amfi_source),"-o",str(library)],check=True,timeout=30)
-        probe["amfi_diagnostic"]=dict(source_sha256=digest(amfi_source),binary_sha256=digest(library),tpro_interpose_enabled=capture_tpro,
-            protocol="owned injected constructor; same main SHA; no entitlements; CS status equals suspended env{} child; original output oracle; invalid owned DOF accepted lazily and own generation removed; CS status rechecked; native first bsdthread_register input/output and TPRO call entry/return interception; security_config0 required for initial state; excluded from timing")
+        subprocess.run([compiler,"-isysroot",sdk,"-arch","arm64","-Wall","-Wextra","-Werror",f"-DPOROS_CAPTURE_TPRO={int(capture_tpro)}",f"-DPOROS_CAPTURE_RECLAIM={int(capture_reclaim)}","-dynamiclib",str(amfi_source),"-o",str(library)],check=True,timeout=30)
+        probe["amfi_diagnostic"]=dict(source_sha256=digest(amfi_source),binary_sha256=digest(library),tpro_interpose_enabled=capture_tpro,reclaim_interpose_enabled=capture_reclaim,
+            protocol="owned injected constructor; same main SHA; no entitlements; CS status equals suspended env{} child; original output oracle; invalid owned DOF accepted lazily and own generation removed; CS status rechecked; native first bsdthread_register input/output and TPRO call entry/return interception; security_config0 required for initial state; original reclaim-ring allocation call, deadline bracket and owned mapping metadata; excluded from timing")
         profiles = {}
         probe["main_policy_observations"]={}
         for binary in binaries:
             metadata,cs_status=capture_startup_profile(helper,binary,dyld,identity)
             case=next(c for c in cases if c["workload"]==binary.stem)
             metadata["amfi_dyld_policy"],metadata["dtrace_helper"],metadata["pthread_registration"],probe["main_policy_observations"][binary.stem]=capture_main_policies(binary,library,case,cs_status,runtime)
+            reclaim=captured_reclaim_policy(probe["main_policy_observations"][binary.stem]["reclaim"],runtime)
+            if reclaim is not None:
+                metadata["reclaim"]=reclaim
             protection=probe["main_policy_observations"][binary.stem]["thread_protection_observation"]
             if protection["capability"]==3:
                 if metadata["security_config"]!=0:

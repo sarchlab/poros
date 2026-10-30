@@ -28,6 +28,9 @@ func (k *kernelState) machProtect(r *emu.Registers, m *usermem.AddressSpace) boo
 		r.GPR[0] = 0
 		return true
 	}
+	if k.overlapsReclaim(addr, end) {
+		return false
+	}
 	if copyPrivate {
 		// Cache DATA uses validated private reader pages; synthetic kernel
 		// fields and executable mappings need different OS semantics.

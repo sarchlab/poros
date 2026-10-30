@@ -311,6 +311,9 @@ func (k *kernelState) mprotect(r *emu.Registers, m *usermem.AddressSpace) bool {
 		prot |= 1
 	}
 	size = (size + vmPage - 1) &^ (vmPage - 1)
+	if k.overlapsReclaim(address, address+size) {
+		return false
+	}
 	e := m.Protect(address, size, machPermissions(prot), false)
 	if errors.Is(e, usermem.ErrProtection) {
 		return finish(13)

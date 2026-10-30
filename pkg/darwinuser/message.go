@@ -42,6 +42,12 @@ func (k *kernelState) message2(r *emu.Registers, m *usermem.AddressSpace) bool {
 		}
 		return k.messageSemaphoreCreate(r, m, data, size, reply, receiveSize)
 	}
+	if id == 4822 {
+		if !k.currentTaskRight(target) || bits != 0x1513 || descriptors != 0 {
+			return false
+		}
+		return k.messageReclaimAllocate(r, m, data, size, reply, receiveSize)
+	}
 	if id != 4811 || bits != 0x80001513 || size != 100 || descriptors != 1 || !k.currentTaskRight(target) {
 		return false
 	}

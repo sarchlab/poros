@@ -371,6 +371,28 @@ class AMFICaptureTests(unittest.TestCase):
                         self.assertEqual(result[-1],data)
 
 
+class ReclaimCaptureTests(unittest.TestCase):
+    def test_deadline_header_and_clock_binding(self):
+        runtime=dict(kernel_page_shift=14,timebase_numer=125,timebase_denom=3)
+        header=bytearray(128)
+        struct.pack_into("<II",header,16,1016,4195320)
+        struct.pack_into("<QQ",header,56,1001,240001002)
+        original=dict(stage="native-reclaim-ring-return",interposed=True,calls=1,result=0,length=1016,max_length=4195320,
+                      region_result=0,object_cleanup=0,region_base_matches=True,region_size="67125248",protection=3,max_protection=3,
+                      before_absolute="1000",after_absolute="1010",initial_hex=header.hex())
+        self.assertEqual(macho.captured_reclaim_policy(original,runtime),dict(abi="deadline-128-v1",interval_ticks="240000000"))
+        for change in [dict(stage="post-main"),dict(calls=2),dict(result=1),dict(interposed=False),dict(length=0),
+                       dict(max_length=2**32),dict(region_size="16384"),dict(protection=1),dict(max_protection=7),
+                       dict(region_base_matches=False),dict(object_cleanup=15),dict(before_absolute="1003"),
+                       dict(after_absolute="1001"),dict(initial_hex="00"),dict(initial_hex=(header[:48]+bytes([1])+header[49:]).hex())]:
+            with self.subTest(change=change),self.assertRaises(ValueError):
+                macho.captured_reclaim_policy(dict(original,**change),runtime)
+        wrong=bytearray(header);struct.pack_into("<Q",wrong,64,240000000)
+        with self.assertRaises(ValueError):macho.captured_reclaim_policy(dict(original,initial_hex=wrong.hex()),runtime)
+        # Symbol absence records no policy, rather than asserting a disabled service.
+        self.assertIsNone(macho.captured_reclaim_policy(dict(stage="native-reclaim-ring-return",interposed=False,calls=0),runtime))
+
+
 class StartupCleanupTests(unittest.TestCase):
     def test_failed_helper_group_does_not_leave_suspended_child(self):
         for caller, mode in ((c,m) for c in ("startup","amfi") for m in ("timeout","error","malformed")):

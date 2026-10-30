@@ -18,8 +18,8 @@ All initialization, arithmetic, output and exit remain native program work.
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 Current integer/1000 validation with the corrected ISA, captured runtime profile,
-the explicit clock anchor and warm shared cache retires 2,294,385 instructions and stops at
-unsupported task MIG request 4822, PC `0x180547c1c`, with no guest
+the explicit clock anchor and warm shared cache retires 2,300,499 instructions and stops at
+unsupported scalar `ORN W12, W11, W12`, PC `0x181ea79d8`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -544,6 +544,24 @@ INS/MOV, AESE, AESMC, vector ADD/REV32, and SHA256H/H2/SU0/SU1. The owned native
 successful and fault observations with C and assembly dependency hashes; full
 register/flag results and store guards are checked. AES round and MixColumns
 semantics are instruction execution, not host library calls.
+Deferred reclamation registration is bound to a per-image startup observation.
+The diagnostic interposition preserves the original native ring-allocation call
+and output, verifies its zero-initialized kernel mapping and installed 128-byte
+header ABI, and brackets the returned absolute deadline against a ten-second
+interval. The installed deadline/128-byte layout is established by these binary-bound
+observations; it is not inferred from the older public ring layout. The
+[public kernel implementation](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/vm/vm_reclaim.c)
+provides the permanent-mapping and single-registration lifecycle.
+The profile stores the interval; simulated registration derives the
+deadline from the guest virtual absolute clock. Guest libsystem initializes the
+ring header itself. Failed reply delivery preserves the allocation, matching the
+owned first-allocation probes. Those probes are startup diagnostics, never timing
+samples. Generic unmap, protection and overwrite of the permanent ring remain
+explicitly unsupported: native deallocation can leave a protected tombstone,
+which ordinary anonymous-memory removal would not reproduce. Registration does
+not add a background memory-pressure agent; unmodeled accounting, resize and
+flush requests still stop explicitly.
+
 The four SHA256 instructions are also composed into complete empty, short,
 padding-boundary and multiblock message digests, compared with Go's standard
 SHA256 implementation. Their old destination state is an explicit dependency;

@@ -10,6 +10,7 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
+	reclaim                                    *reclaimState
 	timebase                                   [2]uint32
 	sharedMemory                               []ReadOnlySharedMemory
 	pthreadPolicy                              *PthreadPolicy

@@ -438,6 +438,13 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		}
 		kernel.pthreadPolicy = &policy
 	}
+	if o.StartupProfile != nil && o.StartupProfile.Reclaim != nil {
+		policy := *o.StartupProfile.Reclaim
+		if image.Subtype != 0 || o.StartupProfile.AMFI == nil || clock == nil || !policy.valid(counter.Frequency) {
+			return nil, fmt.Errorf("reclaim policy requires captured generic ARM64 startup and a matching virtual clock")
+		}
+		kernel.reclaim = &reclaimState{policy: policy, clock: clock}
+	}
 	threadProtection := emu.AppleThreadProtectionState{}
 	if o.StartupProfile != nil && o.StartupProfile.ThreadProtectionRegister != nil {
 		if o.RuntimeProfile == nil || o.RuntimeProfile.ThreadProtectionByte == nil || *o.RuntimeProfile.ThreadProtectionByte != 3 {
