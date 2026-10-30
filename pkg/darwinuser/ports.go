@@ -7,7 +7,7 @@ import (
 )
 
 // Self traps copy out a send reference, preserving the name while it is live.
-// Destruction/pinned-port guards need a separate modeled exception contract.
+// Last task/thread-send pinned guards need a separate exception contract.
 func copySelfRight(refs *uint32) bool {
 	if *refs == 65535 {
 		return false
@@ -38,15 +38,8 @@ func (k *kernelState) modifyPortRefs(r *emu.Registers) bool {
 	if right != 0 {
 		return false
 	}
-	var refs *uint32
-	switch name {
-	case 0x103:
-		refs = &k.taskSendRefs
-	case 0x107:
-		refs = &k.hostSendRefs
-	case 0x10b:
-		refs = &k.threadSendRefs
-	default:
+	refs := k.selfSendRefs(name)
+	if refs == nil {
 		return false
 	}
 	if *refs == 0 {
@@ -61,6 +54,60 @@ func (k *kernelState) modifyPortRefs(r *emu.Registers) bool {
 	return true
 }
 
+// The initial reserved host name is stable only while its send right lives.
+// Reacquisition after the last release allocates a fresh private name, so stale
+// names cannot silently regain authority.
+func (k *kernelState) hostRightName() uint32 {
+	if k.hostName == 0 {
+		return 0x107
+	}
+	return k.hostName
+}
+func (k *kernelState) selfSendRefs(name uint32) *uint32 {
+	if name == k.hostRightName() {
+		return &k.hostSendRefs
+	}
+	switch name {
+	case 0x103:
+		return &k.taskSendRefs
+	case 0x10b:
+		return &k.threadSendRefs
+	}
+	return nil
+}
+func (k *kernelState) deallocatePort(r *emu.Registers) bool {
+	if !k.currentTaskRight(uint32(r.GPR[0])) {
+		r.GPR[0] = 0x10000003
+		return true
+	}
+	name := uint32(r.GPR[1])
+	if name == 0 || name == 0xffffffff {
+		r.GPR[0] = 0
+		return true
+	}
+	if refs := k.selfSendRefs(name); refs != nil {
+		if *refs == 0 {
+			r.GPR[0] = 15
+			return true
+		}
+		// Last task/thread sends may be pinned and raise guarded-port exceptions.
+		if name != k.hostRightName() && *refs == 1 {
+			return false
+		}
+		if name == k.hostRightName() && k.hostName == 0 {
+			k.hostName = name
+		}
+		(*refs)--
+		r.GPR[0] = 0
+		return true
+	}
+	if _, known := k.receivePorts[name]; known {
+		return false
+	}
+	r.GPR[0] = 15 // no right exists under this private namespace name
+	return true
+}
+
 // A receive right retains its port type and context for later IPC operations.
 // These are guest objects; no host port is allocated.
 type receivePort struct {
@@ -69,18 +116,25 @@ type receivePort struct {
 	queueLimit uint32
 }
 
-func (k *kernelState) allocateReceivePort(port receivePort) uint32 {
+func (k *kernelState) allocatePortName() uint32 {
 	if k.nextPort == 0 {
 		k.nextPort = 0x10f
 	}
 	if k.nextPort >= 0x10000 {
 		return 0
 	}
+	name := k.nextPort
+	k.nextPort += 4
+	return name
+}
+func (k *kernelState) allocateReceivePort(port receivePort) uint32 {
+	name := k.allocatePortName()
+	if name == 0 {
+		return 0
+	}
 	if k.receivePorts == nil {
 		k.receivePorts = make(map[uint32]receivePort)
 	}
-	name := k.nextPort
-	k.nextPort += 4
 	k.receivePorts[name] = port
 	return name
 }

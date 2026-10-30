@@ -10,6 +10,8 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
+	hostName                                   uint32
+	hostPriorities                             *[8]int32
 	accessENOENTPaths                          []string
 	dtrace                                     *DTracePolicy
 	dofs                                       map[uint64][80]byte
@@ -105,6 +107,8 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return k.message2(r, m)
 	case -24:
 		return k.constructPort(r, m)
+	case -18:
+		return k.deallocatePort(r)
 	case -19:
 		return k.modifyPortRefs(r)
 	case -12:
@@ -119,10 +123,21 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		}
 		r.GPR[0] = 0x103 // task_self_trap, a new send reference
 	case -29:
+		if k.hostSendRefs == 0 {
+			if k.hostName == 0 {
+				k.hostName = 0x107
+			} else {
+				name := k.allocatePortName()
+				if name == 0 {
+					return false
+				}
+				k.hostName = name
+			}
+		}
 		if !copySelfRight(&k.hostSendRefs) {
 			return false
 		}
-		r.GPR[0] = 0x107 // host_self_trap, a new send reference
+		r.GPR[0] = uint64(k.hostRightName())
 	case -27:
 		if !copySelfRight(&k.threadSendRefs) {
 			return false

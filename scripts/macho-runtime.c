@@ -17,6 +17,7 @@
 #include <mach/mach_time.h>
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
+#include <mach/mach_host.h>
 static int read_self(uint64_t address,void *dst,size_t size){mach_vm_size_t got=0;return mach_vm_read_overwrite(mach_task_self(),address,size,(mach_vm_address_t)dst,&got)==KERN_SUCCESS&&got==size;}
 static uint64_t u64(const void*p){uint64_t v;memcpy(&v,p,8);return v;}
 static uint32_t u32(const void*p){uint32_t v;memcpy(&v,p,4);return v;}
@@ -194,6 +195,10 @@ static int print_access_enoent_paths(void){
  printf("[\"%s\"]",name);return 0;
 }
 int main(void) {
+    host_priority_info_data_t priority={0};mach_msg_type_number_t priority_count=HOST_PRIORITY_INFO_COUNT;
+    mach_port_t host=mach_host_self();kern_return_t priority_result=host_info(host,HOST_PRIORITY_INFO,(host_info_t)&priority,&priority_count);
+    kern_return_t released_host=mach_port_deallocate(mach_task_self(),host);
+    if(priority_result!=KERN_SUCCESS || priority_count!=8 || released_host!=KERN_SUCCESS)return 31;
     if(!pointer_strip_probe()||!exclusive_probe()||!exclusive_signature())return 5;
     const volatile uint8_t *p = (const volatile uint8_t *)0xfffffc000ULL;
     mach_timebase_info_data_t tb;
@@ -211,7 +216,8 @@ int main(void) {
     if(p[0x92]>1)return 15;
     // Exact byte read by this native libdyld TPRO entry; this offset is not a
     // published XNU field. The collector binds it to native dyld/cache identity.
-    printf("{\"thread_protection_capability_byte\":%u,\"dtrace_dof_enabled\":%u,",p[0x10c],p[0x92]);
+    printf("{\"host_priorities\":[");for(unsigned i=0;i<8;i++)printf("%s%d",i?",":"",((int*)&priority)[i]);
+    printf("],\"thread_protection_capability_byte\":%u,\"dtrace_dof_enabled\":%u,",p[0x10c],p[0x92]);
     uint32_t csr;
     int (*get_csr)(uint32_t *) = (int (*)(uint32_t *))dlsym(RTLD_DEFAULT, "csr_get_active_config");
     if (!get_csr || get_csr(&csr) != 0) return 2;

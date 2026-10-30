@@ -11,6 +11,7 @@ import (
 // native reference host. Unmodeled commpage fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
+	HostPriorities []int32 `json:"host_priorities,omitempty"`
 	// ThreadProtectionByte is the exact byte consumed by the matching native
 	// libdyld TPRO entry at commpage +0x10c, not a published XNU field layout.
 	ThreadProtectionByte *uint8               `json:"thread_protection_capability_byte,omitempty"`
@@ -49,6 +50,9 @@ type PageShifts struct {
 }
 
 func (p RuntimeProfile) validate() error {
+	if p.HostPriorities != nil && (len(p.HostPriorities) != 8 || p.NativeDyld == nil) {
+		return fmt.Errorf("host priorities require exactly8 captured values and native runtime identity")
+	}
 	if p.ThreadProtectionByte != nil && p.NativeDyld == nil {
 		return fmt.Errorf("thread protection byte requires native runtime identity")
 	}

@@ -41,22 +41,26 @@ type DTracePolicy struct {
 }
 
 type StartupProfile struct {
-	DTrace              *DTracePolicy              `json:"dtrace_helper,omitempty"`
-	ExecutableStat      *FileStat                  `json:"executable_stat,omitempty"`
-	StandardIO          []InitialDescriptor        `json:"standard_io,omitempty"`
-	AMFI                *AMFIPolicy                `json:"amfi_dyld_policy,omitempty"`
-	SandboxSyscalls     []SandboxSyscallPermission `json:"sandbox_syscall_permissions,omitempty"`
-	BinarySHA256        string                     `json:"binary_sha256"`
-	DyldSHA256          string                     `json:"dyld_sha256"`
-	ExecutableFile      FileIdentity               `json:"executable_file"`
-	DyldFile            FileIdentity               `json:"dyld_file"`
-	CDHash              string                     `json:"cdhash"`
-	BootHash            string                     `json:"boot_hash"`
-	PFZ                 uint64                     `json:"pfz"`
-	StackSize           uint64                     `json:"stack_size"`
-	StackAllocationSize uint64                     `json:"stack_allocation_size"`
-	SecurityConfig      uint64                     `json:"security_config"`
-	ARM64eABI           string                     `json:"arm64e_abi,omitempty"`
+	// ThreadProtectionRegister is an explicitly captured per-process kernel-created
+	// thread default under security_config0, checked against main-thread reads.
+	// It models initial state; it is not a claimed direct exec-entry trace.
+	ThreadProtectionRegister *uint64                    `json:"thread_protection_register,omitempty,string"`
+	DTrace                   *DTracePolicy              `json:"dtrace_helper,omitempty"`
+	ExecutableStat           *FileStat                  `json:"executable_stat,omitempty"`
+	StandardIO               []InitialDescriptor        `json:"standard_io,omitempty"`
+	AMFI                     *AMFIPolicy                `json:"amfi_dyld_policy,omitempty"`
+	SandboxSyscalls          []SandboxSyscallPermission `json:"sandbox_syscall_permissions,omitempty"`
+	BinarySHA256             string                     `json:"binary_sha256"`
+	DyldSHA256               string                     `json:"dyld_sha256"`
+	ExecutableFile           FileIdentity               `json:"executable_file"`
+	DyldFile                 FileIdentity               `json:"dyld_file"`
+	CDHash                   string                     `json:"cdhash"`
+	BootHash                 string                     `json:"boot_hash"`
+	PFZ                      uint64                     `json:"pfz"`
+	StackSize                uint64                     `json:"stack_size"`
+	StackAllocationSize      uint64                     `json:"stack_allocation_size"`
+	SecurityConfig           uint64                     `json:"security_config"`
+	ARM64eABI                string                     `json:"arm64e_abi,omitempty"`
 }
 
 const maxStackReservation = 128 << 20

@@ -88,7 +88,7 @@ def diagnose_startup(binary, options, case, profile, startup):
     expected_source = digest(source)
     with tempfile.TemporaryDirectory(prefix="poros-macho-diagnostic-") as directory:
         folder = Path(directory)
-        configuration = dict(Binary=str(binary.resolve()), Dyld=options.dyld,
+        configuration = dict(Quiescence="single-thread-no-scheduling",Binary=str(binary.resolve()), Dyld=options.dyld,
                              Cache=options.shared_cache or "", ExecName=str(binary.resolve()),
                              Args=case["args"], Runtime=profile, Startup=startup,
                              MaxInstructions=options.max_instructions,
@@ -248,6 +248,26 @@ def capture_main_policies(binary, library, case, expected_status):
             or dtrace["own_registration_removed"] is not True or dtrace["cs_result_after"]
             or dtrace["cs_status_after"]!=expected_status):
             raise ValueError("DTrace lazy policy or owned-registration cleanup was not verified")
+        protection=observed["thread_protection_observation"]
+        if protection["stage"]!="post-loader-pre-main" or protection["register"]!="S3_6_C15_C1_5":
+            raise ValueError("unknown thread-protection observation stage/register")
+        capability=protection["capability"]
+        if type(capability) is not int or not 0<=capability<=255:
+            raise ValueError("invalid thread-protection capability")
+        if capability==3:
+            value=protection["value"]
+            if not isinstance(value,str) or not value.isdecimal() or not 0<=int(value)<2**64:
+                raise ValueError("invalid observed thread-protection value")
+        elif protection["value"] is not None:
+            raise ValueError("unverified thread-protection register read")
+        if capability==3:
+            fresh=protection["kernel_thread_default"]
+            if (fresh["stage"]!="first-instruction-of-new-mach-thread" or fresh["terminated"] is not True or fresh["entry_encoding"]!=0xd53ef1a1
+                or fresh["value"]!=protection["value"] or fresh["main_rechecked"]!=protection["value"]
+                or fresh["cs_result_after"] or fresh["cs_status_after"]!=expected_status):
+                raise ValueError("kernel-created thread default or unchanged process policy was not verified")
+        # This is a kernel-created thread default under the original image's
+        # process policy, not a direct exec-entry register observation.
         return (dict(input_flags=str(observed["input_flags"]),output_flags=str(observed["output_flags"]),
                      code_signing_status=expected_status),
                 dict(mode="lazy-untraced",code_signing_status=expected_status),observed)
@@ -288,13 +308,18 @@ def startup_profiles(binaries, dyld, cases):
         amfi_source=ROOT/"scripts/macho-amfi.c"
         subprocess.run([compiler,"-isysroot",sdk,"-arch","arm64","-Wall","-Wextra","-Werror","-dynamiclib",str(amfi_source),"-o",str(library)],check=True,timeout=30)
         probe["amfi_diagnostic"]=dict(source_sha256=digest(amfi_source),binary_sha256=digest(library),
-            protocol="owned injected constructor; same main SHA; no entitlements; CS status equals suspended env{} child; original output oracle; invalid owned DOF accepted lazily and own generation removed; CS status rechecked; excluded from timing")
+            protocol="owned injected constructor; same main SHA; no entitlements; CS status equals suspended env{} child; original output oracle; invalid owned DOF accepted lazily and own generation removed; CS status rechecked; first-instruction owned Mach-thread default equals main pre/post reads; security_config0 required for initial-state model; excluded from timing")
         profiles = {}
         probe["main_policy_observations"]={}
         for binary in binaries:
             metadata,cs_status=capture_startup_profile(helper,binary,dyld,identity)
             case=next(c for c in cases if c["workload"]==binary.stem)
             metadata["amfi_dyld_policy"],metadata["dtrace_helper"],probe["main_policy_observations"][binary.stem]=capture_main_policies(binary,library,case,cs_status)
+            protection=probe["main_policy_observations"][binary.stem]["thread_protection_observation"]
+            if protection["capability"]==3:
+                if metadata["security_config"]!=0:
+                    raise ValueError("thread default capture requires the observed non-TPRO process policy")
+                metadata["thread_protection_register"]=protection["kernel_thread_default"]["value"]
             if digest(binary)!=metadata["binary_sha256"] or digest(dyld)!=metadata["dyld_sha256"]:
                 raise ValueError("runtime input changed during AMFI capture")
             profiles[binary.stem]=metadata
@@ -347,7 +372,7 @@ def main():
                   cpu=subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip(),
                   architecture=platform.machine(), dyld_sha256=initial_dyld,
                   poros_sha256=digest(options.poros), manifest_sha256=digest(ROOT / "tests/usertime/manifest.json"),
-                  protocol=dict(samples=options.samples, native_timeout_seconds=30,
+                  protocol=dict(quiescence_policy="single-thread-no-scheduling",samples=options.samples, native_timeout_seconds=30,
                                 simulator_max_instructions=options.max_instructions,
                                 simulator_execution_timeout_seconds=options.execution_timeout_seconds,
                                 simulator_outer_timeout_seconds=120, clock="wait4 child ru_utime", env={},
@@ -371,7 +396,7 @@ def main():
                 verify_inputs()
                 check_output(case, stdout)
                 samples.append(usage)
-            sim = subprocess.run([str(Path(options.poros).resolve()), "macho", "--dyld", options.dyld,
+            sim = subprocess.run([str(Path(options.poros).resolve()), "macho", "--dyld", options.dyld, "--quiescence", "single-thread-no-scheduling",
                                   *( ["--shared-cache", options.shared_cache] if options.shared_cache else [] ),
                                   "--max-instructions", str(options.max_instructions),
                                   "--timeout", str(options.execution_timeout_seconds)+"s",
@@ -382,6 +407,8 @@ def main():
                 raise ValueError(f"unexpected bring-up command status: {sim.returncode}, {sim.stderr!r}")
             verify_inputs()
             witness = json.loads(sim.stdout)
+            if witness.get("quiescence_policy")!="single-thread-no-scheduling":
+                raise ValueError("simulator virtual kernel policy mismatch")
             metadata = startup[case["workload"]]
             if witness.pop("startup_profile", None) != metadata:
                 raise ValueError("simulator startup profile differs from native capture")

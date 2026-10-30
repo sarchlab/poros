@@ -117,3 +117,25 @@ func TestMachORuntimeProfileSizeBound(t *testing.T) {
 		t.Fatal(code, diagnostic.String())
 	}
 }
+
+func TestMachOVirtualQuiescencePolicyIsReported(t *testing.T) {
+	directory := t.TempDir()
+	program, dyld := filepath.Join(directory, "program"), filepath.Join(directory, "dyld")
+	os.WriteFile(program, machotest.Image(2), 0600)
+	os.WriteFile(dyld, machotest.Image(7), 0600)
+	var out, diagnostic bytes.Buffer
+	if code := runMachO([]string{"--dyld", dyld, "--quiescence", "single-thread-no-scheduling", program}, &out, &diagnostic); code != 1 {
+		t.Fatal(code, diagnostic.String())
+	}
+	var report struct {
+		Quiescence string `json:"quiescence_policy"`
+	}
+	if e := json.Unmarshal(out.Bytes(), &report); e != nil || report.Quiescence != "single-thread-no-scheduling" {
+		t.Fatal(report, e)
+	}
+	out.Reset()
+	diagnostic.Reset()
+	if code := runMachO([]string{"--dyld", dyld, "--quiescence", "instruction-ticks", program}, &out, &diagnostic); code != 2 || !strings.Contains(diagnostic.String(), "quiescence") {
+		t.Fatal(code, diagnostic.String())
+	}
+}

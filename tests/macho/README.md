@@ -18,8 +18,8 @@ All initialization, arithmetic, output and exit remain native program work.
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 Current integer/1000 validation with the corrected ISA, captured runtime profile,
-and the explicit warm shared cache retires 2,250,441 instructions and stops at
-`MRS X8, S3_6_C15_C1_5` at PC `0x180466fbc`, with no guest
+and the explicit warm shared cache retires 2,254,182 instructions and stops at
+scalar `BIC W2,W9,W8` at PC `0x180587088`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -32,8 +32,8 @@ and reads the captured DTrace DOF capability. It opens a private helper descript
 and registers DOF metadata using the captured lazy mode, without host device
 forwarding. Correct Mach VM_PROT_COPY handling preserves private dirty data and
 allows validated non-executable shared-cache data to become writable. The captured
-access(F_OK) absence and exact TPRO capability byte lead to an unimplemented
-Apple thread-protection register read. Earlier
+access(F_OK) absence and exact TPRO capability byte lead through the configured
+Apple thread-protection register read and the explicit quiescence policy. Earlier
 bring-up counts followed incorrect COPY error returns and are not comparable
 progress measures. This remains incomplete startup, not benchmark
 main or successful exit. The old superseded bring-up dataset has been removed. Current whole-program
@@ -390,3 +390,49 @@ captured; absence leaves the byte unmapped. This is installed-binary evidence,
 not a claimed published XNU field definition. Adjacent unknown bytes remain
 unmapped, and capturing the capability does not implement unobserved TPRO
 register operations or authorize them as no-ops.
+
+
+The selected `MRS S3_6_C15_C1_5` reads explicitly configured architectural state;
+missing state and all unimplemented MSR operations fail precisely. The per-image
+diagnostic constructor creates an owned Mach thread whose first instruction is
+this MRS, before user-runtime initialization on that thread. It requires the
+kernel-created default to equal the main-thread values before and after capture,
+unchanged code-signing status, capability3, and captured `security_config=0`.
+Thread termination and removal of its owned port are checked. The supplied initial
+state is a **per-process kernel-created default model**, not a claim to have
+observed the original exec-entry register. XNU's [`machine_thread_create` and `machine_thread_process_signature`](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/arm64/pcb.c)
+document initialization under process-signature
+policy; the exact Apple register value is established by the native probe, not a
+portable architectural constant. Source, executed helper hash and per-image raw
+observations remain in capture provenance. Unknown process policies are rejected.
+The standalone diagnostic retains up to32 read sites and their next8 instructions
+with register changes and an explicit truncation flag. The current single read
+is consumed only by `TBNZ X8,#36`, then overwritten by ADRP; MSR is not skipped.
+
+`--quiescence single-thread-no-scheduling` explicitly models one active guest
+thread with no scheduler quiescence events. Its read-only commpage epoch starts
+at0 and remains0; neither host elapsed time, retired instructions nor ordinary
+syscalls fabricate global quiescence. Without this option the counter remains
+unmapped. Native `_os_once` observations demonstrate that repeated calls preserve
+the completed-generation predicate and do not repeat the callback before epoch
+progress; a separate synthetic-owned-predicate observation verifies the four-epoch
+transition to DONE. This policy preserves once correctness but does not calibrate
+native scheduling or its fast-path transition cost. Multi-thread scheduling and
+realistic quiescence progress remain future work; no hardware accuracy is claimed.
+
+
+Mach message ID200 supports `HOST_PRIORITY_INFO` using eight captured signed
+priority values bound to the native runtime identity. It shares packed transport,
+owned reply-right checks, reply construction, small-receive handling and copyout
+semantics with the existing VM-map RPC. The native14-case oracle covers returned
+bytes, fixed MIG request-size errors, short priority counts and short receive
+buffers. Other host flavors and noncanonical NDR stay unsupported; no universal
+host priorities or successful unrelated service replies are invented.
+
+Mach port-deallocation trap-18 releases owned self SEND references. Last host
+release removes its name; subsequent host-self acquisition allocates a fresh name
+from the same private allocator as receive ports, preserving stale-name invalidity.
+Native eleven-step observations verify counts, reacquisition, null/dead names,
+low32 argument decoding and unchanged NZCV. Last pinned task/thread sends and
+receive-right deallocation remain unsupported until their exception/lifecycle
+contracts are implemented.

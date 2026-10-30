@@ -240,11 +240,20 @@ class NativeSymbolTests(unittest.TestCase):
 
 class AMFICaptureTests(unittest.TestCase):
     def test_policy_requires_matching_identity_state_and_output(self):
-        for failure in (None, "status", "query", "output", "entitlements", "dtrace-mode", "dtrace-cleanup", "dtrace-status"):
+        for failure in (None, "status", "query", "output", "entitlements", "dtrace-mode", "dtrace-cleanup", "dtrace-status", "register-stage", "register-value", "thread-default", "thread-cleanup", "thread-cs", "thread-main-change", "thread-opcode"):
             with self.subTest(failure=failure):
                 data = dict(cs_status=7, cs_result=0, cs_errno=0,
                             input_flags=0, output_flags=479, x0=0, x1=0, carry=False)
                 data["dtrace"]=dict(opened=True,lazy_invalid_header_accepted=True,own_registration_removed=True,cs_status_after=7,cs_result_after=0)
+                data["thread_protection_observation"]=dict(stage="post-loader-pre-main",capability=3,register="S3_6_C15_C1_5",value="2310346611465650176")
+                data["thread_protection_observation"]["kernel_thread_default"]=dict(stage="first-instruction-of-new-mach-thread",value="2310346611465650176",main_rechecked="2310346611465650176",terminated=True,entry_encoding=0xd53ef1a1,cs_status_after=7,cs_result_after=0)
+                if failure == "thread-opcode":data["thread_protection_observation"]["kernel_thread_default"]["entry_encoding"]=0
+                if failure == "thread-default":data["thread_protection_observation"]["kernel_thread_default"]["value"]="0"
+                if failure == "thread-cleanup":data["thread_protection_observation"]["kernel_thread_default"]["terminated"]=False
+                if failure == "thread-cs":data["thread_protection_observation"]["kernel_thread_default"]["cs_status_after"]=8
+                if failure == "thread-main-change":data["thread_protection_observation"]["kernel_thread_default"]["main_rechecked"]="0"
+                if failure == "register-stage":data["thread_protection_observation"]["stage"]="kernel-entry"
+                if failure == "register-value":data["thread_protection_observation"]["value"]=str(2**64)
                 if failure == "dtrace-mode": data["dtrace"]["lazy_invalid_header_accepted"]=False
                 if failure == "dtrace-cleanup": data["dtrace"]["own_registration_removed"]=False
                 if failure == "dtrace-status": data["dtrace"]["cs_status_after"]=8

@@ -503,3 +503,49 @@ func TestOoORCpcLoadLatencyAndDependency(t *testing.T) {
 		t.Fatal("RCpc load latency/dependency lost", c.State.GprReady[:5])
 	}
 }
+
+func TestThreadProtectionMRSConsumerAcrossTimingModels(t *testing.T) {
+	for _, mode := range []string{"functional", "inorder", "ooo"} {
+		t.Run(mode, func(t *testing.T) {
+			// MRS X8, implementation-defined register; ADD X9,X8,#1; NOP.
+			x := newExtensionExecution(t, []uint32{0xd53ef1a8, 0x91000509, 0xd503201f})
+			x.regs.AppleThreadProtection = emu.AppleThreadProtectionState{Enabled: true, Value: 0x2010002030100000}
+			if mode == "functional" {
+				for !x.Stopped() {
+					if _, _, e := x.StepDetailed(); e != nil {
+						t.Fatal(e)
+					}
+				}
+			} else {
+				s := sim.MakeBuilder().Build()
+				defer s.Terminate()
+				if mode == "inorder" {
+					c := modeling.MakeBuilder[*inorder.Comp](inorder.DefaultSpec()).WithSimulation(s).WithResources(inorder.Resources{Execution: x}).Build("CPU")
+					if e := s.Initialize(); e != nil {
+						t.Fatal(e)
+					}
+					for i := 0; i < 100 && !c.State.Done; i++ {
+						c.Middlewares.Pipeline.Handle(nil)
+					}
+					if !c.State.Done || c.State.Err != "" || c.State.InstDone != 3 {
+						t.Fatal(c.State)
+					}
+				} else {
+					c := modeling.MakeBuilder[*ooo.Comp](ooo.DefaultSpec()).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+					if e := s.Initialize(); e != nil {
+						t.Fatal(e)
+					}
+					for i := 0; i < 100 && !c.State.Done; i++ {
+						c.Middlewares.Pipeline.Handle(nil)
+					}
+					if !c.State.Done || c.State.Err != "" || c.State.InstDone != 3 || c.State.GprReady[9] <= c.State.GprReady[8] {
+						t.Fatal("MRS result dependency", c.State)
+					}
+				}
+			}
+			if x.regs.GPR[8] != 0x2010002030100000 || x.regs.GPR[9] != 0x2010002030100001 {
+				t.Fatal(x.regs.GPR[8:10])
+			}
+		})
+	}
+}

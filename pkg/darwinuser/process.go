@@ -22,6 +22,7 @@ const (
 )
 
 type Options struct {
+	Quiescence QuiescencePolicy
 	// SharedCache is borrowed and must remain open until all executions finish.
 	SharedCache    *loader.SharedCache
 	EntropySeed    uint64
@@ -134,6 +135,9 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		return nil, fmt.Errorf("Darwin startup: stack must be 16 KiB aligned, between 16 KiB and 8 MiB")
 	}
 	memory := &usermem.AddressSpace{}
+	if err := o.Quiescence.mapCounter(memory); err != nil {
+		return nil, err
+	}
 	reservation := size
 	if o.StartupProfile != nil {
 		reservation = o.StartupProfile.StackAllocationSize
@@ -403,5 +407,19 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		config := *o.RuntimeProfile.CSRConfig
 		kernel.csrConfig = &config
 	}
-	return &Process{kernel: kernel, Registers: emu.Registers{BranchTarget: branchTarget, Exclusive: exclusive, PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
+	if o.RuntimeProfile != nil && o.RuntimeProfile.HostPriorities != nil {
+		kernel.hostPriorities = new([8]int32)
+		copy(kernel.hostPriorities[:], o.RuntimeProfile.HostPriorities)
+	}
+	threadProtection := emu.AppleThreadProtectionState{}
+	if o.StartupProfile != nil && o.StartupProfile.ThreadProtectionRegister != nil {
+		if o.RuntimeProfile == nil || o.RuntimeProfile.ThreadProtectionByte == nil || *o.RuntimeProfile.ThreadProtectionByte != 3 {
+			return nil, fmt.Errorf("supplied Apple thread-protection register requires captured capability 3")
+		}
+		if o.StartupProfile.SecurityConfig != 0 {
+			return nil, fmt.Errorf("supplied Apple thread-protection default requires non-TPRO process security policy")
+		}
+		threadProtection = emu.AppleThreadProtectionState{Enabled: true, Value: *o.StartupProfile.ThreadProtectionRegister}
+	}
+	return &Process{kernel: kernel, Registers: emu.Registers{AppleThreadProtection: threadProtection, BranchTarget: branchTarget, Exclusive: exclusive, PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
 }

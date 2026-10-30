@@ -17,7 +17,21 @@ type ThreadPointerState struct {
 	Value   uint64
 }
 
+// AppleThreadProtectionState supplies an explicit implementation-defined user
+// register value. Reads do not infer a native default or enable protection writes.
+type AppleThreadProtectionState struct {
+	Enabled bool
+	Value   uint64
+}
+
 func (e *executor) execMRS(inst arm64asm.Inst) error {
+	if inst.Enc&^31 == 0xd53ef1a0 {
+		if !e.regs.AppleThreadProtection.Enabled {
+			return &UnsupportedInstructionError{Instruction: inst}
+		}
+		e.regs.WriteX(int(inst.Enc&31), e.regs.AppleThreadProtection.Value)
+		return nil
+	}
 	if inst.Enc&^31 == 0xd53bd060 {
 		if !e.regs.ThreadPointer.Enabled {
 			return &UnsupportedInstructionError{Instruction: inst}

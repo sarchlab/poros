@@ -19,6 +19,7 @@ import (
 )
 
 type configuration struct {
+	Quiescence                    darwinuser.QuiescencePolicy
 	Binary, Dyld, Cache, ExecName string
 	Args                          []string
 	Runtime                       *darwinuser.RuntimeProfile
@@ -29,7 +30,7 @@ type configuration struct {
 type call struct {
 	PC, Retired uint64
 	Number      int32
-	Arguments   [6]uint64
+	Arguments   [8]uint64
 	Returns     [2]uint64
 	Carry       bool
 	Error       string `json:",omitempty"`
@@ -38,6 +39,17 @@ type instruction struct {
 	PC       uint64
 	Encoding uint32
 	Text     string
+}
+
+type registerConsumer struct {
+	Instruction   instruction
+	NextPC        uint64
+	Before, After [31]uint64
+}
+type protectionRead struct {
+	PC, Retired, Value uint64
+	Destination        uint32
+	Consumers          []registerConsumer
 }
 
 func main() {
@@ -67,7 +79,7 @@ func main() {
 		}
 		defer cache.Close()
 	}
-	p, e := darwinuser.Load(c.Binary, c.Dyld, darwinuser.Options{Args: c.Args, ExecName: c.ExecName, RuntimeProfile: c.Runtime, StartupProfile: c.Startup, SharedCache: cache})
+	p, e := darwinuser.Load(c.Binary, c.Dyld, darwinuser.Options{Quiescence: c.Quiescence, Args: c.Args, ExecName: c.ExecName, RuntimeProfile: c.Runtime, StartupProfile: c.Startup, SharedCache: cache})
 	if e != nil {
 		panic(e)
 	}
@@ -80,6 +92,8 @@ func main() {
 		panic(e)
 	}
 	defer x.Close()
+	var protectionReads []protectionRead
+	protectionReadsTruncated := false
 	var calls []call
 	var instructions []instruction
 	var count, mainAt uint64
@@ -98,9 +112,24 @@ func main() {
 			}
 		}
 		_, _, err := x.StepDetailed()
+		if pe == nil {
+			for index := range protectionReads {
+				if len(protectionReads[index].Consumers) < 8 {
+					protectionReads[index].Consumers = append(protectionReads[index].Consumers, registerConsumer{instruction{before.PC, i.Enc, emu.InstructionString(i)}, p.Registers.PC, before.GPR, p.Registers.GPR})
+				}
+			}
+			if err == nil && i.Enc&^31 == 0xd53ef1a0 {
+				if len(protectionReads) < 32 {
+					protectionReads = append(protectionReads, protectionRead{PC: before.PC, Retired: count, Value: before.AppleThreadProtection.Value, Destination: i.Enc & 31})
+				} else {
+					protectionReadsTruncated = true
+				}
+			}
+		}
+
 		if pe == nil && i.Op == arm64asm.SVC {
 			entry := call{PC: before.PC, Retired: count, Number: int32(before.GPR[16]), Returns: [2]uint64{p.Registers.GPR[0], p.Registers.GPR[1]}, Carry: p.Registers.C}
-			copy(entry.Arguments[:], before.GPR[:6])
+			copy(entry.Arguments[:], before.GPR[:8])
 			if err != nil {
 				entry.Error = err.Error()
 			}
@@ -118,6 +147,9 @@ func main() {
 		current = current[:512]
 	}
 	out := struct {
+		ThreadProtectionReads            []protectionRead
+		ThreadProtectionReadsTruncated   bool
+		Quiescence                       darwinuser.QuiescencePolicy
 		Binary, Dyld                     darwinuser.Identity
 		Result                           darwinuser.Result
 		MainEntryReached                 bool
@@ -127,7 +159,7 @@ func main() {
 		InitialMappings, CurrentMappings []usermem.Mapping
 		GPR                              [31]uint64
 		SP                               uint64
-	}{p.Binary, p.Dyld, x.Result(), mainReached, mainAt, calls, instructions, initial, current, p.Registers.GPR, p.Registers.SP}
+	}{protectionReads, protectionReadsTruncated, c.Quiescence, p.Binary, p.Dyld, x.Result(), mainReached, mainAt, calls, instructions, initial, current, p.Registers.GPR, p.Registers.SP}
 	if e := json.NewEncoder(os.Stdout).Encode(out); e != nil {
 		panic(fmt.Sprintf("diagnostic output: %v", e))
 	}
