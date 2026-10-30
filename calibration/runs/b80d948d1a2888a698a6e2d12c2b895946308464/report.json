@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "artifact_status": "fail",
+  "accuracy_status": "unverified",
+  "head_commit": "b80d948d1a2888a698a6e2d12c2b895946308464",
+  "cases": [],
+  "error": "Evaluation did not produce an accuracy bundle; inspect its run logs."
+}
