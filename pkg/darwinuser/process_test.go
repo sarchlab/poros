@@ -148,3 +148,28 @@ func TestCommpageExplicitFieldsAndVirtualCounter(t *testing.T) {
 		t.Fatal("invalid timebase accepted")
 	}
 }
+
+func TestSelectedReadOnlyCommpageFields(t *testing.T) {
+	flags := uint64(1)
+	profile := RuntimeProfile{Version: 3, UserPageShift: 14, KernelPageShift: 14, ReadOnlyPageShifts: &PageShifts{User: 14, Kernel: 14}, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, DyldFlags: &flags}
+	p := process(t, Options{RuntimeProfile: &profile})
+	for _, addr := range []uint64{0xfffffc037, 0xfffff4025, 0xfffff4037} {
+		var got [1]byte
+		if err := p.Memory.Read(addr, got[:]); err != nil || got[0] != 14 {
+			t.Fatal(addr, err)
+		}
+		if err := p.Memory.Write(addr, []byte{0}); err == nil {
+			t.Fatal("read-only field writable")
+		}
+	}
+	if word(t, p, 0xfffffc160) != 1 {
+		t.Fatal("dyld flags")
+	}
+	if err := p.Memory.Read(0xfffffc320, make([]byte, 8)); err == nil {
+		t.Fatal("unmodeled commpage data present")
+	}
+	profile.ReadOnlyPageShifts.Kernel = 12
+	if _, err := Parse(machotest.Image(2), machotest.Image(7), Options{RuntimeProfile: &profile}); err == nil {
+		t.Fatal("unsupported page size accepted")
+	}
+}

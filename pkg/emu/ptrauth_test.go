@@ -81,16 +81,25 @@ func TestAuthDecoderRejectsNeighboringUnsupportedOperations(t *testing.T) {
 	}
 }
 
-func TestSyscallPersonalityIsExplicit(t *testing.T) {
-	for _, abi := range []SyscallABI{SyscallLinux, SyscallDarwin} {
-		for _, word := range []uint32{0xd4000001, 0xd4001001} {
-			r := Registers{PC: 0x1000, SyscallABI: abi}
-			before := r
-			step, e := StepChecked(&r, authMemory{word})
-			valid := (abi == SyscallLinux && word == 0xd4000001) || (abi == SyscallDarwin && word == 0xd4001001)
-			if (e == nil) != valid || step.Syscall != valid || r != before {
-				t.Fatalf("abi=%d word=%#x step=%+v err=%v", abi, word, step, e)
-			}
+func TestSyscallImmediateReturnedWithoutCommit(t *testing.T) {
+	for _, imm := range []uint16{0, 0x80, 0xffff} {
+		r := Registers{PC: 0x1000}
+		before := r
+		step, err := StepChecked(&r, authMemory{0xd4000001 | uint32(imm)<<5})
+		if err != nil || !step.Syscall || step.SyscallImmediate != imm || r != before {
+			t.Fatalf("imm=%x step=%+v err=%v", imm, step, err)
 		}
+	}
+}
+
+func TestThreadPointerRequiresExplicitState(t *testing.T) {
+	r := Registers{PC: 0x1000}
+	before := r
+	if _, err := StepChecked(&r, authMemory{0xd53bd061}); err == nil || r != before {
+		t.Fatal("unconfigured TLS accepted")
+	}
+	r.ThreadPointer = ThreadPointerState{Enabled: true, Value: 0x12340}
+	if _, err := StepChecked(&r, authMemory{0xd53bd061}); err != nil || r.GPR[1] != 0x12340 {
+		t.Fatalf("%+v %v", r, err)
 	}
 }

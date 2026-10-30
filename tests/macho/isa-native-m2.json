@@ -94,6 +94,2578 @@
           "signal": 11
         }
       ]
+    },
+    {
+      "source": "simd-probe.c",
+      "source_sha256": "9e6c4df150052d18d496163bbcbe2bd99c14a18b2b83a81058ae60f55be162c9",
+      "architecture": "arm64",
+      "binary_sha256": "6ba11a6b89ed3bf5f3342d027f667438341c169f69fdfa0bf41041d13810b2aa",
+      "result": {
+        "vectors": [
+          {
+            "a": "00112233445566778899aabbccddeeff",
+            "b": "000d1a2734414e5b6875828f9ca9b6c3",
+            "or": "001d3a3774556e7fe8fdaabfdcfdfeff",
+            "xor": "001c38147014282ce0ec28345074583c",
+            "hi": "00ffffffffffffffffffffffffffffff",
+            "cnt": "00020204020404060000000000000000",
+            "min": 0,
+            "sum": 476
+          },
+          {
+            "a": "25364758697a8b9cadbecfe0f1021324",
+            "b": "4754616e7b8895a2afbcc9d6e3f0fd0a",
+            "or": "6776677e7bfa9fbeafbecff6f3f2ff2e",
+            "xor": "6262263612f21e3e0202063612f2ee2e",
+            "hi": "000000000000000000ffffffff0000ff",
+            "cnt": "03040403040504040000000000000000",
+            "min": 2,
+            "sum": 772
+          },
+          {
+            "a": "4a5b6c7d8e9fb0c1d2e3f40516273849",
+            "b": "8e9ba8b5c2cfdce9f603101d2a374451",
+            "or": "cedbecfdcedffce9f6e3f41d3e377c59",
+            "xor": "c4c0c4c84c506c2824e0e4183c107c18",
+            "hi": "000000000000000000ffff0000000000",
+            "cnt": "03050406040603030000000000000000",
+            "min": 5,
+            "sum": 1068
+          },
+          {
+            "a": "6f8091a2b3c4d5e6f708192a3b4c5d6e",
+            "b": "d5e2effc091623303d4a5764717e8b98",
+            "or": "ffe2fffebbd6f7f6ff4a5f6e7b7edffe",
+            "xor": "ba627e5ebad2f6d6ca424e4e4a32d6f6",
+            "hi": "00000000ffffffffff00000000000000",
+            "cnt": "06010303050305050000000000000000",
+            "min": 8,
+            "sum": 1364
+          },
+          {
+            "a": "94a5b6c7d8e9fa0b1c2d3e4f60718293",
+            "b": "1c293643505d6a7784919eabb8c5d2df",
+            "or": "9cadb6c7d8fdfa7f9cbdbeeff8f5d2df",
+            "xor": "888c808488b4907c98bca0e4d8b4504c",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "03040505040506030000000000000000",
+            "min": 11,
+            "sum": 1404
+          },
+          {
+            "a": "b9cadbecfd0e1f30415263748596a7b8",
+            "b": "63707d8a97a4b1becbd8e5f2ff0c1926",
+            "or": "fbfaffeeffaebfbecbdae7f6ff9ebfbe",
+            "xor": "dabaa6666aaaae8e8a8a86867a9abe9e",
+            "hi": "ffffffffff0000000000000000ffffff",
+            "cnt": "05040605070305020000000000000000",
+            "min": 14,
+            "sum": 1188
+          },
+          {
+            "a": "deef00112233445566778899aabbccdd",
+            "b": "aab7c4d1deebf805121f2c394653606d",
+            "or": "feffc4d1fefbfc55767facb9eefbecfd",
+            "xor": "7458c4c0fcd8bc507468a4a0ece8acb0",
+            "hi": "ffff0000000000ffffffffffffffffff",
+            "cnt": "06070002020402040000000000000000",
+            "min": 0,
+            "sum": 716
+          },
+          {
+            "a": "031425364758697a8b9cadbecfe0f102",
+            "b": "f1fe0b1825323f4c596673808d9aa7b4",
+            "or": "f3fe2f3e677a7f7edbfeffbecffaf7b6",
+            "xor": "f2ea2e2e626a5636d2fade3e427a56b6",
+            "hi": "0000ffffffffffffffffffffffffff00",
+            "cnt": "02020304040304050000000000000000",
+            "min": 2,
+            "sum": 500
+          },
+          {
+            "a": "28394a5b6c7d8e9fb0c1d2e3f4051627",
+            "b": "3845525f6c798693a0adbac7d4e1eefb",
+            "or": "387d5a5f6c7d8e9fb0edfae7f4e5feff",
+            "xor": "107c18040004080c106c682420e4f8dc",
+            "hi": "0000000000ffffffffffffffff000000",
+            "cnt": "02040305040604060000000000000000",
+            "min": 5,
+            "sum": 796
+          },
+          {
+            "a": "4d5e6f8091a2b3c4d5e6f708192a3b4c",
+            "b": "7f8c99a6b3c0cddae7f4010e1b283542",
+            "or": "7fdeffa6b3e2ffdef7f6f70e1b2a3f4e",
+            "xor": "32d2f62622627e1e3212f60602020e0e",
+            "hi": "00000000000000000000ff0000ffffff",
+            "cnt": "04050601030305030000000000000000",
+            "min": 8,
+            "sum": 1092
+          },
+          {
+            "a": "728394a5b6c7d8e9fa0b1c2d3e4f6071",
+            "b": "c6d3e0edfa0714212e3b4855626f7c89",
+            "or": "f6d3f4edfec7dce9fe3b5c7d7e6f7cf9",
+            "xor": "b45074484cc0ccc8d43054785c201cf8",
+            "hi": "0000000000ffffffff00000000000000",
+            "cnt": "04030304050504050000000000000000",
+            "min": 11,
+            "sum": 1388
+          },
+          {
+            "a": "97a8b9cadbecfd0e1f30415263748596",
+            "b": "0d1a2734414e5b6875828f9ca9b6c3d0",
+            "or": "9fbabffedbeeff6e7fb2cfdeebf6c7d6",
+            "xor": "9ab29efe9aa2a6666ab2cececac24646",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "05030504060507030000000000000000",
+            "min": 14,
+            "sum": 1428
+          },
+          {
+            "a": "bccddeef00112233445566778899aabb",
+            "b": "54616e7b8895a2afbcc9d6e3f0fd0a17",
+            "or": "fcedfeff8895a2bffcddf6f7f8fdaabf",
+            "xor": "e8acb0948884809cf89cb0947864a0ac",
+            "hi": "ffffffff00000000000000000000ffff",
+            "cnt": "05050607000202040000000000000000",
+            "min": 0,
+            "sum": 956
+          },
+          {
+            "a": "e1f2031425364758697a8b9cadbecfe0",
+            "b": "9ba8b5c2cfdce9f603101d2a3744515e",
+            "or": "fbfab7d6effeeffe6b7a9fbebffedffe",
+            "xor": "7a5ab6d6eaeaaeae6a6a96b69afa9ebe",
+            "hi": "ffff000000000000ffffffffffffffff",
+            "cnt": "04050202030404030000000000000000",
+            "min": 3,
+            "sum": 740
+          },
+          {
+            "a": "061728394a5b6c7d8e9fb0c1d2e3f405",
+            "b": "e2effc091623303d4a5764717e8b98a5",
+            "or": "e6fffc395e7b7c7dcedff4f1feebfca5",
+            "xor": "e4f8d4305c785c40c4c8d4b0ac686ca0",
+            "hi": "000000ffffffffffffffffffffffff00",
+            "cnt": "02040204030504060000000000000000",
+            "min": 5,
+            "sum": 524
+          },
+          {
+            "a": "2b3c4d5e6f8091a2b3c4d5e6f708192a",
+            "b": "293643505d6a7784919eabb8c5d2dfec",
+            "or": "2b3e4f5e7feaf7a6b3defffef7dadfee",
+            "xor": "020a0e0e32eae626225a7e5e32dac6c6",
+            "hi": "ffffffffffffffffffffffffff000000",
+            "cnt": "04040405060103030000000000000000",
+            "min": 8,
+            "sum": 820
+          },
+          {
+            "a": "5061728394a5b6c7d8e9fa0b1c2d3e4f",
+            "b": "707d8a97a4b1becbd8e5f2ff0c192633",
+            "or": "707dfa97b4b5becfd8edfaff1c3d3e7f",
+            "xor": "201cf8143014080c000c08f41034187c",
+            "hi": "000000000000000000ffff00ffffffff",
+            "cnt": "02030403030405050000000000000000",
+            "min": 11,
+            "sum": 1116
+          },
+          {
+            "a": "758697a8b9cadbecfd0e1f3041526374",
+            "b": "b7c4d1deebf805121f2c394653606d7a",
+            "or": "f7c6d7fefbfadffeff2e3f7653726f7e",
+            "xor": "c24246765232defee222267612320e0e",
+            "hi": "000000000000ffffff00000000000000",
+            "cnt": "05030503050406050000000000000000",
+            "min": 14,
+            "sum": 1412
+          },
+          {
+            "a": "9aabbccddeef00112233445566778899",
+            "b": "fe0b1825323f4c596673808d9aa7b4c1",
+            "or": "feabbcedfeff4c596673c4ddfef7bcd9",
+            "xor": "64a0a4e8ecd04c484440c4d8fcd03c58",
+            "hi": "00ffffffffff00000000000000000000",
+            "cnt": "04050505060700020000000000000000",
+            "min": 0,
+            "sum": 1196
+          },
+          {
+            "a": "bfd0e1f2031425364758697a8b9cadbe",
+            "b": "45525f6c798693a0adbac7d4e1eefb08",
+            "or": "ffd2fffe7b96b7b6effaeffeebfeffbe",
+            "xor": "fa82be9e7a92b696eae2aeae6a7256b6",
+            "hi": "ffffffff0000000000000000000000ff",
+            "cnt": "07030405020203040000000000000000",
+            "min": 3,
+            "sum": 980
+          },
+          {
+            "a": "e4f5061728394a5b6c7d8e9fb0c1d2e3",
+            "b": "8c99a6b3c0cddae7f4010e1b2835424f",
+            "or": "ecfda6b7e8fddafffc7d8e9fb8f5d2ef",
+            "xor": "686ca0a4e8f490bc987c808498f490ac",
+            "hi": "ffff00000000000000ffffffffffffff",
+            "cnt": "04060204020403050000000000000000",
+            "min": 6,
+            "sum": 764
+          },
+          {
+            "a": "091a2b3c4d5e6f8091a2b3c4d5e6f708",
+            "b": "d3e0edfa0714212e3b4855626f7c8996",
+            "or": "dbfaeffe4f5e6faebbeaf7e6fffeff9e",
+            "xor": "dafac6c64a4a4eaeaaeae6a6ba9a7e9e",
+            "hi": "00000000ffffffffffffffffffffff00",
+            "cnt": "02030404040506010000000000000000",
+            "min": 8,
+            "sum": 548
+          },
+          {
+            "a": "2e3f5061728394a5b6c7d8e9fa0b1c2d",
+            "b": "1a2734414e5b6875828f9ca9b6c3d0dd",
+            "or": "3e3f74617edbfcf5b6cfdce9fecbdcfd",
+            "xor": "341864203cd8fcd0344844404cc8ccf0",
+            "hi": "ffffffffffffffffffffffffff000000",
+            "cnt": "04060203040303040000000000000000",
+            "min": 11,
+            "sum": 844
+          },
+          {
+            "a": "5364758697a8b9cadbecfd0e1f304152",
+            "b": "616e7b8895a2afbcc9d6e3f0fd0a1724",
+            "or": "736e7f8e97aabffedbfefffeff3a5776",
+            "xor": "320a0e0e020a1676123a1efee23a5676",
+            "hi": "00000000ffffffffffffff0000ffffff",
+            "cnt": "04030503050305040000000000000000",
+            "min": 14,
+            "sum": 1140
+          },
+          {
+            "a": "78899aabbccddeef0011223344556677",
+            "b": "a8b5c2cfdce9f603101d2a3744515e6b",
+            "or": "f8bddaeffcedfeef101d2a3744557e7f",
+            "xor": "d03c5864602428ec100c08040004381c",
+            "hi": "00000000000000ff0000000000ffffff",
+            "cnt": "04030405050506070000000000000000",
+            "min": 0,
+            "sum": 1436
+          },
+          {
+            "a": "9daebfd0e1f2031425364758697a8b9c",
+            "b": "effc091623303d4a5764717e8b98a5b2",
+            "or": "fffebfd6e3f23f5e7776777eebfaafbe",
+            "xor": "7252b6c6c2c23e5e72523626e2e22e2e",
+            "hi": "0000ffffffff00000000000000000000",
+            "cnt": "05050703040502020000000000000000",
+            "min": 3,
+            "sum": 1220
+          },
+          {
+            "a": "c2d3e4f5061728394a5b6c7d8e9fb0c1",
+            "b": "3643505d6a7784919eabb8c5d2dfecf9",
+            "or": "f6d3f4fd6e77acb9defbfcfddedffcf9",
+            "xor": "f490b4a86c60aca8d4f0d4b85c405c38",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "03050406020402040000000000000000",
+            "min": 6,
+            "sum": 1004
+          },
+          {
+            "a": "e7f8091a2b3c4d5e6f8091a2b3c4d5e6",
+            "b": "7d8a97a4b1becbd8e5f2ff0c19263340",
+            "or": "fffa9fbebbbecfdeeff2ffaebbe6f7e6",
+            "xor": "9a729ebe9a8286868a726eaeaae2e6a6",
+            "hi": "ffff000000000000000000ffffffffff",
+            "cnt": "06050203040404050000000000000000",
+            "min": 9,
+            "sum": 788
+          },
+          {
+            "a": "0c1d2e3f5061728394a5b6c7d8e9fa0b",
+            "b": "c4d1deebf805121f2c394653606d7a87",
+            "or": "ccddfefff865729fbcbdf6d7f8edfa8f",
+            "xor": "c8ccf0d4a864609cb89cf094b884808c",
+            "hi": "0000000000ffffffffffffffffffff00",
+            "cnt": "02040406020304030000000000000000",
+            "min": 11,
+            "sum": 572
+          },
+          {
+            "a": "31425364758697a8b9cadbecfd0e1f30",
+            "b": "0b1825323f4c596673808d9aa7b4c1ce",
+            "or": "3b5a77767fcedfeefbcadffeffbedffe",
+            "xor": "3a5a76564acacececa4a56765abadefe",
+            "hi": "ffffffffffffffffffffffffff000000",
+            "cnt": "03020403050305030000000000000000",
+            "min": 14,
+            "sum": 868
+          },
+          {
+            "a": "566778899aabbccddeef001122334455",
+            "b": "525f6c798693a0adbac7d4e1eefb0815",
+            "or": "567f7cf99ebbbcedfeefd4f1eefb4c55",
+            "xor": "043814f01c381c606428d4f0ccc84c40",
+            "hi": "ffffffffffffffffffff00000000ffff",
+            "cnt": "04050403040505050000000000000000",
+            "min": 0,
+            "sum": 1164
+          },
+          {
+            "a": "7b8c9daebfd0e1f2031425364758697a",
+            "b": "99a6b3c0cddae7f4010e1b2835424f5c",
+            "or": "fbaebfeeffdae7f6031e3f3e775a6f7e",
+            "xor": "e22a2e6e720a0606021a3e1e721a2626",
+            "hi": "0000000000000000ffffffffffffffff",
+            "cnt": "06030505070304050000000000000000",
+            "min": 3,
+            "sum": 1460
+          },
+          {
+            "a": "a0b1c2d3e4f5061728394a5b6c7d8e9f",
+            "b": "e0edfa0714212e3b4855626f7c8996a3",
+            "or": "e0fdfad7f4f52e3f687d6a7f7cfd9ebf",
+            "xor": "405c38d4f0d4282c606c283410f4183c",
+            "hi": "000000ffffff00000000000000000000",
+            "cnt": "02040305040602040000000000000000",
+            "min": 6,
+            "sum": 1244
+          },
+          {
+            "a": "c5d6e7f8091a2b3c4d5e6f8091a2b3c4",
+            "b": "2734414e5b6875828f9ca9b6c3d0ddea",
+            "or": "e7f6e7fe5b7a7fbecfdeefb6d3f2ffee",
+            "xor": "e2e2a6b652725ebec2c2c63652726e2e",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "04050605020304040000000000000000",
+            "min": 9,
+            "sum": 1028
+          },
+          {
+            "a": "eafb0c1d2e3f5061728394a5b6c7d8e9",
+            "b": "6e7b8895a2afbcc9d6e3f0fd0a172431",
+            "or": "eefb8c9daebffce9f6e3f4fdbed7fcf9",
+            "xor": "848084888c90eca8a4606458bcd0fcd8",
+            "hi": "ffff00000000000000000000ffffffff",
+            "cnt": "05070204040602030000000000000000",
+            "min": 12,
+            "sum": 812
+          },
+          {
+            "a": "0f2031425364758697a8b9cadbecfd0e",
+            "b": "b5c2cfdce9f603101d2a3744515e6b78",
+            "or": "bfe2ffdefbf677969faabfcedbfeff7e",
+            "xor": "bae2fe9eba9276968a828e8e8ab29676",
+            "hi": "000000000000ffffffffffffffffff00",
+            "cnt": "04010302040305030000000000000000",
+            "min": 14,
+            "sum": 596
+          },
+          {
+            "a": "3445566778899aabbccddeef00112233",
+            "b": "fc091623303d4a5764717e8b98a5b2bf",
+            "or": "fc4d566778bddafffcfdfeef98b5b2bf",
+            "xor": "c84c404448b4d0fcd8bca06498b4908c",
+            "hi": "00ffffffffffffffffffffff00000000",
+            "cnt": "03030405040304050000000000000000",
+            "min": 0,
+            "sum": 892
+          },
+          {
+            "a": "596a7b8c9daebfd0e1f2031425364758",
+            "b": "43505d6a7784919eabb8c5d2dfecf906",
+            "or": "5b7a7feeffaebfdeebfac7d6fffeff5e",
+            "xor": "1a3a26e6ea2a2e4e4a4ac6c6fadabe5e",
+            "hi": "ffffffffffffffffffff0000000000ff",
+            "cnt": "04040603050507030000000000000000",
+            "min": 3,
+            "sum": 1188
+          },
+          {
+            "a": "7e8fa0b1c2d3e4f5061728394a5b6c7d",
+            "b": "8a97a4b1becbd8e5f2ff0c192633404d",
+            "or": "fe9fa4b1fedbfcf5f6ff2c396e7b6c7d",
+            "xor": "f41804007c183c10f4e824206c682c30",
+            "hi": "00000000ffffffff0000ffffffffffff",
+            "cnt": "06050204030504060000000000000000",
+            "min": 6,
+            "sum": 1484
+          },
+          {
+            "a": "a3b4c5d6e7f8091a2b3c4d5e6f8091a2",
+            "b": "d1deebf805121f2c394653606d7a8794",
+            "or": "f3feeffee7fa1f3e3b7e5f7e6ffa97b6",
+            "xor": "726a2e2ee2ea1636127a1e3e02fa1636",
+            "hi": "00000000ffff000000000000ffffffff",
+            "cnt": "04040405060502030000000000000000",
+            "min": 9,
+            "sum": 1268
+          },
+          {
+            "a": "c8d9eafb0c1d2e3f5061728394a5b6c7",
+            "b": "1825323f4c596673808d9aa7b4c1cedb",
+            "or": "d8fdfaff4c5d6e7fd0edfaa7b4e5fedf",
+            "xor": "d0fcd8c44044484cd0ece8242064781c",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "03050507020404060000000000000000",
+            "min": 12,
+            "sum": 1052
+          },
+          {
+            "a": "edfe0f2031425364758697a8b9cadbec",
+            "b": "5f6c798693a0adbac7d4e1eefb081522",
+            "or": "fffe7fa6b3e2fffef7d6f7eefbcadfee",
+            "xor": "b29276a6a2e2fedeb252764642c2cece",
+            "hi": "ffff0000000000000000000000ffffff",
+            "cnt": "06070401030204030000000000000000",
+            "min": 15,
+            "sum": 836
+          },
+          {
+            "a": "12233445566778899aabbccddeef0011",
+            "b": "a6b3c0cddae7f4010e1b2835424f5c69",
+            "or": "b6b3f4cddee7fc899ebbbcfddeef5c79",
+            "xor": "b490f4888c808c8894b094f89ca05c78",
+            "hi": "00000000000000ffffffffffffff0000",
+            "cnt": "02030303040504030000000000000000",
+            "min": 0,
+            "sum": 620
+          },
+          {
+            "a": "3748596a7b8c9daebfd0e1f203142536",
+            "b": "edfa0714212e3b4855626f7c8996a3b0",
+            "or": "fffa5f7e7baebfeefff2effe8b96a7b6",
+            "xor": "dab25e7e5aa2a6e6eab28e8e8a828686",
+            "hi": "0000ffffffffffffffffffff00000000",
+            "cnt": "05020404060305050000000000000000",
+            "min": 3,
+            "sum": 916
+          },
+          {
+            "a": "5c6d7e8fa0b1c2d3e4f5061728394a5b",
+            "b": "34414e5b6875828f9ca9b6c3d0ddeaf7",
+            "or": "7c6d7edfe8f5c2dffcfdb6d7f8fdeaff",
+            "xor": "682c30d4c8c4405c785cb0d4f8e4a0ac",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "04050605020403050000000000000000",
+            "min": 6,
+            "sum": 1212
+          },
+          {
+            "a": "8192a3b4c5d6e7f8091a2b3c4d5e6f80",
+            "b": "7b8895a2afbcc9d6e3f0fd0a1724313e",
+            "or": "fb9ab7b6effeeffeebfaff3e5f7e7fbe",
+            "xor": "fa1a36166a6a2e2eeaead6365a7a5ebe",
+            "hi": "ffffffffffffffff000000ffffffffff",
+            "cnt": "02030404040506050000000000000000",
+            "min": 9,
+            "sum": 1508
+          },
+          {
+            "a": "a6b7c8d9eafb0c1d2e3f5061728394a5",
+            "b": "c2cfdce9f603101d2a3744515e6b7885",
+            "or": "e6ffdcf9fefb1c1d2e3f54717eebfca5",
+            "xor": "647814301cf81c00040814302ce8ec20",
+            "hi": "0000000000ff0000ffffffffffffffff",
+            "cnt": "04060305050702040000000000000000",
+            "min": 12,
+            "sum": 1292
+          },
+          {
+            "a": "cbdcedfe0f2031425364758697a8b9ca",
+            "b": "091623303d4a5764717e8b98a5b2bfcc",
+            "or": "cbdeeffe3f6a7766737eff9eb7babfce",
+            "xor": "c2cacece326a6626221afe1e321a0606",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "05050607040103020000000000000000",
+            "min": 15,
+            "sum": 1076
+          },
+          {
+            "a": "f00112233445566778899aabbccddeef",
+            "b": "505d6a7784919eabb8c5d2dfecf90613",
+            "or": "f05d7a77b4d5deeff8cddafffcfddeff",
+            "xor": "a05c7854b0d4c8ccc04c48745034d8fc",
+            "hi": "ff00000000000000000000000000ffff",
+            "cnt": "04010203030304050000000000000000",
+            "min": 1,
+            "sum": 604
+          },
+          {
+            "a": "15263748596a7b8c9daebfd0e1f20314",
+            "b": "97a4b1becbd8e5f2ff0c192633404d5a",
+            "or": "97a6b7fedbfafffeffaebff6f3f24f5e",
+            "xor": "828286f692b29e7e62a2a6f6d2b24e4e",
+            "hi": "000000000000000000ffffffffff0000",
+            "cnt": "03030502040406030000000000000000",
+            "min": 3,
+            "sum": 644
+          },
+          {
+            "a": "3a4b5c6d7e8fa0b1c2d3e4f506172839",
+            "b": "deebf805121f2c394653606d7a8794a1",
+            "or": "feebfc6d7e9facb9c6d3e4fd7e97bcb9",
+            "xor": "e4a0a4686c908c88848084987c90bc98",
+            "hi": "000000ffffffffffffffffff00000000",
+            "cnt": "04040405060502040000000000000000",
+            "min": 6,
+            "sum": 940
+          },
+          {
+            "a": "5f708192a3b4c5d6e7f8091a2b3c4d5e",
+            "b": "25323f4c596673808d9aa7b4c1cedbe8",
+            "or": "7f72bfdefbf6f7d6effaafbeebfedffe",
+            "xor": "7a42bedefad2b6566a62aeaeeaf296b6",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "06030203040404050000000000000000",
+            "min": 9,
+            "sum": 1236
+          },
+          {
+            "a": "8495a6b7c8d9eafb0c1d2e3f50617283",
+            "b": "6c798693a0adbac7d4e1eefb0815222f",
+            "or": "ecfda6b7e8fdfaffdcfdeeff587572af",
+            "xor": "e8ec20246874503cd8fcc0c4587450ac",
+            "hi": "ffffffffffffffff00000000ffffffff",
+            "cnt": "02040406030505070000000000000000",
+            "min": 12,
+            "sum": 1532
+          },
+          {
+            "a": "a9bacbdcedfe0f2031425364758697a8",
+            "b": "b3c0cddae7f4010e1b2835424f5c6976",
+            "or": "bbfacfdeeffe0f2e3b6a77667fdefffe",
+            "xor": "1a7a06060a0a0e2e2a6a66263adafede",
+            "hi": "000000ffffffffffffffffffffffffff",
+            "cnt": "04050505060704010000000000000000",
+            "min": 15,
+            "sum": 1316
+          },
+          {
+            "a": "cedff00112233445566778899aabbccd",
+            "b": "fa0714212e3b4855626f7c8996a3b0bd",
+            "or": "fedff4213e3b7c55766f7c899eabbcfd",
+            "xor": "34d8e4203c187c10340804000c080c70",
+            "hi": "00ffff000000000000000000ffffffff",
+            "cnt": "05070401020303030000000000000000",
+            "min": 1,
+            "sum": 844
+          },
+          {
+            "a": "f30415263748596a7b8c9daebfd0e1f2",
+            "b": "414e5b6875828f9ca9b6c3d0ddeaf704",
+            "or": "f34e5f6e77cadffefbbedffefffaf7f6",
+            "xor": "b24a4e4e42cad6f6d23a5e7e623a16f6",
+            "hi": "ff0000000000000000000000000000ff",
+            "cnt": "06010303050204040000000000000000",
+            "min": 4,
+            "sum": 628
+          },
+          {
+            "a": "18293a4b5c6d7e8fa0b1c2d3e4f50617",
+            "b": "8895a2afbcc9d6e3f0fd0a1724313e4b",
+            "or": "98bdbaeffcedfeeff0fdcad7e4f53e5f",
+            "xor": "90bc98e4e0a4a86c504cc8c4c0c4385c",
+            "hi": "00000000000000000000ffffffff0000",
+            "cnt": "02030404040506050000000000000000",
+            "min": 6,
+            "sum": 668
+          },
+          {
+            "a": "3d4e5f708192a3b4c5d6e7f8091a2b3c",
+            "b": "cfdce9f603101d2a3744515e6b788592",
+            "or": "ffdefff68392bfbef7d6f7fe6b7aafbe",
+            "xor": "f292b6868282be9ef292b6a66262aeae",
+            "hi": "00000000ffffffffffffffff00000000",
+            "cnt": "05040603020304040000000000000000",
+            "min": 9,
+            "sum": 964
+          },
+          {
+            "a": "62738495a6b7c8d9eafb0c1d2e3f5061",
+            "b": "1623303d4a5764717e8b98a5b2bfccd9",
+            "or": "7673b4bdeef7ecf9fefb9cbdbebfdcf9",
+            "xor": "7450b4a8ece0aca8947094b89c809cb8",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "03050204040603050000000000000000",
+            "min": 12,
+            "sum": 1260
+          },
+          {
+            "a": "8798a9bacbdcedfe0f20314253647586",
+            "b": "5d6a7784919eabb8c5d2dfecf9061320",
+            "or": "dffaffbedbdeeffecff2ffeefb6677a6",
+            "xor": "daf2de3e5a424646caf2eeaeaa6266a6",
+            "hi": "ffffffffffffffff0000000000ffffff",
+            "cnt": "04030405050506070000000000000000",
+            "min": 15,
+            "sum": 1556
+          },
+          {
+            "a": "acbdcedff00112233445566778899aab",
+            "b": "a4b1becbd8e5f2ff0c192633404d5a67",
+            "or": "acbdfedff8e5f2ff3c5d767778cddaef",
+            "xor": "080c701428e4e0dc385c705438c4c0cc",
+            "hi": "ffffffffff000000ffffffffffffffff",
+            "cnt": "04060507040102030000000000000000",
+            "min": 1,
+            "sum": 1084
+          },
+          {
+            "a": "d1e2f30415263748596a7b8c9daebfd0",
+            "b": "ebf805121f2c394653606d7a8794a1ae",
+            "or": "fbfaf7161f2e3f4e5b6a7ffe9fbebffe",
+            "xor": "3a1af6160a0a0e0e0a0a16f61a3a1e7e",
+            "hi": "0000ff00000000ffffffffffffffffff",
+            "cnt": "04040601030305020000000000000000",
+            "min": 4,
+            "sum": 868
+          },
+          {
+            "a": "f60718293a4b5c6d7e8fa0b1c2d3e4f5",
+            "b": "323f4c596673808d9aa7b4c1cedbe8f5",
+            "or": "f63f5c797e7bdcedfeafb4f1cedbecf5",
+            "xor": "c43854705c38dce0e42814700c080c00",
+            "hi": "ff000000000000000000000000000000",
+            "cnt": "06030203040404050000000000000000",
+            "min": 7,
+            "sum": 652
+          },
+          {
+            "a": "1b2c3d4e5f708192a3b4c5d6e7f8091a",
+            "b": "798693a0adbac7d4e1eefb0815222f3c",
+            "or": "7baebfeefffac7d6e3feffdef7fa2f3e",
+            "xor": "62aaaeeef2ca4646425a3edef2da2626",
+            "hi": "0000000000000000000000ffffff0000",
+            "cnt": "04030504060302030000000000000000",
+            "min": 9,
+            "sum": 692
+          },
+          {
+            "a": "405162738495a6b7c8d9eafb0c1d2e3f",
+            "b": "c0cddae7f4010e1b2835424f5c697683",
+            "or": "c0ddfaf7f495aebfe8fdeaff5c7d7ebf",
+            "xor": "809cb8947094a8ace0eca8b4507458bc",
+            "hi": "0000000000ffffffffffffff00000000",
+            "cnt": "01030305020404060000000000000000",
+            "min": 12,
+            "sum": 988
+          },
+          {
+            "a": "65768798a9bacbdcedfe0f2031425364",
+            "b": "0714212e3b4855626f7c8996a3b0bdca",
+            "or": "6776a7bebbfadffeeffe8fb6b3f2ffee",
+            "xor": "6262a6b692f29ebe828286b692f2eeae",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "04050403040505050000000000000000",
+            "min": 15,
+            "sum": 1284
+          },
+          {
+            "a": "8a9bacbdcedff0011223344556677889",
+            "b": "4e5b6875828f9ca9b6c3d0ddeaf70411",
+            "or": "cedbecfdcedffca9b6e3f4ddfef77c99",
+            "xor": "c4c0c4c84c506ca8a4e0e498bc907c98",
+            "hi": "ffffffffffffff00000000000000ffff",
+            "cnt": "03050406050704010000000000000000",
+            "min": 1,
+            "sum": 1324
+          },
+          {
+            "a": "afc0d1e2f30415263748596a7b8c9dae",
+            "b": "95a2afbcc9d6e3f0fd0a1724313e4b58",
+            "or": "bfe2fffefbd6f7f6ff4a5f6e7bbedffe",
+            "xor": "3a627e5e3ad2f6d6ca424e4e4ab2d6f6",
+            "hi": "ffffffffff00000000ffffffffffffff",
+            "cnt": "06020404060103030000000000000000",
+            "min": 4,
+            "sum": 1108
+          },
+          {
+            "a": "d4e5f60718293a4b5c6d7e8fa0b1c2d3",
+            "b": "dce9f603101d2a3744515e6b7885929f",
+            "or": "dcedf607183d3a7f5c7d7eeff8b5d2df",
+            "xor": "080c00040834107c183c20e4d834504c",
+            "hi": "000000ffffffffffffffffffffffffff",
+            "cnt": "04050603020304040000000000000000",
+            "min": 7,
+            "sum": 892
+          },
+          {
+            "a": "f90a1b2c3d4e5f708192a3b4c5d6e7f8",
+            "b": "23303d4a5764717e8b98a5b2bfccd9e6",
+            "or": "fb3a3f6e7f6e7f7e8b9aa7b6ffdefffe",
+            "xor": "da3a26666a2a2e0e0a0a06067a1a3e1e",
+            "hi": "ff00000000000000000000ffffffffff",
+            "cnt": "06020403050406030000000000000000",
+            "min": 10,
+            "sum": 676
+          },
+          {
+            "a": "1e2f405162738495a6b7c8d9eafb0c1d",
+            "b": "6a7784919eabb8c5d2dfecf90613202d",
+            "or": "7e7fc4d1fefbbcd5f6ffecf9eefb2c3d",
+            "xor": "7458c4c0fcd83c5074682420ece82c30",
+            "hi": "000000000000000000000000ffff0000",
+            "cnt": "04050103030502040000000000000000",
+            "min": 12,
+            "sum": 716
+          },
+          {
+            "a": "435465768798a9bacbdcedfe0f203142",
+            "b": "b1becbd8e5f2ff0c192633404d5a6774",
+            "or": "f3feeffee7faffbedbfefffe4f7a7776",
+            "xor": "f2eaaeae626a56b6d2fadebe427a5636",
+            "hi": "00000000000000ffffffffff00000000",
+            "cnt": "03030405040304050000000000000000",
+            "min": 15,
+            "sum": 1012
+          },
+          {
+            "a": "68798a9bacbdcedff001122334455667",
+            "b": "f805121f2c394653606d7a8794a1aebb",
+            "or": "f87d9a9facbdcedff06d7aa7b4e5feff",
+            "xor": "907c98848084888c906c68a4a0e4f8dc",
+            "hi": "00ffffffffffffffff00000000000000",
+            "cnt": "03050305040605070000000000000000",
+            "min": 1,
+            "sum": 1308
+          },
+          {
+            "a": "8d9eafc0d1e2f30415263748596a7b8c",
+            "b": "3f4c596673808d9aa7b4c1cedbe8f502",
+            "or": "bfdeffe6f3e2ff9eb7b6f7cedbeaff8e",
+            "xor": "b2d2f6a6a2627e9eb292f68682828e8e",
+            "hi": "ffffffffffffff0000000000000000ff",
+            "cnt": "04050602040406010000000000000000",
+            "min": 4,
+            "sum": 1348
+          },
+          {
+            "a": "b2c3d4e5f60718293a4b5c6d7e8fa0b1",
+            "b": "8693a0adbac7d4e1eefb0815222f3c49",
+            "or": "b6d3f4edfec7dce9fefb5c7d7eafbcf9",
+            "xor": "345074484cc0ccc8d4b054785ca09cf8",
+            "hi": "ffffffffff0000000000ffffffffffff",
+            "cnt": "04040405060302030000000000000000",
+            "min": 7,
+            "sum": 1132
+          },
+          {
+            "a": "d7e8f90a1b2c3d4e5f708192a3b4c5d6",
+            "b": "cddae7f4010e1b2835424f5c69768390",
+            "or": "dffafffe1b2e3f6e7f72cfdeebf6c7d6",
+            "xor": "1a321efe1a2226666a32cececac24646",
+            "hi": "ffffff00ffffffffffffffffffffffff",
+            "cnt": "06040602040305040000000000000000",
+            "min": 10,
+            "sum": 916
+          },
+          {
+            "a": "fc0d1e2f405162738495a6b7c8d9eafb",
+            "b": "14212e3b4855626f7c8996a3b0bdcad7",
+            "or": "fc2d3e3f4855627ffc9db6b7f8fdeaff",
+            "xor": "e82c30140804001cf81c30147864202c",
+            "hi": "ff000000000000ffffffffffffffffff",
+            "cnt": "06030405010303050000000000000000",
+            "min": 13,
+            "sum": 700
+          },
+          {
+            "a": "2132435465768798a9bacbdcedfe0f20",
+            "b": "5b6875828f9ca9b6c3d0ddeaf704111e",
+            "or": "7b7a77d6effeafbeebfadffefffe1f3e",
+            "xor": "7a5a36d6eaea2e2e6a6a16361afa1e3e",
+            "hi": "00000000000000000000000000ff00ff",
+            "cnt": "02030303040504030000000000000000",
+            "min": 15,
+            "sum": 740
+          },
+          {
+            "a": "465768798a9bacbdcedff00112233445",
+            "b": "a2afbcc9d6e3f0fd0a1724313e4b5865",
+            "or": "e6fffcf9defbfcfdcedff4313e6b7c65",
+            "xor": "e4f8d4b05c785c40c4c8d4302c686c20",
+            "hi": "0000000000000000ffffff0000000000",
+            "cnt": "03050305030504060000000000000000",
+            "min": 1,
+            "sum": 1036
+          },
+          {
+            "a": "6b7c8d9eafc0d1e2f30415263748596a",
+            "b": "e9f603101d2a3744515e6b7885929fac",
+            "or": "ebfe8f9ebfeaf7e6f35e7f7eb7dadfee",
+            "xor": "828a8e8eb2eae6a6a25a7e5eb2dac6c6",
+            "hi": "0000ffffffffffffff00000000000000",
+            "cnt": "05050405060204040000000000000000",
+            "min": 4,
+            "sum": 1332
+          },
+          {
+            "a": "90a1b2c3d4e5f60718293a4b5c6d7e8f",
+            "b": "303d4a5764717e8b98a5b2bfccd9e6f3",
+            "or": "b0bdfad7f4f5fe8f98adbaffdcfdfeff",
+            "xor": "a09cf894b094888c808c88f490b4987c",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "02030404040506030000000000000000",
+            "min": 7,
+            "sum": 1372
+          },
+          {
+            "a": "b5c6d7e8f90a1b2c3d4e5f708192a3b4",
+            "b": "7784919eabb8c5d2dfecf90613202d3a",
+            "or": "f7c6d7fefbbadffeffeeff7693b2afbe",
+            "xor": "c242467652b2defee2a2a67692b28e8e",
+            "hi": "ffffffffff000000000000ffffffffff",
+            "cnt": "05040604060204030000000000000000",
+            "min": 10,
+            "sum": 1156
+          },
+          {
+            "a": "daebfc0d1e2f405162738495a6b7c8d9",
+            "b": "becbd8e5f2ff0c192633404d5a677481",
+            "or": "feebfcedfeff4c596673c4ddfef7fcd9",
+            "xor": "642024e8ecd04c484440c4d8fcd0bc58",
+            "hi": "ffffff000000ffffffffffffffffffff",
+            "cnt": "05060603040501030000000000000000",
+            "min": 13,
+            "sum": 940
+          },
+          {
+            "a": "ff102132435465768798a9bacbdcedfe",
+            "b": "05121f2c394653606d7a8794a1aebbc8",
+            "or": "ff123f3e7b567776effaafbeebfefffe",
+            "xor": "fa023e1e7a123616eae22e2e6a725636",
+            "hi": "ff00ffffffffffffffffffffffffffff",
+            "cnt": "08010203030304050000000000000000",
+            "min": 16,
+            "sum": 724
+          },
+          {
+            "a": "2435465768798a9bacbdcedff0011223",
+            "b": "4c596673808d9aa7b4c1cedbe8f5020f",
+            "or": "6c7d6677e8fd9abfbcfdcedff8f5122f",
+            "xor": "686c2024e8f4103c187c000418f4102c",
+            "hi": "0000000000000000000000ffff00ffff",
+            "cnt": "02040305030503050000000000000000",
+            "min": 1,
+            "sum": 764
+          },
+          {
+            "a": "495a6b7c8d9eafc0d1e2f30415263748",
+            "b": "93a0adbac7d4e1eefb0815222f3c4956",
+            "or": "dbfaeffecfdeefeefbeaf7263f3e7f5e",
+            "xor": "dafac6c64a4a4e2e2aeae6263a1a7e1e",
+            "hi": "000000000000000000ffff0000000000",
+            "cnt": "03040505040506020000000000000000",
+            "min": 4,
+            "sum": 1060
+          },
+          {
+            "a": "6e7f90a1b2c3d4e5f60718293a4b5c6d",
+            "b": "dae7f4010e1b2835424f5c697683909d",
+            "or": "fefff4a1bedbfcf5f64f5c697ecbdcfd",
+            "xor": "b49864a0bcd8fcd0b44844404cc8ccf0",
+            "hi": "000000ffffffffffff00000000000000",
+            "cnt": "05070203040404050000000000000000",
+            "min": 7,
+            "sum": 1356
+          },
+          {
+            "a": "93a4b5c6d7e8f90a1b2c3d4e5f708192",
+            "b": "212e3b4855626f7c8996a3b0bdcad7e4",
+            "or": "b3aebfced7eaff7e9bbebffefffad7f6",
+            "xor": "b28a8e8e828a967692ba9efee2ba5676",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "04030504060406020000000000000000",
+            "min": 10,
+            "sum": 1396
+          },
+          {
+            "a": "b8c9daebfc0d1e2f405162738495a6b7",
+            "b": "6875828f9ca9b6c3d0ddeaf704111e2b",
+            "or": "f8fddaeffcadbeefd0ddeaf78495bebf",
+            "xor": "d0bc586460a4a8ec908c88848084b89c",
+            "hi": "ffffffffff00000000000000ffffffff",
+            "cnt": "04040506060304050000000000000000",
+            "min": 13,
+            "sum": 1180
+          },
+          {
+            "a": "ddeeff102132435465768798a9bacbdc",
+            "b": "afbcc9d6e3f0fd0a1724313e4b586572",
+            "or": "fffeffd6e3f2ff5e7776b7beebfaeffe",
+            "xor": "725236c6c2c2be5e7252b6a6e2e2aeae",
+            "hi": "ffffff00000000ffffffffffffffffff",
+            "cnt": "06060801020303030000000000000000",
+            "min": 16,
+            "sum": 964
+          },
+          {
+            "a": "02132435465768798a9bacbdcedff001",
+            "b": "f603101d2a3744515e6b7885929facb9",
+            "or": "f613343d6e776c79defbfcbddedffcb9",
+            "xor": "f41034286c602c28d4f0d4385c405cb8",
+            "hi": "00ffffffffffffffffffffffffffff00",
+            "cnt": "01030204030503050000000000000000",
+            "min": 1,
+            "sum": 492
+          },
+          {
+            "a": "2738495a6b7c8d9eafc0d1e2f3041526",
+            "b": "3d4a5764717e8b98a5b2bfccd9e6f300",
+            "or": "3f7a5f7e7b7e8f9eaff2ffeefbe6f726",
+            "xor": "1a721e3e1a0206060a726e2e2ae2e626",
+            "hi": "000000000000ffffffffffffff0000ff",
+            "cnt": "04030304050504050000000000000000",
+            "min": 4,
+            "sum": 788
+          },
+          {
+            "a": "4c5d6e7f90a1b2c3d4e5f60718293a4b",
+            "b": "84919eabb8c5d2dfecf90613202d3a47",
+            "or": "ccddfeffb8e5f2dffcfdf617382d3a4f",
+            "xor": "c8ccf0d42864601c381cf0143804000c",
+            "hi": "00000000000000000000ff00000000ff",
+            "cnt": "03050507020304040000000000000000",
+            "min": 7,
+            "sum": 1084
+          },
+          {
+            "a": "718293a4b5c6d7e8f90a1b2c3d4e5f70",
+            "b": "cbd8e5f2ff0c192633404d5a6774818e",
+            "or": "fbdaf7f6ffcedfeefb4a5f7e7f7edffe",
+            "xor": "ba5a76564acacececa4a56765a3adefe",
+            "hi": "0000000000ffffffff00000000000000",
+            "cnt": "04020403050406040000000000000000",
+            "min": 10,
+            "sum": 1380
+          },
+          {
+            "a": "96a7b8c9daebfc0d1e2f405162738495",
+            "b": "121f2c394653606d7a8794a1aebbc8d5",
+            "or": "96bfbcf9defbfc6d7eafd4f1eefbccd5",
+            "xor": "84b894f09cb89c6064a8d4f0ccc84c40",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "04050404050606030000000000000000",
+            "min": 13,
+            "sum": 1420
+          },
+          {
+            "a": "bbccddeeff102132435465768798a9ba",
+            "b": "596673808d9aa7b4c1cedbe8f5020f1c",
+            "or": "fbeeffeeff9aa7b6c3defffef79aafbe",
+            "xor": "e2aaae6e728a8686829abe9e729aa6a6",
+            "hi": "ffffffffff0000000000000000ffffff",
+            "cnt": "06040606080102030000000000000000",
+            "min": 16,
+            "sum": 1204
+          },
+          {
+            "a": "e0f102132435465768798a9bacbdcedf",
+            "b": "a0adbac7d4e1eefb0815222f3c495663",
+            "or": "e0fdbad7f4f5eeff687daabfbcfddeff",
+            "xor": "405cb8d4f0d4a8ac606ca8b490f498bc",
+            "hi": "ffff000000000000ffffffffffffffff",
+            "cnt": "03050103020403050000000000000000",
+            "min": 2,
+            "sum": 732
+          },
+          {
+            "a": "05162738495a6b7c8d9eafc0d1e2f304",
+            "b": "e7f4010e1b2835424f5c697683909daa",
+            "or": "e7f6273e5b7a7f7ecfdeeff6d3f2ffae",
+            "xor": "e2e2263652725e3ec2c2c6b652726eae",
+            "hi": "0000ffffffffffffffffffffffffff00",
+            "cnt": "02030403030405050000000000000000",
+            "min": 4,
+            "sum": 516
+          },
+          {
+            "a": "2a3b4c5d6e7f90a1b2c3d4e5f6071829",
+            "b": "2e3b4855626f7c8996a3b0bdcad7e4f1",
+            "or": "2e3b4c5d6e7ffca9b6e3f4fdfed7fcf9",
+            "xor": "040004080c10ec28246064583cd0fcd8",
+            "hi": "0000ffffffffffffffffffffff000000",
+            "cnt": "03050305050702030000000000000000",
+            "min": 7,
+            "sum": 812
+          },
+          {
+            "a": "4f60718293a4b5c6d7e8f90a1b2c3d4e",
+            "b": "75828f9ca9b6c3d0ddeaf704111e2b38",
+            "or": "7fe2ff9ebbb6f7d6dfeaff0e1b3e3f7e",
+            "xor": "3ae2fe1e3a1276160a020e0e0a321676",
+            "hi": "00000000000000000000ffffffffffff",
+            "cnt": "05020402040305040000000000000000",
+            "min": 10,
+            "sum": 1108
+          },
+          {
+            "a": "748596a7b8c9daebfc0d1e2f40516273",
+            "b": "bcc9d6e3f0fd0a1724313e4b5865727f",
+            "or": "fccdd6e7f8fddafffc3d3e6f5875727f",
+            "xor": "c84c40444834d0fcd83c20641834100c",
+            "hi": "000000000000ffffff00000000000000",
+            "cnt": "04030405040405060000000000000000",
+            "min": 13,
+            "sum": 1404
+          },
+          {
+            "a": "99aabbccddeeff102132435465768798",
+            "b": "03101d2a3744515e6b7885929facb9c6",
+            "or": "9bbabfeeffeeff5e6b7ac7d6fffebfde",
+            "xor": "9abaa6e6eaaaae4e4a4ac6c6fada3e5e",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "04040604060608010000000000000000",
+            "min": 16,
+            "sum": 1444
+          },
+          {
+            "a": "becfe0f102132435465768798a9bacbd",
+            "b": "4a5764717e8b98a5b2bfccd9e6f3000d",
+            "or": "fedfe4f17e9bbcb5f6ffecf9eefbacbd",
+            "xor": "f49884807c98bc90f4e8a4a06c68acb0",
+            "hi": "ffffffff00000000000000000000ffff",
+            "cnt": "06060305010302040000000000000000",
+            "min": 2,
+            "sum": 972
+          },
+          {
+            "a": "e3f405162738495a6b7c8d9eafc0d1e2",
+            "b": "919eabb8c5d2dfecf90613202d3a4754",
+            "or": "f3feafbee7fadffefb7e9fbeaffad7f6",
+            "xor": "726aaeaee2ea96b6927a9ebe82fa96b6",
+            "hi": "ffff00000000000000ffffffffffffff",
+            "cnt": "05050203040303040000000000000000",
+            "min": 5,
+            "sum": 756
+          },
+          {
+            "a": "08192a3b4c5d6e7f90a1b2c3d4e5f607",
+            "b": "d8e5f2ff0c192633404d5a6774818e9b",
+            "or": "d8fdfaff4c5d6e7fd0edfae7f4e5fe9f",
+            "xor": "d0fcd8c44044484cd0ece8a4a064789c",
+            "hi": "00000000ffffffffffffffffffffff00",
+            "cnt": "01030305030505070000000000000000",
+            "min": 7,
+            "sum": 540
+          },
+          {
+            "a": "2d3e4f60718293a4b5c6d7e8f90a1b2c",
+            "b": "1f2c394653606d7a8794a1aebbc8d5e2",
+            "or": "3f3e7f6673e2fffeb7d6f7eefbcadfee",
+            "xor": "3212762622e2fede3252764642c2cece",
+            "hi": "ffffffffffffffffffffffffff000000",
+            "cnt": "04050502040204030000000000000000",
+            "min": 10,
+            "sum": 836
+          },
+          {
+            "a": "5263748596a7b8c9daebfc0d1e2f4051",
+            "b": "6673808d9aa7b4c1cedbe8f5020f1c29",
+            "or": "7673f48d9ea7bcc9defbfcfd1e2f5c79",
+            "xor": "3410f4080c000c08143014f81c205c78",
+            "hi": "000000000000ffffffffff00ffffffff",
+            "cnt": "03040403040504040000000000000000",
+            "min": 13,
+            "sum": 1132
+          },
+          {
+            "a": "778899aabbccddeeff10213243546576",
+            "b": "adbac7d4e1eefb0815222f3c49566370",
+            "or": "ffbadffefbeeffeeff322f3e4b566776",
+            "xor": "da325e7e5a2226e6ea320e0e0a020606",
+            "hi": "00000000000000ffff0000000000ffff",
+            "cnt": "06020404060406060000000000000000",
+            "min": 16,
+            "sum": 1428
+          },
+          {
+            "a": "9cadbecfe0f102132435465768798a9b",
+            "b": "f4010e1b2835424f5c697683909daab7",
+            "or": "fcadbedfe8f5425f7c7d76d7f8fdaabf",
+            "xor": "68acb0d4c8c4405c785c30d4f8e4202c",
+            "hi": "00ffffffffff00000000000000000000",
+            "cnt": "04050606030501030000000000000000",
+            "min": 2,
+            "sum": 1212
+          },
+          {
+            "a": "c1d2e3f405162738495a6b7c8d9eafc0",
+            "b": "3b4855626f7c8996a3b0bdcad7e4f1fe",
+            "or": "fbdaf7f66f7eafbeebfafffedffefffe",
+            "xor": "fa9ab6966a6aaeaeeaead6b65a7a5e3e",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "03040505020304030000000000000000",
+            "min": 5,
+            "sum": 996
+          },
+          {
+            "a": "e6f708192a3b4c5d6e7f90a1b2c3d4e5",
+            "b": "828f9ca9b6c3d0ddeaf704111e2b3845",
+            "or": "e6ff9cb9befbdcddeeff94b1beebfce5",
+            "xor": "647894b09cf89c80848894b0ace8eca0",
+            "hi": "ffff0000000000000000ffffffffffff",
+            "cnt": "05070103030503050000000000000000",
+            "min": 8,
+            "sum": 780
+          },
+          {
+            "a": "0b1c2d3e4f60718293a4b5c6d7e8f90a",
+            "b": "c9d6e3f0fd0a1724313e4b5865727f8c",
+            "or": "cbdeeffeff6a77a6b3beffdef7faff8e",
+            "xor": "c2caceceb26a66a6a29afe9eb29a8686",
+            "hi": "0000000000ffffffffffffffffffff00",
+            "cnt": "03030405050204020000000000000000",
+            "min": 10,
+            "sum": 564
+          },
+          {
+            "a": "30415263748596a7b8c9daebfc0d1e2f",
+            "b": "101d2a3744515e6b7885929facb9c6d3",
+            "or": "305d7a7774d5deeff8cddafffcbddeff",
+            "xor": "205c785430d4c8ccc04c487450b4d8fc",
+            "hi": "ffffffffffffffffffffffffff000000",
+            "cnt": "02020304040304050000000000000000",
+            "min": 13,
+            "sum": 860
+          },
+          {
+            "a": "5566778899aabbccddeeff1021324354",
+            "b": "5764717e8b98a5b2bfccd9e6f3000d1a",
+            "or": "576677fe9bbabffeffeefff6f3324f5e",
+            "xor": "020206f612321e7e622226f6d2324e4e",
+            "hi": "00ffffffffffffffffffff0000ffffff",
+            "cnt": "04040602040406040000000000000000",
+            "min": 16,
+            "sum": 1156
+          },
+          {
+            "a": "7a8b9cadbecfe0f10213243546576879",
+            "b": "9eabb8c5d2dfecf90613202d3a475461",
+            "or": "feabbcedfedfecf90613243d7e577c79",
+            "xor": "e42024686c100c08040004187c103c18",
+            "hi": "00000000000000000000ffffffffffff",
+            "cnt": "05040405060603050000000000000000",
+            "min": 2,
+            "sum": 1452
+          },
+          {
+            "a": "9fb0c1d2e3f405162738495a6b7c8d9e",
+            "b": "e5f2ff0c192633404d5a6774818e9ba8",
+            "or": "fff2ffdefbf637566f7a6f7eebfe9fbe",
+            "xor": "7a423edefad236566a622e2eeaf21636",
+            "hi": "000000ffffff00000000000000000000",
+            "cnt": "06030304050502030000000000000000",
+            "min": 5,
+            "sum": 1236
+          },
+          {
+            "a": "c4d5e6f708192a3b4c5d6e7f90a1b2c3",
+            "b": "2c394653606d7a8794a1aebbc8d5e2ef",
+            "or": "ecfde6f7687d7abfdcfdeeffd8f5f2ef",
+            "xor": "e8eca0a4687450bcd8fcc0c45874502c",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "03050507010303050000000000000000",
+            "min": 8,
+            "sum": 1020
+          },
+          {
+            "a": "e9fa0b1c2d3e4f60718293a4b5c6d7e8",
+            "b": "73808d9aa7b4c1cedbe8f5020f1c2936",
+            "or": "fbfa8f9eafbecfeefbeaf7a6bfdefffe",
+            "xor": "9a7a86868a8a8eaeaa6a66a6badafede",
+            "hi": "ffff000000000000000000ffffffffff",
+            "cnt": "05060303040505020000000000000000",
+            "min": 11,
+            "sum": 804
+          },
+          {
+            "a": "0e1f30415263748596a7b8c9daebfc0d",
+            "b": "bac7d4e1eefb0815222f3c495663707d",
+            "or": "bedff4e1fefb7c95b6afbcc9deebfc7d",
+            "xor": "b4d8e4a0bc987c90b48884808c888c70",
+            "hi": "000000000000ffffffffffffffffff00",
+            "cnt": "03050202030404030000000000000000",
+            "min": 13,
+            "sum": 588
+          },
+          {
+            "a": "33445566778899aabbccddeeff102132",
+            "b": "010e1b2835424f5c697683909daab7c4",
+            "or": "334e5f6e77cadffefbfedffeffbab7f6",
+            "xor": "324a4e4e42cad6f6d2ba5e7e62ba96f6",
+            "hi": "ffffffffffffffffffffffffff000000",
+            "cnt": "04020404060204040000000000000000",
+            "min": 16,
+            "sum": 884
+          },
+          {
+            "a": "58697a8b9cadbecfe0f1021324354657",
+            "b": "4855626f7c8996a3b0bdcad7e4f1fe0b",
+            "or": "587d7aeffcadbeeff0fdcad7e4f5fe5f",
+            "xor": "103c18e4e024286c504cc8c4c0c4b85c",
+            "hi": "ffffffffffffffffffff0000000000ff",
+            "cnt": "03040504040506060000000000000000",
+            "min": 2,
+            "sum": 1180
+          },
+          {
+            "a": "7d8e9fb0c1d2e3f405162738495a6b7c",
+            "b": "8f9ca9b6c3d0ddeaf704111e2b384552",
+            "or": "ff9ebfb6c3d2fffef716373e6b7a6f7e",
+            "xor": "f212360602023e1ef212362662622e2e",
+            "hi": "0000000000ffffff00ffffffffffffff",
+            "cnt": "06040603030405050000000000000000",
+            "min": 5,
+            "sum": 1476
+          },
+          {
+            "a": "a2b3c4d5e6f708192a3b4c5d6e7f90a1",
+            "b": "d6e3f0fd0a1724313e4b5865727f8c99",
+            "or": "f6f3f4fdeef72c393e7b5c7d7e7f9cb9",
+            "xor": "74503428ece02c28147014381c001c38",
+            "hi": "00000000ffff0000000000000000ffff",
+            "cnt": "03050305050701030000000000000000",
+            "min": 8,
+            "sum": 1260
+          },
+          {
+            "a": "c7d8e9fa0b1c2d3e4f60718293a4b5c6",
+            "b": "1d2a3744515e6b7885929facb9c6d3e0",
+            "or": "dffafffe5b5e6f7ecff2ffaebbe6f7e6",
+            "xor": "daf2debe5a424646caf2ee2e2a626626",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "05040506030304050000000000000000",
+            "min": 11,
+            "sum": 1044
+          },
+          {
+            "a": "ecfd0e1f30415263748596a7b8c9daeb",
+            "b": "64717e8b98a5b2bfccd9e6f3000d1a27",
+            "or": "ecfd7e9fb8e5f2fffcddf6f7b8cddaef",
+            "xor": "888c7094a8e4e0dcb85c7054b8c4c0cc",
+            "hi": "ffff00000000000000000000ffffffff",
+            "cnt": "05070305020203040000000000000000",
+            "min": 14,
+            "sum": 828
+          },
+          {
+            "a": "112233445566778899aabbccddeeff10",
+            "b": "abb8c5d2dfecf90613202d3a4754616e",
+            "or": "bbbaf7d6dfeeff8e9baabffedffeff7e",
+            "xor": "ba9af6968a8a8e8e8a8a96f69aba9e7e",
+            "hi": "00000000000000ffffffffffffffff00",
+            "cnt": "02020402040406020000000000000000",
+            "min": 16,
+            "sum": 612
+          },
+          {
+            "a": "364758697a8b9cadbecfe0f102132435",
+            "b": "f2ff0c192633404d5a6774818e9ba8b5",
+            "or": "f6ff5c797ebbdcedfeeff4f18e9bacb5",
+            "xor": "c4b854705cb8dce0e4a894708c888c80",
+            "hi": "0000ffffffffffffffffffff00000000",
+            "cnt": "04040304050404050000000000000000",
+            "min": 2,
+            "sum": 908
+          },
+          {
+            "a": "5b6c7d8e9fb0c1d2e3f405162738495a",
+            "b": "394653606d7a8794a1aebbc8d5e2effc",
+            "or": "7b6e7feefffac7d6e3febfdef7faeffe",
+            "xor": "622a2eeef2ca4646425abedef2daa6a6",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "05040604060303040000000000000000",
+            "min": 5,
+            "sum": 1204
+          },
+          {
+            "a": "8091a2b3c4d5e6f708192a3b4c5d6e7f",
+            "b": "808d9aa7b4c1cedbe8f5020f1c293643",
+            "or": "809dbab7f4d5eeffe8fd2a3f5c7d7e7f",
+            "xor": "001c38147014282ce0ec28345074583c",
+            "hi": "00ffffffffffffff0000ffffffffffff",
+            "cnt": "01030305030505070000000000000000",
+            "min": 8,
+            "sum": 1500
+          },
+          {
+            "a": "a5b6c7d8e9fa0b1c2d3e4f60718293a4",
+            "b": "c7d4e1eefb0815222f3c495663707d8a",
+            "or": "e7f6e7fefbfa1f3e2f3e4f7673f2ffae",
+            "xor": "6262263612f21e3e0202063612f2ee2e",
+            "hi": "0000000000ff000000ffffffffffffff",
+            "cnt": "04050504050603030000000000000000",
+            "min": 11,
+            "sum": 1284
+          },
+          {
+            "a": "cadbecfd0e1f30415263748596a7b8c9",
+            "b": "0e1b2835424f5c697683909daab7c4d1",
+            "or": "cedbecfd4e5f7c6976e3f49dbeb7fcd9",
+            "xor": "c4c0c4c84c506c2824e0e4183c107c18",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "04060507030502020000000000000000",
+            "min": 14,
+            "sum": 1068
+          },
+          {
+            "a": "ef00112233445566778899aabbccddee",
+            "b": "55626f7c8996a3b0bdcad7e4f1fe0b18",
+            "or": "ff627f7ebbd6f7f6ffcadfeefbfedffe",
+            "xor": "ba627e5ebad2f6d6ca424e4e4a32d6f6",
+            "hi": "ff00000000000000000000000000ffff",
+            "cnt": "07000202040204040000000000000000",
+            "min": 0,
+            "sum": 596
+          },
+          {
+            "a": "1425364758697a8b9cadbecfe0f10213",
+            "b": "9ca9b6c3d0ddeaf704111e2b3845525f",
+            "or": "9cadb6c7d8fdfaff9cbdbeeff8f5525f",
+            "xor": "888c808488b4907c98bca0e4d8b4504c",
+            "hi": "0000000000000000ffffffffffff0000",
+            "cnt": "02030404030405040000000000000000",
+            "min": 2,
+            "sum": 636
+          },
+          {
+            "a": "394a5b6c7d8e9fb0c1d2e3f405162738",
+            "b": "e3f0fd0a1724313e4b5865727f8c99a6",
+            "or": "fbfaff6e7faebfbecbdae7f67f9ebfbe",
+            "xor": "dabaa6666aaaae8e8a8a86867a9abe9e",
+            "hi": "000000ffffffffffffffffff00000000",
+            "cnt": "04030504060406030000000000000000",
+            "min": 5,
+            "sum": 932
+          },
+          {
+            "a": "5e6f8091a2b3c4d5e6f708192a3b4c5d",
+            "b": "2a3744515e6b7885929facb9c6d3e0ed",
+            "or": "7e7fc4d1fefbfcd5f6ffacb9eefbecfd",
+            "xor": "7458c4c0fcd8bc507468a4a0ece8acb0",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "05060103030503050000000000000000",
+            "min": 8,
+            "sum": 1228
+          },
+          {
+            "a": "8394a5b6c7d8e9fa0b1c2d3e4f607182",
+            "b": "717e8b98a5b2bfccd9e6f3000d1a2734",
+            "or": "f3feafbee7fafffedbfeff3e4f7a77b6",
+            "xor": "f2ea2e2e626a5636d2fade3e427a56b6",
+            "hi": "ffffffffffffffff000000ffffffffff",
+            "cnt": "03030405050405060000000000000000",
+            "min": 11,
+            "sum": 1524
+          },
+          {
+            "a": "a8b9cadbecfd0e1f30415263748596a7",
+            "b": "b8c5d2dfecf90613202d3a4754616e7b",
+            "or": "b8fddadfecfd0e1f306d7a6774e5feff",
+            "xor": "107c18040004080c106c682420e4f8dc",
+            "hi": "0000000000ffffffffffffffffffffff",
+            "cnt": "03050406050703050000000000000000",
+            "min": 14,
+            "sum": 1308
+          },
+          {
+            "a": "cddeef00112233445566778899aabbcc",
+            "b": "ff0c192633404d5a6774818e9ba8b5c2",
+            "or": "ffdeff2633627f5e7776f78e9baabfce",
+            "xor": "32d2f62622627e1e3212f60602020e0e",
+            "hi": "00ffff00000000000000000000ffffff",
+            "cnt": "05060700020204020000000000000000",
+            "min": 0,
+            "sum": 836
+          },
+          {
+            "a": "f2031425364758697a8b9cadbecfe0f1",
+            "b": "4653606d7a8794a1aebbc8d5e2effc09",
+            "or": "f653746d7ec7dce9febbdcfdfeeffcf9",
+            "xor": "b45074484cc0ccc8d43054785c201cf8",
+            "hi": "ff0000000000000000000000000000ff",
+            "cnt": "05020203040403040000000000000000",
+            "min": 3,
+            "sum": 620
+          },
+          {
+            "a": "1728394a5b6c7d8e9fb0c1d2e3f40516",
+            "b": "8d9aa7b4c1cedbe8f5020f1c29364350",
+            "or": "9fbabffedbeeffeeffb2cfdeebf64756",
+            "xor": "9ab29efe9aa2a6666ab2cececac24646",
+            "hi": "000000000000000000ffffffffff0000",
+            "cnt": "04020403050406040000000000000000",
+            "min": 5,
+            "sum": 660
+          },
+          {
+            "a": "3c4d5e6f8091a2b3c4d5e6f708192a3b",
+            "b": "d4e1eefb0815222f3c495663707d8a97",
+            "or": "fcedfeff8895a2bffcddf6f7787daabf",
+            "xor": "e8acb0948884809cf89cb0947864a0ac",
+            "hi": "00000000ffffffffffffffff00000000",
+            "cnt": "04040506010303050000000000000000",
+            "min": 8,
+            "sum": 956
+          },
+          {
+            "a": "61728394a5b6c7d8e9fa0b1c2d3e4f60",
+            "b": "1b2835424f5c697683909daab7c4d1de",
+            "or": "7b7ab7d6effeeffeebfa9fbebffedffe",
+            "xor": "7a5ab6d6eaeaaeae6a6a96b69afa9ebe",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "03040303040505040000000000000000",
+            "min": 11,
+            "sum": 1252
+          },
+          {
+            "a": "8697a8b9cadbecfd0e1f304152637485",
+            "b": "626f7c8996a3b0bdcad7e4f1fe0b1825",
+            "or": "e6fffcb9defbfcfdcedff4f1fe6b7ca5",
+            "xor": "e4f8d4305c785c40c4c8d4b0ac686ca0",
+            "hi": "ffffffffffffffff0000000000ffffff",
+            "cnt": "03050305040605070000000000000000",
+            "min": 14,
+            "sum": 1548
+          },
+          {
+            "a": "abbccddeef00112233445566778899aa",
+            "b": "a9b6c3d0ddeaf704111e2b3845525f6c",
+            "or": "abbecfdeffeaf726335e7f7e77dadfee",
+            "xor": "020a0e0e32eae626225a7e5e32dac6c6",
+            "hi": "ffffffffff0000ffffffffffffffffff",
+            "cnt": "05050506070002020000000000000000",
+            "min": 0,
+            "sum": 1076
+          },
+          {
+            "a": "d0e1f2031425364758697a8b9cadbecf",
+            "b": "f0fd0a1724313e4b5865727f8c99a6b3",
+            "or": "f0fdfa1734353e4f586d7aff9cbdbeff",
+            "xor": "201cf8143014080c000c08f41034187c",
+            "hi": "0000ff000000000000ffffffffffffff",
+            "cnt": "03040502020304040000000000000000",
+            "min": 3,
+            "sum": 860
+          },
+          {
+            "a": "f5061728394a5b6c7d8e9fb0c1d2e3f4",
+            "b": "3744515e6b7885929facb9c6d3e0edfa",
+            "or": "f746577e7b7adffeffaebff6d3f2effe",
+            "xor": "c24246765232defee222267612320e0e",
+            "hi": "ff000000000000000000000000000000",
+            "cnt": "06020402040305040000000000000000",
+            "min": 6,
+            "sum": 644
+          },
+          {
+            "a": "1a2b3c4d5e6f8091a2b3c4d5e6f70819",
+            "b": "7e8b98a5b2bfccd9e6f3000d1a273441",
+            "or": "7eabbcedfeffccd9e6f3c4ddfef73c59",
+            "xor": "64a0a4e8ecd04c484440c4d8fcd03c58",
+            "hi": "00000000000000000000ffffffff0000",
+            "cnt": "03040404050601030000000000000000",
+            "min": 8,
+            "sum": 684
+          },
+          {
+            "a": "3f5061728394a5b6c7d8e9fa0b1c2d3e",
+            "b": "c5d2dfecf90613202d3a4754616e7b88",
+            "or": "ffd2fffefb96b7b6effaeffe6b7e7fbe",
+            "xor": "fa82be9e7a92b696eae2aeae6a7256b6",
+            "hi": "0000000000ffffffffffffff00000000",
+            "cnt": "06020304030304050000000000000000",
+            "min": 11,
+            "sum": 980
+          },
+          {
+            "a": "64758697a8b9cadbecfd0e1f30415263",
+            "b": "0c192633404d5a6774818e9ba8b5c2cf",
+            "or": "6c7da6b7e8fddafffcfd8e9fb8f5d2ef",
+            "xor": "686ca0a4e8f490bc987c808498f490ac",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "03050305030504060000000000000000",
+            "min": 14,
+            "sum": 1276
+          },
+          {
+            "a": "899aabbccddeef001122334455667788",
+            "b": "53606d7a8794a1aebbc8d5e2effc0916",
+            "or": "dbfaeffecfdeefaebbeaf7e6fffe7f9e",
+            "xor": "dafac6c64a4a4eaeaaeae6a6ba9a7e9e",
+            "hi": "ffffffffffffff00000000000000ffff",
+            "cnt": "03040505050607000000000000000000",
+            "min": 0,
+            "sum": 1316
+          },
+          {
+            "a": "aebfd0e1f2031425364758697a8b9cad",
+            "b": "9aa7b4c1cedbe8f5020f1c293643505d",
+            "or": "bebff4e1fedbfcf5364f5c697ecbdcfd",
+            "xor": "341864203cd8fcd0344844404cc8ccf0",
+            "hi": "ffffffffff000000ffffffffffffffff",
+            "cnt": "05070304050202030000000000000000",
+            "min": 3,
+            "sum": 1100
+          },
+          {
+            "a": "d3e4f5061728394a5b6c7d8e9fb0c1d2",
+            "b": "e1eefb0815222f3c495663707d8a97a4",
+            "or": "f3eeff0e172a3f7e5b7e7ffeffbad7f6",
+            "xor": "320a0e0e020a1676123a1efee23a5676",
+            "hi": "00000000ffffffffffffffffffffffff",
+            "cnt": "05040602040204030000000000000000",
+            "min": 6,
+            "sum": 884
+          },
+          {
+            "a": "f8091a2b3c4d5e6f8091a2b3c4d5e6f7",
+            "b": "2835424f5c697683909daab7c4d1deeb",
+            "or": "f83d5a6f7c6d7eef909daab7c4d5feff",
+            "xor": "d03c5864602428ec100c08040004381c",
+            "hi": "ff000000000000000000000000ffffff",
+            "cnt": "05020304040405060000000000000000",
+            "min": 9,
+            "sum": 668
+          },
+          {
+            "a": "1d2e3f5061728394a5b6c7d8e9fa0b1c",
+            "b": "6f7c8996a3b0bdcad7e4f1fe0b182532",
+            "or": "7f7ebfd6e3f2bfdef7f6f7feebfa2f3e",
+            "xor": "7252b6c6c2c23e5e72523626e2e22e2e",
+            "hi": "000000000000000000000000ffff0000",
+            "cnt": "04040602030403030000000000000000",
+            "min": 11,
+            "sum": 708
+          },
+          {
+            "a": "425364758697a8b9cadbecfd0e1f3041",
+            "b": "b6c3d0ddeaf704111e2b3845525f6c79",
+            "or": "f6d3f4fdeef7acb9defbfcfd5e5f7c79",
+            "xor": "f490b4a86c60aca8d4f0d4b85c405c38",
+            "hi": "000000000000ffffffffffff00000000",
+            "cnt": "02040305030503050000000000000000",
+            "min": 14,
+            "sum": 1004
+          },
+          {
+            "a": "6778899aabbccddeef00112233445566",
+            "b": "fd0a1724313e4b5865727f8c99a6b3c0",
+            "or": "ff7a9fbebbbecfdeef727faebbe6f7e6",
+            "xor": "9a729ebe9a8286868a726eaeaae2e6a6",
+            "hi": "00ffffffffffffffff00000000000000",
+            "cnt": "05040304050505060000000000000000",
+            "min": 0,
+            "sum": 1300
+          },
+          {
+            "a": "8c9daebfd0e1f2031425364758697a8b",
+            "b": "44515e6b7885929facb9c6d3e0edfa07",
+            "or": "ccddfefff8e5f29fbcbdf6d7f8edfa8f",
+            "xor": "c8ccf0d4a864609cb89cf094b884808c",
+            "hi": "ffffffffffffff0000000000000000ff",
+            "cnt": "03050507030405020000000000000000",
+            "min": 3,
+            "sum": 1340
+          },
+          {
+            "a": "b1c2d3e4f5061728394a5b6c7d8e9fb0",
+            "b": "8b98a5b2bfccd9e6f3000d1a2734414e",
+            "or": "bbdaf7f6ffcedfeefb4a5f7e7fbedffe",
+            "xor": "3a5a76564acacececa4a56765abadefe",
+            "hi": "ffffffffff00000000ffffffffffffff",
+            "cnt": "04030504060204020000000000000000",
+            "min": 6,
+            "sum": 1124
+          },
+          {
+            "a": "d6e7f8091a2b3c4d5e6f8091a2b3c4d5",
+            "b": "d2dfecf90613202d3a4754616e7b8895",
+            "or": "d6fffcf91e3b3c6d7e6fd4f1eefbccd5",
+            "xor": "043814f01c381c606428d4f0ccc84c40",
+            "hi": "ffffff00ffffffffffffffffffffffff",
+            "cnt": "05060502030404040000000000000000",
+            "min": 9,
+            "sum": 908
+          },
+          {
+            "a": "fb0c1d2e3f5061728394a5b6c7d8e9fa",
+            "b": "192633404d5a6774818e9ba8b5c2cfdc",
+            "or": "fb2e3f6e7f5a6776839ebfbef7daeffe",
+            "xor": "e22a2e6e720a0606021a3e1e721a2626",
+            "hi": "ff00000000000000ffffffffffffffff",
+            "cnt": "07020404060203040000000000000000",
+            "min": 12,
+            "sum": 692
+          },
+          {
+            "a": "2031425364758697a8b9cadbecfd0e1f",
+            "b": "606d7a8794a1aebbc8d5e2effc091623",
+            "or": "607d7ad7f4f5aebfe8fdeafffcfd1e3f",
+            "xor": "405c38d4f0d4282c606c283410f4183c",
+            "hi": "00000000000000000000000000ff0000",
+            "cnt": "01030204030503050000000000000000",
+            "min": 14,
+            "sum": 732
+          },
+          {
+            "a": "45566778899aabbccddeef0011223344",
+            "b": "a7b4c1cedbe8f5020f1c293643505d6a",
+            "or": "e7f6e7fedbfaffbecfdeef3653727f6e",
+            "xor": "e2e2a6b652725ebec2c2c63652726e2e",
+            "hi": "00000000000000ffffffff0000000000",
+            "cnt": "03040504030405050000000000000000",
+            "min": 0,
+            "sum": 1028
+          },
+          {
+            "a": "6a7b8c9daebfd0e1f203142536475869",
+            "b": "eefb0815222f3c495663707d8a97a4b1",
+            "or": "eefb8c9daebffce9f663747dbed7fcf9",
+            "xor": "848084888c90eca8a4606458bcd0fcd8",
+            "hi": "0000ffffffffffffff00000000000000",
+            "cnt": "04060305050703040000000000000000",
+            "min": 3,
+            "sum": 1324
+          },
+          {
+            "a": "8fa0b1c2d3e4f5061728394a5b6c7d8e",
+            "b": "35424f5c697683909daab7c4d1deebf8",
+            "or": "bfe2ffdefbf6f7969faabfcedbfefffe",
+            "xor": "bae2fe9eba9276968a828e8e8ab29676",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "05020403050406020000000000000000",
+            "min": 6,
+            "sum": 1364
+          },
+          {
+            "a": "b4c5d6e7f8091a2b3c4d5e6f8091a2b3",
+            "b": "7c8996a3b0bdcad7e4f1fe0b1825323f",
+            "or": "fccdd6e7f8bddafffcfdfe6f98b5b2bf",
+            "xor": "c84c404448b4d0fcd8bca06498b4908c",
+            "hi": "ffffffffff000000000000ffffffffff",
+            "cnt": "04040506050203040000000000000000",
+            "min": 9,
+            "sum": 1148
+          },
+          {
+            "a": "d9eafb0c1d2e3f5061728394a5b6c7d8",
+            "b": "c3d0ddeaf704111e2b3845525f6c7986",
+            "or": "dbfaffeeff2e3f5e6b7ac7d6fffeffde",
+            "xor": "1a3a26e6ea2a2e4e4a4ac6c6fadabe5e",
+            "hi": "ffffff0000ffffffffffffffffffffff",
+            "cnt": "05050702040406020000000000000000",
+            "min": 12,
+            "sum": 932
+          },
+          {
+            "a": "fe0f2031425364758697a8b9cadbecfd",
+            "b": "0a1724313e4b5865727f8c99a6b3c0cd",
+            "or": "fe1f24317e5b7c75f6ffacb9eefbecfd",
+            "xor": "f41804007c183c10f4e824206c682c30",
+            "hi": "ff000000ffffffffffffffffffffffff",
+            "cnt": "07040103020403050000000000000000",
+            "min": 15,
+            "sum": 716
+          },
+          {
+            "a": "233445566778899aabbccddeef001122",
+            "b": "515e6b7885929facb9c6d3e0edfa0714",
+            "or": "737e6f7ee7fa9fbebbfedffeeffa1736",
+            "xor": "726a2e2ee2ea1636127a1e3e02fa1636",
+            "hi": "000000000000000000000000ff00ffff",
+            "cnt": "03030304050403040000000000000000",
+            "min": 0,
+            "sum": 756
+          },
+          {
+            "a": "48596a7b8c9daebfd0e1f20314253647",
+            "b": "98a5b2bfccd9e6f3000d1a2734414e5b",
+            "or": "d8fdfaffccddeeffd0edfa2734657e5f",
+            "xor": "d0fcd8c44044484cd0ece8242064781c",
+            "hi": "0000000000000000ffffff0000000000",
+            "cnt": "02040406030505070000000000000000",
+            "min": 3,
+            "sum": 1052
+          },
+          {
+            "a": "6d7e8fa0b1c2d3e4f5061728394a5b6c",
+            "b": "dfecf90613202d3a4754616e7b8895a2",
+            "or": "fffeffa6b3e2fffef756776e7bcadfee",
+            "xor": "b29276a6a2e2fedeb252764642c2cece",
+            "hi": "000000ffffffffffff00000000000000",
+            "cnt": "05060502040305040000000000000000",
+            "min": 6,
+            "sum": 1348
+          },
+          {
+            "a": "92a3b4c5d6e7f8091a2b3c4d5e6f8091",
+            "b": "2633404d5a6774818e9ba8b5c2cfdce9",
+            "or": "b6b3f4cddee7fc899ebbbcfddeefdcf9",
+            "xor": "b490f4888c808c8894b094f89ca05c78",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "03040404050605020000000000000000",
+            "min": 9,
+            "sum": 1388
+          },
+          {
+            "a": "b7c8d9eafb0c1d2e3f5061728394a5b6",
+            "b": "6d7a8794a1aebbc8d5e2effc09162330",
+            "or": "fffadffefbaebfeefff2effe8b96a7b6",
+            "xor": "dab25e7e5aa2a6e6eab28e8e8a828686",
+            "hi": "ffffffffff00000000000000ffffffff",
+            "cnt": "06030505070204040000000000000000",
+            "min": 12,
+            "sum": 1172
+          },
+          {
+            "a": "dcedfe0f2031425364758697a8b9cadb",
+            "b": "b4c1cedbe8f5020f1c293643505d6a77",
+            "or": "fcedfedfe8f5425f7c7db6d7f8fdeaff",
+            "xor": "682c30d4c8c4405c785cb0d4f8e4a0ac",
+            "hi": "ffffff000000ffffffffffffffffffff",
+            "cnt": "05060704010302040000000000000000",
+            "min": 15,
+            "sum": 956
+          },
+          {
+            "a": "0112233445566778899aabbccddeef00",
+            "b": "fb0815222f3c495663707d8a97a4b1be",
+            "or": "fb1a37366f7e6f7eebfaffbedffeffbe",
+            "xor": "fa1a36166a6a2e2eeaead6365a7a5ebe",
+            "hi": "00ffffffffffffffffffffffffffff00",
+            "cnt": "01020303030405040000000000000000",
+            "min": 0,
+            "sum": 484
+          },
+          {
+            "a": "263748596a7b8c9daebfd0e1f2031425",
+            "b": "424f5c697683909daab7c4d1deebf805",
+            "or": "667f5c797efb9c9daebfd4f1feebfc25",
+            "xor": "647814301cf81c00040814302ce8ec20",
+            "hi": "0000000000000000ffffffffff0000ff",
+            "cnt": "03050204040603050000000000000000",
+            "min": 3,
+            "sum": 780
+          },
+          {
+            "a": "4b5c6d7e8fa0b1c2d3e4f5061728394a",
+            "b": "8996a3b0bdcad7e4f1fe0b1825323f4c",
+            "or": "cbdeeffebfeaf7e6f3feff1e373a3f4e",
+            "xor": "c2cacece326a6626221afe1e321a0606",
+            "hi": "00000000000000000000ff0000000000",
+            "cnt": "04040506050204030000000000000000",
+            "min": 6,
+            "sum": 1076
+          },
+          {
+            "a": "708192a3b4c5d6e7f8091a2b3c4d5e6f",
+            "b": "d0ddeaf704111e2b3845525f6c798693",
+            "or": "f0ddfaf7b4d5deeff84d5a7f7c7ddeff",
+            "xor": "a05c7854b0d4c8ccc04c48745034d8fc",
+            "hi": "00000000ffffffffff00000000000000",
+            "cnt": "03020304040405060000000000000000",
+            "min": 9,
+            "sum": 1372
+          },
+          {
+            "a": "95a6b7c8d9eafb0c1d2e3f5061728394",
+            "b": "1724313e4b5865727f8c99a6b3c0cdda",
+            "or": "97a6b7fedbfaff7e7faebff6f3f2cfde",
+            "xor": "828286f692b29e7e62a2a6f6d2b24e4e",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "04040603050507020000000000000000",
+            "min": 12,
+            "sum": 1412
+          },
+          {
+            "a": "bacbdcedfe0f2031425364758697a8b9",
+            "b": "5e6b7885929facb9c6d3e0edfa071421",
+            "or": "feebfcedfe9facb9c6d3e4fdfe97bcb9",
+            "xor": "e4a0a4686c908c88848084987c90bc98",
+            "hi": "ffffffffff0000000000000000ffffff",
+            "cnt": "05050506070401030000000000000000",
+            "min": 15,
+            "sum": 1196
+          },
+          {
+            "a": "dff00112233445566778899aabbccdde",
+            "b": "a5b2bfccd9e6f3000d1a2734414e5b68",
+            "or": "fff2bfdefbf6f7566f7aafbeebfedffe",
+            "xor": "7a42bedefad2b6566a62aeaeeaf296b6",
+            "hi": "ffff0000000000ffffffffffffffffff",
+            "cnt": "07040102030303040000000000000000",
+            "min": 1,
+            "sum": 724
+          },
+          {
+            "a": "0415263748596a7b8c9daebfd0e1f203",
+            "b": "ecf90613202d3a4754616e7b8895a2af",
+            "or": "ecfd2637687d7a7fdcfdeeffd8f5f2af",
+            "xor": "e8ec20246874503cd8fcc0c4587450ac",
+            "hi": "0000ffffffffffffffffffffffffff00",
+            "cnt": "01030305020404060000000000000000",
+            "min": 3,
+            "sum": 508
+          },
+          {
+            "a": "293a4b5c6d7e8fa0b1c2d3e4f5061728",
+            "b": "33404d5a6774818e9ba8b5c2cfdce9f6",
+            "or": "3b7a4f5e6f7e8faebbeaf7e6ffdefffe",
+            "xor": "1a7a06060a0a0e2e2a6a66263adafede",
+            "hi": "000000ffffffffffffffffffff000000",
+            "cnt": "03040404050605020000000000000000",
+            "min": 6,
+            "sum": 804
+          },
+          {
+            "a": "4e5f708192a3b4c5d6e7f8091a2b3c4d",
+            "b": "7a8794a1aebbc8d5e2effc091623303d",
+            "or": "7edff4a1bebbfcd5f6effc091e2b3c7d",
+            "xor": "34d8e4203c187c10340804000c080c70",
+            "hi": "000000000000000000000000ffffffff",
+            "cnt": "04060302030404040000000000000000",
+            "min": 9,
+            "sum": 1100
+          },
+          {
+            "a": "738495a6b7c8d9eafb0c1d2e3f506172",
+            "b": "c1cedbe8f5020f1c293643505d6a7784",
+            "or": "f3cedfeef7cadffefb3e5f7e7f7a77f6",
+            "xor": "b24a4e4e42cad6f6d23a5e7e623a16f6",
+            "hi": "0000000000ffffffff00000000000000",
+            "cnt": "05020404060305050000000000000000",
+            "min": 12,
+            "sum": 1396
+          },
+          {
+            "a": "98a9bacbdcedfe0f2031425364758697",
+            "b": "0815222f3c495663707d8a97a4b1becb",
+            "or": "98bdbaeffcedfe6f707dcad7e4f5bedf",
+            "xor": "90bc98e4e0a4a86c504cc8c4c0c4385c",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "03040505050607040000000000000000",
+            "min": 15,
+            "sum": 1436
+          },
+          {
+            "a": "bdcedff00112233445566778899aabbc",
+            "b": "4f5c697683909daab7c4d1deebf80512",
+            "or": "ffdefff68392bfbef7d6f7feebfaafbe",
+            "xor": "f292b6868282be9ef292b6a66262aeae",
+            "hi": "ffffffff00000000000000000000ffff",
+            "cnt": "06050704010203030000000000000000",
+            "min": 1,
+            "sum": 964
+          },
+          {
+            "a": "e2f30415263748596a7b8c9daebfd0e1",
+            "b": "96a3b0bdcad7e4f1fe0b1825323f4c59",
+            "or": "f6f3b4bdeef7ecf9fe7b9cbdbebfdcf9",
+            "xor": "7450b4a8ece0aca8947094b89c809cb8",
+            "hi": "ffff00000000000000ffffffffffffff",
+            "cnt": "04060103030502040000000000000000",
+            "min": 4,
+            "sum": 748
+          },
+          {
+            "a": "0718293a4b5c6d7e8fa0b1c2d3e4f506",
+            "b": "ddeaf704111e2b3845525f6c798693a0",
+            "or": "dffaff3e5b5e6f7ecff2ffeefbe6f7a6",
+            "xor": "daf2de3e5a424646caf2eeaeaa6266a6",
+            "hi": "000000ffffffffffffffffffffffff00",
+            "cnt": "03020304040405060000000000000000",
+            "min": 6,
+            "sum": 532
+          },
+          {
+            "a": "2c3d4e5f708192a3b4c5d6e7f8091a2b",
+            "b": "24313e4b5865727f8c99a6b3c0cddae7",
+            "or": "2c3d7e5f78e5f2ffbcddf6f7f8cddaef",
+            "xor": "080c701428e4e0dc385c705438c4c0cc",
+            "hi": "ffffffffffffffffffffffffff000000",
+            "cnt": "03050406030203040000000000000000",
+            "min": 9,
+            "sum": 828
+          },
+          {
+            "a": "5162738495a6b7c8d9eafb0c1d2e3f50",
+            "b": "6b7885929facb9c6d3e0edfa0714212e",
+            "or": "7b7af7969faebfcedbeafffe1f3e3f7e",
+            "xor": "3a1af6160a0a0e0e0a0a16f61a3a1e7e",
+            "hi": "00000000000000ffffffff00ffffffff",
+            "cnt": "03030502040406030000000000000000",
+            "min": 12,
+            "sum": 1124
+          },
+          {
+            "a": "768798a9bacbdcedfe0f203142536475",
+            "b": "b2bfccd9e6f3000d1a2734414e5b6875",
+            "or": "f6bfdcf9fefbdcedfe2f34714e5b6c75",
+            "xor": "c43854705c38dce0e42814700c080c00",
+            "hi": "000000000000ffffff00000000000000",
+            "cnt": "05040304050505060000000000000000",
+            "min": 15,
+            "sum": 1420
+          },
+          {
+            "a": "9bacbdcedff00112233445566778899a",
+            "b": "f90613202d3a4754616e7b8895a2afbc",
+            "or": "fbaebfeefffa4756637e7fdef7faafbe",
+            "xor": "62aaaeeef2ca4646425a3edef2da2626",
+            "hi": "00ffffffffff00000000000000000000",
+            "cnt": "05040605070401020000000000000000",
+            "min": 1,
+            "sum": 1204
+          },
+          {
+            "a": "c0d1e2f30415263748596a7b8c9daebf",
+            "b": "404d5a6774818e9ba8b5c2cfdce9f603",
+            "or": "c0ddfaf77495aebfe8fdeaffdcfdfebf",
+            "xor": "809cb8947094a8ace0eca8b4507458bc",
+            "hi": "ffffffff0000000000000000000000ff",
+            "cnt": "02040406010303050000000000000000",
+            "min": 4,
+            "sum": 988
+          },
+          {
+            "a": "e5f60718293a4b5c6d7e8fa0b1c2d3e4",
+            "b": "8794a1aebbc8d5e2effc091623303d4a",
+            "or": "e7f6a7bebbfadffeeffe8fb6b3f2ffee",
+            "xor": "6262a6b692f29ebe828286b692f2eeae",
+            "hi": "ffff0000000000000000ffffffffffff",
+            "cnt": "05060302030404040000000000000000",
+            "min": 7,
+            "sum": 772
+          },
+          {
+            "a": "0a1b2c3d4e5f708192a3b4c5d6e7f809",
+            "b": "cedbe8f5020f1c293643505d6a778491",
+            "or": "cedbecfd4e5f7ca9b6e3f4ddfef7fc99",
+            "xor": "c4c0c4c84c506ca8a4e0e498bc907c98",
+            "hi": "00000000ffffffffffffffffffffff00",
+            "cnt": "02040305040603020000000000000000",
+            "min": 9,
+            "sum": 556
+          },
+          {
+            "a": "2f405162738495a6b7c8d9eafb0c1d2e",
+            "b": "15222f3c495663707d8a97a4b1becbd8",
+            "or": "3f627f7e7bd6f7f6ffcadfeefbbedffe",
+            "xor": "3a627e5e3ad2f6d6ca424e4e4ab2d6f6",
+            "hi": "ffffffffffffffffffffffffff000000",
+            "cnt": "05010303050204040000000000000000",
+            "min": 12,
+            "sum": 852
+          },
+          {
+            "a": "5465768798a9bacbdcedfe0f20314253",
+            "b": "5c697683909daab7c4d1deebf805121f",
+            "or": "5c6d768798bdbaffdcfdfeeff835525f",
+            "xor": "080c00040834107c183c20e4d834504c",
+            "hi": "000000ffffffffffffffff0000ffffff",
+            "cnt": "03040504030405050000000000000000",
+            "min": 15,
+            "sum": 1148
+          },
+          {
+            "a": "798a9bacbdcedff00112233445566778",
+            "b": "a3b0bdcad7e4f1fe0b1825323f4c5966",
+            "or": "fbbabfeeffeefffe0b1a27367f5e7f7e",
+            "xor": "da3a26666a2a2e0e0a0a06067a1a3e1e",
+            "hi": "0000000000000000000000ffffffffff",
+            "cnt": "05030504060507040000000000000000",
+            "min": 1,
+            "sum": 1444
+          },
+          {
+            "a": "9eafc0d1e2f30415263748596a7b8c9d",
+            "b": "eaf704111e2b3845525f6c798693a0ad",
+            "or": "feffc4d1fefb3c55767f6c79eefbacbd",
+            "xor": "7458c4c0fcd83c5074682420ece82c30",
+            "hi": "0000ffffffff00000000000000000000",
+            "cnt": "05060204040601030000000000000000",
+            "min": 4,
+            "sum": 1228
+          },
+          {
+            "a": "c3d4e5f60718293a4b5c6d7e8fa0b1c2",
+            "b": "313e4b5865727f8c99a6b3c0cddae7f4",
+            "or": "f3feeffe677a7fbedbfefffecffaf7f6",
+            "xor": "f2eaaeae626a56b6d2fadebe427a5636",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "04040506030203040000000000000000",
+            "min": 7,
+            "sum": 1012
+          },
+          {
+            "a": "e8f90a1b2c3d4e5f708192a3b4c5d6e7",
+            "b": "7885929facb9c6d3e0edfa0714212e3b",
+            "or": "f8fd9a9facbdcedff0edfaa7b4e5feff",
+            "xor": "907c98848084888c906c68a4a0e4f8dc",
+            "hi": "ffff000000000000000000ffffffffff",
+            "cnt": "04060204030504060000000000000000",
+            "min": 10,
+            "sum": 796
+          },
+          {
+            "a": "0d1e2f405162738495a6b7c8d9eafb0c",
+            "b": "bfccd9e6f3000d1a2734414e5b687582",
+            "or": "bfdeffe6f3627f9eb7b6f7cedbeaff8e",
+            "xor": "b2d2f6a6a2627e9eb292f68682828e8e",
+            "hi": "0000000000ffffffffffffffffffff00",
+            "cnt": "03040501030305020000000000000000",
+            "min": 12,
+            "sum": 580
+          },
+          {
+            "a": "32435465768798a9bacbdcedfe0f2031",
+            "b": "0613202d3a4754616e7b8895a2afbcc9",
+            "or": "3653746d7ec7dce9fefbdcfdfeafbcf9",
+            "xor": "345074484cc0ccc8d4b054785ca09cf8",
+            "hi": "ffffffffffffffffffffffffff000000",
+            "cnt": "03030304050403040000000000000000",
+            "min": 15,
+            "sum": 876
+          },
+          {
+            "a": "5768798a9bacbdcedff0011223344556",
+            "b": "4d5a6774818e9ba8b5c2cfdce9f60310",
+            "or": "5f7a7ffe9baebfeefff2cfdeebf64756",
+            "xor": "1a321efe1a2226666a32cececac24646",
+            "hi": "ffffffffffffffffffff00000000ffff",
+            "cnt": "05030503050406050000000000000000",
+            "min": 1,
+            "sum": 1172
+          },
+          {
+            "a": "7c8d9eafc0d1e2f30415263748596a7b",
+            "b": "94a1aebbc8d5e2effc091623303d4a57",
+            "or": "fcadbebfc8d5e2fffc1d3637787d6a7f",
+            "xor": "e82c30140804001cf81c30147864202c",
+            "hi": "00000000000000ff00ffffffffffffff",
+            "cnt": "05040506020404060000000000000000",
+            "min": 4,
+            "sum": 1468
+          },
+          {
+            "a": "a1b2c3d4e5f60718293a4b5c6d7e8fa0",
+            "b": "dbe8f5020f1c293643505d6a7784919e",
+            "or": "fbfaf7d6effe2f3e6b7a5f7e7ffe9fbe",
+            "xor": "7a5a36d6eaea2e2e6a6a16361afa1e3e",
+            "hi": "000000ffffff000000000000000000ff",
+            "cnt": "03040404050603020000000000000000",
+            "min": 7,
+            "sum": 1252
+          },
+          {
+            "a": "c6d7e8f90a1b2c3d4e5f708192a3b4c5",
+            "b": "222f3c495663707d8a97a4b1becbd8e5",
+            "or": "e6fffcf95e7b7c7dcedff4b1beebfce5",
+            "xor": "e4f8d4b05c785c40c4c8d4302c686c20",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "04060406020403050000000000000000",
+            "min": 10,
+            "sum": 1036
+          },
+          {
+            "a": "ebfc0d1e2f405162738495a6b7c8d9ea",
+            "b": "697683909daab7c4d1deebf805121f2c",
+            "or": "ebfe8f9ebfeaf7e6f3defffeb7dadfee",
+            "xor": "828a8e8eb2eae6a6a25a7e5eb2dac6c6",
+            "hi": "ffff00000000000000000000ffffffff",
+            "cnt": "06060304050103030000000000000000",
+            "min": 13,
+            "sum": 820
+          },
+          {
+            "a": "102132435465768798a9bacbdcedfe0f",
+            "b": "b0bdcad7e4f1fe0b1825323f4c596673",
+            "or": "b0bdfad7f4f5fe8f98adbaffdcfdfe7f",
+            "xor": "a09cf894b094888c808c88f490b4987c",
+            "hi": "00000000000000ffffffffffffffff00",
+            "cnt": "01020303030405040000000000000000",
+            "min": 15,
+            "sum": 604
+          },
+          {
+            "a": "35465768798a9bacbdcedff001122334",
+            "b": "f704111e2b3845525f6c798693a0adba",
+            "or": "f746577e7bbadffeffeefff693b2afbe",
+            "xor": "c242467652b2defee2a2a67692b28e8e",
+            "hi": "00ffffffffffffffffffffff00000000",
+            "cnt": "04030503050305040000000000000000",
+            "min": 1,
+            "sum": 900
+          },
+          {
+            "a": "5a6b7c8d9eafc0d1e2f3041526374859",
+            "b": "3e4b5865727f8c99a6b3c0cddae7f401",
+            "or": "7e6b7cedfeffccd9e6f3c4ddfef7fc59",
+            "xor": "642024e8ecd04c484440c4d8fcd0bc58",
+            "hi": "ffffffffffffffffffff0000000000ff",
+            "cnt": "04050504050602040000000000000000",
+            "min": 4,
+            "sum": 1196
+          },
+          {
+            "a": "7f90a1b2c3d4e5f60718293a4b5c6d7e",
+            "b": "85929facb9c6d3e0edfa0714212e3b48",
+            "or": "ff92bfbefbd6f7f6effa2f3e6b7e7f7e",
+            "xor": "fa023e1e7a123616eae22e2e6a725636",
+            "hi": "0000ffffffffffff0000ffffffffffff",
+            "cnt": "07020304040405060000000000000000",
+            "min": 7,
+            "sum": 1492
+          },
+          {
+            "a": "a4b5c6d7e8f90a1b2c3d4e5f708192a3",
+            "b": "ccd9e6f3000d1a2734414e5b6875828f",
+            "or": "ecfde6f7e8fd1a3f3c7d4e5f78f592af",
+            "xor": "686c2024e8f4103c187c000418f4102c",
+            "hi": "00000000ffff0000000000ffffffffff",
+            "cnt": "03050406040602040000000000000000",
+            "min": 10,
+            "sum": 1276
+          },
+          {
+            "a": "c9daebfc0d1e2f405162738495a6b7c8",
+            "b": "13202d3a4754616e7b8895a2afbcc9d6",
+            "or": "dbfaeffe4f5e6f6e7beaf7a6bfbeffde",
+            "xor": "dafac6c64a4a4e2e2aeae6263a1a7e1e",
+            "hi": "ffffffff000000000000000000000000",
+            "cnt": "04050606030405010000000000000000",
+            "min": 13,
+            "sum": 1060
+          },
+          {
+            "a": "eeff102132435465768798a9bacbdced",
+            "b": "5a6774818e9ba8b5c2cfdce9f603101d",
+            "or": "feff74a1bedbfcf5f6cfdce9fecbdcfd",
+            "xor": "b49864a0bcd8fcd0b44844404cc8ccf0",
+            "hi": "ffff0000000000000000000000ffffff",
+            "cnt": "06080102030303040000000000000000",
+            "min": 16,
+            "sum": 844
+          },
+          {
+            "a": "132435465768798a9bacbdcedff00112",
+            "b": "a1aebbc8d5e2effc091623303d4a5764",
+            "or": "b3aebfced7eafffe9bbebffefffa5776",
+            "xor": "b28a8e8e828a967692ba9efee2ba5676",
+            "hi": "0000000000000000ffffffffffff0000",
+            "cnt": "03020403050305030000000000000000",
+            "min": 1,
+            "sum": 628
+          },
+          {
+            "a": "38495a6b7c8d9eafc0d1e2f304152637",
+            "b": "e8f5020f1c293643505d6a7784919eab",
+            "or": "f8fd5a6f7cadbeefd0ddeaf78495bebf",
+            "xor": "d0bc586460a4a8ec908c88848084b89c",
+            "hi": "0000ffffffffffffffffffff00000000",
+            "cnt": "03030405050405060000000000000000",
+            "min": 4,
+            "sum": 924
+          },
+          {
+            "a": "5d6e7f90a1b2c3d4e5f60718293a4b5c",
+            "b": "2f3c495663707d8a97a4b1becbd8e5f2",
+            "or": "7f7e7fd6e3f2ffdef7f6b7beebfaeffe",
+            "xor": "725236c6c2c2be5e7252b6a6e2e2aeae",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "05050702030404040000000000000000",
+            "min": 7,
+            "sum": 1220
+          },
+          {
+            "a": "8293a4b5c6d7e8f90a1b2c3d4e5f7081",
+            "b": "7683909daab7c4d1deebf805121f2c39",
+            "or": "f693b4bdeef7ecf9defbfc3d5e5f7cb9",
+            "xor": "f41034286c602c28d4f0d4385c405cb8",
+            "hi": "ffffffffffffffff000000ffffffffff",
+            "cnt": "02040305040604060000000000000000",
+            "min": 10,
+            "sum": 1516
+          },
+          {
+            "a": "a7b8c9daebfc0d1e2f405162738495a6",
+            "b": "bdcad7e4f1fe0b1825323f4c59667380",
+            "or": "bffadffefbfe0f1e2f727f6e7be6f7a6",
+            "xor": "1a721e3e1a0206060a726e2e2ae2e626",
+            "hi": "000000000000ffffffffffffffffffff",
+            "cnt": "05040405060603040000000000000000",
+            "min": 13,
+            "sum": 1300
+          },
+          {
+            "a": "ccddeeff102132435465768798a9bacb",
+            "b": "04111e2b3845525f6c798693a0adbac7",
+            "or": "ccddfeff3865725f7c7df697b8adbacf",
+            "xor": "c8ccf0d42864601c381cf0143804000c",
+            "hi": "ffffffff0000000000000000000000ff",
+            "cnt": "04060608010203030000000000000000",
+            "min": 16,
+            "sum": 1084
+          },
+          {
+            "a": "f102132435465768798a9bacbdcedff0",
+            "b": "4b5865727f8c99a6b3c0cddae7f4010e",
+            "or": "fb5a77767fcedfeefbcadffefffedffe",
+            "xor": "ba5a76564acacececa4a56765a3adefe",
+            "hi": "ff00000000000000000000000000ffff",
+            "cnt": "05010302040305030000000000000000",
+            "min": 2,
+            "sum": 612
+          },
+          {
+            "a": "162738495a6b7c8d9eafc0d1e2f30415",
+            "b": "929facb9c6d3e0edfa0714212e3b4855",
+            "or": "96bfbcf9defbfcedfeafd4f1eefb4c55",
+            "xor": "84b894f09cb89c6064a8d4f0ccc84c40",
+            "hi": "000000000000000000ffffffffff0000",
+            "cnt": "03040303040505040000000000000000",
+            "min": 4,
+            "sum": 652
+          },
+          {
+            "a": "3b4c5d6e7f90a1b2c3d4e5f60718293a",
+            "b": "d9e6f3000d1a2734414e5b6875828f9c",
+            "or": "fbeeff6e7f9aa7b6c3defffe779aafbe",
+            "xor": "e2aaae6e728a8686829abe9e729aa6a6",
+            "hi": "000000ffffffffffffffffff00000000",
+            "cnt": "05030505070203040000000000000000",
+            "min": 7,
+            "sum": 948
+          },
+          {
+            "a": "60718293a4b5c6d7e8f90a1b2c3d4e5f",
+            "b": "202d3a4754616e7b8895a2afbcc9d6e3",
+            "or": "607dbad7f4f5eeffe8fdaabfbcfddeff",
+            "xor": "405cb8d4f0d4a8ac606ca8b490f498bc",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "02040204030504060000000000000000",
+            "min": 10,
+            "sum": 1244
+          },
+          {
+            "a": "8596a7b8c9daebfc0d1e2f4051627384",
+            "b": "6774818e9ba8b5c2cfdce9f603101d2a",
+            "or": "e7f6a7bedbfafffecfdeeff653727fae",
+            "xor": "e2e2263652725e3ec2c2c6b652726eae",
+            "hi": "ffffffffffffffff00000000ffffffff",
+            "cnt": "03040504040506060000000000000000",
+            "min": 13,
+            "sum": 1540
+          },
+          {
+            "a": "aabbccddeeff102132435465768798a9",
+            "b": "aebbc8d5e2effc091623303d4a576471",
+            "or": "aebbccddeefffc293663747d7ed7fcf9",
+            "xor": "040004080c10ec28246064583cd0fcd8",
+            "hi": "0000ffffffff00ffffffffffffffffff",
+            "cnt": "04060406060801020000000000000000",
+            "min": 16,
+            "sum": 1324
+          },
+          {
+            "a": "cfe0f102132435465768798a9bacbdce",
+            "b": "f5020f1c293643505d6a7784919eabb8",
+            "or": "ffe2ff1e3b3677565f6a7f8e9bbebffe",
+            "xor": "3ae2fe1e3a1276160a020e0e0a321676",
+            "hi": "00ffff00000000000000ffffffffffff",
+            "cnt": "06030501030204030000000000000000",
+            "min": 2,
+            "sum": 852
+          },
+          {
+            "a": "f405162738495a6b7c8d9eafc0d1e2f3",
+            "b": "3c495663707d8a97a4b1becbd8e5f2ff",
+            "or": "fc4d5667787ddafffcbdbeefd8f5f2ff",
+            "xor": "c84c40444834d0fcd83c20641834100c",
+            "hi": "ff000000000000000000000000000000",
+            "cnt": "05020304030304050000000000000000",
+            "min": 5,
+            "sum": 636
+          },
+          {
+            "a": "192a3b4c5d6e7f90a1b2c3d4e5f60718",
+            "b": "83909daab7c4d1deebf805121f2c3946",
+            "or": "9bbabfeeffeeffdeebfac7d6fffe3f5e",
+            "xor": "9abaa6e6eaaaae4e4a4ac6c6fada3e5e",
+            "hi": "00000000000000000000ffffffff0000",
+            "cnt": "03030503050507020000000000000000",
+            "min": 7,
+            "sum": 676
+          },
+          {
+            "a": "3e4f60718293a4b5c6d7e8f90a1b2c3d",
+            "b": "cad7e4f1fe0b1825323f4c596673808d",
+            "or": "fedfe4f1fe9bbcb5f6ffecf96e7bacbd",
+            "xor": "f49884807c98bc90f4e8a4a06c68acb0",
+            "hi": "0000000000ffffffffffffff00000000",
+            "cnt": "05050204020403050000000000000000",
+            "min": 10,
+            "sum": 972
+          },
+          {
+            "a": "63748596a7b8c9daebfc0d1e2f405162",
+            "b": "111e2b3845525f6c798693a0adbac7d4",
+            "or": "737eafbee7fadffefbfe9fbeaffad7f6",
+            "xor": "726aaeaee2ea96b6927a9ebe82fa96b6",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "04040304050404050000000000000000",
+            "min": 13,
+            "sum": 1268
+          },
+          {
+            "a": "8899aabbccddeeff1021324354657687",
+            "b": "5865727f8c99a6b3c0cddae7f4010e1b",
+            "or": "d8fdfaffccddeeffd0edfae7f4657e9f",
+            "xor": "d0fcd8c44044484cd0ece8a4a064789c",
+            "hi": "ffffffffffffffff0000000000ffffff",
+            "cnt": "02040406040606080000000000000000",
+            "min": 16,
+            "sum": 1564
+          },
+          {
+            "a": "adbecfe0f102132435465768798a9bac",
+            "b": "9facb9c6d3e0edfa0714212e3b485562",
+            "or": "bfbeffe6f3e2fffe3756776e7bcadfee",
+            "xor": "3212762622e2fede3252764642c2cece",
+            "hi": "ffffffffff000000ffffffffffffffff",
+            "cnt": "05060603050103020000000000000000",
+            "min": 2,
+            "sum": 1092
+          },
+          {
+            "a": "d2e3f405162738495a6b7c8d9eafc0d1",
+            "b": "e6f3000d1a2734414e5b6875828f9ca9",
+            "or": "f6f3f40d1e273c495e7b7cfd9eafdcf9",
+            "xor": "3410f4080c000c08143014f81c205c78",
+            "hi": "0000ff000000ffffffffffffffffffff",
+            "cnt": "04050502030403030000000000000000",
+            "min": 5,
+            "sum": 876
+          },
+          {
+            "a": "f708192a3b4c5d6e7f90a1b2c3d4e5f6",
+            "b": "2d3a4754616e7b8895a2afbcc9d6e3f0",
+            "or": "ff3a5f7e7b6e7feeffb2afbecbd6e7f6",
+            "xor": "da325e7e5a2226e6ea320e0e0a020606",
+            "hi": "ff00000000000000000000000000ffff",
+            "cnt": "07010303050305050000000000000000",
+            "min": 8,
+            "sum": 660
+          },
+          {
+            "a": "1c2d3e4f60718293a4b5c6d7e8f90a1b",
+            "b": "74818e9ba8b5c2cfdce9f603101d2a37",
+            "or": "7cadbedfe8f5c2dffcfdf6d7f8fd2a3f",
+            "xor": "68acb0d4c8c4405c785c30d4f8e4202c",
+            "hi": "0000000000000000000000ffffff0000",
+            "cnt": "03040505020402040000000000000000",
+            "min": 10,
+            "sum": 700
+          },
+          {
+            "a": "415263748596a7b8c9daebfc0d1e2f40",
+            "b": "bbc8d5e2effc091623303d4a5764717e",
+            "or": "fbdaf7f6effeafbeebfafffe5f7e7f7e",
+            "xor": "fa9ab6966a6aaeaeeaead6b65a7a5e3e",
+            "hi": "000000000000ffffffffffff00000000",
+            "cnt": "02030404030405040000000000000000",
+            "min": 13,
+            "sum": 996
+          },
+          {
+            "a": "66778899aabbccddeeff102132435465",
+            "b": "020f1c293643505d6a7784919eabb8c5",
+            "or": "667f9cb9befbdcddeeff94b1beebfce5",
+            "xor": "647894b09cf89c80848894b0ace8eca0",
+            "hi": "ffffffffffffffffffff000000000000",
+            "cnt": "04060204040604060000000000000000",
+            "min": 16,
+            "sum": 1292
+          },
+          {
+            "a": "8b9cadbecfe0f102132435465768798a",
+            "b": "495663707d8a97a4b1becbd8e5f2ff0c",
+            "or": "cbdeeffeffeaf7a6b3beffdef7faff8e",
+            "xor": "c2caceceb26a66a6a29afe9eb29a8686",
+            "hi": "ffffffffffffff0000000000000000ff",
+            "cnt": "04040506060305010000000000000000",
+            "min": 2,
+            "sum": 1332
+          },
+          {
+            "a": "b0c1d2e3f405162738495a6b7c8d9eaf",
+            "b": "909daab7c4d1deebf805121f2c394653",
+            "or": "b0ddfaf7f4d5deeff84d5a7f7cbddeff",
+            "xor": "205c785430d4c8ccc04c487450b4d8fc",
+            "hi": "ffffffffff00000000ffffffffffffff",
+            "cnt": "03030405050203040000000000000000",
+            "min": 5,
+            "sum": 1116
+          },
+          {
+            "a": "d5e6f708192a3b4c5d6e7f90a1b2c3d4",
+            "b": "d7e4f1fe0b1825323f4c596673808d9a",
+            "or": "d7e6f7fe1b3a3f7e7f6e7ff6f3b2cfde",
+            "xor": "020206f612321e7e622226f6d2324e4e",
+            "hi": "00ffff00ffffffffffffffffffffffff",
+            "cnt": "05050701030305030000000000000000",
+            "min": 8,
+            "sum": 900
+          },
+          {
+            "a": "fa0b1c2d3e4f60718293a4b5c6d7e8f9",
+            "b": "1e2b3845525f6c798693a0adbac7d4e1",
+            "or": "fe2b3c6d7e5f6c798693a4bdfed7fcf9",
+            "xor": "e42024686c100c08040004187c103c18",
+            "hi": "ff000000000000000000ffffffffffff",
+            "cnt": "06030304050502040000000000000000",
+            "min": 11,
+            "sum": 684
+          },
+          {
+            "a": "1f30415263748596a7b8c9daebfc0d1e",
+            "b": "65727f8c99a6b3c0cddae7f4010e1b28",
+            "or": "7f727fdefbf6b7d6effaeffeebfe1f3e",
+            "xor": "7a423edefad236566a622e2eeaf21636",
+            "hi": "000000000000000000000000ffff0000",
+            "cnt": "05020203040403040000000000000000",
+            "min": 13,
+            "sum": 724
+          },
+          {
+            "a": "445566778899aabbccddeeff10213243",
+            "b": "acb9c6d3e0edfa0714212e3b4855626f",
+            "or": "ecfde6f7e8fdfabfdcfdeeff5875726f",
+            "xor": "e8eca0a4687450bcd8fcc0c45874502c",
+            "hi": "00000000000000ffffffffff00000000",
+            "cnt": "02040406020404060000000000000000",
+            "min": 16,
+            "sum": 1020
+          },
+          {
+            "a": "697a8b9cadbecfe0f102132435465768",
+            "b": "f3000d1a2734414e5b6875828f9ca9b6",
+            "or": "fb7a8f9eafbecfeefb6a77a6bfdefffe",
+            "xor": "9a7a86868a8a8eaeaa6a66a6badafede",
+            "hi": "00ffffffffffffffff00000000000000",
+            "cnt": "04050404050606030000000000000000",
+            "min": 2,
+            "sum": 1316
+          },
+          {
+            "a": "8e9fb0c1d2e3f405162738495a6b7c8d",
+            "b": "3a4754616e7b8895a2afbcc9d6e3f0fd",
+            "or": "bedff4e1fefbfc95b6afbcc9deebfcfd",
+            "xor": "b4d8e4a0bc987c90b48884808c888c70",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "04060303040505020000000000000000",
+            "min": 5,
+            "sum": 1356
+          },
+          {
+            "a": "b3c4d5e6f708192a3b4c5d6e7f90a1b2",
+            "b": "818e9ba8b5c2cfdce9f603101d2a3744",
+            "or": "b3cedfeef7cadffefbfe5f7e7fbab7f6",
+            "xor": "324a4e4e42cad6f6d2ba5e7e62ba96f6",
+            "hi": "ffffffffff0000000000ffffffffffff",
+            "cnt": "05030505070103030000000000000000",
+            "min": 8,
+            "sum": 1140
+          },
+          {
+            "a": "d8e9fa0b1c2d3e4f60718293a4b5c6d7",
+            "b": "c8d5e2effc091623303d4a5764717e8b",
+            "or": "d8fdfaeffc2d3e6f707dcad7e4f5fedf",
+            "xor": "103c18e4e024286c504cc8c4c0c4b85c",
+            "hi": "ffffff0000ffffffffffffffffffffff",
+            "cnt": "04050603030405050000000000000000",
+            "min": 11,
+            "sum": 924
+          },
+          {
+            "a": "fd0e1f30415263748596a7b8c9daebfc",
+            "b": "0f1c293643505d6a7784919eabb8c5d2",
+            "or": "ff1e3f3643527f7ef796b7beebfaeffe",
+            "xor": "f212360602023e1ef212362662622e2e",
+            "hi": "ff00000000ffffffffffffffffffffff",
+            "cnt": "07030502020304040000000000000000",
+            "min": 14,
+            "sum": 708
+          },
+          {
+            "a": "2233445566778899aabbccddeeff1021",
+            "b": "5663707d8a97a4b1becbd8e5f2ff0c19",
+            "or": "7673747deef7acb9befbdcfdfeff1c39",
+            "xor": "74503428ece02c28147014381c001c38",
+            "hi": "0000000000000000000000000000ffff",
+            "cnt": "02040204040602040000000000000000",
+            "min": 16,
+            "sum": 748
+          },
+          {
+            "a": "4758697a8b9cadbecfe0f10213243546",
+            "b": "9daab7c4d1deebf805121f2c39465360",
+            "or": "dffafffedbdeeffecff2ff2e3b667766",
+            "xor": "daf2debe5a424646caf2ee2e2a626626",
+            "hi": "0000000000000000ffffff0000000000",
+            "cnt": "04030405040405060000000000000000",
+            "min": 2,
+            "sum": 1044
+          },
+          {
+            "a": "6c7d8e9fb0c1d2e3f405162738495a6b",
+            "b": "e4f1fe0b1825323f4c596673808d9aa7",
+            "or": "ecfdfe9fb8e5f2fffc5d7677b8cddaef",
+            "xor": "888c7094a8e4e0dcb85c7054b8c4c0cc",
+            "hi": "000000ffffffffffff00000000000000",
+            "cnt": "04060406030304050000000000000000",
+            "min": 5,
+            "sum": 1340
+          },
+          {
+            "a": "91a2b3c4d5e6f708192a3b4c5d6e7f90",
+            "b": "2b3845525f6c798693a0adbac7d4e1ee",
+            "or": "bbbaf7d6dfeeff8e9baabffedffefffe",
+            "xor": "ba9af6968a8a8e8e8a8a96f69aba9e7e",
+            "hi": "ffffffffffffff000000000000000000",
+            "cnt": "03030503050507010000000000000000",
+            "min": 8,
+            "sum": 1380
+          },
+          {
+            "a": "b6c7d8e9fa0b1c2d3e4f60718293a4b5",
+            "b": "727f8c99a6b3c0cddae7f4010e1b2835",
+            "or": "f6ffdcf9febbdcedfeeff4718e9bacb5",
+            "xor": "c4b854705cb8dce0e4a894708c888c80",
+            "hi": "ffffffffff000000000000ffffffffff",
+            "cnt": "05050405060303040000000000000000",
+            "min": 11,
+            "sum": 1164
+          },
+          {
+            "a": "dbecfd0e1f30415263748596a7b8c9da",
+            "b": "b9c6d3e0edfa0714212e3b4855626f7c",
+            "or": "fbeeffeefffa4756637ebfdef7faeffe",
+            "xor": "622a2eeef2ca4646425abedef2daa6a6",
+            "hi": "ffffff000000ffffffffffffffffffff",
+            "cnt": "06050703050202030000000000000000",
+            "min": 14,
+            "sum": 948
+          }
+        ],
+        "cases": 16896,
+        "all_native_outputs_match_scalar_oracles": true
+      }
     }
   ]
 }

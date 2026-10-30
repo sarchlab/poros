@@ -62,3 +62,14 @@ func TestFaultClearsMemoryEvents(t *testing.T) {
 		t.Fatal(x.Result())
 	}
 }
+
+func TestLinuxRejectsDarwinSVCWithoutCommit(t *testing.T) {
+	p := &Process{Memory: instructionMemory(t, 0xd4001001)}
+	p.Registers.PC = 0x1000
+	p.Registers.GPR[8] = 93
+	before := p.Registers
+	r, err := p.Run(context.Background(), RunOptions{})
+	if err != nil || r.Termination != "unsupported_instruction" || r.Instructions != 0 || p.Registers != before || r.ExitStatus != nil || len(r.Stdout) != 0 || len(r.Stderr) != 0 {
+		t.Fatalf("%+v %v", r, err)
+	}
+}

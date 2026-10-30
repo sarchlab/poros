@@ -17,6 +17,10 @@ type executor struct {
 // execute dispatches a decoded instruction to the appropriate handler.
 // Returns true if the instruction updated PC (branch), false otherwise.
 func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
+	if byteSIMDForm(inst.Enc) != 0 {
+		e.execByteSIMD(inst.Enc)
+		return false, nil
+	}
 	switch inst.Op {
 	// Integer arithmetic
 	case arm64asm.ADD:

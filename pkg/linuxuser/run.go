@@ -130,6 +130,9 @@ func (x *Execution) step() (Result, error) {
 		return finish("execution_fault", err.Error())
 	}
 	if step.Syscall {
+		if step.SyscallImmediate != 0 {
+			return finish("unsupported_instruction", fmt.Sprintf("Linux requires SVC #0, got #%#x", step.SyscallImmediate))
+		}
 		number := p.Registers.GPR[8]
 		switch number {
 		case 93, 94:

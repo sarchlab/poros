@@ -101,7 +101,13 @@ func (x *Execution) StepDetailed() (arm64asm.Inst, bool, error) {
 		return finish(kind, e)
 	}
 	if step.Syscall {
-		return finish("unsupported_syscall", fmt.Errorf("Darwin trap %d at PC=%#x is not implemented", int64(x.process.Registers.GPR[16]), x.process.Registers.PC))
+		if step.SyscallImmediate != 0x80 {
+			return finish("unsupported_instruction", fmt.Errorf("Darwin requires SVC #0x80, got #%#x", step.SyscallImmediate))
+		}
+		if !x.process.kernel.trap(&x.process.Registers, x.process.Memory) {
+			return finish("unsupported_syscall", fmt.Errorf("Darwin trap %d at PC=%#x is not implemented", int32(x.process.Registers.GPR[16]), x.process.Registers.PC))
+		}
+		x.process.Registers.PC += 4
 	}
 	x.result.Instructions++
 	if x.process.Registers.Counter.Enabled {

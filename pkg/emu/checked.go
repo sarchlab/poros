@@ -7,15 +7,6 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
-// SyscallABI specifies the permitted SVC immediate at the checked execution boundary.
-// Zero preserves the existing Linux ABI. Darwin must opt in explicitly.
-type SyscallABI uint8
-
-const (
-	SyscallLinux SyscallABI = iota
-	SyscallDarwin
-)
-
 // CheckedMemory is the process execution boundary. Each operation must validate
 // the complete range before transferring bytes; failed writes must be atomic.
 // Fetch enforces execute permission independently of Read. Implementations must
@@ -35,6 +26,8 @@ type StepResult struct {
 	// StepDetailed. A branch targeting its own fallthrough reports false.
 	Branched bool
 	Syscall  bool
+	// SyscallImmediate is validated by the operating-system runtime before dispatch.
+	SyscallImmediate uint16
 }
 
 // UnsupportedInstructionError identifies a decoded operation without semantics.
@@ -78,25 +71,21 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 	}
 	result.Instruction = inst
 	if inst.Op == arm64asm.SVC {
-		allowed := [4]byte{1, 0, 0, 0xd4}
-		if regs.SyscallABI == SyscallDarwin {
-			allowed = [4]byte{1, 0x10, 0, 0xd4}
-		}
-		if regs.SyscallABI > SyscallDarwin || bytes != allowed {
-			return fail("unsupported_instruction", fmt.Errorf("SVC immediate does not match process ABI %d: %s", regs.SyscallABI, inst))
-		}
+		result.SyscallImmediate = uint16((inst.Enc >> 5) & 0xffff)
 		result.Syscall = true
 		return result, nil
 	}
 	// Scalar semantics do not implement SIMD arrangements or element operands.
 	// Reject these before handlers that assume scalar register forms.
-	for _, arg := range inst.Args {
-		switch a := arg.(type) {
-		case arm64asm.RegisterWithArrangement, arm64asm.RegisterWithArrangementAndIndex:
-			return fail("unsupported_instruction", fmt.Errorf("SIMD operand in %s", inst))
-		case arm64asm.Reg:
-			if a >= arm64asm.B0 && !checkedFPRegisterSupported(inst.Op, a) {
-				return fail("unsupported_instruction", fmt.Errorf("unsupported scalar/SIMD register form: %s", inst))
+	if byteSIMDForm(inst.Enc) == 0 {
+		for _, arg := range inst.Args {
+			switch a := arg.(type) {
+			case arm64asm.RegisterWithArrangement, arm64asm.RegisterWithArrangementAndIndex:
+				return fail("unsupported_instruction", fmt.Errorf("SIMD operand in %s", inst))
+			case arm64asm.Reg:
+				if a >= arm64asm.B0 && !checkedFPRegisterSupported(inst.Op, a) {
+					return fail("unsupported_instruction", fmt.Errorf("unsupported scalar/SIMD register form: %s", inst))
+				}
 			}
 		}
 	}

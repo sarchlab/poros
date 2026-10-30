@@ -40,6 +40,7 @@ type Process struct {
 	Memory       *usermem.AddressSpace
 	Binary, Dyld Identity
 	MainEntry    uint64
+	kernel       kernelState
 	ran          bool
 }
 
@@ -125,17 +126,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 			if s.Protection == 0 {
 				continue
 			}
-			flags := usermem.Permission(0)
-			if s.Protection&1 != 0 {
-				flags |= usermem.Read
-			}
-			if s.Protection&2 != 0 {
-				flags |= usermem.Write
-			}
-			if s.Protection&4 != 0 {
-				flags |= usermem.Execute
-			}
-			if err := memory.Map(lo, s.Size, flags, s.Data); err != nil {
+			if err := memory.MapProtected(lo, s.Size, machPermissions(s.Protection), machPermissions(s.MaxProtection), s.Data); err != nil {
 				return err
 			}
 		}
@@ -207,5 +198,10 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		counter.Frequency = 1_000_000_000 * uint64(o.RuntimeProfile.TimebaseDenom) / uint64(o.RuntimeProfile.TimebaseNumer)
 	}
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
-	return &Process{Registers: emu.Registers{PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter, SyscallABI: emu.SyscallDarwin}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
+	var kernel kernelState
+	if o.RuntimeProfile != nil && o.RuntimeProfile.CSRConfig != nil {
+		config := *o.RuntimeProfile.CSRConfig
+		kernel.csrConfig = &config
+	}
+	return &Process{kernel: kernel, Registers: emu.Registers{PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
 }

@@ -11,16 +11,25 @@ import (
 // native reference host. Unmodeled fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
-	CPUCapabilities   uint64 `json:"cpu_capabilities"`
-	Version           uint16 `json:"version"`
-	UserPageShift     uint8  `json:"user_page_shift_64_legacy"`
-	CacheLineSize     uint16 `json:"cache_line_size"`
-	CPUFamily         uint32 `json:"cpu_family"`
-	UserTimebase      uint8  `json:"user_timebase"`
-	ContinuousHWClock uint8  `json:"continuous_hwclock"`
-	KDebug            uint32 `json:"kdebug"`
-	TimebaseNumer     uint32 `json:"timebase_numer"`
-	TimebaseDenom     uint32 `json:"timebase_denom"`
+	CSRConfig          *uint32     `json:"csr_config,omitempty"`
+	DyldFlags          *uint64     `json:"dyld_flags,omitempty"`
+	KernelPageShift    uint8       `json:"kernel_page_shift,omitempty"`
+	ReadOnlyPageShifts *PageShifts `json:"read_only_page_shifts,omitempty"`
+	CPUCapabilities    uint64      `json:"cpu_capabilities"`
+	Version            uint16      `json:"version"`
+	UserPageShift      uint8       `json:"user_page_shift_64_legacy"`
+	CacheLineSize      uint16      `json:"cache_line_size"`
+	CPUFamily          uint32      `json:"cpu_family"`
+	UserTimebase       uint8       `json:"user_timebase"`
+	ContinuousHWClock  uint8       `json:"continuous_hwclock"`
+	KDebug             uint32      `json:"kdebug"`
+	TimebaseNumer      uint32      `json:"timebase_numer"`
+	TimebaseDenom      uint32      `json:"timebase_denom"`
+}
+
+type PageShifts struct {
+	User   uint8 `json:"user"`
+	Kernel uint8 `json:"kernel"`
 }
 
 func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
@@ -29,6 +38,32 @@ func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
 	}
 	if 1_000_000_000*uint64(p.TimebaseDenom)%uint64(p.TimebaseNumer) != 0 {
 		return fmt.Errorf("non-integral virtual counter frequency")
+	}
+	if p.KernelPageShift != 0 {
+		if p.KernelPageShift != 14 {
+			return fmt.Errorf("unsupported kernel page shift")
+		}
+		if err := m.Map(0xfffffc037, 1, usermem.Read, []byte{p.KernelPageShift}); err != nil {
+			return err
+		}
+	}
+	if p.ReadOnlyPageShifts != nil {
+		if p.ReadOnlyPageShifts.User != 14 || p.ReadOnlyPageShifts.Kernel != 14 {
+			return fmt.Errorf("unsupported read-only page shifts")
+		}
+		if err := m.Map(0xfffff4025, 1, usermem.Read, []byte{p.ReadOnlyPageShifts.User}); err != nil {
+			return err
+		}
+		if err := m.Map(0xfffff4037, 1, usermem.Read, []byte{p.ReadOnlyPageShifts.Kernel}); err != nil {
+			return err
+		}
+	}
+	if p.DyldFlags != nil {
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], *p.DyldFlags)
+		if err := m.Map(0xfffffc160, 8, usermem.Read, b[:]); err != nil {
+			return err
+		}
 	}
 	const base uint64 = 0xfffffc000
 	fields := []struct {

@@ -10,7 +10,22 @@ type CounterState struct {
 	Frequency uint64
 }
 
+// ThreadPointerState supplies the effective read-only user TLS register. Its
+// zero value rejects reads until the process runtime has initialized it.
+type ThreadPointerState struct {
+	Enabled bool
+	Value   uint64
+}
+
 func (e *executor) execMRS(inst arm64asm.Inst) error {
+	if inst.Enc&^31 == 0xd53bd060 {
+		if !e.regs.ThreadPointer.Enabled {
+			return &UnsupportedInstructionError{Instruction: inst}
+		}
+		e.regs.WriteX(int(inst.Enc&31), e.regs.ThreadPointer.Value)
+		return nil
+	}
+
 	if !e.regs.Counter.Enabled {
 		return &UnsupportedInstructionError{Instruction: inst}
 	}

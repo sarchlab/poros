@@ -8,14 +8,14 @@ import (
 
 // Registers holds the complete ARM64 register state.
 type Registers struct {
-	SyscallABI  SyscallABI      `json:",omitempty"`
-	Counter     CounterState    `json:",omitzero"`
-	PointerAuth PointerAuthMode `json:",omitempty"` // explicit process ABI state; zero rejects PAC instructions
-	GPR         [31]uint64      // X0-X30
-	SP          uint64          // Stack pointer (register 31 in SP context)
-	PC          uint64          // Program counter
-	N, Z, C, V  bool            // NZCV condition flags
-	FP          [32]uint128     // V0-V31 (128-bit SIMD/FP registers)
+	ThreadPointer ThreadPointerState `json:",omitzero"`
+	Counter       CounterState       `json:",omitzero"`
+	PointerAuth   PointerAuthMode    `json:",omitempty"` // explicit process ABI state; zero rejects PAC instructions
+	GPR           [31]uint64         // X0-X30
+	SP            uint64             // Stack pointer (register 31 in SP context)
+	PC            uint64             // Program counter
+	N, Z, C, V    bool               // NZCV condition flags
+	FP            [32]uint128        // V0-V31 (128-bit SIMD/FP registers)
 }
 
 // uint128 represents a 128-bit value as two 64-bit halves.

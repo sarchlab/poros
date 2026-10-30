@@ -2,11 +2,14 @@
 package usermem
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"sort"
 )
 
-// Permission is a format-independent access mask.
+var ErrProtection = errors.New("protection exceeds maximum")
+
 type Permission uint8
 
 const (
@@ -20,18 +23,30 @@ type Mapping struct {
 	Start, End uint64
 	Flags      Permission
 }
+type backing struct {
+	data           []byte
+	source         io.ReaderAt
+	size, pageSize uint64
+	pages          map[uint64][]byte
+}
 type mappedRegion struct {
 	Mapping
-	data []byte
+	max     Permission
+	backing *backing
+	offset  uint64
 }
 
-// AddressSpace owns mapped memory. Reads never allocate pages; access checks
-// cover the entire request before copying, so failed writes are atomic.
-type AddressSpace struct{ regions []mappedRegion }
+// AddressSpace owns mutable guest bytes. Reader mappings materialize private
+// pages lazily. Sources must stay open and unchanged for the address-space
+// lifetime. Permission and backing-I/O failures leave writes atomic.
+type AddressSpace struct {
+	regions []mappedRegion
+	// MaxLazyBytes bounds resident reader pages, independent of virtual extent.
+	// Zero selects 256 MiB. Eager image/stack limits belong to their loader.
+	MaxLazyBytes uint64
+	lazyBytes    uint64
+}
 
-// MemoryError reports a rejected request. Address is the first faulting byte
-// for unmapped/permission faults, or the original start for address overflow.
-// Size is the original requested length, not the remaining length at Address.
 type MemoryError struct {
 	Address        uint64
 	Size           int
@@ -41,14 +56,15 @@ type MemoryError struct {
 func (e *MemoryError) Error() string {
 	return fmt.Sprintf("guest %s at %#x (%d bytes): %s", e.Access, e.Address, e.Size, e.Reason)
 }
-
-// Mappings returns metadata copies, never writable backing storage.
 func (m *AddressSpace) Mappings() []Mapping {
 	out := make([]Mapping, len(m.regions))
 	for i, r := range m.regions {
 		out[i] = r.Mapping
 	}
 	return out
+}
+func (m *AddressSpace) first(addr uint64) int {
+	return sort.Search(len(m.regions), func(i int) bool { return m.regions[i].End > addr })
 }
 func (m *AddressSpace) Check(addr uint64, n int, flag Permission, access string) error {
 	if n == 0 {
@@ -57,16 +73,13 @@ func (m *AddressSpace) Check(addr uint64, n int, flag Permission, access string)
 	if n < 0 || uint64(n) > ^uint64(0)-addr {
 		return &MemoryError{addr, n, access, "address overflow"}
 	}
-	end := addr + uint64(n)
-	cursor := addr
-	for _, r := range m.regions {
-		if r.End <= cursor {
-			continue
-		}
+	end, cursor := addr+uint64(n), addr
+	for i := m.first(addr); i < len(m.regions); i++ {
+		r := m.regions[i]
 		if r.Start > cursor {
 			break
 		}
-		if r.Flags&flag == 0 {
+		if flag != 0 && r.Flags&flag != flag {
 			return &MemoryError{cursor, n, access, "permission denied"}
 		}
 		if end <= r.End {
@@ -76,57 +89,85 @@ func (m *AddressSpace) Check(addr uint64, n int, flag Permission, access string)
 	}
 	return &MemoryError{cursor, n, access, "unmapped address"}
 }
-func (m *AddressSpace) transfer(addr uint64, b []byte, write bool) {
-	end := addr + uint64(len(b))
-	cursor := addr
-	for _, r := range m.regions {
-		if r.End <= cursor || r.Start > cursor {
+func (m *AddressSpace) prepare(addr uint64, n int, access string) error {
+	end := addr + uint64(n)
+	for i := m.first(addr); i < len(m.regions) && m.regions[i].Start < end; i++ {
+		r := &m.regions[i]
+		b := r.backing
+		if b.source == nil {
 			continue
 		}
-		count := min(end, r.End) - cursor
-		if write {
-			copy(r.data[cursor-r.Start:cursor-r.Start+count], b[cursor-addr:cursor-addr+count])
-		} else {
-			copy(b[cursor-addr:cursor-addr+count], r.data[cursor-r.Start:cursor-r.Start+count])
+		lo := r.offset + max(addr, r.Start) - r.Start
+		hi := r.offset + min(end, r.End) - r.Start
+		for page := lo / b.pageSize; page*b.pageSize < hi; page++ {
+			if b.pages[page] != nil {
+				continue
+			}
+			count := min(b.pageSize, b.size-page*b.pageSize)
+			limit := m.MaxLazyBytes
+			if limit == 0 {
+				limit = 256 << 20
+			}
+			if m.lazyBytes > limit || count > limit-m.lazyBytes {
+				return &MemoryError{addr, n, access, "resident reader-page limit"}
+			}
+			data := make([]byte, int(count))
+			got, err := b.source.ReadAt(data, int64(page*b.pageSize))
+			if got != len(data) || (err != nil && err != io.EOF) {
+				return &MemoryError{addr, n, access, fmt.Sprintf("backing read: %d/%d bytes: %v", got, len(data), err)}
+			}
+			b.pages[page] = data
+			m.lazyBytes += count
 		}
-		cursor += count
-		if cursor == end {
-			return
+	}
+	return nil
+}
+func (m *AddressSpace) transfer(addr uint64, data []byte, write bool) {
+	end, cursor := addr+uint64(len(data)), addr
+	for i := m.first(addr); i < len(m.regions) && cursor < end; i++ {
+		r := &m.regions[i]
+		b := r.backing
+		for cursor < min(end, r.End) {
+			offset := r.offset + cursor - r.Start
+			count := min(end, r.End) - cursor
+			var span []byte
+			if b.source == nil {
+				span = b.data[offset : offset+count]
+			} else {
+				page := b.pages[offset/b.pageSize]
+				within := offset % b.pageSize
+				count = min(count, uint64(len(page))-within)
+				span = page[within : within+count]
+			}
+			if write {
+				copy(span, data[cursor-addr:cursor-addr+count])
+			} else {
+				copy(data[cursor-addr:cursor-addr+count], span)
+			}
+			cursor += count
 		}
 	}
 }
-
-// Read copies guest bytes into dst, enforcing read permission.
-func (m *AddressSpace) Read(addr uint64, dst []byte) error {
-	if e := m.Check(addr, len(dst), Read, "read"); e != nil {
-		return e
+func (m *AddressSpace) access(addr uint64, b []byte, flag Permission, name string, write bool) error {
+	if err := m.Check(addr, len(b), flag, name); err != nil {
+		return err
 	}
-	m.transfer(addr, dst, false)
+	if len(b) == 0 {
+		return nil
+	}
+	if err := m.prepare(addr, len(b), name); err != nil {
+		return err
+	}
+	m.transfer(addr, b, write)
 	return nil
 }
-
-// Fetch copies instruction bytes, enforcing execute rather than read permission.
-func (m *AddressSpace) Fetch(addr uint64, dst []byte) error {
-	if e := m.Check(addr, len(dst), Execute, "fetch"); e != nil {
-		return e
-	}
-	m.transfer(addr, dst, false)
-	return nil
+func (m *AddressSpace) Read(a uint64, b []byte) error { return m.access(a, b, Read, "read", false) }
+func (m *AddressSpace) Fetch(a uint64, b []byte) error {
+	return m.access(a, b, Execute, "fetch", false)
 }
-
-// Write modifies guest bytes, enforcing write permission.
-func (m *AddressSpace) Write(addr uint64, src []byte) error {
-	if e := m.Check(addr, len(src), Write, "write"); e != nil {
-		return e
-	}
-	m.transfer(addr, src, true)
-	return nil
-}
-
-// Map installs an owned zero-filled region and copies its initial bytes. It
-// rejects overlap before allocating. Resource limits belong to the process loader.
-func (m *AddressSpace) Map(start, size uint64, flags Permission, initial []byte) error {
-	if size == 0 || size > uint64(^uint(0)>>1) || start > ^uint64(0)-size || uint64(len(initial)) > size || flags & ^(Read|Write|Execute) != 0 {
+func (m *AddressSpace) Write(a uint64, b []byte) error { return m.access(a, b, Write, "write", true) }
+func (m *AddressSpace) validateMap(start, size uint64, flags, maxFlags Permission) error {
+	if size == 0 || size > uint64(^uint(0)>>1) || start > ^uint64(0)-size || maxFlags & ^(Read|Write|Execute) != 0 || flags & ^maxFlags != 0 {
 		return fmt.Errorf("invalid guest mapping")
 	}
 	end := start + size
@@ -135,9 +176,89 @@ func (m *AddressSpace) Map(start, size uint64, flags Permission, initial []byte)
 			return fmt.Errorf("overlapping guest mapping")
 		}
 	}
+	return nil
+}
+func (m *AddressSpace) install(r mappedRegion) {
+	m.regions = append(m.regions, r)
+	sort.Slice(m.regions, func(i, j int) bool { return m.regions[i].Start < m.regions[j].Start })
+}
+
+// Map installs owned bytes; its permissions are also the maximum protection.
+func (m *AddressSpace) Map(start, size uint64, flags Permission, initial []byte) error {
+	return m.MapProtected(start, size, flags, flags, initial)
+}
+func (m *AddressSpace) MapProtected(start, size uint64, flags, maxFlags Permission, initial []byte) error {
+	if err := m.validateMap(start, size, flags, maxFlags); err != nil {
+		return err
+	}
+	if uint64(len(initial)) > size {
+		return fmt.Errorf("initial bytes exceed mapping")
+	}
 	data := make([]byte, int(size))
 	copy(data, initial)
-	m.regions = append(m.regions, mappedRegion{Mapping{start, end, flags}, data})
-	sort.Slice(m.regions, func(i, j int) bool { return m.regions[i].Start < m.regions[j].Start })
+	m.install(mappedRegion{Mapping{start, start + size, flags}, maxFlags, &backing{data: data, size: size}, 0})
+	return nil
+}
+
+// MapReader installs a bounded virtual view of a stable source. Reads, fetches,
+// and writes use private resident pages; the source is never modified.
+func (m *AddressSpace) MapReader(start, size uint64, flags, maxFlags Permission, source io.ReaderAt, pageSize uint64) error {
+	if err := m.validateMap(start, size, flags, maxFlags); err != nil {
+		return err
+	}
+	if source == nil || pageSize == 0 || pageSize > 1<<20 || pageSize&(pageSize-1) != 0 {
+		return fmt.Errorf("invalid reader mapping")
+	}
+	m.install(mappedRegion{Mapping{start, start + size, flags}, maxFlags, &backing{source: source, size: size, pageSize: pageSize, pages: map[uint64][]byte{}}, 0})
+	return nil
+}
+
+// Protect changes a fully mapped range atomically. The caller supplies its OS
+// page rounding. setMaximum also reduces current protection to the new maximum.
+func (m *AddressSpace) Protect(start, size uint64, flags Permission, setMaximum bool) error {
+	if size == 0 {
+		return nil
+	}
+	if size > uint64(^uint(0)>>1) || flags & ^(Read|Write|Execute) != 0 {
+		return fmt.Errorf("invalid protection range")
+	}
+	if err := m.Check(start, int(size), 0, "protect"); err != nil {
+		return err
+	}
+	end := start + size
+	for _, r := range m.regions {
+		if start < r.End && r.Start < end && flags & ^r.max != 0 {
+			return ErrProtection
+		}
+	}
+	out := make([]mappedRegion, 0, len(m.regions)+2)
+	for _, r := range m.regions {
+		if r.End <= start || r.Start >= end {
+			out = append(out, r)
+			continue
+		}
+		orig := r
+		if r.Start < start {
+			prefix := r
+			prefix.End = start
+			out = append(out, prefix)
+			r.offset += start - r.Start
+			r.Start = start
+		}
+		r.End = min(r.End, end)
+		if setMaximum {
+			r.max = flags
+			r.Flags &= flags
+		} else {
+			r.Flags = flags
+		}
+		out = append(out, r)
+		if orig.End > end {
+			orig.offset += end - orig.Start
+			orig.Start = end
+			out = append(out, orig)
+		}
+	}
+	m.regions = out
 	return nil
 }
