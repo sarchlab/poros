@@ -19,6 +19,7 @@ import (
 )
 
 type configuration struct {
+	Clock                         *darwinuser.ClockAnchor
 	Quiescence                    darwinuser.QuiescencePolicy
 	Binary, Dyld, Cache, ExecName string
 	Args                          []string
@@ -79,7 +80,7 @@ func main() {
 		}
 		defer cache.Close()
 	}
-	p, e := darwinuser.Load(c.Binary, c.Dyld, darwinuser.Options{Quiescence: c.Quiescence, Args: c.Args, ExecName: c.ExecName, RuntimeProfile: c.Runtime, StartupProfile: c.Startup, SharedCache: cache})
+	p, e := darwinuser.Load(c.Binary, c.Dyld, darwinuser.Options{ClockAnchor: c.Clock, Quiescence: c.Quiescence, Args: c.Args, ExecName: c.ExecName, RuntimeProfile: c.Runtime, StartupProfile: c.Startup, SharedCache: cache})
 	if e != nil {
 		panic(e)
 	}

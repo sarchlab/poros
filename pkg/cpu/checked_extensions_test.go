@@ -673,3 +673,54 @@ func TestDITStateAndSBOrderAcrossTimingModels(t *testing.T) {
 		}
 	}
 }
+
+func TestOoOADCWaitsForCarryProducer(t *testing.T) {
+	// Delayed LDR X1; CMP X1,#1 (sets carry); ADC X2,X4,X5; CSET X6,CS.
+	x := newExtensionExecution(t, []uint32{0xf9400061, 0xf100043f, 0x9a050082, 0x1a9f37e6, 0xd503201f})
+	x.regs.GPR[4] = 10
+	x.regs.GPR[5] = 20
+	x.regs.C = false
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if e := s.Initialize(); e != nil {
+		t.Fatal(e)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if !c.State.Done || c.State.Err != "" || c.State.InstDone != 5 || x.regs.GPR[2] != 31 || x.regs.GPR[6] != 1 || !x.regs.C {
+		t.Fatal("carry dependency/value", c.State, x.regs)
+	}
+	if c.State.FlagsReady < c.State.GprReady[1] || c.State.GprReady[2] <= c.State.FlagsReady {
+		t.Fatal("ADC issued before delayed flags", c.State)
+	}
+}
+
+func TestOoOFloatComparisonWaitsForFirstInputWithoutDestination(t *testing.T) {
+	for _, word := range []uint32{0x1e622020, 0x1e620420} {
+		// LDR D1,[X3]; FCMP/FCCMP D1,D2; CSET W6,CS; NOP.
+		x := newExtensionExecution(t, []uint32{0xfd400061, word, 0x1a9f37e6, 0xd503201f})
+		x.regs.WriteDRaw(2, 0)
+		x.regs.Z = true
+		s := sim.MakeBuilder().Build()
+		defer s.Terminate()
+		spec := ooo.DefaultSpec()
+		spec.LoadLatency = 40
+		c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+		if e := s.Initialize(); e != nil {
+			t.Fatal(e)
+		}
+		for i := 0; i < 500 && !c.State.Done; i++ {
+			c.Middlewares.Pipeline.Handle(nil)
+		}
+		if !c.State.Done || c.State.Err != "" || c.State.InstDone != 4 || x.regs.GPR[6] != 1 || x.regs.ReadDRaw(1) != 7 {
+			t.Fatal("FP compare", word, c.State.Err, x.regs.GPR[6])
+		}
+		if c.State.FpReady[1] < 40 || c.State.FlagsReady <= c.State.FpReady[1] || c.State.GprReady[6] <= c.State.FlagsReady || c.State.FpInFlight != 0 {
+			t.Fatal("first FP input dependency/false destination", word, c.State.FpReady[1], c.State.FlagsReady, c.State.GprReady[6])
+		}
+	}
+}

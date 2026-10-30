@@ -22,6 +22,7 @@ const maxMachORuntimeProfileBytes = 128 << 10
 func runMachO(args []string, out, diagnostics io.Writer) int {
 	fs := flag.NewFlagSet("macho", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
+	clockPath := fs.String("clock-anchor", "", "explicit captured virtual clock launch anchor JSON")
 	quiescence := fs.String("quiescence", "", "explicit virtual quiescence policy: single-thread-no-scheduling")
 	cachePath := fs.String("shared-cache", "", "explicit read-only dyld shared-cache root file")
 	entropySeed := fs.Uint64("entropy-seed", 0, "deterministic guest kernel entropy seed (not cryptographic randomness)")
@@ -51,6 +52,14 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		}
 	}
 	options := darwinuser.Options{Quiescence: darwinuser.QuiescencePolicy(*quiescence), EntropySeed: *entropySeed, Args: append([]string{*argv0}, fs.Args()[1:]...), Env: []string(env), ExecName: *execName}
+	if *clockPath != "" {
+		var anchor darwinuser.ClockAnchor
+		if err := readMachOProfile(*clockPath, 4096, &anchor); err != nil {
+			fmt.Fprintln(diagnostics, err)
+			return 2
+		}
+		options.ClockAnchor = &anchor
+	}
 	if *profilePath != "" {
 		var profile darwinuser.RuntimeProfile
 		if err := readMachOProfile(*profilePath, maxMachORuntimeProfileBytes, &profile); err != nil {
@@ -91,6 +100,7 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		cacheFiles = options.SharedCache.Files
 	}
 	report := struct {
+		ClockAnchor    *darwinuser.ClockAnchor     `json:"clock_anchor,omitempty"`
 		Quiescence     darwinuser.QuiescencePolicy `json:"quiescence_policy"`
 		CacheFiles     []loader.CacheFileIdentity  `json:"shared_cache_files,omitempty"`
 		EntropySeed    uint64                      `json:"entropy_seed"`
@@ -104,7 +114,7 @@ func runMachO(args []string, out, diagnostics io.Writer) int {
 		RuntimeProfile *darwinuser.RuntimeProfile  `json:"runtime_profile,omitempty"`
 		StartupProfile *darwinuser.StartupProfile  `json:"startup_profile,omitempty"`
 		darwinuser.Result
-	}{options.Quiescence, cacheFiles, *entropySeed, 1, p.Binary, p.Dyld, options.Args, append([]string{}, options.Env...), options.ExecName, "actual dyld entry; functional clock is one native counter tick per retired instruction; runtime bring-up incomplete; no full-program timing prediction", options.RuntimeProfile, options.StartupProfile, result}
+	}{options.ClockAnchor, options.Quiescence, cacheFiles, *entropySeed, 1, p.Binary, p.Dyld, options.Args, append([]string{}, options.Env...), options.ExecName, "actual dyld entry; functional clock is one native counter tick per retired instruction; runtime bring-up incomplete; no full-program timing prediction", options.RuntimeProfile, options.StartupProfile, result}
 	if err := json.NewEncoder(out).Encode(report); err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 2

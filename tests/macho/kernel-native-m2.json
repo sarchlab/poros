@@ -9988,6 +9988,92 @@
         "source_sha256": "9d0754dc21e6a4a37bb26521c8e6d0585ecd562b58175a604a2a552cdc992bc8",
         "binary_sha256": "e6a5ac0142706faa5c60b41d20e0b365ef85d37ccb0e78dcf30cf1aa437d79b3"
       }
+    },
+    {
+      "source": "clock-anchor-probe.c",
+      "source_sha256": "23b74c699727803122a7c2e880a479e5d607962ea68e62911370a91af11d7749",
+      "binary_sha256": "73217de8b13098b071324cff02ef6ee2828a11b864cf474c3cb13bd387ee647a",
+      "architecture": "arm64",
+      "result": {
+        "numer": 125,
+        "denom": 3,
+        "samples": [
+          {
+            "boot_before": 1793116901388153,
+            "boot_after": 1793116901388153,
+            "boot_api": 1793116901388153,
+            "boot_sysctl_usec": 1793116901388153,
+            "absolute_offset": 0,
+            "continuous_offset": 0,
+            "continuous_hw_offset": 0,
+            "tuple": [
+              6721837470364,
+              1793396973,
+              7798416147585340973,
+              768614479732,
+              24000000
+            ],
+            "counter_before": 6721838925116,
+            "counter_after": 6721838925227,
+            "absolute_before": 6721838925118,
+            "absolute_after": 6721838925227,
+            "continuous_before": 6721838925119,
+            "continuous_after": 6721838925226,
+            "timeofday_sec": 1793396973,
+            "timeofday_usec": 483367
+          },
+          {
+            "boot_before": 1793116901388153,
+            "boot_after": 1793116901388153,
+            "boot_api": 1793116901388153,
+            "boot_sysctl_usec": 1793116901388153,
+            "absolute_offset": 0,
+            "continuous_offset": 0,
+            "continuous_hw_offset": 0,
+            "tuple": [
+              6721837470364,
+              1793396973,
+              7798416147585340973,
+              768614479732,
+              24000000
+            ],
+            "counter_before": 6721838925369,
+            "counter_after": 6721838925421,
+            "absolute_before": 6721838925369,
+            "absolute_after": 6721838925421,
+            "continuous_before": 6721838925369,
+            "continuous_after": 6721838925420,
+            "timeofday_sec": 1793396973,
+            "timeofday_usec": 483378
+          },
+          {
+            "boot_before": 1793116901388153,
+            "boot_after": 1793116901388153,
+            "boot_api": 1793116901388153,
+            "boot_sysctl_usec": 1793116901388153,
+            "absolute_offset": 0,
+            "continuous_offset": 0,
+            "continuous_hw_offset": 0,
+            "tuple": [
+              6721837470364,
+              1793396973,
+              7798416147585340973,
+              768614479732,
+              24000000
+            ],
+            "counter_before": 6721838925521,
+            "counter_after": 6721838925570,
+            "absolute_before": 6721838925522,
+            "absolute_after": 6721838925570,
+            "continuous_before": 6721838925522,
+            "continuous_after": 6721838925569,
+            "timeofday_sec": 1793396973,
+            "timeofday_usec": 483384
+          }
+        ],
+        "source_sha256": "23b74c699727803122a7c2e880a479e5d607962ea68e62911370a91af11d7749",
+        "binary_sha256": "73217de8b13098b071324cff02ef6ee2828a11b864cf474c3cb13bd387ee647a"
+      }
     }
   ]
 }

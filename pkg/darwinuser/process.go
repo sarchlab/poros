@@ -22,7 +22,8 @@ const (
 )
 
 type Options struct {
-	Quiescence QuiescencePolicy
+	ClockAnchor *ClockAnchor
+	Quiescence  QuiescencePolicy
 	// SharedCache is borrowed and must remain open until all executions finish.
 	SharedCache    *loader.SharedCache
 	EntropySeed    uint64
@@ -46,6 +47,7 @@ type Process struct {
 	Binary, Dyld Identity
 	MainEntry    uint64
 	kernel       kernelState
+	clock        *virtualClock
 	ran          bool
 }
 
@@ -279,6 +281,13 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		counter.Enabled = true
 		counter.Frequency = 1_000_000_000 * uint64(o.RuntimeProfile.TimebaseDenom) / uint64(o.RuntimeProfile.TimebaseNumer)
 	}
+	clock, clockError := mapVirtualClock(memory, o.RuntimeProfile, o.ClockAnchor)
+	if clockError != nil {
+		return nil, clockError
+	}
+	if clock != nil {
+		counter.Value = clock.anchor.InitialCounter
+	}
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
 	kernel := kernelState{entropyState: entropyState, reserved: append([]addressSpan(nil), reserved...), protected: []addressSpan{{commpageRegionStart, commpageRegionEnd}}}
 	if o.StartupProfile != nil {
@@ -436,5 +445,5 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		}
 		threadProtection = emu.AppleThreadProtectionState{Enabled: true, Value: *o.StartupProfile.ThreadProtectionRegister}
 	}
-	return &Process{kernel: kernel, Registers: emu.Registers{DIT: dit, SpeculationBarrier: speculationBarrier, AppleThreadProtection: threadProtection, BranchTarget: branchTarget, Exclusive: exclusive, PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
+	return &Process{clock: clock, kernel: kernel, Registers: emu.Registers{DIT: dit, SpeculationBarrier: speculationBarrier, AppleThreadProtection: threadProtection, BranchTarget: branchTarget, Exclusive: exclusive, PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
 }

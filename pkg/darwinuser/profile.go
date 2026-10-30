@@ -187,9 +187,6 @@ func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
 		{0x25, 1, uint64(p.UserPageShift)}, {0x26, 2, uint64(p.CacheLineSize)},
 		{0x80, 4, uint64(p.CPUFamily)}, {0x90, 1, uint64(p.UserTimebase)},
 		{0x91, 1, uint64(p.ContinuousHWClock)}, {0x100, 4, uint64(p.KDebug)},
-		{0x88, 8, 0}, // virtual absolute-time counter offset
-		{0x98, 8, 0}, // virtual continuous-time offset; the guest never sleeps/suspends
-		{0xa8, 8, 0}, // virtual continuous hardware-counter base
 	}
 	for _, f := range fields {
 		var b [8]byte

@@ -111,6 +111,14 @@ func (x *Execution) StepDetailed() (arm64asm.Inst, bool, error) {
 		return finish("time_limit", x.ctx.Err())
 	default:
 	}
+	if x.process.clock != nil {
+		if x.process.Registers.Counter.Value == ^uint64(0) {
+			return finish("clock_fault", fmt.Errorf("virtual counter overflow"))
+		}
+		if e := x.process.clock.synchronize(x.process.Registers.Counter.Value); e != nil {
+			return finish("clock_fault", e)
+		}
+	}
 	step, e := emu.StepChecked(&x.process.Registers, &x.memory)
 	if e != nil {
 		kind := "execution_fault"

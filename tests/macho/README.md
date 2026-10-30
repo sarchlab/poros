@@ -18,8 +18,8 @@ All initialization, arithmetic, output and exit remain native program work.
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 Current integer/1000 validation with the corrected ISA, captured runtime profile,
-and the explicit warm shared cache retires 2,276,482 instructions and stops on an
-unmapped eight-byte commpage read at `0xfffffc0a0`, PC `0x18055cd78`, with no guest
+and the explicit warm shared cache retires 2,277,892 instructions and stops at
+unsupported multi-register `LD1 {V3.4S-V5.4S}, [X2]`, PC `0x184bce7d0`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -510,3 +510,29 @@ side-channel/security model. Primary references are Apple's
 [XNU Mach-O startup](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/mach_loader.c),
 [thread initialization](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/arm64/status.c)
 and [PSTATE defaults](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/arm64/proc_reg.h).
+
+An explicit `--clock-anchor` JSON now supplies a native-observed boot epoch,
+initial raw counter, absolute/continuous offsets and five-field calendar tuple.
+The clock collector checks a coherent native tuple against boot APIs, absolute/
+continuous counter brackets and `__commpage_gettimeofday`; it preserves the
+observed NTP scale instead of substituting a nominal frequency conversion.
+This launch input is separate from immutable runtime capabilities and appears
+once in the report with its collector and binary provenance. Guest execution
+consults no host clock. Functional execution advances one captured-frequency
+counter tick per retired instruction; timing-mode clock coupling is still pending.
+The virtual kernel refreshes its read-only calendar tuple at virtual-second
+boundaries, preserving the captured scale and offsets without modeling sleep or
+further NTP adjustments. A scoped mapping handle cannot update any other backing,
+and unmap/remap revokes it. An owned guest tuple-reader test forces a refresh
+between timestamp reads, verifies exactly one retry and checks the final seconds/
+microseconds against independent integer arithmetic. Missing clock anchors leave
+boot/calendar fields unavailable rather than forcing a zero-sentinel fallback.
+
+The calendar fastpath also exercises scalar ADC. A 2,560-case native oracle
+covers carry input, W/X widths, aliases, zero registers and unchanged NZCV;
+timing tests verify a delayed carry producer. The compare/test operand audit
+corrects flag-only CMP, CMN, TST, CCMP, CCMN, FCMP and FCCMP source/destination
+classification. These instructions read their first operand and write no data
+register; conditional comparisons additionally consume NZCV. Legacy cycle
+assertions remain strict, and any resulting differences are audited separately
+without changing benchmark inputs, architectural results or CPU parameters.

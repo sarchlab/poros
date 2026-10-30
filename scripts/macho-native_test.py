@@ -19,6 +19,41 @@ macho = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(macho)
 
 
+class ClockAnchorTests(unittest.TestCase):
+    def capture(self):
+        raw=json.loads((macho.ROOT/"tests/macho/kernel-native-m2.json").read_text())
+        observation=next(o["result"] for o in raw["observations"] if o["source"]=="clock-anchor-probe.c")
+        sample=observation["samples"][0]
+        captured=dict(user_timebase=3,continuous_hwclock=1,numer=observation["numer"],denom=observation["denom"],
+            boot_time_microseconds=sample["boot_before"],initial_counter=sample["counter_after"],absolute_offset=sample["absolute_offset"],
+            continuous_offset=sample["continuous_offset"],continuous_hardware_offset=sample["continuous_hw_offset"],
+            time_of_day=dict(zip(("tick","seconds","fraction","scale","ticks_per_second"),sample["tuple"])),
+            observation={key:sample[key] for key in ("counter_before","counter_after","absolute_before","absolute_after","continuous_before","continuous_after","boot_api","boot_sysctl_usec","timeofday_sec","timeofday_usec")})
+        profile=dict(user_timebase=3,continuous_hwclock=1,timebase_numer=observation["numer"],timebase_denom=observation["denom"])
+        return captured,profile
+
+    def test_native_calendar_bracket_and_preserved_scale(self):
+        captured,profile=self.capture()
+        anchor=macho.validate_clock_anchor_capture(captured,profile)
+        self.assertEqual(anchor["time_of_day"],captured["time_of_day"])
+        self.assertNotIn("observation",anchor)
+        self.assertNotEqual(anchor["time_of_day"]["scale"],(1<<64)//24_000_000)
+
+    def test_incoherent_or_stale_clock_inputs_rejected(self):
+        changes=[("initial_counter",0),("absolute_offset",1<<40),("boot_time_microseconds",0),("continuous_hardware_offset",1)]
+        for key,value in changes:
+            captured,profile=self.capture();captured[key]=value
+            with self.assertRaises(ValueError):macho.validate_clock_anchor_capture(captured,profile)
+        for key,value in (("tick",0),("tick",(1<<64)-1),("seconds",1<<63),("scale",0),("ticks_per_second",0),("ticks_per_second",1)):
+            captured,profile=self.capture();captured["time_of_day"][key]=value
+            with self.assertRaises(ValueError):macho.validate_clock_anchor_capture(captured,profile)
+        for key,value in (("boot_api",0),("counter_after",0),("absolute_before",0),("continuous_before",0),("timeofday_usec",1_000_000),("timeofday_sec",0)):
+            captured,profile=self.capture();captured["observation"][key]=value
+            with self.assertRaises(ValueError):macho.validate_clock_anchor_capture(captured,profile)
+        captured,profile=self.capture();profile["user_timebase"]=2
+        with self.assertRaises(ValueError):macho.validate_clock_anchor_capture(captured,profile)
+
+
 class FailureArtifactTests(unittest.TestCase):
     def test_failure_keeps_case_samples_and_diagnostic(self):
         with tempfile.TemporaryDirectory() as directory:

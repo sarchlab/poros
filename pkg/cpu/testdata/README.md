@@ -117,4 +117,43 @@ pins, and CPU/cache settings remain unchanged. Only these audited cycle fields
 and the corresponding strict fixture SHA pins were updated.
 
 Together with the earlier seven partial-register corrections (one overlapping
-raytrace/inorder row), this PR changes 16 distinct historical cycle rows.
+raytrace/inorder row), the dependency corrections above changed 16 distinct historical cycle rows.
+
+## Corrected flag-only comparison dependencies
+
+CMP, CMN, TST, CCMP, CCMN, FCMP and FCCMP read their first operand; none
+writes a data register. The old generic source scan skipped that operand and
+misclassified CCMN/FCCMP as data writers. Delayed-load→CMP→ADC and delayed-FP-load
+→FCMP/FCCMP→CSET tests now verify real source readiness, NZCV dependencies and
+absence of a spurious destination. ADC's native vectors independently establish
+its input-carry dependency and unchanged flags.
+
+A strict 88-case audit, supplemented by the only registry CCMN workload
+(raytrace), found the following 15 cycle-only differences. Every other field,
+all inputs, initial-state pins, CPU/cache parameters and all 88 assertions are
+unchanged. Default-OoO values apply to each core in both one- and two-core rows.
+
+| Workload / model | Old cycles | Corrected cycles | Rows |
+|---|---:|---:|---:|
+| correlation / default OoO | 1881185 | 1881425 | 2 |
+| fluidanimate / default OoO | 16231 | 16596 | 2 |
+| raytrace / default OoO | 475 | 483 | 2 |
+| ferret / default OoO | 142074 | 142110 | 2 |
+| x264 / default OoO | 246145 | 246140 | 2 |
+| raytrace / no-bp | 301 | 309 | 1 |
+| raytrace / inorder | 1569 | 1571 | 1 |
+| blackscholes / inorder | 643308 | 647404 | 1 |
+| atax / inorder | 10652147 | 10652537 | 1 |
+| gemm / inorder | 11898798 | 11903598 | 1 |
+
+Restoring only the old register classifier restores correlation and raytrace
+assertions. For x264, the old classifier and destination-only correction both
+retain 246145; source-only correction produces 246140, exactly as the complete
+fix. Thus its decrease is caused by the real source dependencies, not removal
+of a false FP destination. Changed dependency readiness affects the existing
+OoO scheduling model; these total cycles are not a monotonic sum of individual
+latencies. No hardware timing fit or parameter adjustment was performed.
+Only audited cycle fields and their strict fixture SHA pins were updated.
+
+Including overlaps with the earlier corrections, this PR now changes 23 distinct
+historical cycle rows; all non-cycle fields remain unchanged by these dependency fixes.

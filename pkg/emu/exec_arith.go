@@ -227,3 +227,15 @@ func (e *executor) execUDIV(inst arm64asm.Inst) error {
 	}
 	return nil
 }
+
+// execADC consumes carry without changing NZCV. Unsigned addition deliberately
+// wraps; writeGPR applies the architectural W-register zero extension.
+func (e *executor) execADC(inst arm64asm.Inst) error {
+	a, b := e.readGPR(inst.Args[1]), e.readGPR(inst.Args[2])
+	carry := uint64(0)
+	if e.regs.C {
+		carry = 1
+	}
+	e.writeGPR(inst.Args[0], a+b+carry)
+	return nil
+}

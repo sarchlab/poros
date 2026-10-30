@@ -87,6 +87,14 @@ func ArgFP(arg arm64asm.Arg) int {
 	return -1
 }
 
+func flagOnly(op arm64asm.Op) bool {
+	switch op {
+	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST, arm64asm.CCMP, arm64asm.CCMN, arm64asm.FCMP, arm64asm.FCCMP:
+		return true
+	}
+	return false
+}
+
 // DestRegs returns the GPR and FP register indices written by inst.
 // Returns -1 if no register of that type is written.
 func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
@@ -119,10 +127,8 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 		return
 	}
 
-	// Compare/test instructions only set flags.
-	switch op {
-	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST,
-		arm64asm.CCMP, arm64asm.FCMP:
+	// Compare/test operands are all inputs; only NZCV is written.
+	if flagOnly(op) {
 		return
 	}
 
@@ -247,6 +253,9 @@ func SourceGPRs(inst arm64asm.Inst) []int {
 	}
 
 	op := inst.Op
+	if flagOnly(op) {
+		ExtractArgGPRs(inst.Args[0], add)
+	}
 
 	if emu.IsExclusiveStore(op) {
 		add(ArgGPR(inst.Args[1]))
@@ -356,6 +365,10 @@ func SourceFPs(inst arm64asm.Inst) []int {
 	// Loads read from memory addresses (GPRs), not FP registers.
 	if IsLoad(inst.Op) {
 		return srcs
+	}
+
+	if flagOnly(inst.Op) {
+		add(ArgFP(inst.Args[0]))
 	}
 
 	// BSL reads the old destination as its bit selection mask.

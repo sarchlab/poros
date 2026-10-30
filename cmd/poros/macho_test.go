@@ -139,3 +139,41 @@ func TestMachOVirtualQuiescencePolicyIsReported(t *testing.T) {
 		t.Fatal(code, diagnostic.String())
 	}
 }
+
+func TestMachOCLIReportsExplicitClockAnchor(t *testing.T) {
+	directory := t.TempDir()
+	program := filepath.Join(directory, "program")
+	dyld := filepath.Join(directory, "dyld")
+	runtime := darwinuser.RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, UserTimebase: 3, ContinuousHWClock: 1}
+	anchor := darwinuser.ClockAnchor{BootTimeMicroseconds: 1_000_000, InitialCounter: 101, TimeOfDay: darwinuser.TimeOfDayAnchor{Tick: 100, Seconds: 10, Scale: 768614479732, TicksPerSecond: 24_000_000}}
+	profilePath := filepath.Join(directory, "runtime.json")
+	clockPath := filepath.Join(directory, "clock.json")
+	rb, _ := json.Marshal(runtime)
+	ab, _ := json.Marshal(anchor)
+	for path, data := range map[string][]byte{program: machotest.Image(2), dyld: machotest.Image(7), profilePath: rb, clockPath: ab} {
+		if e := os.WriteFile(path, data, 0600); e != nil {
+			t.Fatal(e)
+		}
+	}
+	var out, diagnostic bytes.Buffer
+	args := []string{"--dyld", dyld, "--runtime-profile", profilePath, "--clock-anchor", clockPath, program}
+	if code := runMachO(args, &out, &diagnostic); code != 1 || diagnostic.Len() != 0 {
+		t.Fatal(code, diagnostic.String())
+	}
+	var report struct {
+		Clock *darwinuser.ClockAnchor `json:"clock_anchor"`
+	}
+	if e := json.Unmarshal(out.Bytes(), &report); e != nil || report.Clock == nil || *report.Clock != anchor {
+		t.Fatal("clock provenance", e, report)
+	}
+	for _, bad := range [][]byte{[]byte(`{"unknown":1}`), []byte(`{}`), append(ab, []byte(` {}`)...), bytes.Repeat([]byte(" "), 4097)} {
+		if e := os.WriteFile(clockPath, bad, 0600); e != nil {
+			t.Fatal(e)
+		}
+		out.Reset()
+		diagnostic.Reset()
+		if code := runMachO(args, &out, &diagnostic); code != 2 || out.Len() != 0 {
+			t.Fatal("invalid clock input", code, out.String(), diagnostic.String())
+		}
+	}
+}

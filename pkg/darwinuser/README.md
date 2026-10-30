@@ -43,8 +43,9 @@ between arm64 and arm64e; owned probes and observations are in `tests/macho/`.
 
 `--runtime-profile` supplies selected native commpage fields. The collection
 helper reads documented nonsecret capabilities only. Unmodeled fields remain
-unmapped; they are never silently populated with zero. The dynamic continuous
-clock offsets are explicitly zero in the virtual epoch. Functional execution
+unmapped; they are never silently populated with zero. Without a clock anchor, the continuous clock offsets are explicitly zero in
+the virtual epoch and the calendar tuple remains unmapped. An explicit anchor
+supplies the captured offsets and calendar origin described below. Functional execution
 advances the configured virtual counter one tick per retired instruction and
 uses the native timebase ratio; this is deterministic functional time, not a
 cycle-calibrated clock or a host wall-clock sample. Timing mode must supply its
@@ -173,3 +174,15 @@ The executed ISA slice additionally includes scalar BFXIL, RBIT/REV and CSINV,
 LDADD with real read/write memory events, and vector element insertions (MOV/INS)
 with old-destination dependencies. Native vector outputs cover all B/H/S/D lane
 indices and aliases. Conservative atomic serialization remains uncalibrated.
+
+### Explicit wall-clock anchor
+
+`Options.ClockAnchor` is an optional launch snapshot, independent of
+`RuntimeProfile`. It retains the captured boot epoch, raw counter origin, three
+clock offsets and bintime calendar tuple (including NTP-adjusted scale). No host
+clock is queried during execution. Functional time advances one counter tick per
+retired instruction; engine-time coupling is required before timing predictions.
+The virtual kernel refreshes the calendar tuple at whole virtual-second boundaries
+through a scoped read-only mapping update capability. Guest writes remain denied;
+no sleep, later wall-clock adjustment or NTP updates are synthesized. Without an
+anchor, boot and calendar commpage fields stay unmapped.

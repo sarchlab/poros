@@ -144,12 +144,12 @@ def preserve_failure(result, destination, diagnostic):
     destination.write_text(json.dumps(result, indent=2) + "\n")
 
 
-def diagnose_startup(binary, options, case, profile, startup):
+def diagnose_startup(binary, options, case, profile, startup, clock=None):
     source = ROOT / "scripts/macho-diagnostic.go"
     expected_source = digest(source)
     with tempfile.TemporaryDirectory(prefix="poros-macho-diagnostic-") as directory:
         folder = Path(directory)
-        configuration = dict(Quiescence="single-thread-no-scheduling",Binary=str(binary.resolve()), Dyld=options.dyld,
+        configuration = dict(Clock=clock,Quiescence="single-thread-no-scheduling",Binary=str(binary.resolve()), Dyld=options.dyld,
                              Cache=options.shared_cache or "", ExecName=str(binary.resolve()),
                              Args=case["args"], Runtime=profile, Startup=startup,
                              MaxInstructions=options.max_instructions,
@@ -210,6 +210,62 @@ def runtime_profile():
                              branch_target_probe=dict(source_sha256=digest(bti_source),binary_sha256=digest(bti_binary),dyld_sha256=before_dyld,observation=observed,
                                 protocol="generic-arm64 helper; UUID-matched dyld symbol; own child plain/mismatched landing and actual stack-probe entry/after-entry checks; no guarded-page enforcement claim"),
                              compiler=subprocess.check_output([compiler, "--version"], text=True).strip())
+
+
+def validate_clock_anchor_capture(captured, profile):
+    """Validate native clock origins and a fast-API bracket before replay."""
+    if (captured["user_timebase"] != profile["user_timebase"] or captured["continuous_hwclock"] != profile["continuous_hwclock"]
+        or captured["numer"] != profile["timebase_numer"] or captured["denom"] != profile["timebase_denom"]):
+        raise ValueError("clock capture differs from runtime timebase")
+    if (type(captured["numer"]) is not int or type(captured["denom"]) is not int
+        or not 0<captured["numer"]<1<<32 or not 0<captured["denom"]<1<<32
+        or (1_000_000_000*captured["denom"])%captured["numer"]
+        or captured["user_timebase"] not in (1,2,3) or captured["continuous_hwclock"] not in (0,1)):
+        raise ValueError("unsupported clock timebase")
+    keys=("boot_time_microseconds","initial_counter","absolute_offset","continuous_offset","continuous_hardware_offset","time_of_day")
+    anchor={key:captured[key] for key in keys}
+    t=anchor["time_of_day"]; observation=captured["observation"]; mask=(1<<64)-1
+    frequency=1_000_000_000*captured["denom"]//captured["numer"]
+    numbers=[anchor[key] for key in keys[:-1]]+list(t.values())+list(observation.values())
+    if any(type(value) is not int or not 0<=value<=mask for value in numbers):
+        raise ValueError("clock capture integer outside ABI range")
+    absolute=lambda raw:(raw+anchor["absolute_offset"])&mask
+    before=observation["counter_before"];after=observation["counter_after"]
+    if (not anchor["boot_time_microseconds"] or anchor["boot_time_microseconds"]!=observation["boot_api"]
+        or anchor["boot_time_microseconds"]!=observation["boot_sysctl_usec"] or anchor["initial_counter"]!=after
+        or after<before or not t["tick"] or t["seconds"]>=1<<63 or not t["scale"] or t["ticks_per_second"]!=frequency
+        or absolute(before)<t["tick"] or absolute(after)-t["tick"]>=frequency):
+        raise ValueError("invalid clock capture anchor/window")
+    if not absolute(before)<=observation["absolute_before"]<=observation["absolute_after"]<=absolute(after):
+        raise ValueError("absolute clock API outside raw-counter bracket")
+    continuous_offset=(anchor["absolute_offset"]+anchor["continuous_offset"])&mask
+    if captured["continuous_hwclock"] and continuous_offset!=anchor["continuous_hardware_offset"]:
+        raise ValueError("inconsistent continuous clock origin")
+    if not ((before+continuous_offset)&mask)<=observation["continuous_before"]<=observation["continuous_after"]<=((after+continuous_offset)&mask):
+        raise ValueError("continuous clock API outside raw-counter bracket")
+    def wall(raw):
+        fraction=t["fraction"]+t["scale"]*(absolute(raw)-t["tick"])
+        return (t["seconds"]+(fraction>>64))*1_000_000+(((fraction&mask)>>32)*1_000_000>>32)
+    value=observation["timeofday_sec"]*1_000_000+observation["timeofday_usec"]
+    if observation["timeofday_usec"]>=1_000_000 or not wall(before)<=value<=wall(after):
+        raise ValueError("calendar API outside captured tuple bracket")
+    return anchor
+
+
+def clock_anchor(profile):
+    source=ROOT/"scripts/macho-clock.c"
+    source_hash=digest(source)
+    with tempfile.TemporaryDirectory(prefix="poros-clock-anchor-") as directory:
+        binary=Path(directory)/"clock"
+        compiler=subprocess.check_output(["xcrun","--find","clang"],text=True).strip()
+        sdk=subprocess.check_output(["xcrun","--sdk","macosx","--show-sdk-path"],text=True).strip()
+        subprocess.run([compiler,"-isysroot",sdk,"-arch","arm64","-Wall","-Wextra","-Werror",str(source),"-o",str(binary)],check=True,timeout=30)
+        captured=json.loads(subprocess.check_output([str(binary)],env={},timeout=5))
+        if digest(source)!=source_hash:
+            raise ValueError("clock collector source changed during capture")
+        anchor=validate_clock_anchor_capture(captured,profile)
+        return anchor,dict(source_sha256=source_hash,binary_sha256=digest(binary),observation=captured,
+            protocol="selected native counter and coherent calendar tuple; no clock writes; frozen scale/offsets, virtual elapsed ticks only")
 
 
 def run_owned_process(command, timeout, **kwargs):
@@ -449,6 +505,7 @@ def main():
             raise ValueError("Mach-O binary hash mismatch: " + name)
     initial_dyld = digest(options.dyld)
     profile, probe = runtime_profile()
+    anchor, clock_probe = clock_anchor(profile)
     startup, startup_probe = startup_profiles([folder / name for name in sorted(build["binaries"])], options.dyld, manifest["cases"], profile)
     for name, metadata in startup.items():
         if metadata["binary_sha256"] != build["binaries"][name + ".macho"] or metadata["dyld_sha256"] != initial_dyld:
@@ -463,7 +520,7 @@ def main():
             if digest(folder / name) != expected:
                 raise ValueError("workload changed during collection: " + name)
     verify_inputs()
-    result = dict(startup_profiles=startup, startup_probe=startup_probe, runtime_profile=profile, runtime_probe=probe, schema=1, purpose="Mach-O native correctness and incomplete runtime bring-up",
+    result = dict(clock_anchor=anchor,clock_probe=clock_probe,startup_profiles=startup, startup_probe=startup_probe, runtime_profile=profile, runtime_probe=probe, schema=1, purpose="Mach-O native correctness and incomplete runtime bring-up",
                   accuracy_claim=False, collector_sha256=digest(__file__), collected_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   os=subprocess.check_output(["sw_vers"], text=True).strip(),
                   cpu=subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip(),
@@ -479,6 +536,8 @@ def main():
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as profile_file, tempfile.TemporaryDirectory(prefix="poros-startup-inputs-") as startup_directory:
         json.dump(profile, profile_file)
         profile_file.flush()
+        clock_file=Path(startup_directory)/"clock.json"
+        clock_file.write_text(json.dumps(anchor))
         startup_files = {}
         for name, metadata in startup.items():
             path = Path(startup_directory) / (name + ".json")
@@ -497,6 +556,7 @@ def main():
                                   *( ["--shared-cache", options.shared_cache] if options.shared_cache else [] ),
                                   "--max-instructions", str(options.max_instructions),
                                   "--timeout", str(options.execution_timeout_seconds)+"s",
+                                  "--clock-anchor", str(clock_file),
                                   "--startup-profile", str(startup_files[case["workload"]]),
                                   "--runtime-profile", profile_file.name, "--argv0", case["args"][0], str(binary), *case["args"][1:]],
                                  capture_output=True, timeout=120)
@@ -506,6 +566,9 @@ def main():
             witness = json.loads(sim.stdout)
             if witness.get("quiescence_policy")!="single-thread-no-scheduling":
                 raise ValueError("simulator virtual kernel policy mismatch")
+            if witness.pop("clock_anchor",None)!=anchor:
+                raise ValueError("simulator clock anchor differs from captured launch input")
+            witness["clock_anchor_sha256"]=hashlib.sha256(json.dumps(anchor,sort_keys=True).encode()).hexdigest()
             metadata = startup[case["workload"]]
             if witness.pop("startup_profile", None) != metadata:
                 raise ValueError("simulator startup profile differs from native capture")
@@ -530,7 +593,7 @@ def main():
                                          samples=samples, simulator=witness))
             if witness["termination"] not in ("unsupported_instruction", "unsupported_syscall") or witness["instructions"] < 1:
                 try:
-                    diagnosis = diagnose_startup(binary, options, case, profile, metadata)
+                    diagnosis = diagnose_startup(binary, options, case, profile, metadata, anchor)
                     verify_inputs()
                 except Exception as error:
                     diagnosis = dict(error=str(error)[:32768])

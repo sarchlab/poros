@@ -248,3 +248,26 @@ func TestDITAndSBClassification(t *testing.T) {
 		}
 	}
 }
+
+func TestFlagOnlyComparisonsReadBothInputsAndWriteNoData(t *testing.T) {
+	for _, tc := range []struct {
+		word            uint32
+		fp, conditional bool
+	}{{0xeb02003f, false, false}, {0xab02003f, false, false}, {0xea02003f, false, false}, {0xfa420020, false, true}, {0xba420020, false, true}, {0x1e622020, true, false}, {0x1e620420, true, true}} {
+		var b [4]byte
+		binary.LittleEndian.PutUint32(b[:], tc.word)
+		i, e := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
+		if e != nil {
+			t.Fatal(e)
+		}
+		g, f := DestRegs(i)
+		g2, f2 := DestRegs2(i)
+		wantG, wantF := []int{1, 2}, []int(nil)
+		if tc.fp {
+			wantG, wantF = nil, []int{1, 2}
+		}
+		if g != -1 || f != -1 || g2 != -1 || f2 != -1 || !reflect.DeepEqual(SourceGPRs(i), wantG) || !reflect.DeepEqual(SourceFPs(i), wantF) || !SetsFlags(i.Op) || UsesFlags(i.Op) != tc.conditional {
+			t.Fatal("compare dependency", i, SourceGPRs(i), SourceFPs(i), g, f)
+		}
+	}
+}

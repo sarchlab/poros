@@ -41,6 +41,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 	case OpCAS, OpSWP, OpLDADD:
 		return false, e.execAtomic(inst)
 	// Integer arithmetic
+	case arm64asm.ADC:
+		return false, e.execADC(inst)
 	case arm64asm.ADD:
 		return false, e.execADD(inst)
 	case arm64asm.ADDS:
