@@ -2,6 +2,8 @@
 package ooo
 
 import (
+	"fmt"
+
 	"github.com/sarchlab/akita/v5/sim/modeling/ticking"
 	"github.com/sarchlab/akita/v5/sim/timing"
 	instinfo "github.com/sarchlab/poros/pkg/cpu/internal/inst"
@@ -44,11 +46,14 @@ func DefaultSpec() Spec {
 	}
 }
 
-// Resources holds the unchanged functional backend and optional synchronous cache.
-// They are live objects and are not included in component checkpoints.
+// Resources selects exactly one execution policy. Emu preserves legacy kernel
+// hooks and termination behavior. Execution drives a checked process: faults
+// drain older work, and SVC serializes the pipeline. Cache is optional.
+// These live objects are not included in component checkpoints.
 type Resources struct {
-	Emu   *emu.Emulator
-	Cache *mem.Cache
+	Emu       *emu.Emulator
+	Execution emu.Execution
+	Cache     *mem.Cache
 }
 type Ports struct{}
 type Middlewares struct{ Pipeline *middleware }
@@ -56,6 +61,7 @@ type Comp = ticking.Component[Spec, State, Resources, Ports, Middlewares]
 
 // State owns mutable scheduling, queues, predictor tables, and counters.
 type State struct {
+	Serializing                  bool
 	GprReady, FpReady            [32]uint64
 	FlagsReady                   uint64
 	IntUnits, FpUnits, LdstUnits []uint64
@@ -85,10 +91,10 @@ const (
 )
 
 func (s *State) Initialize(c *Comp) {
-	if c.Resources.Emu == nil {
-		panic("ooo: emulator is required")
+	if (c.Resources.Emu == nil) == (c.Resources.Execution == nil) {
+		panic("ooo: exactly one emulator or execution resource is required")
 	}
-	if !c.Resources.Emu.Mem.TrackAccesses {
+	if c.Resources.Emu != nil && !c.Resources.Emu.Mem.TrackAccesses {
 		panic("ooo: enable emulator memory access tracking before Build")
 	}
 	v := c.Spec
@@ -152,7 +158,7 @@ func (p *middleware) Handle(_ timing.Event) bool {
 	p.fetchAndProcess()
 
 	// Check termination: ROB drained and emulator halted.
-	if p.comp.State.RobCount == 0 && p.comp.Resources.Emu.Halted {
+	if p.comp.State.RobCount == 0 && (p.comp.Resources.backend().Stopped() || p.comp.State.Err != "") {
 		p.comp.State.Done = true
 	}
 
@@ -178,22 +184,41 @@ func (p *middleware) retire() {
 // fetchAndProcess fetches up to FetchWidth instructions, decodes, dispatches,
 // and functionally executes each one.
 func (p *middleware) fetchAndProcess() {
+	if p.comp.State.Err != "" {
+		return
+	}
+	if p.comp.State.Serializing {
+		if p.comp.State.RobCount != 0 {
+			return
+		}
+		p.comp.State.Serializing = false
+	}
 	if p.comp.State.Cycles < p.comp.State.FrontendReady {
 		return // frontend stalled from branch penalty
 	}
 
 	fetched := 0
 	for fetched < p.comp.Spec.FetchWidth && p.comp.State.RobCount < p.comp.Spec.ROBCapacity &&
-		p.comp.State.FpInFlight < p.comp.Spec.FpPhysLimit && !p.comp.Resources.Emu.Halted {
+		p.comp.State.FpInFlight < p.comp.Spec.FpPhysLimit && !p.comp.Resources.backend().Stopped() {
 		// 1. Peek at instruction at emulator's current PC.
-		pc := p.comp.Resources.Emu.Regs.PC
-		var buf [4]byte
-		for i := range buf {
-			buf[i] = p.comp.Resources.Emu.Mem.ReadU8(pc + uint64(i))
-		}
-		inst, err := arm64asm.Decode(buf[:])
+		pc := p.comp.Resources.backend().CPURegisters().PC
+		inst, err := p.comp.Resources.backend().Peek(pc)
 		if err != nil {
-			break // end of program or garbage
+			if p.comp.Resources.processMode() {
+				// Resolve a checked fetch fault only after older work retires.
+				if p.comp.State.RobCount != 0 {
+					return
+				}
+				_, _, err = p.comp.Resources.backend().StepDetailed()
+				if err != nil {
+					p.comp.State.Err = fmt.Sprintf("fetch: %v", err)
+				}
+				p.comp.State.Done = true
+			}
+			return
+		}
+		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC && p.comp.State.RobCount != 0 {
+			return
 		}
 
 		// 2. Compute source operand readiness.
@@ -226,18 +251,20 @@ func (p *middleware) fetchAndProcess() {
 		issueCycle = bestCycle
 
 		// 4. Execute functionally (in program order).
-		_, branched, execErr := p.comp.Resources.Emu.StepDetailed()
+		_, branched, execErr := p.comp.Resources.backend().StepDetailed()
 		if execErr != nil {
-			p.comp.State.Err = execErr.Error()
-			p.comp.State.Done = true
+			p.comp.State.Err = fmt.Sprintf("execute: %v", execErr)
+			if !p.comp.Resources.processMode() {
+				p.comp.State.Done = true
+			}
 			return
 		}
 
 		// 5. Address-based load-store disambiguation (after StepDetailed
-		//    so actual addresses are available in p.comp.Resources.Emu.Mem.Accesses).
+		//    so actual addresses are available in p.comp.Resources.backend().MemoryAccesses()).
 		forwarded := false
 		if instinfo.IsLoad(inst.Op) {
-			accesses := p.comp.Resources.Emu.Mem.Accesses
+			accesses := p.comp.Resources.backend().MemoryAccesses()
 			allForwarded := len(accesses) > 0
 			for _, acc := range accesses {
 				covered := false
@@ -327,7 +354,7 @@ func (p *middleware) fetchAndProcess() {
 
 		// 8. For stores: add to store buffer.
 		if instinfo.IsStore(inst.Op) {
-			for _, acc := range p.comp.Resources.Emu.Mem.Accesses {
+			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
 				entry := storeBufferEntry{
 					Addr:          acc.Addr,
 					Size:          acc.Size,
@@ -366,7 +393,7 @@ func (p *middleware) fetchAndProcess() {
 
 			// Actual outcome from StepDetailed.
 			actualTaken := branched
-			actualTarget := p.comp.Resources.Emu.Regs.PC
+			actualTarget := p.comp.Resources.backend().CPURegisters().PC
 
 			// Update predictor with actual outcome.
 			p.predictor().Update(pc, actualTaken, actualTarget, predTaken, isCall, isReturn)
@@ -395,6 +422,10 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		fetched++
+		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC {
+			p.comp.State.Serializing = true
+			return
+		}
 	}
 }
 
@@ -492,7 +523,7 @@ func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64) (latency 
 func (p *middleware) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bool) {
 	if instinfo.IsLoad(inst.Op) {
 		if p.comp.Resources.Cache != nil {
-			accesses := p.comp.Resources.Emu.Mem.Accesses
+			accesses := p.comp.Resources.backend().MemoryAccesses()
 			if len(accesses) == 0 {
 				return uint64(p.comp.Spec.LoadLatency), false
 			}
@@ -517,7 +548,7 @@ func (p *middleware) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bo
 	}
 	if instinfo.IsStore(inst.Op) {
 		if p.comp.Resources.Cache != nil {
-			for _, acc := range p.comp.Resources.Emu.Mem.Accesses {
+			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
 				p.comp.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
 			}
 		}
@@ -542,3 +573,13 @@ func (p *middleware) acquireMSHR(issueCycle uint64) (int, uint64) {
 	}
 	return bestIdx, issueCycle
 }
+
+func (r Resources) backend() emu.Execution {
+	if r.Execution != nil {
+		return r.Execution
+	}
+	return r.Emu
+}
+
+// processMode enables process boundary/fault policy independently of backend state.
+func (r Resources) processMode() bool { return r.Execution != nil }

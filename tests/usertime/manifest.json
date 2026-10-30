@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "compiler": "aarch64-linux-musl-gcc 14.2.0",
+  "sources": {
+    "start.S": "0236d9d08552be0c4f3776988b5f23ae2576dd07e635dde12c0b8dcea2a4aab6",
+    "program.c": "8563f6350abde8614160db31759761726b981ae501e0677140841c25ad58e3ea",
+    "layout.ld": "9d942ff9006b4a5269475b6a0b455837d1c82c8b2bd5d5ee8f898f782129b5e9",
+    "build.sh": "bf76c197a38a938011286df466c44c786aaeebcbc6d25412b4cb1b25db589724"
+  },
+  "cases": [
+    {
+      "id": "integer-2000000",
+      "file": "integer.elf",
+      "sha256": "092a3c70ae021ea24fc3e81ac28247fe46b5f1251c9d9123b756a905e0130576",
+      "args": [
+        "program",
+        "2000000"
+      ],
+      "env": [],
+      "split": "calibration",
+      "model": "ooo",
+      "frequency_hz": 3490000000
+    },
+    {
+      "id": "integer-8000000",
+      "file": "integer.elf",
+      "sha256": "092a3c70ae021ea24fc3e81ac28247fe46b5f1251c9d9123b756a905e0130576",
+      "args": [
+        "program",
+        "8000000"
+      ],
+      "env": [],
+      "split": "calibration",
+      "model": "ooo",
+      "frequency_hz": 3490000000
+    },
+    {
+      "id": "memory-2000000",
+      "file": "memory.elf",
+      "sha256": "f1d97063c3e28f74346f81003894006364823623c1878b6d6809f2b518f79d99",
+      "args": [
+        "program",
+        "2000000"
+      ],
+      "env": [],
+      "split": "held_out",
+      "model": "ooo",
+      "frequency_hz": 3490000000
+    },
+    {
+      "id": "memory-8000000",
+      "file": "memory.elf",
+      "sha256": "f1d97063c3e28f74346f81003894006364823623c1878b6d6809f2b518f79d99",
+      "args": [
+        "program",
+        "8000000"
+      ],
+      "env": [],
+      "split": "held_out",
+      "model": "ooo",
+      "frequency_hz": 3490000000
+    },
+    {
+      "id": "branch-2000000",
+      "file": "branch.elf",
+      "sha256": "e5e252c48287590f59a7e81b2abff508eb0b61574cc9dd5ef7b22d7600137ea8",
+      "args": [
+        "program",
+        "2000000"
+      ],
+      "env": [],
+      "split": "held_out",
+      "model": "ooo",
+      "frequency_hz": 3490000000
+    },
+    {
+      "id": "branch-8000000",
+      "file": "branch.elf",
+      "sha256": "e5e252c48287590f59a7e81b2abff508eb0b61574cc9dd5ef7b22d7600137ea8",
+      "args": [
+        "program",
+        "8000000"
+      ],
+      "env": [],
+      "split": "held_out",
+      "model": "ooo",
+      "frequency_hz": 3490000000
+    }
+  ],
+  "profile": {
+    "configuration": {
+      "freq": 3490000000,
+      "fetch_width": 3,
+      "retire_width": 8,
+      "rob_capacity": 256,
+      "num_int": 6,
+      "num_fp": 4,
+      "num_ldst": 4,
+      "branch_penalty": 17,
+      "load_latency": 5,
+      "fp_phys_limit": 72,
+      "store_buffer_size": 56,
+      "num_mshr_entries": 12,
+      "branch_prediction": true,
+      "predictor": {
+        "bimodal_size": 4096,
+        "tagged_table_size": 2048,
+        "btb_size": 2048,
+        "btb_ways": 4,
+        "ras_size": 32,
+        "tagged_hist_len": 32
+      },
+      "func_hook_cycles": null
+    },
+    "cache_config": {
+      "L1Size": 131072,
+      "L1Ways": 8,
+      "L1LineSize": 64,
+      "L2Size": 16777216,
+      "L2Ways": 16,
+      "L2LineSize": 128,
+      "L1Latency": 5,
+      "L2Latency": 14,
+      "DRAMLatency": 335
+    }
+  }
+}

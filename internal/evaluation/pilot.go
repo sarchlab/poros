@@ -60,6 +60,7 @@ type PilotCase struct {
 	SimWallSeconds          float64        `json:"simulator_wall_seconds"`
 }
 type PilotReport struct {
+	ErrorFormula  string            `json:"error_formula"`
 	Dirty         bool              `json:"working_tree_dirty"`
 	HarnessFlags  []string          `json:"harness_link_flags"`
 	LoadBefore    string            `json:"host_load_before"`
@@ -141,7 +142,7 @@ func FunctionBytes(path string) ([]byte, error) {
 	return append([]byte(nil), b[:last]...), nil
 }
 func Pilot(ctx context.Context, root, commit string, sizes []int, reps int) (PilotReport, error) {
-	r := PilotReport{SchemaVersion: 1, Commit: commit, Created: time.Now().UTC().Format(time.RFC3339), Status: "fail", GoVersion: runtime.Version(), Hardware: map[string]string{"core_type": "unknown", "core_affinity": "not pinned"}, Hashes: map[string]string{}, Profile: ooo.DefaultSpec(), CacheConfig: mem.DefaultCacheConfig(), AssumedHz: float64(ooo.DefaultSpec().Freq),
+	r := PilotReport{ErrorFormula: AccuracyFormula, SchemaVersion: 1, Commit: commit, Created: time.Now().UTC().Format(time.RFC3339), Status: "fail", GoVersion: runtime.Version(), Hardware: map[string]string{"core_type": "unknown", "core_affinity": "not pinned"}, Hashes: map[string]string{}, Profile: ooo.DefaultSpec(), CacheConfig: mem.DefaultCacheConfig(), AssumedHz: float64(ooo.DefaultSpec().Freq),
 		Policy:      "Function-level MVT, initialized deterministic data; native warm-up traversal then reset outside each individually timed ROI, batches sum ROI times; simulator initializes data and warms tags in allocation order, then clears counters. Times are cycles / assumed frequency. No frequency or P/E correction.",
 		Limitations: []string{"Provisional evaluation pipeline evidence, not a calibrated/validated hardware profile.", "Native core identity and instantaneous frequency are unknown; hardware counters unavailable.", "Native and simulated cache-start states are not proven equivalent, especially above cache capacity.", "Function bytes match, but native and simulated virtual addresses/alignment need not match.", "Legacy MVT informed earlier model development; these are future-calibration cases, not independent holdouts.", "Timer overhead is reported, not subtracted; very short ROIs have limited timing precision."}}
 	dirty, e := WorkingTreeDirty(root)
@@ -394,7 +395,10 @@ func simulate(ctx context.Context, code []byte, c *PilotCase) (err error) {
 	c.Cycles = core.State.Cycles
 	c.CPI = core.State.CPI()
 	c.SimulatedNS = float64(c.Cycles) * 1e9 / float64(core.Spec.Freq)
-	c.AbsolutePercentageError = 100 * math.Abs(c.SimulatedNS-c.MedianNS) / c.MedianNS
+	c.AbsolutePercentageError, err = AccuracyError(c.SimulatedNS, c.MedianNS)
+	if err != nil {
+		return err
+	}
 	c.Cache = cache.Stats()
 	c.BranchPredictions = core.State.Predictor.Predictions
 	c.BranchHits = core.State.Predictor.Hits
