@@ -1,0 +1,55 @@
+{
+  "commit": "cb965b4d41fc7d52281652c3bce7803cc893cae0",
+  "kind": "main",
+  "conclusion": "success",
+  "run_id": 41049952766,
+  "run_attempt": 1,
+  "run_url": "https://github.com/sarchlab/poros/actions/runs/41049952766/attempts/1",
+  "evidence_run_url": "https://github.com/sarchlab/poros/actions/runs/41049952766/attempts/1",
+  "main": true,
+  "artifact_status": "pass",
+  "accuracy_status": "unverified",
+  "series": "39ed372344452088b38afa6740e8471f560099c1ca6832d1d982c6f60a2e2bee",
+  "summary": {
+    "calibration": {
+      "required": 12,
+      "comparable": 0
+    },
+    "held_out": {
+      "required": 12,
+      "comparable": 2,
+      "base": {
+        "mean_error_percent": 29.684667002801497,
+        "maximum_error_percent": 31.64266204579692
+      },
+      "head": {
+        "mean_error_percent": 29.684667002801497,
+        "maximum_error_percent": 31.64266204579692
+      }
+    }
+  },
+  "releases": [],
+  "evidence_files": [
+    "inputs/branch.elf",
+    "inputs/build.sh",
+    "inputs/integer.elf",
+    "inputs/layout.ld",
+    "inputs/memory.elf",
+    "inputs/mvt.c",
+    "inputs/mvt.elf",
+    "inputs/program.c",
+    "inputs/runtime.h",
+    "inputs/start.S",
+    "manifest.json",
+    "native_usertime.py",
+    "reference.json",
+    "report.json",
+    "report.md",
+    "workload_contract.py"
+  ],
+  "measurement_completed_at": "2026-10-30T02:31:01Z",
+  "evaluation_run_id": 41049952766,
+  "evaluation_run_attempt": 1,
+  "evaluation_conclusion": "success",
+  "evaluation_run_url": "https://github.com/sarchlab/poros/actions/runs/41049952766/attempts/1"
+}
