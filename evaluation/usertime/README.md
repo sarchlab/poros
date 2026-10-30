@@ -111,6 +111,9 @@ No personal access token or extra service is required. The publishing job uses
 `contents: write` to update that branch and `pages: write` to explicitly request
 a Pages build, then waits for a successful build that contains its publication.
 A default `GITHUB_TOKEN` push alone does not trigger a branch-based Pages build.
+Because the build API initially may return the previous `latest` build, polling
+ignores unrelated older successes/errors until the requested commit or a descendant
+is built, errors, or the bounded timeout expires.
 
 Every PR update produces an HTML preview plus JSON/Markdown and a complete
 evidence bundle in the `user-time-accuracy-ATTEMPT` artifact, retained for 30 days. PR
@@ -121,20 +124,31 @@ verifying their workflow, repository, commit and attempt. Artifact names include
 the attempt number. A rerun of failed jobs may reuse the newest earlier artifact
 from the same run and commit, preserving its original evidence-attempt link. Failed/cancelled runs
 are visible, including an explicit missing-report record when no artifact exists.
+Early validation failures retain the original diagnostic JSON unchanged inside a
+bundle bound to the requested target; the page explicitly states that no executed
+source/binary identity was recorded.
 A release/manual accuracy build is not a full Evaluation run; its status is
 reported separately, and manual recovery queries full Evaluation proof for the
-exact commit before qualifying it. Only a complete report with a successful Evaluation run can become the latest
-successful main report. The homepage separately queries current main's public
+exact commit before qualifying it. Only a complete report with a successful
+Evaluation run can become the latest successful main report. The homepage separately queries current main's public
 GitHub status; if that query is unavailable it labels the displayed snapshot.
 
 The archive retains the **20 newest ordinary main commits**, ordered by main's
 first-parent ancestry rather than completion time. Published releases permanently
 pin the exact tag commit and do not occupy those 20 slots. Releasing a commit
 already in the archive reuses its original successful report bytes, base revision
-and measurements. If no report exists, a read-only job builds the exact release
-commit; versions predating this protocol receive an explicit unsupported/failure
-report. Published prereleases follow the same permanent retention policy. Deleting
-a GitHub release does not automatically delete its evidence.
+and measurements. Only validated passing evidence is reused; missing, failed or
+invalid evidence triggers a read-only build of the exact release commit.
+Automatic release events run the workflow stored in the tagged revision, so they
+apply only to tags that contain this workflow. For older/missed tags or recovery,
+run `Publish accuracy reports` manually **from main** with `release_tag` set to an
+existing published release. The resolver rejects drafts/nonexistent releases,
+records the stable release ID and exact tag SHA (including annotated tags), and
+rechecks both before publication. Automatic release events also bind that SHA to
+the original event's `GITHUB_SHA`. An old target predating this timing protocol
+receives an explicit unsupported/failure report through this manual path. No
+release is created by the workflow. Published prereleases follow the same permanent
+retention policy. Deleting a GitHub release does not automatically delete its evidence.
 
 Each report is self-contained: raw native samples, manifest/hardware profile,
 measurement harness, workload sources and ELF files accompany the original report
@@ -151,8 +165,12 @@ optimistic Git push retries for concurrent manual changes. Non-PR evaluations
 have unique concurrency groups; PR updates cancel superseded PR evaluations.
 Late reports cannot move the latest pointer backward. A release and main report
 for the same SHA share one directory. Successful report evidence is immutable;
-later successful Evaluation attempts can establish CI success without replacing
-that original evidence. A failed report can be replaced by a successful retry.
+Evaluation identity is ordered separately from publication-job identity, so a
+release/manual run cannot hide a later Evaluation completion. The newest verified
+Evaluation outcome controls latest-success eligibility: a later failed or pending
+attempt makes that commit ineligible, while an older event or a weaker lookup for
+the same attempt cannot erase completed proof. A failed report can be replaced by
+a successful retry without overwriting earlier successful measurement evidence.
 
 The site renders the report's numeric fields directly. It does not recalculate
 errors, subtract fitted overheads, invent thresholds, or turn noisy observations
@@ -175,5 +193,9 @@ out-of-order arrivals, malformed evidence, escaping, zero-error charts, provenan
 boundaries and a real local bare-Git publish. A Pages workflow becomes active only
 once this change and its whole-program timing dependency are merged into `main`.
 A PR artifact/local preview is not proof that automatic production deployment has
-already run. `workflow_dispatch` on main supports recovery without creating a
-release. Publication failure is a failed Actions job, not a silent green result.
+already run. `workflow_dispatch` on main with empty `release_tag` recovers the main
+report;
+with a tag it backfills an existing published release. Release/manual artifacts
+also carry attempt-specific names, with validated earlier-attempt reuse when only
+failed jobs are rerun. Publication failure is a failed Actions job, not a silent
+green result.

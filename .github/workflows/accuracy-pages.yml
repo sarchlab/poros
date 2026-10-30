@@ -7,6 +7,12 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing published release tag to recover/backfill; leave empty for main'
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: read
 # Preserve queued publications instead of replacing pending main/release runs.
@@ -25,10 +31,15 @@ jobs:
           ref: main
           path: tools
           persist-credentials: false
+      - name: Resolve published release or main target
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/scripts/publish_accuracy.py --resolve-target "$RUNNER_TEMP/accuracy-target.json"
       - name: Exact release or main source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
+          ref: ${{ steps.target.outputs.commit }}
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -38,12 +49,12 @@ jobs:
       - name: Reuse retained evidence or measure the exact target
         id: measure
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          TARGET_KIND: ${{ steps.target.outputs.kind }}
         run: |
           target=$(git -C source rev-parse HEAD)
           echo "TARGET_SHA=$target" >> "$GITHUB_ENV"
           git clone --depth 1 --branch gh-pages "https://github.com/$GITHUB_REPOSITORY.git" pages
-          if [ "$EVENT_NAME" = release ] && [ -f "pages/calibration/runs/$target/bundle.json" ]; then
+          if [ "$TARGET_KIND" = release ] && python3 tools/scripts/accuracy_site.py reusable --bundle "pages/calibration/runs/$target" --commit "$target"; then
             mkdir -p evidence
             cp -R "pages/calibration/runs/$target/." evidence/
             exit 0
@@ -65,10 +76,11 @@ jobs:
             fi
             python3 tools/scripts/accuracy_site.py bundle --report raw/report.json --source source --output evidence --commit "$target"
           fi
+          cp "$RUNNER_TEMP/accuracy-target.json" evidence/publication-target.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: release-accuracy-evidence
+          name: release-accuracy-evidence-${{ github.run_attempt }}
           path: evidence/
           retention-days: 30
           if-no-files-found: error
@@ -87,12 +99,6 @@ jobs:
           ref: main
           fetch-depth: 0
           persist-credentials: false
-      - name: Download release/manual evidence
-        if: github.event_name != 'workflow_run'
-        uses: actions/download-artifact@v4
-        with:
-          name: release-accuracy-evidence
-          path: evidence/
       - name: Publish branch and request Pages build
         env:
           GH_TOKEN: ${{ github.token }}
