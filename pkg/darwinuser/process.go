@@ -74,6 +74,9 @@ func Parse(binary, dyld []byte, o Options) (*Process, error) {
 }
 func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	if o.RuntimeProfile != nil {
+		if err := validateDirectories(o.RuntimeProfile.Directories); err != nil {
+			return nil, err
+		}
 		if err := validateSysctlNames(o.RuntimeProfile.SysctlNames); err != nil {
 			return nil, err
 		}
@@ -302,6 +305,13 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		alignment = emu.AtomicWithin16Bytes
 	}
 	if o.RuntimeProfile != nil {
+		kernel.directories = append([]RuntimeDirectory(nil), o.RuntimeProfile.Directories...)
+		for i := range kernel.directories {
+			if kernel.directories[i].Stat != nil {
+				stat := *kernel.directories[i].Stat
+				kernel.directories[i].Stat = &stat
+			}
+		}
 		for _, name := range o.RuntimeProfile.SysctlNames {
 			entry := SysctlName{Name: name.Name, MIB: append([]int32(nil), name.MIB...)}
 			if name.Int32 != nil {

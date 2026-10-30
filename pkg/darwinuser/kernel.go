@@ -10,6 +10,8 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
+	directories                                []RuntimeDirectory
+	descriptors                                map[uint32]guestDescriptor
 	amfi                                       *AMFIPolicy
 	files                                      []FileIdentity
 	sysctlNames                                []SysctlName
@@ -46,6 +48,18 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return true
 	}
 	switch number {
+	case 5:
+		return k.open(r, m)
+	case 41:
+		return k.duplicateDescriptor(r)
+	case 92:
+		return k.fcntl(r, m)
+	case 470:
+		return k.statAt(r, m)
+	case 463:
+		return k.openAt(r, m)
+	case 6:
+		return k.closeDescriptor(r)
 	case 202:
 		return k.sysctl(r, m)
 	case 381:

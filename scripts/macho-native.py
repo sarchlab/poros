@@ -55,6 +55,9 @@ def runtime_profile():
         source = ROOT / "scripts/macho-runtime.c"
         subprocess.run([compiler, "-isysroot", sdk, "-arch", "arm64", str(source), "-o", str(binary)], check=True, timeout=30)
         profile = json.loads(subprocess.check_output([str(binary)], env={}, timeout=5))
+        cache_parent=str(Path(profile["cache_dynamic"]["cache_path"]).parent)
+        if not any(d["canonical_path"]==cache_parent for d in profile["directories"]):
+            raise ValueError("captured directory does not match native shared-cache location")
         return profile, dict(source_sha256=digest(source), binary_sha256=digest(binary),
                              compiler=subprocess.check_output([compiler, "--version"], text=True).strip())
 

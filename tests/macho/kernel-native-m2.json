@@ -2638,6 +2638,596 @@
         "legacy_dev_firm": 0,
         "read_only_dev_firm": 0
       }
+    },
+    {
+      "source": "root-directory-probe.c",
+      "source_sha256": "b977cc6fb1c8862700dc8c7400bc398d66e420aca605ba58610c713da6f74337",
+      "architecture": "arm64",
+      "binary_sha256": "dcf8dad9b67c745ffc81b78c14c60f6469ecc219f5673fa1e4c6891c361f5b04",
+      "result": [
+        {
+          "case": "root_directory_nofollow",
+          "x0": 3,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "close_owned_directory",
+          "x0": 0,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "close_already_closed",
+          "x0": 9,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "root_directory",
+          "x0": 3,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "close_owned_directory",
+          "x0": 0,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "close_already_closed",
+          "x0": 9,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "root_readonly",
+          "x0": 3,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "close_owned_directory",
+          "x0": 0,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "close_already_closed",
+          "x0": 9,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "empty_path",
+          "x0": 2,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "null_path",
+          "x0": 14,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "unmapped_path",
+          "x0": 14,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "regular_file_via_symlink_parent",
+          "x0": 62,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "close_invalid_minus1",
+          "x0": 9,
+          "x1": 0,
+          "carry": true
+        }
+      ]
+    },
+    {
+      "source": "runtime-directory-probe.c",
+      "source_sha256": "4444641b43b7e43e219998d752ed0be82102119ff2569ff8021851acb530eecf",
+      "architecture": "arm64",
+      "binary_sha256": "83420f78c88f3b722363189b944da8e19c668d7d832e356207a5d70690d90198",
+      "result": {
+        "cases": [
+          {
+            "case": "relative_directory",
+            "x0": 4,
+            "x1": 0,
+            "carry": false
+          },
+          {
+            "case": "relative_nofollow_any",
+            "x0": 62,
+            "x1": 0,
+            "carry": true
+          },
+          {
+            "case": "absolute_directory",
+            "x0": 4,
+            "x1": 0,
+            "carry": false
+          },
+          {
+            "case": "absolute_ignores_bad_fd",
+            "x0": 4,
+            "x1": 0,
+            "carry": false
+          },
+          {
+            "case": "relative_bad_fd",
+            "x0": 9,
+            "x1": 0,
+            "carry": true
+          },
+          {
+            "case": "empty_path",
+            "x0": 2,
+            "x1": 0,
+            "carry": true
+          },
+          {
+            "case": "null_path",
+            "x0": 14,
+            "x1": 0,
+            "carry": true
+          },
+          {
+            "case": "unmapped_path",
+            "x0": 14,
+            "x1": 0,
+            "carry": true
+          },
+          {
+            "case": "root_dot",
+            "x0": 4,
+            "x1": 0,
+            "carry": false
+          },
+          {
+            "case": "root_dotdot",
+            "x0": 4,
+            "x1": 0,
+            "carry": false
+          }
+        ],
+        "directory": {
+          "path": "/System/Cryptexes/OS",
+          "canonical_path": "/System/Volumes/Preboot/Cryptexes/OS",
+          "symlink_target": "../../System/Volumes/Preboot/Cryptexes/OS",
+          "symlink_mode": 41453,
+          "device": 16777232,
+          "inode": 98,
+          "mode": 16877,
+          "uid": 0,
+          "gid": 0
+        }
+      }
+    },
+    {
+      "source": "dup-directory-probe.c",
+      "source_sha256": "1a08efdbc8be010edcbe2121398c78911d363d6ace621e0cc0d2d3f23182bdf6",
+      "architecture": "arm64",
+      "binary_sha256": "2b89f7a273a661acce38442e157843cc06f2d10ef5a7329ebb5c412617db012c",
+      "result": [
+        {
+          "case": "duplicate_directory",
+          "x0": 5,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "close_original",
+          "x0": 0,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "duplicate_survives_close_and_reuses_lowest",
+          "x0": 4,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "close_first_duplicate",
+          "x0": 0,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "duplicate_low_signed32_fd",
+          "x0": 5,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "duplicate_invalid_minus1",
+          "x0": 9,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "duplicate_invalid_minus2",
+          "x0": 9,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "duplicate_unopened_fd",
+          "x0": 9,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "close_last_alias4",
+          "x0": 0,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "close_last_alias5",
+          "x0": 0,
+          "x1": 0,
+          "carry": false
+        },
+        {
+          "case": "duplicate_closed_fd",
+          "x0": 9,
+          "x1": 0,
+          "carry": true
+        },
+        {
+          "case": "close_root",
+          "x0": 0,
+          "x1": 0,
+          "carry": false
+        }
+      ]
+    },
+    {
+      "source": "fstatat-directory-probe.c",
+      "source_sha256": "ff3092f4c521da62cecefdcb445152f2873d74886d2631eeb355cfb658bf5bcb",
+      "architecture": "arm64",
+      "binary_sha256": "2e331b2d7b314644daa17848db9b36648b68589ca7f59b7d8bb46f46984a9a05",
+      "result": {
+        "size": 144,
+        "offsets": {
+          "st_dev": 0,
+          "st_mode": 4,
+          "st_nlink": 6,
+          "st_ino": 8,
+          "st_uid": 16,
+          "st_gid": 20,
+          "st_rdev": 24,
+          "st_atimespec": 32,
+          "st_mtimespec": 48,
+          "st_ctimespec": 64,
+          "st_birthtimespec": 80,
+          "st_size": 96,
+          "st_blocks": 104,
+          "st_blksize": 112,
+          "st_flags": 116,
+          "st_gen": 120,
+          "st_lspare": 124,
+          "st_qspare": 128
+        },
+        "cases": [
+          {
+            "case": "selected_relative_directory",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "10000001ed415600117b03000000000000000000000000000000000000000000f397da6a000000000000000000000000f397da6a000000000000000000000000f397da6a000000000000000000000000f397da6a000000000000000000000000c00a00000000000000000000000000000010000000000800000000000000000000000000000000000000000000000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "selected_absolute_directory",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "10000001ed415600117b03000000000000000000000000000000000000000000f397da6a000000000000000000000000f397da6a000000000000000000000000f397da6a000000000000000000000000f397da6a000000000000000000000000c00a00000000000000000000000000000010000000000800000000000000000000000000000000000000000000000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "absolute_ignores_bad_fd",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "10000001ed415600117b03000000000000000000000000000000000000000000f397da6a000000000000000000000000f397da6a000000000000000000000000f397da6a000000000000000000000000f397da6a000000000000000000000000c00a00000000000000000000000000000010000000000800000000000000000000000000000000000000000000000000a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "relative_bad_fd",
+            "x0": 9,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "empty_path",
+            "x0": 2,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "null_path",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "bad_path",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "null_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": ""
+          },
+          {
+            "case": "readonly_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "short_output_prefix",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5"
+          }
+        ],
+        "decoded_fields": {
+          "device": 16777232,
+          "mode": 16877,
+          "links": 86,
+          "inode": "228113",
+          "uid": 0,
+          "gid": 0,
+          "rdev": 0,
+          "size": "2752",
+          "blocks": "0",
+          "block_size": 4096,
+          "flags": 524288,
+          "generation": 0,
+          "atime": {
+            "seconds": "1792710643",
+            "nanoseconds": "0"
+          },
+          "mtime": {
+            "seconds": "1792710643",
+            "nanoseconds": "0"
+          },
+          "ctime": {
+            "seconds": "1792710643",
+            "nanoseconds": "0"
+          },
+          "birthtime": {
+            "seconds": "1792710643",
+            "nanoseconds": "0"
+          }
+        },
+        "decoded_fields_method": "Independent native offsetof/sizeof plus Python unpack of the three identical successful raw outputs."
+      }
+    },
+    {
+      "source": "dyld-directory-open-probe.c",
+      "source_sha256": "b5062a921b1136446a461eec861d4fe043795b4824b8a8e0c872bb406f0fe830",
+      "architecture": "arm64",
+      "binary_sha256": "7294c56795ea85dae17d7d36d841c806a3c338d7d4cea5a0c06a36ad8e8738ec",
+      "result": [
+        {
+          "path": "System/Library/dyld/",
+          "x0": 5,
+          "x1": 0,
+          "carry": false,
+          "device": 16777232,
+          "inode": 228113,
+          "mode": 16877
+        },
+        {
+          "path": "System/Library/dyld",
+          "x0": 5,
+          "x1": 0,
+          "carry": false,
+          "device": 16777232,
+          "inode": 228113,
+          "mode": 16877
+        },
+        {
+          "path": "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/",
+          "x0": 5,
+          "x1": 0,
+          "carry": false,
+          "device": 16777232,
+          "inode": 228113,
+          "mode": 16877
+        }
+      ]
+    },
+    {
+      "source": "fgetpath-directory-probe.c",
+      "source_sha256": "a4de0223feb6c56845db5853f52a79753a3e709633cf05e0a216e4443a13e6ee",
+      "architecture": "arm64",
+      "binary_sha256": "379ee05c2c3a1f3968b6f93bae9b9f89b699b8381c4cce9997abf0ccd521c3ae",
+      "result": {
+        "expected": "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld",
+        "size": 57,
+        "cases": [
+          {
+            "case": "full_buffer",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "2f53797374656d2f566f6c756d65732f507265626f6f742f4372797074657865732f4f532f53797374656d2f4c6962726172792f64796c6400a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "low32_fd",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "2f53797374656d2f566f6c756d65732f507265626f6f742f4372797074657865732f4f532f53797374656d2f4c6962726172792f64796c6400a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "invalid_fd",
+            "x0": 9,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "null_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": ""
+          },
+          {
+            "case": "readonly_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "unmapped_output",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": ""
+          },
+          {
+            "case": "partial_one",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5"
+          },
+          {
+            "case": "partial_eight",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "a5a5a5a5a5a5a5a5"
+          },
+          {
+            "case": "partial_sixteen",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "2f53797374656d2f566f6c756d65732f"
+          },
+          {
+            "case": "missing_nul",
+            "x0": 14,
+            "x1": 0,
+            "carry": true,
+            "bytes": "2f53797374656d2f566f6c756d65732f507265626f6f742f4372797074657865732f4f532f53797374656d2f4c6962726172792f64796c64"
+          },
+          {
+            "case": "exact_size",
+            "x0": 0,
+            "x1": 0,
+            "carry": false,
+            "bytes": "2f53797374656d2f566f6c756d65732f507265626f6f742f4372797074657865732f4f532f53797374656d2f4c6962726172792f64796c6400"
+          }
+        ]
+      }
+    },
+    {
+      "source": "rosetta-directory-probe.c",
+      "source_sha256": "f15e1686f0ac91f7811a169f5420817171fecd66c18dac90e8d77d025e84791a",
+      "architecture": "arm64",
+      "binary_sha256": "4aad9e3b4d21907f8c8fdce53a91d7e1cc6cc948e15aae8f021027f4c8b2ca82",
+      "result": {
+        "cases": [
+          {
+            "case": "relative_directory",
+            "x0": 4,
+            "x1": 0,
+            "carry": false
+          },
+          {
+            "case": "relative_nofollow_any",
+            "x0": 62,
+            "x1": 0,
+            "carry": true
+          },
+          {
+            "case": "absolute_directory",
+            "x0": 4,
+            "x1": 0,
+            "carry": false
+          },
+          {
+            "case": "absolute_ignores_bad_fd",
+            "x0": 4,
+            "x1": 0,
+            "carry": false
+          },
+          {
+            "case": "relative_bad_fd",
+            "x0": 9,
+            "x1": 0,
+            "carry": true
+          },
+          {
+            "case": "empty_path",
+            "x0": 2,
+            "x1": 0,
+            "carry": true
+          },
+          {
+            "case": "null_path",
+            "x0": 14,
+            "x1": 0,
+            "carry": true
+          },
+          {
+            "case": "unmapped_path",
+            "x0": 14,
+            "x1": 0,
+            "carry": true
+          },
+          {
+            "case": "root_dot",
+            "x0": 4,
+            "x1": 0,
+            "carry": false
+          },
+          {
+            "case": "root_dotdot",
+            "x0": 4,
+            "x1": 0,
+            "carry": false
+          }
+        ],
+        "directory": {
+          "path": "/System/Cryptexes/Rosetta",
+          "canonical_path": "/System/Volumes/Preboot/Cryptexes/Rosetta",
+          "symlink_target": "../../System/Volumes/Preboot/Cryptexes/Rosetta",
+          "symlink_mode": 41453,
+          "device": 16777232,
+          "inode": 169604,
+          "mode": 16877,
+          "uid": 0,
+          "gid": 0
+        }
+      }
     }
   ]
 }

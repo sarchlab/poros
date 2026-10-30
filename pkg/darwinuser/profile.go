@@ -11,6 +11,7 @@ import (
 // native reference host. Unmodeled commpage fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
+	Directories         []RuntimeDirectory   `json:"directories,omitempty"`
 	DevFirmware         *uint32              `json:"development_firmware,omitempty"`
 	ReadOnlyDevFirmware *uint32              `json:"read_only_development_firmware,omitempty"`
 	SysctlNames         []SysctlName         `json:"sysctl_names,omitempty"`

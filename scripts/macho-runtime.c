@@ -1,6 +1,10 @@
 // Read only documented nonsecret CPU/runtime capabilities, never a raw commpage.
 // XNU osfmk/arm/cpu_capabilities.h defines these stable ARM64 commpage offsets.
 #include <stdint.h>
+#include <stddef.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <errno.h>
 #include <sys/sysctl.h>
 #include <mach-o/dyld_images.h>
 #include <string.h>
@@ -137,6 +141,43 @@ static int print_sysctl_names(void) {
  printf("]");return 0;
 }
 
+// stat64's defined ARM64 fields only; capture rejects nonzero padding/reserved
+// bytes instead of pretending they were observed as zero.
+static int print_directory_stat(const struct stat *st) {
+ _Static_assert(sizeof(struct stat)==144&&offsetof(struct stat,st_atimespec)==32&&offsetof(struct stat,st_size)==96&&offsetof(struct stat,st_lspare)==124,"Darwin stat64 ABI");
+ const unsigned char *raw=(const unsigned char *)st;
+ for(unsigned i=28;i<32;i++)if(raw[i])return 1;
+ for(unsigned i=124;i<144;i++)if(raw[i])return 2;
+ printf("{\"device\":%u,\"mode\":%u,\"links\":%u,\"inode\":\"%llu\",\"uid\":%u,\"gid\":%u,\"rdev\":%u,",(uint32_t)st->st_dev,st->st_mode,st->st_nlink,(unsigned long long)st->st_ino,st->st_uid,st->st_gid,(uint32_t)st->st_rdev);
+ const char *names[]={"atime","mtime","ctime","birthtime"};
+ const struct timespec *times[]={&st->st_atimespec,&st->st_mtimespec,&st->st_ctimespec,&st->st_birthtimespec};
+ for(unsigned i=0;i<4;i++)printf("\"%s\":{\"seconds\":\"%lld\",\"nanoseconds\":\"%lld\"},",names[i],(long long)times[i]->tv_sec,(long long)times[i]->tv_nsec);
+ printf("\"size\":\"%lld\",\"blocks\":\"%lld\",\"block_size\":%d,\"flags\":%u,\"generation\":%u}",(long long)st->st_size,(long long)st->st_blocks,st->st_blksize,st->st_flags,st->st_gen);return 0;
+}
+// Selected runtime directories only; no directory listings or host namespace
+// access is granted to the guest. Both aliases must identify the same node.
+static int print_runtime_directories(void) {
+ const char *names[]={"/System/Cryptexes/OS","/System/Cryptexes/OS/System/Library/dyld","/System/Cryptexes/Rosetta"};
+ printf("[");unsigned emitted=0;
+ for(unsigned entry=0;entry<sizeof(names)/sizeof(names[0]);entry++) {
+ const char *name=names[entry];char canonical[1024]={0};struct stat st,other;
+ int fd=open(name,O_RDONLY|O_DIRECTORY);
+ // Rosetta is optional on ARM64 hosts. Omission leaves guest lookup explicitly
+ // unsupported; it does not assert a negative guest namespace entry.
+ if(fd<0) {if(entry==2&&errno==ENOENT)continue;return 1;}
+ int failed=fstat(fd,&st)||!S_ISDIR(st.st_mode)||fcntl(fd,F_GETPATH,canonical);
+ close(fd);if(failed||canonical[0]!='/'||strnlen(canonical,sizeof(canonical))==sizeof(canonical))return 2;
+ fd=open(name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW_ANY);int symlink=0;
+ if(fd<0) {if(errno!=ELOOP)return 3;symlink=1;}
+ else {failed=fstat(fd,&other)||other.st_dev!=st.st_dev||other.st_ino!=st.st_ino;close(fd);if(failed)return 4;}
+ fd=open(canonical,O_RDONLY|O_DIRECTORY|O_NOFOLLOW_ANY);if(fd<0)return 5;
+ failed=fstat(fd,&other)||other.st_dev!=st.st_dev||other.st_ino!=st.st_ino;close(fd);if(failed)return 6;
+ printf("%s{\"path\":\"%s\",\"canonical_path\":\"",emitted++?",":"",name);
+ for(const unsigned char *p=(const unsigned char *)canonical;*p;p++) {if(*p=='\"'||*p=='\\')printf("\\%c",*p);else if(*p<32)printf("\\u%04x",*p);else putchar(*p);}
+ printf("\",\"symlink\":%s,\"stat\":",symlink?"true":"false");if(print_directory_stat(&st))return 7;printf("}");
+ }
+ printf("]");return 0;
+}
 int main(void) {
     if(!pointer_strip_probe()||!exclusive_probe()||!exclusive_signature())return 5;
     const volatile uint8_t *p = (const volatile uint8_t *)0xfffffc000ULL;
@@ -173,5 +214,6 @@ int main(void) {
     printf(",\"pointer_strip\":\"darwin-47-bit\",\"cache_dynamic\":");
     if(print_cache_dynamic()!=0)return 4;
     printf(",\"sysctl_names\":");if(print_sysctl_names()!=0)return 8;
+    printf(",\"directories\":");int directory_error=print_runtime_directories();if(directory_error){fprintf(stderr,"runtime directory capture failed at check %d\n",directory_error);return 9;}
     puts("}");
 }

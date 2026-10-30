@@ -27,9 +27,9 @@ read-only syscall-permission query. They have not reached benchmark main.
 That snapshot predates the selected sandbox-query handler. Current single-case
 validation completes the selected NAME2OID and captured integer-value queries,
 then consumes the explicitly captured AMFI policy and executes its SIMD flag
-packing, reads the captured `kern.bootargs` setting and development-firmware
-commpage field. Integer/1000 now reaches BSD `open("/", 0x20100000)` after
-1,481,941 instructions; directory-descriptor semantics remain unimplemented.
+packing, reads captured kernel settings and uses the selected runtime directory
+namespace. Integer/1000 now reaches an unmapped v4 dynamic-cache roots field at
+`0x34bb24054` after 1,486,372 instructions. This remains incomplete startup.
 The 24-case samples have not been relabeled as a run of this newer collector.
 
 `scripts/macho-startup.c` captures documented kernel apple metadata from each
@@ -194,3 +194,22 @@ these tests do not calibrate instruction latency.
 The development-firmware flag (`_COMM_PAGE_DEV_FIRM`, offset 0x84 in both
 commpage views) is captured as an optional uint32. An absent capture stays
 unmapped; zero is represented only when observed. The mappings are read-only.
+
+Directory descriptors now represent the structural guest root and explicitly
+captured OS/Rosetta Cryptex and shared-cache directories. `open`, `openat`, `dup`,
+`close`, `fstatat64` and `fcntl(F_GETPATH)` operate on this private namespace;
+there is no host filesystem forwarding. Aliases are verified against native
+inode/device identity, and `O_NOFOLLOW_ANY` on the captured symlink paths returns
+the observed Darwin ELOOP (62). Unknown paths and traversal remain unsupported,
+not invented ENOENT results. Relative AT_FDCWD remains unsupported until a guest
+working-directory contract exists. Native captures bind the shared-cache
+parent directory to its runtime path. Defined stat64 fields are serialized into
+144 bytes only after native padding/reserved bytes were verified zero. Directory
+alias lifetime, lowest-free-FD allocation, metadata copyout and exact path/NUL
+copyout have native replay tests; unmodeled partial copyout remains explicit.
+The actual collector-to-CLI check loaded a 3,194-byte runtime profile and reached
+the same dynamic-region fault, with a nonzero exit status and no timing claim.
+
+The native collector omits the optional Rosetta directory when the host reports
+ENOENT. It does not install Rosetta or fabricate a guest ENOENT result: querying
+an uncaptured directory remains explicitly unsupported. Other capture errors fail.

@@ -113,3 +113,24 @@ func TestCapturedDevelopmentFirmwareCommpage(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeDirectoriesAreValidatedAndCopied(t *testing.T) {
+	profile := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, Directories: []RuntimeDirectory{{Path: "/alias", CanonicalPath: "/canonical", Symlink: true, Stat: &DirectoryStat{Mode: 0x4000, Generation: 17}}}}
+	p, e := Parse(machotest.Image(2), machotest.Image(7), Options{RuntimeProfile: &profile})
+	if e != nil {
+		t.Fatal(e)
+	}
+	profile.Directories[0].Path = "changed"
+	profile.Directories[0].Stat.Generation = 19
+	if p.kernel.directories[0].Path != "/alias" || p.kernel.directories[0].Stat.Generation != 17 {
+		t.Fatal("borrowed directory profile")
+	}
+	for _, entries := range [][]RuntimeDirectory{{{Path: "relative", CanonicalPath: "/canonical"}}, {{Path: "/a/../b", CanonicalPath: "/canonical"}}, {{Path: "/a\x00b", CanonicalPath: "/canonical"}}, {{Path: "/same", CanonicalPath: "/same", Symlink: true}}, {{Path: "/", CanonicalPath: "/canonical"}}, {{Path: "/a", CanonicalPath: "/b"}, {Path: "/b", CanonicalPath: "/c"}}, {{Path: "/a", CanonicalPath: "/c"}, {Path: "/b", CanonicalPath: "/c"}}, make([]RuntimeDirectory, 65)} {
+		if validateDirectories(entries) == nil {
+			t.Fatal("invalid/conflicting aliases accepted", entries)
+		}
+	}
+	if e := validateDirectories([]RuntimeDirectory{{Path: "/directory", CanonicalPath: "/directory"}}); e != nil {
+		t.Fatal(e)
+	}
+}
