@@ -117,14 +117,26 @@ static int exclusive_probe(void) {
  return 1;
 }
 static int print_sysctl_names(void) {
- const char *name="security.mac.lockdown_mode_state";
- int mib[24];size_t count=24;
- if(sysctlnametomib(name,mib,&count)||count==0||count>24)return 1;
- printf("[{\"name\":\"%s\",\"mib\":[",name);
- for(size_t i=0;i<count;i++)printf("%s%d",i?",":"",mib[i]);
- printf("]}]");
- return 0;
+ const char *names[]={"security.mac.lockdown_mode_state","kern.bootargs"};
+ printf("[");
+ for(unsigned entry=0;entry<2;entry++) {
+  int mib[24];size_t count=24;
+  if(sysctlnametomib(names[entry],mib,&count)||count==0||count>24)return 1;
+  printf("%s{\"name\":\"%s\",\"mib\":[",entry?",":"",names[entry]);
+  for(size_t i=0;i<count;i++)printf("%s%d",i?",":"",mib[i]);
+  if(entry==0) {int32_t value;size_t size=sizeof(value);
+   if(sysctl(mib,(u_int)count,&value,&size,NULL,0)||size!=sizeof(value))return 2;
+   printf("],\"int32\":%d}",value);
+  } else {char value[1024];size_t size=sizeof(value);
+   // Do not emit potentially private custom boot arguments. The native empty
+   // setting is the currently captured profile; other settings fail explicitly.
+   if(sysctl(mib,(u_int)count,value,&size,NULL,0)||size!=1||value[0]!=0)return 3;
+   printf("],\"string\":\"\"}");
+  }
+ }
+ printf("]");return 0;
 }
+
 int main(void) {
     if(!pointer_strip_probe()||!exclusive_probe()||!exclusive_signature())return 5;
     const volatile uint8_t *p = (const volatile uint8_t *)0xfffffc000ULL;
@@ -153,6 +165,9 @@ int main(void) {
            *(const volatile uint16_t *)(p + 0x26),
            *(const volatile uint32_t *)(p + 0x80), p[0x90], p[0x91],
            *(const volatile uint32_t *)(p + 0x100), tb.numer, tb.denom, p[0x37], *(const volatile uint64_t *)(p + 0x160), csr, atomic_alignment);
+    uint32_t ro_devfirm=0;
+    if(read_self(0xfffff4084ULL,&ro_devfirm,sizeof(ro_devfirm)))printf(",\"read_only_development_firmware\":%u",ro_devfirm);
+    printf(",\"development_firmware\":%u",*(const volatile uint32_t *)(p+0x84));
     if (ro) printf(",\"read_only_page_shifts\":{\"user\":%u,\"kernel\":%u}",ro_user,ro_kernel);
     printf(",\"exclusive_monitor\":\"m2-local-64-byte\",\"native_dyld\":");if(print_native_dyld()!=0)return 7;
     printf(",\"pointer_strip\":\"darwin-47-bit\",\"cache_dynamic\":");

@@ -31,7 +31,7 @@ class StartupIdentityTests(unittest.TestCase):
         fields = [dict(key=k, value=v) for k, v in values.items()]
         fields.append(dict(key="main_stack", stack_size=0x7fc000,
                            allocation_size=64<<20, top_minus_allocation_base=64<<20))
-        self.output = json.dumps(dict(filtered_apple=fields, sandbox_syscall_permissions=[dict(number=550,decision="0")])).encode()
+        self.output = json.dumps(dict(filtered_apple=fields, cs_status=1, sandbox_syscall_permissions=[dict(number=550,decision="0")])).encode()
 
     def identity(self, value):
         return dict(fsid="1", object_id="2" if value == "exe" else "3",
@@ -42,7 +42,8 @@ class StartupIdentityTests(unittest.TestCase):
 
     def test_success_binds_before_capture_bytes(self):
         with patch.object(macho, "run_startup_helper", return_value=self.output):
-            result = self.capture()
+            result, status = self.capture()
+        self.assertEqual(status, 1)
         self.assertEqual(result["binary_sha256"], macho.digest(self.program))
         self.assertEqual(result["dyld_sha256"], macho.digest(self.dyld))
 
@@ -78,10 +79,37 @@ class StartupIdentityTests(unittest.TestCase):
                 self.capture(resolve)
 
 
+class AMFICaptureTests(unittest.TestCase):
+    def test_policy_requires_matching_identity_state_and_output(self):
+        for failure in (None, "status", "query", "output", "entitlements"):
+            with self.subTest(failure=failure):
+                data = dict(cs_status=7, cs_result=0, cs_errno=0,
+                            input_flags=0, output_flags=479, x0=0, x1=0, carry=False)
+                if failure == "status": data["cs_status"] = 8
+                if failure == "query": data["x0"] = 14
+                def launch(*args, **kwargs):
+                    os.write(kwargs["pass_fds"][0], json.dumps(data).encode())
+                    kwargs["stdout"].write(b"wrong" if failure == "output" else b"correct")
+                    class Process:
+                        pid = 999999
+                        def wait(self, **kwargs): return 0
+                    return Process()
+                def check(case, output):
+                    if output != b"correct": raise ValueError("incorrect original output")
+                signed = subprocess.CompletedProcess([], 0, b"<plist/>" if failure == "entitlements" else b"", b"")
+                with patch.object(macho.subprocess, "run", return_value=signed), patch.object(macho.subprocess, "Popen", side_effect=launch), patch.object(macho.os, "killpg"), patch.object(macho, "check_output", side_effect=check):
+                    if failure:
+                        with self.assertRaises(ValueError):
+                            macho.capture_amfi_policy("program", "probe", {"args":["program"]}, 7)
+                    else:
+                        result=macho.capture_amfi_policy("program", "probe", {"args":["program"]}, 7)
+                        self.assertEqual(result, dict(input_flags="0",output_flags="479",code_signing_status=7))
+
+
 class StartupCleanupTests(unittest.TestCase):
     def test_failed_helper_group_does_not_leave_suspended_child(self):
-        for mode in ("timeout", "error", "malformed"):
-            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+        for caller, mode in ((c,m) for c in ("startup","amfi") for m in ("timeout","error","malformed")):
+            with self.subTest(caller=caller,mode=mode), tempfile.TemporaryDirectory() as directory:
                 script, record = Path(directory) / "helper.py", Path(directory) / "child.pid"
                 script.write_text("""import os,signal,sys,time
 child=os.fork()
@@ -97,8 +125,20 @@ if sys.argv[2]=="malformed":
 time.sleep(30)
 """)
                 exception = {"timeout": subprocess.TimeoutExpired, "error": subprocess.CalledProcessError, "malformed": json.JSONDecodeError}[mode]
-                with self.assertRaises(exception):
-                    json.loads(macho.run_startup_helper([sys.executable, str(script), str(record), mode], timeout=1))
+                if caller == "startup":
+                    with self.assertRaises(exception):
+                        json.loads(macho.run_startup_helper([sys.executable, str(script), str(record), mode], timeout=1))
+                else:
+                    owned = macho.run_owned_process
+                    def run(command, timeout, **kwargs):
+                        kwargs.pop("executable", None)
+                        kwargs["env"] = {}
+                        return owned([sys.executable,str(script),str(record),mode],1,**kwargs)
+                    signed = subprocess.CompletedProcess([],0,b"",b"")
+                    exception = subprocess.TimeoutExpired if mode == "timeout" else ValueError
+                    with patch.object(macho,"run_owned_process",side_effect=run), patch.object(macho.subprocess,"run",return_value=signed), patch.object(macho,"check_output"):
+                        with self.assertRaises(exception):
+                            macho.capture_amfi_policy("program","library",{"args":["program"]},7)
                 child = int(record.read_text())
                 deadline = time.monotonic()+3
                 while True:

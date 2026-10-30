@@ -284,3 +284,61 @@ func TestOoOImmediateOverwriteReplacesStaleProducerReadiness(t *testing.T) {
 		t.Fatal("stale producer retained after overwrite", c.State.GprReady[:3])
 	}
 }
+
+func TestOoODuplicateWaitsForGPRLoad(t *testing.T) {
+	// LDR X1,[X3]; DUP V0.4H,W1; UMOV W2,V0.H[1].
+	x := newExtensionExecution(t, []uint32{0xf9400061, 0x0e020c20, 0x0e063c02, 0xd503201f})
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if e := s.Initialize(); e != nil {
+		t.Fatal(e)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.GPR[2] != 7 || c.State.FpReady[0] <= c.State.GprReady[1] || c.State.GprReady[2] <= c.State.FpReady[0] {
+		t.Fatal(c.State.Err, x.regs.GPR[2], c.State.FpReady[0], c.State.GprReady[:3])
+	}
+}
+
+func TestOoOVectorBICImmediateReadsOldDestination(t *testing.T) {
+	// LDR Q0,[X3]; BIC V0.4H,#255,LSL#8; UMOV W1,V0.H[0].
+	x := newExtensionExecution(t, []uint32{0x3dc00060, 0x2f07b7e0, 0x0e023c01, 0xd503201f})
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if e := s.Initialize(); e != nil {
+		t.Fatal(e)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.GPR[1] != 7 || c.State.FpReady[0] < 40 || c.State.GprReady[1] <= c.State.FpReady[0] {
+		t.Fatal(c.State.Err, x.regs.GPR[1], c.State.FpReady[0], c.State.GprReady[1])
+	}
+}
+
+func TestOoOVectorShiftAndUnzipWaitForCountLoad(t *testing.T) {
+	// LDR Q1,[X3]; USHL V0.4H,V0.4H,V1.4H; UZP1 V0.8B,V0.8B,V0.8B; UMOV W2,V0.B[0].
+	x := newExtensionExecution(t, []uint32{0x3dc00061, 0x2e614400, 0x0e001800, 0x0e013c02, 0xd503201f})
+	x.regs.WriteQ(0, 7, 0)
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if e := s.Initialize(); e != nil {
+		t.Fatal(e)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.GPR[2] != 128 || c.State.FpReady[0] <= c.State.FpReady[1] || c.State.GprReady[2] <= c.State.FpReady[0] {
+		t.Fatal(c.State.Err, x.regs.GPR[2], c.State.FpReady[:2], c.State.GprReady[2])
+	}
+}

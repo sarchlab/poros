@@ -152,3 +152,13 @@ func TestStartupSandboxPolicyIsBoundAndCopied(t *testing.T) {
 		}
 	}
 }
+
+func TestStartupAMFIPolicyIsBoundAndCopied(t *testing.T) {
+	profile := startupFixture(t)
+	profile.AMFI = &AMFIPolicy{InputFlags: 0, OutputFlags: 0x1df}
+	p := process(t, Options{StartupProfile: profile})
+	profile.AMFI.OutputFlags = 0
+	if p.kernel.amfi == nil || p.kernel.amfi.OutputFlags != 0x1df {
+		t.Fatal("mutable policy borrowed")
+	}
+}

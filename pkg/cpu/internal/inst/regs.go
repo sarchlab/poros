@@ -358,6 +358,10 @@ func SourceFPs(inst arm64asm.Inst) []int {
 		return srcs
 	}
 
+	// Vector BIC immediate preserves all destination bits outside its mask.
+	if inst.Op == arm64asm.BIC && inst.Enc&0xbff80c00 == 0x2f000400 {
+		add(ArgFP(inst.Args[0]))
+	}
 	if _, partial := inst.Args[0].(arm64asm.RegisterWithArrangementAndIndex); partial {
 		add(ArgFP(inst.Args[0]))
 	}

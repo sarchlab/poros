@@ -11,26 +11,28 @@ import (
 // native reference host. Unmodeled commpage fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
-	SysctlNames        []SysctlName         `json:"sysctl_names,omitempty"`
-	ExclusiveMonitor   string               `json:"exclusive_monitor,omitempty"`
-	NativeDyld         *RuntimeDyldIdentity `json:"native_dyld,omitempty"`
-	PointerStrip       string               `json:"pointer_strip,omitempty"`
-	CacheDynamic       *CacheDynamicProfile `json:"cache_dynamic,omitempty"`
-	AtomicAlignment    string               `json:"atomic_alignment,omitempty"`
-	CSRConfig          *uint32              `json:"csr_config,omitempty"`
-	DyldFlags          *uint64              `json:"dyld_flags,omitempty"`
-	KernelPageShift    uint8                `json:"kernel_page_shift,omitempty"`
-	ReadOnlyPageShifts *PageShifts          `json:"read_only_page_shifts,omitempty"`
-	CPUCapabilities    uint64               `json:"cpu_capabilities"`
-	Version            uint16               `json:"version"`
-	UserPageShift      uint8                `json:"user_page_shift_64_legacy"`
-	CacheLineSize      uint16               `json:"cache_line_size"`
-	CPUFamily          uint32               `json:"cpu_family"`
-	UserTimebase       uint8                `json:"user_timebase"`
-	ContinuousHWClock  uint8                `json:"continuous_hwclock"`
-	KDebug             uint32               `json:"kdebug"`
-	TimebaseNumer      uint32               `json:"timebase_numer"`
-	TimebaseDenom      uint32               `json:"timebase_denom"`
+	DevFirmware         *uint32              `json:"development_firmware,omitempty"`
+	ReadOnlyDevFirmware *uint32              `json:"read_only_development_firmware,omitempty"`
+	SysctlNames         []SysctlName         `json:"sysctl_names,omitempty"`
+	ExclusiveMonitor    string               `json:"exclusive_monitor,omitempty"`
+	NativeDyld          *RuntimeDyldIdentity `json:"native_dyld,omitempty"`
+	PointerStrip        string               `json:"pointer_strip,omitempty"`
+	CacheDynamic        *CacheDynamicProfile `json:"cache_dynamic,omitempty"`
+	AtomicAlignment     string               `json:"atomic_alignment,omitempty"`
+	CSRConfig           *uint32              `json:"csr_config,omitempty"`
+	DyldFlags           *uint64              `json:"dyld_flags,omitempty"`
+	KernelPageShift     uint8                `json:"kernel_page_shift,omitempty"`
+	ReadOnlyPageShifts  *PageShifts          `json:"read_only_page_shifts,omitempty"`
+	CPUCapabilities     uint64               `json:"cpu_capabilities"`
+	Version             uint16               `json:"version"`
+	UserPageShift       uint8                `json:"user_page_shift_64_legacy"`
+	CacheLineSize       uint16               `json:"cache_line_size"`
+	CPUFamily           uint32               `json:"cpu_family"`
+	UserTimebase        uint8                `json:"user_timebase"`
+	ContinuousHWClock   uint8                `json:"continuous_hwclock"`
+	KDebug              uint32               `json:"kdebug"`
+	TimebaseNumer       uint32               `json:"timebase_numer"`
+	TimebaseDenom       uint32               `json:"timebase_denom"`
 }
 
 type PageShifts struct {
@@ -71,6 +73,20 @@ func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
 		}
 		if err := m.Map(0xfffff4037, 1, usermem.Read, []byte{p.ReadOnlyPageShifts.Kernel}); err != nil {
 			return err
+		}
+	}
+	// XNU _COMM_PAGE_DEV_FIRM is a selected uint32 in both commpage views.
+	for _, field := range []struct {
+		address uint64
+		value   *uint32
+	}{{0xfffffc084, p.DevFirmware}, {0xfffff4084, p.ReadOnlyDevFirmware}} {
+		address, value := field.address, field.value
+		if value != nil {
+			var b [4]byte
+			binary.LittleEndian.PutUint32(b[:], *value)
+			if err := m.Map(address, 4, usermem.Read, b[:]); err != nil {
+				return err
+			}
 		}
 	}
 	if p.DyldFlags != nil {

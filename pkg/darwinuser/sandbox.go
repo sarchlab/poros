@@ -31,6 +31,9 @@ func matchKernelString(m *usermem.AddressSpace, address uint64, text string) (bo
 // universal allow rule or a host request made by guest code. Other operations
 // and nonzero decisions await their own native contracts.
 func (k *kernelState) macSyscall(r *emu.Registers, m *usermem.AddressSpace) bool {
+	if r.GPR[1] == 90 {
+		return k.amfiPolicy(r, m)
+	}
 	if len(k.sandboxSyscalls) == 0 || r.GPR[1] != 2 {
 		return false
 	}
@@ -76,4 +79,38 @@ func (k *kernelState) macSyscall(r *emu.Registers, m *usermem.AddressSpace) bool
 		return finish(0, false)
 	}
 	return false
+}
+
+func (k *kernelState) amfiPolicy(r *emu.Registers, m *usermem.AddressSpace) bool {
+	if k.amfi == nil {
+		return false
+	}
+	finish := func(errno uint64) bool { r.GPR[0] = errno; r.GPR[1] = 0; r.C = errno != 0; return true }
+	match, e := matchKernelString(m, r.GPR[0], "AMFI")
+	if e != nil {
+		return finish(14)
+	}
+	if !match {
+		return false
+	}
+	if r.GPR[2] == 0 {
+		return finish(22)
+	}
+	var request [16]byte
+	if m.Read(r.GPR[2], request[:]) != nil {
+		return finish(14)
+	}
+	if binary.LittleEndian.Uint64(request[:]) != k.amfi.InputFlags {
+		return false
+	}
+	output := binary.LittleEndian.Uint64(request[8:])
+	if m.Check(output, 8, usermem.Write, "AMFI policy copyout") != nil && m.Check(output, 1, usermem.Write, "AMFI policy copyout") == nil {
+		return false
+	}
+	var flags [8]byte
+	binary.LittleEndian.PutUint64(flags[:], k.amfi.OutputFlags)
+	if m.Write(output, flags[:]) != nil {
+		return finish(14)
+	}
+	return finish(0)
 }

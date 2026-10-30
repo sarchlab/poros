@@ -50,7 +50,8 @@ static int hex_value(const char *s, uint64_t *value) {
     if (errno || *end) return -1;
     *value=(uint64_t)v; return 0;
 }
-static int emit(char *buffer, size_t size, uint64_t decision) {
+extern int csops(pid_t,unsigned int,void*,size_t);
+static int emit(char *buffer, size_t size, uint64_t decision, uint32_t cs_status) {
     if (size < 4) return -1;
     int argc; memcpy(&argc,buffer,4); if (argc != 2) return -1;
     size_t pos=4; char *s;
@@ -98,7 +99,7 @@ static int emit(char *buffer, size_t size, uint64_t decision) {
         else printf(",\"value\":\"%s\"",values[k]);
         printf("}");
     }
-    printf("],\"sandbox_syscall_permissions\":[{\"number\":550,\"decision\":\"%llu\"}]}\n",(unsigned long long)decision); return 0;
+    printf("],\"cs_status\":%u,\"sandbox_syscall_permissions\":[{\"number\":550,\"decision\":\"%llu\"}]}\n",cs_status,(unsigned long long)decision); return 0;
 }
 int main(int argc,char **argv) {
     if(argc!=2 || argv[1][0]!='/')return 2;
@@ -113,10 +114,11 @@ int main(int argc,char **argv) {
     int mib[]={CTL_KERN,KERN_PROCARGS2,child};size_t size=capacity;
     int result=sysctl(mib,3,buffer,&size,NULL,0);int saved=errno;
     uint64_t decision=0;int policy=result?0:syscall_permission(child,&decision);
+ uint32_t cs_status=0;int signing=csops(child,0,&cs_status,sizeof(cs_status));
     if(reap(child)){free(buffer);fprintf(stderr,"startup capture could not reap its child\n");return 6;}
     if(result||size>capacity){free(buffer);fprintf(stderr,"startup capture query failed: %d\n",saved);return 7;}
-    if(policy){memset(buffer,0,capacity);free(buffer);fprintf(stderr,"owned child syscall permission query failed\n");return 9;}
-    result=emit(buffer,size,decision);memset(buffer,0,capacity);free(buffer);
+    if(policy||signing){memset(buffer,0,capacity);free(buffer);fprintf(stderr,"owned child syscall permission query failed\n");return 9;}
+    result=emit(buffer,size,decision,cs_status);memset(buffer,0,capacity);free(buffer);
     if(result){fprintf(stderr,"unsupported or malformed kernel startup metadata\n");return 8;}
     return 0;
 }

@@ -269,6 +269,10 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	if o.StartupProfile != nil {
 		kernel.files = []FileIdentity{o.StartupProfile.ExecutableFile, o.StartupProfile.DyldFile}
 		kernel.sandboxSyscalls = append([]SandboxSyscallPermission(nil), o.StartupProfile.SandboxSyscalls...)
+		if o.StartupProfile.AMFI != nil {
+			policy := *o.StartupProfile.AMFI
+			kernel.amfi = &policy
+		}
 		kernel.threadSendRefs = 1 // XNU installs one pinned main-thread send reference.
 	}
 	if dyld.AllImageInfoAddress != 0 || dyld.AllImageInfoSize != 0 {
@@ -299,7 +303,16 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	}
 	if o.RuntimeProfile != nil {
 		for _, name := range o.RuntimeProfile.SysctlNames {
-			kernel.sysctlNames = append(kernel.sysctlNames, SysctlName{Name: name.Name, MIB: append([]int32(nil), name.MIB...)})
+			entry := SysctlName{Name: name.Name, MIB: append([]int32(nil), name.MIB...)}
+			if name.Int32 != nil {
+				value := *name.Int32
+				entry.Int32 = &value
+			}
+			if name.String != nil {
+				value := *name.String
+				entry.String = &value
+			}
+			kernel.sysctlNames = append(kernel.sysctlNames, entry)
 		}
 	}
 	if o.RuntimeProfile != nil && o.RuntimeProfile.CSRConfig != nil {

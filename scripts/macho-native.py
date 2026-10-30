@@ -59,30 +59,31 @@ def runtime_profile():
                              compiler=subprocess.check_output([compiler, "--version"], text=True).strip())
 
 
-def run_startup_helper(command, timeout=10):
-    # Own a new process group so a timed-out helper cannot leave its suspended
-    # child behind. Regular completion is reaped by the helper itself.
-    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        process = subprocess.Popen(command, env={}, stdout=out, stderr=err,
-                                   start_new_session=True)
+def run_owned_process(command, timeout, **kwargs):
+    """Bound and reap a private process group, including stopped descendants."""
+    process = subprocess.Popen(command, start_new_session=True, **kwargs)
+    try:
+        return process.wait(timeout=timeout)
+    finally:
         try:
-            code = process.wait(timeout=timeout)
-            if code:
-                raise subprocess.CalledProcessError(code, command)
-            out.seek(0)
-            err.seek(0)
-            data, diagnostic = out.read(65537), err.read(65537)
-            if len(data) > 65536 or diagnostic:
-                raise ValueError("invalid startup helper output")
-            return data
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         finally:
-            # Even successful/malformed output must not leave descendants.
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            finally:
-                process.wait()
+            process.wait()
+
+
+def run_startup_helper(command, timeout=10):
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        code = run_owned_process(command, timeout, env={}, stdout=out, stderr=err)
+        if code:
+            raise subprocess.CalledProcessError(code, command)
+        out.seek(0)
+        err.seek(0)
+        data, diagnostic = out.read(65537), err.read(65537)
+        if len(data) > 65536 or diagnostic:
+            raise ValueError("invalid startup helper output")
+        return data
 
 
 
@@ -111,11 +112,39 @@ def capture_startup_profile(helper, binary, dyld, identity):
                            (profile["dyld_file"]["path"], before_dyld)]:
         if digest(path) != expected:
             raise ValueError("runtime input changed during startup metadata capture")
-    return profile
+    return profile, captured["cs_status"]
 
 
-def startup_profiles(binaries, dyld):
-    """Capture kernel metadata without executing these four child programs.
+def capture_amfi_policy(binary, library, case, expected_status):
+    """Diagnostic run only: same main bytes, explicit injected constructor.
+
+    Validate native output and code-signing state against the suspended launch;
+    never include this modified-environment observation in timing samples.
+    """
+    signing = subprocess.run(["codesign", "-d", "--entitlements", ":-", str(binary)],
+                             capture_output=True, timeout=10, check=True)
+    if signing.stdout.strip():
+        raise ValueError("AMFI capture currently requires an executable without entitlements")
+    with tempfile.TemporaryFile() as record, tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        fd=record.fileno()
+        code=run_owned_process(case["args"],30,executable=str(binary),
+            env={"DYLD_INSERT_LIBRARIES":str(library), "POROS_QUERY_FD":str(fd)},
+            stdout=out,stderr=err,pass_fds=(fd,))
+        out.seek(0);err.seek(0);record.seek(0)
+        stdout,stderr,data=out.read(65537),err.read(65537),record.read(4097)
+        if code or stderr or len(data)>4096:
+            raise ValueError("instrumented AMFI capture failed")
+        check_output(case,stdout)
+        observed=json.loads(data)
+        if (observed["cs_result"] or observed["cs_errno"] or observed["cs_status"]!=expected_status
+            or observed["x0"] or observed["x1"] or observed["carry"] or observed["input_flags"]!=0):
+            raise ValueError("AMFI diagnostic differs from suspended native process state")
+        return dict(input_flags=str(observed["input_flags"]),output_flags=str(observed["output_flags"]),
+                    code_signing_status=expected_status)
+
+
+def startup_profiles(binaries, dyld, cases):
+    """Capture suspended kernel metadata, then separate diagnostic AMFI results.
 
     The helper uses fixed safe argv and env{}; workload argv cannot spoof keys.
     fsgetpath resolves only the two identities just captured from our own child.
@@ -145,9 +174,19 @@ def startup_profiles(binaries, dyld):
         probe = dict(source_sha256=digest(source), binary_sha256=digest(helper),
                      compiler=subprocess.check_output([compiler, "--version"], text=True).strip(),
                      protocol="own suspended child; fixed argv program/1, env{}; filtered KERN_PROCARGS2; kill/reap; fsgetpath of captured identities")
+        library=Path(directory)/"amfi.dylib"
+        amfi_source=ROOT/"scripts/macho-amfi.c"
+        subprocess.run([compiler,"-isysroot",sdk,"-arch","arm64","-Wall","-Wextra","-Werror","-dynamiclib",str(amfi_source),"-o",str(library)],check=True,timeout=30)
+        probe["amfi_diagnostic"]=dict(source_sha256=digest(amfi_source),binary_sha256=digest(library),
+            protocol="owned injected constructor; same main SHA; no entitlements; CS status equals suspended env{} child; original output oracle; excluded from timing")
         profiles = {}
         for binary in binaries:
-            profiles[binary.stem] = capture_startup_profile(helper, binary, dyld, identity)
+            metadata,cs_status=capture_startup_profile(helper,binary,dyld,identity)
+            case=next(c for c in cases if c["workload"]==binary.stem)
+            metadata["amfi_dyld_policy"]=capture_amfi_policy(binary,library,case,cs_status)
+            if digest(binary)!=metadata["binary_sha256"] or digest(dyld)!=metadata["dyld_sha256"]:
+                raise ValueError("runtime input changed during AMFI capture")
+            profiles[binary.stem]=metadata
         return profiles, probe
 
 
@@ -178,7 +217,7 @@ def main():
             raise ValueError("Mach-O binary hash mismatch: " + name)
     initial_dyld = digest(options.dyld)
     profile, probe = runtime_profile()
-    startup, startup_probe = startup_profiles([folder / name for name in sorted(build["binaries"])], options.dyld)
+    startup, startup_probe = startup_profiles([folder / name for name in sorted(build["binaries"])], options.dyld, manifest["cases"])
     for name, metadata in startup.items():
         if metadata["binary_sha256"] != build["binaries"][name + ".macho"] or metadata["dyld_sha256"] != initial_dyld:
             raise ValueError("captured startup metadata differs from frozen build/runtime")

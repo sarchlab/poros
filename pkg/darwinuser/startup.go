@@ -25,7 +25,16 @@ type SandboxSyscallPermission struct {
 	Decision uint64 `json:"decision,string"`
 }
 
+// AMFIPolicy snapshots one read-only dyld-policy query for this executable.
+// It is not a global allow policy and never changes host enforcement.
+type AMFIPolicy struct {
+	CodeSigningStatus uint32 `json:"code_signing_status"`
+	InputFlags        uint64 `json:"input_flags,string"`
+	OutputFlags       uint64 `json:"output_flags,string"`
+}
+
 type StartupProfile struct {
+	AMFI                *AMFIPolicy                `json:"amfi_dyld_policy,omitempty"`
 	SandboxSyscalls     []SandboxSyscallPermission `json:"sandbox_syscall_permissions,omitempty"`
 	BinarySHA256        string                     `json:"binary_sha256"`
 	DyldSHA256          string                     `json:"dyld_sha256"`

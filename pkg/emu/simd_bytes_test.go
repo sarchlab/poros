@@ -87,7 +87,7 @@ func TestByteSIMDScalarOraclesAndAliasing(t *testing.T) {
 	}
 }
 func TestByteSIMDRejectsOtherLaneSizes(t *testing.T) {
-	for _, word := range []uint32{0x6e623420, 0x6eb1a820, 0x6e703820, 0x0e605820, 0x6f01e400} {
+	for _, word := range []uint32{0x6e623420, 0x6eb1a820, 0x6e703820, 0x0e605820, 0x6f01ec00} {
 		r := Registers{PC: 0x1000}
 		before := r
 		if _, err := StepChecked(&r, authMemory{word}); err == nil || r != before {
@@ -412,7 +412,12 @@ func TestVectorZeroComparisonNativeVectors(t *testing.T) {
 	}
 }
 
-func TestVectorORNNativeVectors(t *testing.T) {
+func TestVectorORNAndBICNativeVectors(t *testing.T) {
+	for _, source := range []string{"orn-probe.c", "bic-vector-probe.c"} {
+		t.Run(source, func(t *testing.T) { testVectorLogicNative(t, source) })
+	}
+}
+func testVectorLogicNative(t *testing.T, source string) {
 	var cases []struct {
 		Encoding  string
 		InitialLo string `json:"initial_lo"`
@@ -426,7 +431,7 @@ func TestVectorORNNativeVectors(t *testing.T) {
 		NZCV      string
 		Preserved bool `json:"v1_v2_unchanged"`
 	}
-	nativeAtomicObservation(t, "orn-probe.c", &cases)
+	nativeAtomicObservation(t, source, &cases)
 	if len(cases) != 200 {
 		t.Fatal(len(cases))
 	}
@@ -453,7 +458,180 @@ func TestVectorORNNativeVectors(t *testing.T) {
 		before.PC += 4
 		before.WriteQ(0, parse(tc.OutputLo), parse(tc.OutputHi))
 		if before != r {
-			t.Fatal("native ORN or preserved state mismatch", tc, r.FP[:3])
+			t.Fatal("native vector logic or preserved state mismatch", tc, r.FP[:3])
+		}
+	}
+}
+
+func TestVectorDuplicateGPRNativeVectors(t *testing.T) {
+	var cases []struct {
+		Encoding, Input, Output string
+		Destination             int
+		SourceAfter             string `json:"source_after"`
+		NZCV                    uint32
+		OutputHex               string `json:"output_hex"`
+	}
+	nativeAtomicObservation(t, "dup-probe.c", &cases)
+	if len(cases) != 252 {
+		t.Fatal(len(cases))
+	}
+	for _, tc := range cases {
+		word, e := strconv.ParseUint(tc.Encoding, 16, 32)
+		if e != nil {
+			t.Fatal(e)
+		}
+		input, e := strconv.ParseUint(tc.Input, 16, 64)
+		if e != nil {
+			t.Fatal(e)
+		}
+		r := Registers{PC: 0x1000, N: true, C: true}
+		r.GPR[1] = input
+		for i := range r.FP {
+			r.WriteQ(i, ^uint64(0), ^uint64(0))
+		}
+		before := r
+		if _, e := StepChecked(&r, authMemory{uint32(word)}); e != nil {
+			t.Fatal(tc, e)
+		}
+		out, e := hex.DecodeString(tc.OutputHex)
+		if e != nil || len(out) != 16 {
+			t.Fatal(tc)
+		}
+		before.WriteQ(tc.Destination, binary.LittleEndian.Uint64(out[:8]), binary.LittleEndian.Uint64(out[8:]))
+		before.PC += 4
+		if r != before || tc.SourceAfter != tc.Input || tc.NZCV != 0xa0000000 {
+			t.Fatal("DUP native mismatch", tc, r.FP[tc.Destination])
+		}
+	}
+	for _, word := range []uint32{0x0e000c00, 0x0e030c00, 0x0e080c00, 0x4e100c00} {
+		if simdForm(word) != 0 {
+			t.Fatal("reserved DUP accepted", word)
+		}
+	}
+}
+
+func TestVectorBICImmediateNativeVectors(t *testing.T) {
+	var cases []struct {
+		Encoding string
+		NZCV     uint32
+		Input    string `json:"input_hex"`
+		Output   string `json:"output_hex"`
+	}
+	nativeAtomicObservation(t, "bic-immediate-probe.c", &cases)
+	if len(cases) != 240 {
+		t.Fatal(len(cases))
+	}
+	for _, tc := range cases {
+		word, e := strconv.ParseUint(tc.Encoding, 16, 32)
+		if e != nil {
+			t.Fatal(e)
+		}
+		in, e := hex.DecodeString(tc.Input)
+		if e != nil || len(in) != 16 {
+			t.Fatal(tc)
+		}
+		out, e := hex.DecodeString(tc.Output)
+		if e != nil || len(out) != 16 {
+			t.Fatal(tc)
+		}
+		r := Registers{PC: 0x1000, Z: true, C: true}
+		r.WriteQ(0, binary.LittleEndian.Uint64(in[:8]), binary.LittleEndian.Uint64(in[8:]))
+		before := r
+		if _, e := StepChecked(&r, authMemory{uint32(word)}); e != nil {
+			t.Fatal(tc, e)
+		}
+		before.WriteQ(0, binary.LittleEndian.Uint64(out[:8]), binary.LittleEndian.Uint64(out[8:]))
+		before.PC += 4
+		if r != before || tc.NZCV != 0x60000000 {
+			t.Fatal(tc, r.FP[0])
+		}
+	}
+}
+
+func TestVectorShiftAndUnzipNativeVectors(t *testing.T) {
+	for source, count := range map[string]int{"ushl-probe.c": 616, "uzp1-probe.c": 112} {
+		var cases []struct {
+			Encoding string
+			NZCV     uint32
+			A        string `json:"a_hex"`
+			B        string `json:"b_hex"`
+			Output   string `json:"output_hex"`
+		}
+		nativeAtomicObservation(t, source, &cases)
+		if len(cases) != count {
+			t.Fatal(source, len(cases))
+		}
+		for _, tc := range cases {
+			word, e := strconv.ParseUint(tc.Encoding, 16, 32)
+			if e != nil {
+				t.Fatal(e)
+			}
+			a, e := hex.DecodeString(tc.A)
+			if e != nil || len(a) != 16 {
+				t.Fatal(tc)
+			}
+			b, e := hex.DecodeString(tc.B)
+			if e != nil || len(b) != 16 {
+				t.Fatal(tc)
+			}
+			out, e := hex.DecodeString(tc.Output)
+			if e != nil || len(out) != 16 {
+				t.Fatal(tc)
+			}
+			r := Registers{PC: 0x1000, N: true, V: true}
+			r.WriteQ(0, binary.LittleEndian.Uint64(a[:8]), binary.LittleEndian.Uint64(a[8:]))
+			r.WriteQ(1, binary.LittleEndian.Uint64(b[:8]), binary.LittleEndian.Uint64(b[8:]))
+			before := r
+			if _, e := StepChecked(&r, authMemory{uint32(word)}); e != nil {
+				t.Fatal(source, tc, e)
+			}
+			before.WriteQ(int(word&31), binary.LittleEndian.Uint64(out[:8]), binary.LittleEndian.Uint64(out[8:]))
+			before.PC += 4
+			if r != before || tc.NZCV != 0x90000000 {
+				t.Fatal(source, tc, r.FP[:3])
+			}
+		}
+	}
+}
+
+func TestVectorMOVINativeImmediates(t *testing.T) {
+	for source, count := range map[string]int{"movi-2d-probe.c": 256, "movi-byte-probe.c": 512} {
+		t.Run(source, func(t *testing.T) { testVectorMOVINative(t, source, count) })
+	}
+}
+func testVectorMOVINative(t *testing.T, source string, count int) {
+	var cases []struct {
+		Encoding string
+		NZCV     uint32
+		Output   string `json:"output_hex"`
+	}
+	nativeAtomicObservation(t, source, &cases)
+	if len(cases) != count {
+		t.Fatal(len(cases))
+	}
+	for _, tc := range cases {
+		word, e := strconv.ParseUint(tc.Encoding, 16, 32)
+		if e != nil {
+			t.Fatal(e)
+		}
+		out, e := hex.DecodeString(tc.Output)
+		if e != nil || len(out) != 16 {
+			t.Fatal(tc)
+		}
+		r := Registers{PC: 0x1000, N: true, Z: source == "movi-2d-probe.c", C: true, V: true}
+		r.WriteQ(0, 0x12345678, 0x87654321)
+		before := r
+		if _, e := StepChecked(&r, authMemory{uint32(word)}); e != nil {
+			t.Fatal(tc, e)
+		}
+		before.WriteQ(0, binary.LittleEndian.Uint64(out[:8]), binary.LittleEndian.Uint64(out[8:]))
+		before.PC += 4
+		expectedFlags := uint32(0xb0000000)
+		if source == "movi-2d-probe.c" {
+			expectedFlags = 0xf0000000
+		}
+		if r != before || tc.NZCV != expectedFlags {
+			t.Fatal(tc, r.FP[0])
 		}
 	}
 }

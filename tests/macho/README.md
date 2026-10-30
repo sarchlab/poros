@@ -25,9 +25,11 @@ and reserved its released address range through a real `mach_msg2`/`mach_vm_map`
 request. The 24 retained cases reach 1,471,269–1,556,144 instructions at that same
 read-only syscall-permission query. They have not reached benchmark main.
 That snapshot predates the selected sandbox-query handler. Current single-case
-validation completes the selected NAME2OID lookup, then reaches BSD 202
-(`__sysctl` numeric value query for `security.mac.lockdown_mode_state`) after
-1,472,062 instructions for integer/1000. The attribute value remains unmodeled.
+validation completes the selected NAME2OID and captured integer-value queries,
+then consumes the explicitly captured AMFI policy and executes its SIMD flag
+packing, reads the captured `kern.bootargs` setting and development-firmware
+commpage field. Integer/1000 now reaches BSD `open("/", 0x20100000)` after
+1,481,941 instructions; directory-descriptor semantics remain unimplemented.
 The 24-case samples have not been relabeled as a run of this newer collector.
 
 `scripts/macho-startup.c` captures documented kernel apple metadata from each
@@ -150,12 +152,45 @@ explicitly unsupported. The collector launches its metadata helper in an owned
 process group, terminates that group and waits for the helper on every completion path, including
 timeout, error and malformed output, so suspended children cannot escape cleanup.
 
-Selected sysctl name/OID associations are captured independently of their values.
-Seventeen native NAME2OID cases verify input termination, size-only queries,
+Selected sysctl name/OID associations are captured with an optional read-only
+integer value. The selected `security.mac.lockdown_mode_state` is a global XNU
+`SYSCTL_INT` initialized from NVRAM, as defined in
+[Apple lockdown_mode.c](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/lockdown_mode.c).
+Its value is captured in the common runtime profile; it is never hardcoded or
+queried from the host by guest code. The captured environment must remain stable
+through native measurements; this differs from per-process Sandbox decisions.
+Thirty-four native NAME2OID cases verify input termination, size-only queries,
 whole-OID copyout, short-buffer errors, output protection, and error-side length
 preservation. Unknown names do not imply observed absence; unsupported namespace
 queries fail explicitly. Invalid non-null/read-only length pointers and mixed
 copyout permissions remain unsupported because their native contract is not
-established. The helper's recorded lockdown value is contextual probe evidence,
-not a value installed into guest programs. Per-image value semantics and the
-broader Darwin compatibility boundary remain under design discussion.
+established. Fourteen additional raw native integer-query cases verify exact
+four-byte values, size queries, short buffers, null-length behavior and output
+faults. Uncaptured values and write requests remain unsupported. Native tests
+never change the host setting. The bounded string-value path is checked against
+14 empty-bootargs and 14 public nonempty `kern.ostype` observations using the same
+XNU string handler. Production capture verifies bootargs is empty before emitting
+it, avoiding accidental retention of custom boot arguments. Unlisted settings
+still fail explicitly.
+
+AMFI dyld policy is captured separately for each exact executable. An owned
+constructor runs in a diagnostic launch of the unchanged main; the collector
+requires no entitlements, equal code-signing status with its suspended env{}
+launch, and the original output oracle. Its modified environment and timings
+are excluded from ground truth. The resulting policy and source/library hashes
+are explicit provenance, not a universal allow rule or a claim to model
+arbitrary hardened/sandboxed apps. Fourteen raw native cases cover the 16-byte
+request and eight-byte copyout; unknown flags/inputs without a captured rule and
+partial copyout remain unsupported. Both diagnostic paths share bounded process
+group cleanup, tested with errors, malformed output and stopped descendants.
+
+Additional native SIMD replay covers 252 GPR DUP cases, 240 immediate BIC cases,
+616 USHL cases, 112 UZP1 cases, all 256 MOVI V.2D byte masks and 512 MOVI V.8B/16B
+byte-immediate cases, plus 200 register BIC cases. The vector
+operations preserve flags, handle aliases and clear the unused upper half where
+specified. Timing tests verify cross-bank and old-destination dependencies;
+these tests do not calibrate instruction latency.
+
+The development-firmware flag (`_COMM_PAGE_DEV_FIRM`, offset 0x84 in both
+commpage views) is captured as an optional uint32. An absent capture stays
+unmapped; zero is represented only when observed. The mappings are read-only.
