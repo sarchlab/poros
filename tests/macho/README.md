@@ -18,11 +18,16 @@ All initialization, arithmetic, output and exit remain native program work.
 Current simulator status: the loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 With the captured native profile and explicit warm shared cache, the installed
-M2 runtime reaches Mach trap -19 (`mach_port_mod_refs`) after 1,183,915 user
-instructions for integer/1000, including execution inside the real shared-cache
-libraries, anonymous mapping/deallocation and dyld image-info registration. The
-24 retained cases reach 1,183,755–1,240,352 instructions at that same trap. It has not
-reached benchmark main.
+M2 runtime reaches BSD trap 5 (`open`) after 1,479,984 user instructions for
+integer/1000. It has executed the real cached dyld, retired the original dyld
+mapping, managed reply rights, and reserved the released address range through
+a real `mach_msg2`/`mach_vm_map` request. The 24 retained cases reach
+1,479,614–1,564,489 instructions at that same open of their own executable.
+It has not reached benchmark main. The current apple vector includes only
+`executable_path` and the effective pointer-authentication mode. Native kernel
+file-identity and other startup hints still need explicit modeling; their
+absence may select extra fallback work such as this executable reopen.
+Successful bring-up alone will not establish equivalent native startup timing.
 This is **not successful benchmark execution or a whole-program accuracy
 measurement**. Missing dependencies remain failures with an exact guest PC.
 
@@ -36,7 +41,11 @@ python3 scripts/macho-native.py --poros /tmp/poros --output /tmp/macho-native.js
 
 `native-m2.json` preserves native correctness and three raw `wait4` user-time
 observations per case on the recorded Apple M2/macOS runtime. No sample-quality
-acceptance or accuracy claim follows from these observations. Incomplete
+acceptance or accuracy claim follows from these observations. This bring-up
+collector uses Python `Popen`; on the recorded host it takes the fork/exec path,
+so child pre-exec overhead has not been excluded from its diagnostic samples.
+The final calibration protocol must use explicit spawn and verify its accounting
+boundary. Incomplete
 simulator startup is recorded separately and must not be compared to native
 whole-program user time. Source, binary and dyld hashes identify the inputs.
 
@@ -74,7 +83,7 @@ setup budgets; reaching a budget rejects the collection rather than counting as
 a discovered runtime dependency. Defaults are 2M instructions, 10s simulator execution
 host time and 120s including runtime hashing.
 
-The next runtime slice adds independently replayed BFXIL (640), RBIT/REV (544),
+Runtime ISA coverage includes independently replayed BFXIL (640), RBIT/REV (544),
 CSINV (1536), LDADD values (160), LDADD monitor interactions (136), and vector
 lane inserts (1360). Element insertion preserves all other destination lanes;
 timing tracks that old-destination dependency. Fourteen native deallocation
@@ -82,3 +91,20 @@ cases verify both readability and mapping removal. Eight post-startup dyld-info
 registration cases verify finalized metadata rejects changes; first-startup
 registration is checked with the documented kernel state machine and owned
 Mach-O section fixtures, not claimed as directly native-observed.
+
+The kernel namespace now counts self-port send references and retains ordinary
+and typed reply receive rights, including their context and queue limit. Owned
+native probes cover self-reference acquisition/release, 24 null/dead-name cases,
+12 construction cases, and 14 BSD `munmap` cases. Construction keeps an allocated
+right when its final name copyout fails; unmapping updates both actual mappings
+and allocator reservations. Destruction/guard exceptions remain unsupported.
+
+The synchronous task-kobject message path decodes real `mach_msg2` packed
+arguments and the `mach_vm_map` MIG payload. The same VM allocator serves both
+the fast trap and full RPC, including current/maximum protection clamping.
+Thirty-one native exchanges verify success/error framing, the default trailer,
+partial trailers for small receive buffers, header precedence and map effects
+that survive receive failure. These are kernel ABI operations, not skipped user
+library calls. Other services/descriptors/options and mixed-permission partial
+copyout faults remain explicit unsupported dependencies. All user runtime
+instructions before each trap still execute normally.

@@ -69,6 +69,7 @@ func TestDarwinRejectsLinuxSVCWithoutCommit(t *testing.T) {
 
 func TestMachProtectRoundsAndChecksMaximum(t *testing.T) {
 	p := process(t, Options{})
+	p.kernel.taskSendRefs = 1 // owned fixture holds a current-task send right
 	r := &p.Registers
 	for _, tc := range []struct{ addr, size, prot, max, task, want uint64 }{
 		{0x100004001, 1, 1, 0, 0x103, 0},      // page rounding protects all of data page

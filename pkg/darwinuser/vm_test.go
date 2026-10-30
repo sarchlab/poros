@@ -26,7 +26,7 @@ func vmArgs(t *testing.T, m *usermem.AddressSpace, hint uint64) emu.Registers {
 func TestMachMapAnonymousRoundZeroPrivateAndReserve(t *testing.T) {
 	m := &usermem.AddressSpace{}
 	m.Map(0x1000, 16, usermem.Read|usermem.Write, nil)
-	k := kernelState{reserved: []addressSpan{{0x100000000, 0x100040000}}}
+	k := kernelState{taskSendRefs: 1, reserved: []addressSpan{{0x100000000, 0x100040000}}}
 	r := vmArgs(t, m, 0x100000000)
 	if !k.trap(&r, m) || r.GPR[0] != 0 || !r.C {
 		t.Fatal(r.GPR[:6])
@@ -68,7 +68,7 @@ func TestMachMapCopyoutFailureRetainsMapping(t *testing.T) {
 	m.MapProtected(0x1000, 16, usermem.Read|usermem.Write, usermem.Read|usermem.Write, nil)
 	r := vmArgs(t, m, 0x100000000)
 	m.Protect(0x1000, 16, usermem.Read, false)
-	k := kernelState{}
+	k := kernelState{taskSendRefs: 1}
 	if !k.trap(&r, m) || r.GPR[0] != 10 || k.anonymousBytes != vmPage {
 		t.Fatal(r, k.anonymousBytes)
 	}
@@ -98,7 +98,7 @@ func TestMachMapErrorsAndUnsupportedFlags(t *testing.T) {
 			r := vmArgs(t, m, 0x100000000)
 			tc.mutate(&r)
 			before := r
-			k := kernelState{}
+			k := kernelState{taskSendRefs: 1}
 			handled := k.trap(&r, m)
 			if handled != tc.handled || (handled && r.GPR[0] != tc.want) || (!handled && r != before) || len(m.Mappings()) != 1 || k.anonymousBytes != 0 {
 				t.Fatal(handled, r.GPR[:6], len(m.Mappings()))
@@ -109,7 +109,7 @@ func TestMachMapErrorsAndUnsupportedFlags(t *testing.T) {
 func TestMachMapFixedCollisionAndAlignmentMask(t *testing.T) {
 	m := &usermem.AddressSpace{}
 	m.Map(0x1000, 16, usermem.Read|usermem.Write, nil)
-	k := kernelState{reserved: []addressSpan{{0x100000000, 0x100040000}}}
+	k := kernelState{taskSendRefs: 1, reserved: []addressSpan{{0x100000000, 0x100040000}}}
 	r := vmArgs(t, m, 0x100000000)
 	r.GPR[4] = 0
 	if !k.trap(&r, m) || r.GPR[0] != 3 || k.anonymousBytes != 0 {
@@ -132,7 +132,7 @@ func TestMachDeallocateRoundingReuseAndAccounting(t *testing.T) {
 	if e := m.Map(0x1000, 16, usermem.Read|usermem.Write, nil); e != nil {
 		t.Fatal(e)
 	}
-	k := kernelState{}
+	k := kernelState{taskSendRefs: 1}
 	r := vmArgs(t, m, 0x100000000)
 	r.GPR[2] = 3 * vmPage
 	if !k.trap(&r, m) || r.GPR[0] != 0 {
@@ -190,7 +190,7 @@ func TestMachDeallocateErrorsAndProtectedRegions(t *testing.T) {
 	} {
 		m := &usermem.AddressSpace{}
 		m.Map(0x4000, vmPage, usermem.Read, nil)
-		k := kernelState{protected: []addressSpan{{0x4000, 0x8000}}}
+		k := kernelState{taskSendRefs: 1, protected: []addressSpan{{0x4000, 0x8000}}}
 		r := emu.Registers{}
 		r.GPR[16] = 0xfffffff4
 		r.GPR[0] = tc.task
@@ -204,5 +204,30 @@ func TestMachDeallocateErrorsAndProtectedRegions(t *testing.T) {
 		if len(m.Mappings()) != 1 {
 			t.Fatal("error changed mappings")
 		}
+	}
+}
+
+func TestMunmapProtectedRangeAndAccounting(t *testing.T) {
+	const base uint64 = 0x200000000
+	m := &usermem.AddressSpace{}
+	m.Map(base, 3*vmPage, usermem.Read|usermem.Write, nil)
+	k := kernelState{anonymous: []addressSpan{{base, base + 3*vmPage}}, anonymousBytes: 3 * vmPage, anonymousMappings: 1, reserved: []addressSpan{{base, base + 3*vmPage}}, protected: []addressSpan{{base + vmPage, base + 2*vmPage}}}
+	r := emu.Registers{C: true}
+	r.GPR[16] = 73
+	r.GPR[0] = base
+	r.GPR[1] = 3 * vmPage
+	old := r
+	if k.trap(&r, m) || r != old || k.anonymousBytes != 3*vmPage || len(m.Mappings()) != 1 {
+		t.Fatal("unsupported protected unmap mutated state")
+	}
+	k.protected = nil
+	r.GPR[0] = base + vmPage
+	r.GPR[1] = 1
+	r.GPR[2] = 0x80 // stale third register is not an advice argument
+	if !k.trap(&r, m) || r.GPR[0] != 0 || r.GPR[1] != 0 || r.C || k.anonymousBytes != 2*vmPage || k.anonymousMappings != 2 || len(k.reserved) != 2 || len(m.Mappings()) != 2 {
+		t.Fatal(r, k)
+	}
+	if m.Check(base+vmPage, 1, usermem.Read, "removed") == nil {
+		t.Fatal("middle page remained mapped")
 	}
 }

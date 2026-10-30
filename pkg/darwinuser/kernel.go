@@ -10,17 +10,19 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
-	reserved                      []addressSpan
-	protected                     []addressSpan
-	anonymous                     []addressSpan
-	anonymousBytes                uint64
-	anonymousMappings             uint32
-	dyldInfoAddress, dyldInfoSize uint64
-	dyldInfoFinal                 bool
-	nextPort                      uint32
-	entropyState                  uint64
-	sharedCacheBase               uint64
-	csrConfig                     *uint32
+	reserved                                   []addressSpan
+	protected                                  []addressSpan
+	anonymous                                  []addressSpan
+	anonymousBytes                             uint64
+	anonymousMappings                          uint32
+	dyldInfoAddress, dyldInfoSize              uint64
+	dyldInfoFinal                              bool
+	taskSendRefs, hostSendRefs, threadSendRefs uint32
+	receivePorts                               map[uint32]receivePort
+	nextPort                                   uint32
+	entropyState                               uint64
+	sharedCacheBase                            uint64
+	csrConfig                                  *uint32
 }
 
 func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
@@ -40,12 +42,20 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return true
 	}
 	switch number {
+	case 73:
+		return k.munmap(r, m)
+	case -47:
+		return k.message2(r, m)
+	case -24:
+		return k.constructPort(r, m)
+	case -19:
+		return k.modifyPortRefs(r)
 	case -12:
 		return k.deallocate(r, m)
 	case -15:
 		return k.mapAnonymous(r, m)
 	case -14: // mach_vm_protect, on this process's task map only.
-		if uint32(r.GPR[0]) != 0x103 {
+		if !k.currentTaskRight(uint32(r.GPR[0])) {
 			r.GPR[0] = 0x10000003 // MACH_SEND_INVALID_DEST; kernelrpc rejects foreign task rights.
 			break
 		}
@@ -69,21 +79,22 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 			}
 		}
 	case -28:
-		r.GPR[0] = 0x103 // task_self_trap, send right
+		if !copySelfRight(&k.taskSendRefs) {
+			return false
+		}
+		r.GPR[0] = 0x103 // task_self_trap, a new send reference
 	case -29:
-		r.GPR[0] = 0x107 // host_self_trap, send right
+		if !copySelfRight(&k.hostSendRefs) {
+			return false
+		}
+		r.GPR[0] = 0x107 // host_self_trap, a new send reference
 	case -27:
-		r.GPR[0] = 0x10b // thread_self_trap, send right
-	case -26: // mach_reply_port, a new receive right
-		if k.nextPort == 0 {
-			k.nextPort = 0x10f
+		if !copySelfRight(&k.threadSendRefs) {
+			return false
 		}
-		if k.nextPort >= 0x10000 {
-			r.GPR[0] = 0
-		} else {
-			r.GPR[0] = uint64(k.nextPort)
-			k.nextPort += 4
-		}
+		r.GPR[0] = 0x10b // thread_self_trap, a new send reference
+	case -26: // mach_reply_port, a new ordinary receive right
+		r.GPR[0] = uint64(k.allocateReceivePort(receivePort{queueLimit: 5}))
 	case 336: // proc_info: registration of this task's dyld image-info range.
 		if uint32(r.GPR[0]) != 15 {
 			return false
