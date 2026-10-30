@@ -8,6 +8,13 @@ import (
 // simdForm selects only implemented encodings. Byte operations keep size
 // bits in their mask; MOVI explicitly selects its implemented lane form.
 func simdForm(word uint32) uint32 {
+	if word&0xffe08400 == 0x6e000400 {
+		size := bits.TrailingZeros32((word >> 16) & 31)
+		if size <= 3 && ((word>>11)&15)&((1<<size)-1) == 0 {
+			return 0x6e000400
+		}
+	} // INS (element), disassembled as MOV Vd.<T>[i],Vn.<T>[j]
+
 	switch form := word & 0xbfe0fc00; form {
 	case 0x0e201c00, 0x0ea01c00, 0x2e201c00, 0x2e203400, 0x2e208c00:
 		return form // ORR, EOR, CMHI
@@ -66,6 +73,17 @@ func (e *executor) execSIMD(word uint32) {
 		case 0x2e303800:
 			sum += uint16(a[i])
 		}
+	}
+	if form == 0x6e000400 {
+		dst := e.regs.FP[word&31]
+		binary.LittleEndian.PutUint64(out[:8], dst.Lo)
+		binary.LittleEndian.PutUint64(out[8:], dst.Hi)
+		imm5, imm4 := (word>>16)&31, (word>>11)&15
+		size := bits.TrailingZeros32(imm5)
+		width := 1 << size
+		di := int(imm5>>uint(size+1)) * width
+		si := int(imm4>>uint(size)) * width
+		copy(out[di:di+width], a[si:si+width])
 	}
 	if form == 0x0e212800 {
 		width := 1 << ((word >> 22) & 3)

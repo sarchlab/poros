@@ -55,8 +55,8 @@ platform string routines. Modeled kernel calls provide task/thread/reply port
 names, thread ID/TLS, page-rounded `mach_vm_protect`, native-architecture
 crossarch errors, and CSR queries against an explicitly captured configuration.
 SVC immediates are checked by the OS runtime; they are not architectural state.
-With an explicit matching warm shared cache, the next local stop is the unsupported instruction
-`BFXIL X9,X28,#0,#61` at `0x700017400`, after 298,148 user instructions
+With an explicit matching warm shared cache, the next local stop is unsupported Mach trap -19 (`mach_port_mod_refs`)
+at `0x1804885e4`, after 1,183,915 user instructions
 for integer/1000. It has not reached benchmark
 main. CAS/SWP execute as real read-modify-write operations; DMB/DSB/ISB preserve
 ordering. Both timing pipelines serialize atomic/barrier operations
@@ -133,7 +133,7 @@ LDXR/LDAXR/STXR/STLXR and CLREX use an explicit measured M2 local-monitor profil
 The reservation covers one 64-byte granule; same-granule second exclusive loads
 can satisfy an original-address store, without an invented exact-width rule.
 Access alignment follows the independently captured 16-byte policy, with SP 16
-checks. Ordinary stores into the reserved granule clear it. Retired CAS/SWP operations
+checks. Ordinary stores into the reserved granule clear it. Retired CAS/SWP/LDADD operations
 clear it even on comparison mismatch or a different granule; handled SVC also
 clears it. Failed local
 reservations still validate write permission; faulting instructions do not
@@ -145,3 +145,31 @@ The required vector slice now also covers MOVI 2S/4S with LSL immediates, lower-
 XTN narrowing and checked LDNP/STNP pairs. Pair transfers retain all-or-nothing
 fault behavior; both destinations/sources reach timing dependencies. Cache
 allocation hints and ISA latencies remain uncalibrated; no parameter was fitted.
+
+## Deallocation, dyld metadata and vector string reads
+
+`mach_vm_deallocate` removes page-rounded mappings, preserves holes, splits
+surviving backing ranges, and releases unused private lazy pages. Reallocating
+the address gets fresh zero-filled storage. Image/stack reservations and anonymous
+accounting shrink accordingly. Shared-cache and commpage submap removal remains
+unsupported. Native tests include high unmapped ranges (successful no-op),
+overflow, inaccessible mappings and ranges spanning holes.
+
+The loader records the bounded `__all_image_info` section from dyld's `__DATA`
+or `__DATA_DIRTY`. `proc_info` call 15 registers this task's new address/size,
+without reading the buffer, then finalizes metadata according to XNU's
+[task_set_dyld_info state machine](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/task.c).
+Foreign PID, null pointer, overflow and later updates return EINVAL. Other
+proc_info calls remain unsupported.
+
+Matching installed dyld code identifies v4 dynamic-region offsets 88/92 as
+cryptex/cache path lengths including NUL. The native profile captures these
+fields and each nonnull path's 16-byte-aligned read envelope, as used by its
+vector strlen. Actual padding is preserved and checked against known fields;
+unknown bytes 80–87 remain unmapped. This v4 evidence comes from the identified
+native binary and read-only observations, not an assumed public v3 layout.
+
+The executed ISA slice additionally includes scalar BFXIL, RBIT/REV and CSINV,
+LDADD with real read/write memory events, and vector element insertions (MOV/INS)
+with old-destination dependencies. Native vector outputs cover all B/H/S/D lane
+indices and aliases. Conservative atomic serialization remains uncalibrated.

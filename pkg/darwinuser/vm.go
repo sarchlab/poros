@@ -117,6 +117,7 @@ func (k *kernelState) mapAnonymous(r *emu.Registers, m *usermem.AddressSpace) bo
 		r.GPR[0] = 3
 		return true
 	}
+	k.anonymous = append(k.anonymous, addressSpan{address, address + size})
 	k.anonymousBytes += size
 	k.anonymousMappings++
 	binary.LittleEndian.PutUint64(b[:], address)
@@ -124,5 +125,58 @@ func (k *kernelState) mapAnonymous(r *emu.Registers, m *usermem.AddressSpace) bo
 	if err := m.Write(pointer, b[:]); err != nil {
 		r.GPR[0] = 10
 	}
+	return true
+}
+
+func subtractSpan(spans []addressSpan, start, end uint64) []addressSpan {
+	out := make([]addressSpan, 0, len(spans)+1)
+	for _, v := range spans {
+		if v.hi <= start || v.lo >= end {
+			out = append(out, v)
+			continue
+		}
+		if v.lo < start {
+			out = append(out, addressSpan{v.lo, start})
+		}
+		if v.hi > end {
+			out = append(out, addressSpan{end, v.hi})
+		}
+	}
+	return out
+}
+
+func (k *kernelState) deallocate(r *emu.Registers, m *usermem.AddressSpace) bool {
+	if uint32(r.GPR[0]) != 0x103 {
+		r.GPR[0] = 0x10000003
+		return true
+	}
+	start, size := r.GPR[1], r.GPR[2]
+	if size == 0 {
+		r.GPR[0] = 0
+		return true
+	}
+	if size > ^uint64(0)-start || start+size > ^uint64(0)-(vmPage-1) {
+		r.GPR[0] = 4
+		return true
+	}
+	end := (start + size + vmPage - 1) &^ (vmPage - 1)
+	start &= ^(vmPage - 1)
+	for _, v := range k.protected {
+		if start < v.hi && v.lo < end {
+			return false
+		}
+	}
+	if err := m.Unmap(start, end-start); err != nil {
+		r.GPR[0] = 4
+		return true
+	}
+	k.reserved = subtractSpan(k.reserved, start, end)
+	k.anonymous = subtractSpan(k.anonymous, start, end)
+	k.anonymousBytes = 0
+	for _, v := range k.anonymous {
+		k.anonymousBytes += v.hi - v.lo
+	}
+	k.anonymousMappings = uint32(len(k.anonymous))
+	r.GPR[0] = 0
 	return true
 }

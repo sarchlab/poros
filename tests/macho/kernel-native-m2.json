@@ -113,6 +113,209 @@
         "svc_failed": 100,
         "bad": 0
       }
+    },
+    {
+      "source": "vm-deallocate-probe.c",
+      "source_sha256": "c3fab4401cfc72e684abec2585c1c1a6cec1a2af6e73cff545f14c73a25df85d",
+      "architecture": "arm64",
+      "binary_sha256": "c72e679d32f623bf162c9d03af4a0f0609313fdd979667170802d5b77aa4a233",
+      "result": {
+        "cases": [
+          {
+            "case": 0,
+            "return": 0,
+            "before_mask": 31,
+            "after_mask": 0,
+            "mapped_before": 31,
+            "mapped_after": 0,
+            "page_size": 16384
+          },
+          {
+            "case": 1,
+            "return": 0,
+            "before_mask": 31,
+            "after_mask": 31,
+            "mapped_before": 31,
+            "mapped_after": 31,
+            "page_size": 16384
+          },
+          {
+            "case": 2,
+            "return": 268435459,
+            "before_mask": 31,
+            "after_mask": 31,
+            "mapped_before": 31,
+            "mapped_after": 31,
+            "page_size": 16384
+          },
+          {
+            "case": 3,
+            "return": 0,
+            "before_mask": 31,
+            "after_mask": 29,
+            "mapped_before": 31,
+            "mapped_after": 29,
+            "page_size": 16384
+          },
+          {
+            "case": 4,
+            "return": 0,
+            "before_mask": 31,
+            "after_mask": 25,
+            "mapped_before": 31,
+            "mapped_after": 25,
+            "page_size": 16384
+          },
+          {
+            "case": 5,
+            "return": 0,
+            "before_mask": 27,
+            "after_mask": 27,
+            "mapped_before": 27,
+            "mapped_after": 27,
+            "page_size": 16384
+          },
+          {
+            "case": 6,
+            "return": 0,
+            "before_mask": 27,
+            "after_mask": 0,
+            "mapped_before": 27,
+            "mapped_after": 0,
+            "page_size": 16384
+          },
+          {
+            "case": 7,
+            "return": 0,
+            "before_mask": 31,
+            "after_mask": 31,
+            "mapped_before": 31,
+            "mapped_after": 31,
+            "page_size": 16384
+          },
+          {
+            "case": 8,
+            "return": 0,
+            "before_mask": 31,
+            "after_mask": 31,
+            "mapped_before": 31,
+            "mapped_after": 31,
+            "page_size": 16384
+          },
+          {
+            "case": 9,
+            "return": 4,
+            "before_mask": 31,
+            "after_mask": 31,
+            "mapped_before": 31,
+            "mapped_after": 31,
+            "page_size": 16384
+          },
+          {
+            "case": 10,
+            "return": 0,
+            "before_mask": 31,
+            "after_mask": 31,
+            "mapped_before": 31,
+            "mapped_after": 31,
+            "page_size": 16384
+          },
+          {
+            "case": 11,
+            "return": 4,
+            "before_mask": 31,
+            "after_mask": 31,
+            "mapped_before": 31,
+            "mapped_after": 31,
+            "page_size": 16384
+          },
+          {
+            "case": 12,
+            "return": 0,
+            "before_mask": 29,
+            "after_mask": 29,
+            "mapped_before": 31,
+            "mapped_after": 29,
+            "page_size": 16384
+          },
+          {
+            "case": 13,
+            "return": 0,
+            "before_mask": 31,
+            "after_mask": 17,
+            "mapped_before": 31,
+            "mapped_after": 17,
+            "page_size": 16384
+          }
+        ]
+      }
+    },
+    {
+      "source": "proc-dyld-probe.c",
+      "source_sha256": "8677f6312150fb3ca89300dee4567bc0b68ba16e6777ffc3279be6c81505ec82",
+      "architecture": "arm64",
+      "binary_sha256": "8c84166764361a6aeef4b2beabe75a7eaf3d05283be85850353b22aa498f310f",
+      "result": {
+        "startup_already_completed": true,
+        "cases": [
+          {
+            "case": 0,
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "metadata_unchanged": true
+          },
+          {
+            "case": 1,
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "metadata_unchanged": true
+          },
+          {
+            "case": 2,
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "metadata_unchanged": true
+          },
+          {
+            "case": 3,
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "metadata_unchanged": true
+          },
+          {
+            "case": 4,
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "metadata_unchanged": true
+          },
+          {
+            "case": 5,
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "metadata_unchanged": true
+          },
+          {
+            "case": 6,
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "metadata_unchanged": true
+          },
+          {
+            "case": 7,
+            "x0": 22,
+            "x1": 0,
+            "carry": 1,
+            "metadata_unchanged": true
+          }
+        ]
+      }
     }
   ]
 }

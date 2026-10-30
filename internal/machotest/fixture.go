@@ -83,3 +83,22 @@ func Universal(slice []byte) []byte {
 	copy(b[16384:], slice)
 	return b
 }
+
+// WithAllImageInfo adds an owned zero-fill section to the fixture's data segment.
+func WithAllImageInfo(image []byte) []byte {
+	b := append([]byte(nil), image...)
+	u := binary.LittleEndian
+	const segment = 104
+	size := int(u.Uint32(b[20:]))
+	copy(b[256:32+size+80], b[176:32+size])
+	clear(b[176:256])
+	u.PutUint32(b[segment+4:], 152)
+	u.PutUint32(b[segment+64:], 1)
+	u.PutUint32(b[20:], uint32(size+80))
+	copy(b[176:192], "__all_image_info")
+	copy(b[192:208], "__DATA")
+	u.PutUint64(b[208:], u.Uint64(b[segment+24:])+0x100)
+	u.PutUint64(b[216:], 0x170)
+	u.PutUint32(b[240:], 1)
+	return b
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"github.com/sarchlab/poros/internal/machotest"
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/usermem"
 	"testing"
@@ -210,4 +211,52 @@ func TestPrivatePIDAndBSDSecondReturn(t *testing.T) {
 	if !k.trap(&r, m) || r.GPR[1] != 99 || !r.C {
 		t.Fatal("Mach ABI return was changed")
 	}
+}
+
+func TestDyldInfoRegistrationStateAndErrors(t *testing.T) {
+	p, err := Parse(machotest.Image(2), machotest.WithAllImageInfo(machotest.Image(7)), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.kernel.dyldInfoAddress != DyldBase+0x4100 || p.kernel.dyldInfoSize != 0x170 || p.kernel.dyldInfoFinal {
+		t.Fatal("initial section metadata missing", p.kernel)
+	}
+	invoke := func(k *kernelState, pid, address, size uint64) emu.Registers {
+		r := emu.Registers{C: true}
+		r.GPR[16] = 336
+		r.GPR[0] = 15
+		r.GPR[1] = pid
+		r.GPR[4] = address
+		r.GPR[5] = size
+		if !k.trap(&r, p.Memory) {
+			t.Fatal("unhandled registration")
+		}
+		return r
+	}
+	for _, tc := range [][3]uint64{{99, 0x1000, 1}, {100, 0, 0}, {100, ^uint64(0), 1}} {
+		before := p.kernel
+		r := invoke(&p.kernel, tc[0], tc[1], tc[2])
+		if r.GPR[0] != 22 || !r.C || p.kernel.dyldInfoAddress != before.dyldInfoAddress || p.kernel.dyldInfoFinal {
+			t.Fatal(tc, r)
+		}
+	}
+	// Kernel stores the range without probing its memory or requiring nonzero size.
+	r := invoke(&p.kernel, 100, 1, 0)
+	if r.GPR[0] != 0 || r.C || p.kernel.dyldInfoAddress != 1 || p.kernel.dyldInfoSize != 0 || !p.kernel.dyldInfoFinal {
+		t.Fatal(r, p.kernel)
+	}
+	r = invoke(&p.kernel, 100, 0x2000, 0x170)
+	if r.GPR[0] != 22 || p.kernel.dyldInfoAddress != 1 {
+		t.Fatal("final registration overwritten", r)
+	}
+	var empty kernelState
+	r = invoke(&empty, 100, 0x1000, 1)
+	if r.GPR[0] != 0 || empty.dyldInfoFinal {
+		t.Fatal("zero initial state finalized too early")
+	}
+	r = invoke(&empty, 100, 0x2000, 1)
+	if r.GPR[0] != 0 || !empty.dyldInfoFinal || empty.dyldInfoAddress != 0x2000 {
+		t.Fatal("second nonzero transition did not finalize")
+	}
+
 }

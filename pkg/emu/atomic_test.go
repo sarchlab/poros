@@ -9,6 +9,8 @@ import (
 	"github.com/sarchlab/poros/pkg/usermem"
 	"golang.org/x/arch/arm64/arm64asm"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -119,7 +121,7 @@ func TestAtomicExtensionDecodeContract(t *testing.T) {
 			break
 		}
 	}
-	for _, word := range []uint32{0x08a17c62, 0x48a17c62, 0x08217c62, 0x88a10062, 0xb8210002} {
+	for _, word := range []uint32{0x08a17c62, 0x48a17c62, 0x08217c62, 0x88a10062, 0xb8211002} {
 		if _, ok := decodeAtomic(word); ok {
 			t.Fatalf("unsupported atomic decoded %x", word)
 		}
@@ -255,6 +257,107 @@ func TestAtomicSPAlignmentNativeContract(t *testing.T) {
 		ok := v.Exit == 0 && v.Signal == 0
 		if (err == nil) != ok || (!ok && (r != before || len(m.Accesses) != 0)) {
 			t.Fatalf("SP native mismatch %+v %v", v, err)
+		}
+	}
+}
+
+func TestLDADDNativeValues(t *testing.T) {
+	var native struct {
+		Cases []struct {
+			Bits, Alias                      int
+			Order, Initial, Add, Old, Memory string
+		}
+	}
+	nativeAtomicObservation(t, "ldadd-probe.c", &native)
+	if len(native.Cases) != 160 {
+		t.Fatal("missing native LDADD vectors")
+	}
+	for _, tc := range native.Cases {
+		parse := func(s string) uint64 {
+			v, e := strconv.ParseUint(s, 16, 64)
+			if e != nil {
+				t.Fatal(e)
+			}
+			return v
+		}
+		rs, rt := 1, 2
+		switch tc.Alias {
+		case 1:
+			rt = 1
+		case 2:
+			rt = 31
+		case 3:
+			rs = 31
+		}
+		word := uint32(0xb8200060) | uint32(rs)<<16 | uint32(rt)
+		if tc.Bits == 64 {
+			word |= 1 << 30
+		}
+		if strings.Contains(tc.Order, "a") {
+			word |= 1 << 23
+		}
+		if strings.Contains(tc.Order, "l") && tc.Order != "plain" {
+			word |= 1 << 22
+		}
+		// The native order labels are plain/A/L/AL in lower case.
+		if tc.Order == "plain" {
+			word &^= 3 << 22
+		}
+		m := atomicSpace(t, word, usermem.Read|usermem.Write)
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], parse(tc.Initial))
+		m.Space.Write(0x2000, b[:])
+		r := Registers{PC: 0x1000, C: true}
+		r.GPR[1] = parse(tc.Add)
+		r.GPR[3] = 0x2000
+		before := r
+		if _, e := StepChecked(&r, m); e != nil {
+			t.Fatal(tc, e)
+		}
+		if rt != 31 {
+			before.GPR[rt] = parse(tc.Old)
+		}
+		before.PC += 4
+		if before != r {
+			t.Fatal(tc, "register result", r.GPR[:4])
+		}
+		m.Space.Read(0x2000, b[:])
+		if binary.LittleEndian.Uint64(b[:]) != parse(tc.Memory) || len(m.Accesses) != 2 || m.Accesses[0].IsWrite || !m.Accesses[1].IsWrite {
+			t.Fatal(tc, b, m.Accesses)
+		}
+	}
+}
+
+func TestLDADDFaultsAndBaseAliases(t *testing.T) {
+	for _, word := range []uint32{0xf8210063, 0xf8230062} {
+		m := atomicSpace(t, word, usermem.Read|usermem.Write)
+		r := Registers{PC: 0x1000}
+		r.GPR[1] = 9
+		r.GPR[3] = 0x2000
+		if _, err := StepChecked(&r, m); err != nil {
+			t.Fatal(err)
+		}
+		if word == 0xf8210063 && r.GPR[3] != 7 {
+			t.Fatal("destination/base alias")
+		}
+		var b [8]byte
+		m.Space.Read(0x2000, b[:])
+		want := uint64(16)
+		if word == 0xf8230062 {
+			want = 0x2007
+		}
+		if binary.LittleEndian.Uint64(b[:]) != want {
+			t.Fatal("source/base alias", b)
+		}
+	}
+	for _, flags := range []usermem.Permission{usermem.Read, usermem.Write} {
+		m := atomicSpace(t, 0xf8210062, flags)
+		r := Registers{PC: 0x1000, Exclusive: ExclusiveState{Policy: ExclusiveM2Local64, Valid: true, Base: 0x4000}}
+		r.GPR[1] = 9
+		r.GPR[3] = 0x2000
+		before := r
+		if _, err := StepChecked(&r, m); err == nil || r != before || len(m.Accesses) != 0 {
+			t.Fatal("fault mutated state")
 		}
 	}
 }

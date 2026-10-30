@@ -310,8 +310,89 @@ func (m *AddressSpace) Exchange(addr uint64, replacement, old []byte) error {
 
 // WriteExclusive preserves the native permission check even for a failed local
 // reservation. Only successful exclusive stores materialize/write data pages.
-func (m *AddressSpace) WriteExclusive(address uint64,data []byte,enabled bool) error {
- if err:=m.Check(address,len(data),Write,"exclusive write");err!=nil{return err}
- if !enabled{return nil}
- return m.Write(address,data)
+func (m *AddressSpace) WriteExclusive(address uint64, data []byte, enabled bool) error {
+	if err := m.Check(address, len(data), Write, "exclusive write"); err != nil {
+		return err
+	}
+	if !enabled {
+		return nil
+	}
+	return m.Write(address, data)
+}
+
+// FetchAdd performs one checked little-endian modulo-width read-modify-write.
+func (m *AddressSpace) FetchAdd(addr uint64, increment, old []byte) error {
+	n := len(increment)
+	if (n != 4 && n != 8) || len(old) != n || addr%16+uint64(n) > 16 {
+		return &MemoryError{addr, n, "atomic", "invalid width or alignment"}
+	}
+	if err := m.Check(addr, n, Read|Write, "atomic"); err != nil {
+		return err
+	}
+	if err := m.prepare(addr, n, "atomic"); err != nil {
+		return err
+	}
+	var operand, current, value [8]byte
+	copy(operand[:], increment)
+	m.transfer(addr, current[:n], false)
+	// Byte-wise addition naturally wraps at the selected width.
+	carry := uint16(0)
+	for i := 0; i < n; i++ {
+		sum := uint16(current[i]) + uint16(operand[i]) + carry
+		value[i] = byte(sum)
+		carry = sum >> 8
+	}
+	m.transfer(addr, value[:n], true)
+	copy(old, current[:n])
+	return nil
+}
+
+// Unmap removes a virtual range, including holes. It splits surviving mappings
+// without copying their private backing and releases lazy pages with no aliases.
+func (m *AddressSpace) Unmap(start, size uint64) error {
+	if size > ^uint64(0)-start {
+		return &MemoryError{start, 0, "unmap", "address overflow"}
+	}
+	if size == 0 {
+		return nil
+	}
+	end := start + size
+	out := make([]mappedRegion, 0, len(m.regions)+1)
+	touched := map[*backing]bool{}
+	for _, r := range m.regions {
+		if r.End <= start || r.Start >= end {
+			out = append(out, r)
+			continue
+		}
+		touched[r.backing] = true
+		if r.Start < start {
+			prefix := r
+			prefix.End = start
+			out = append(out, prefix)
+		}
+		if r.End > end {
+			r.offset += end - r.Start
+			r.Start = end
+			out = append(out, r)
+		}
+	}
+	m.regions = out
+	for b := range touched {
+		for page, data := range b.pages {
+			lo := page * b.pageSize
+			hi := lo + uint64(len(data))
+			live := false
+			for _, r := range m.regions {
+				if r.backing == b && r.offset < hi && lo < r.offset+r.End-r.Start {
+					live = true
+					break
+				}
+			}
+			if !live {
+				delete(b.pages, page)
+				m.lazyBytes -= uint64(len(data))
+			}
+		}
+	}
+	return nil
 }

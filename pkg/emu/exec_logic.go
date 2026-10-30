@@ -221,6 +221,21 @@ func (e *executor) execBFI(inst arm64asm.Inst) error {
 	return nil
 }
 
+// BFXIL extracts a source field and replaces the low destination bits.
+func (e *executor) execBFXIL(inst arm64asm.Inst) error {
+	is32 := is32bit(inst.Args[0])
+	dst := e.readOperandVal(inst.Args[0], is32)
+	src := e.readOperandVal(inst.Args[1], is32)
+	lsb, width := resolveImm(inst.Args[2]), resolveImm(inst.Args[3])
+	mask := (uint64(1) << width) - 1
+	result := (dst &^ mask) | ((src >> lsb) & mask)
+	if is32 {
+		result = mask32(result)
+	}
+	e.writeGPR(inst.Args[0], result)
+	return nil
+}
+
 func (e *executor) execCSEL(inst arm64asm.Inst) error {
 	is32 := is32bit(inst.Args[0])
 	cond := inst.Args[3].(arm64asm.Cond)
@@ -752,6 +767,43 @@ func (e *executor) execADRP(inst arm64asm.Inst) error {
 func (e *executor) execADR(inst arm64asm.Inst) error {
 	offset := int64(inst.Args[1].(arm64asm.PCRel))
 	result := uint64(int64(e.regs.PC) + offset)
+	e.writeGPR(inst.Args[0], result)
+	return nil
+}
+
+func (e *executor) execRBIT(inst arm64asm.Inst) error {
+	is32 := is32bit(inst.Args[0])
+	src := e.readOperandVal(inst.Args[1], is32)
+	result := bits.Reverse64(src)
+	if is32 {
+		result = uint64(bits.Reverse32(uint32(src)))
+	}
+	e.writeGPR(inst.Args[0], result)
+	return nil
+}
+
+func (e *executor) execREV(inst arm64asm.Inst) error {
+	is32 := is32bit(inst.Args[0])
+	src := e.readOperandVal(inst.Args[1], is32)
+	result := bits.ReverseBytes64(src)
+	if is32 {
+		result = uint64(bits.ReverseBytes32(uint32(src)))
+	}
+	e.writeGPR(inst.Args[0], result)
+	return nil
+}
+
+func (e *executor) execCSINV(inst arm64asm.Inst) error {
+	is32 := is32bit(inst.Args[0])
+	var result uint64
+	if e.regs.EvalCond(inst.Args[3].(arm64asm.Cond)) {
+		result = e.readOperandVal(inst.Args[1], is32)
+	} else {
+		result = ^e.readOperandVal(inst.Args[2], is32)
+	}
+	if is32 {
+		result = mask32(result)
+	}
 	e.writeGPR(inst.Args[0], result)
 	return nil
 }

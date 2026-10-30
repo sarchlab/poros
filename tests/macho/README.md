@@ -18,8 +18,10 @@ All initialization, arithmetic, output and exit remain native program work.
 Current simulator status: the loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 With the captured native profile and explicit warm shared cache, the installed
-M2 runtime reaches `BFXIL X9,X28,#0,#61` after 298,148 user instructions for
-integer/1000, including real cache discovery and anonymous mapping. It has not
+M2 runtime reaches Mach trap -19 (`mach_port_mod_refs`) after 1,183,915 user
+instructions for integer/1000, including execution inside the real shared-cache
+libraries, anonymous mapping/deallocation and dyld image-info registration. The
+24 retained cases reach 1,183,755–1,240,352 instructions at that same trap. It has not
 reached benchmark main.
 This is **not successful benchmark execution or a whole-program accuracy
 measurement**. Missing dependencies remain failures with an exact guest PC.
@@ -67,3 +69,16 @@ contract probes. `isa-native-m2.json` also contains exclusive-monitor granule,
 alignment and permissions cases, MOVI/XTN vectors, and 288 independently checked
 non-temporal load/store pairs. Full 128-bit vector results and raw probe outcomes
 are retained with source/binary hashes. These are functional semantic evidence.
+The bring-up collector records explicit instruction, execution-time and outer
+setup budgets; reaching a budget rejects the collection rather than counting as
+a discovered runtime dependency. Defaults are 2M instructions, 10s simulator execution
+host time and 120s including runtime hashing.
+
+The next runtime slice adds independently replayed BFXIL (640), RBIT/REV (544),
+CSINV (1536), LDADD values (160), LDADD monitor interactions (136), and vector
+lane inserts (1360). Element insertion preserves all other destination lanes;
+timing tracks that old-destination dependency. Fourteen native deallocation
+cases verify both readability and mapping removal. Eight post-startup dyld-info
+registration cases verify finalized metadata rejects changes; first-startup
+registration is checked with the documented kernel state machine and owned
+Mach-O section fixtures, not claimed as directly native-observed.

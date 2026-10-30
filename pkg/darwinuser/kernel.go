@@ -10,13 +10,17 @@ import (
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
-	reserved          []addressSpan
-	anonymousBytes    uint64
-	anonymousMappings uint32
-	nextPort          uint32
-	entropyState      uint64
-	sharedCacheBase   uint64
-	csrConfig         *uint32
+	reserved                      []addressSpan
+	protected                     []addressSpan
+	anonymous                     []addressSpan
+	anonymousBytes                uint64
+	anonymousMappings             uint32
+	dyldInfoAddress, dyldInfoSize uint64
+	dyldInfoFinal                 bool
+	nextPort                      uint32
+	entropyState                  uint64
+	sharedCacheBase               uint64
+	csrConfig                     *uint32
 }
 
 func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
@@ -36,6 +40,8 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return true
 	}
 	switch number {
+	case -12:
+		return k.deallocate(r, m)
 	case -15:
 		return k.mapAnonymous(r, m)
 	case -14: // mach_vm_protect, on this process's task map only.
@@ -78,6 +84,20 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 			r.GPR[0] = uint64(k.nextPort)
 			k.nextPort += 4
 		}
+	case 336: // proc_info: registration of this task's dyld image-info range.
+		if uint32(r.GPR[0]) != 15 {
+			return false
+		}
+		address, size := r.GPR[4], uint64(uint32(r.GPR[5]))
+		errno := uint64(0)
+		if int32(r.GPR[1]) != 100 || address == 0 || size > ^uint64(0)-address || k.dyldInfoFinal {
+			errno = 22
+		} else {
+			k.dyldInfoFinal = k.dyldInfoAddress != 0 || k.dyldInfoSize != 0
+			k.dyldInfoAddress, k.dyldInfoSize = address, size
+		}
+		r.GPR[0] = errno
+		r.C = errno != 0
 	case 20: // getpid in this private single-process namespace.
 		r.GPR[0] = 100
 		r.C = false

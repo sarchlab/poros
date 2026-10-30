@@ -47,6 +47,7 @@ type MachOLinkedit struct {
 type MachOImage struct {
 	Type, Subtype, Flags                             uint32
 	HeaderAddress, MainEntry, ThreadEntry, StackSize uint64
+	AllImageInfoAddress, AllImageInfoSize            uint64
 	Dylinker                                         string
 	Libraries                                        []string
 	Segments                                         []MachOSegment
@@ -99,7 +100,7 @@ func ParseMachO(input []byte, fileType uint32) (*MachOImage, error) {
 	}
 	hash := sha256.Sum256(input)
 	img := &MachOImage{Type: typ, Subtype: sub, Flags: u.Uint32(b[24:]), SHA256: hex.EncodeToString(hash[:])}
-	var mainSeen, threadSeen, headerSeen, dylinkerSeen bool
+	var mainSeen, threadSeen, headerSeen, dylinkerSeen, allImageInfoSeen bool
 	var entryOffset, total uint64
 	off, end := uint64(32), uint64(32)+uint64(size)
 	within := func(a, n uint64) bool { return a <= uint64(len(b)) && n <= uint64(len(b))-a }
@@ -132,6 +133,14 @@ func ParseMachO(input []byte, fileType uint32) (*MachOImage, error) {
 				offset, align := uint64(u.Uint32(h[48:])), u.Uint32(h[52:])
 				if address < s.Address || address-s.Address > s.Size || length > s.Size-(address-s.Address) || align > 63 {
 					return nil, machoError("malformed", "section outside segment")
+				}
+				if (s.Name == "__DATA" || s.Name == "__DATA_DIRTY") && strings.TrimRight(string(h[:16]), "\x00") == "__all_image_info" {
+					if allImageInfoSeen {
+						return nil, machoError("malformed", "duplicate all-image-info section")
+					}
+					allImageInfoSeen = true
+					img.AllImageInfoAddress = address
+					img.AllImageInfoSize = length
 				}
 				sectionType := u.Uint32(h[64:]) & 0xff
 				if sectionType != 1 && sectionType != 0xc && sectionType != 0x12 && length != 0 {

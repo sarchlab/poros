@@ -126,3 +126,83 @@ func TestMachMapFixedCollisionAndAlignmentMask(t *testing.T) {
 		t.Fatal("alignment mask ignored")
 	}
 }
+
+func TestMachDeallocateRoundingReuseAndAccounting(t *testing.T) {
+	m := &usermem.AddressSpace{}
+	if e := m.Map(0x1000, 16, usermem.Read|usermem.Write, nil); e != nil {
+		t.Fatal(e)
+	}
+	k := kernelState{}
+	r := vmArgs(t, m, 0x100000000)
+	r.GPR[2] = 3 * vmPage
+	if !k.trap(&r, m) || r.GPR[0] != 0 {
+		t.Fatal(r)
+	}
+	var b [8]byte
+	m.Read(0x1000, b[:])
+	addr := binary.LittleEndian.Uint64(b[:])
+	m.Write(addr+vmPage, []byte{99})
+	r = emu.Registers{C: true}
+	r.GPR[16] = 0xfffffff4
+	r.GPR[0] = 0x103
+	r.GPR[1] = addr + vmPage + 1
+	r.GPR[2] = 1
+	if !k.trap(&r, m) || r.GPR[0] != 0 || !r.C {
+		t.Fatal(r)
+	}
+	if k.anonymousBytes != 2*vmPage || k.anonymousMappings != 2 {
+		t.Fatal(k)
+	}
+	if e := m.Read(addr+vmPage, b[:]); e == nil {
+		t.Fatal("removed page readable")
+	}
+	if e := m.Read(addr, b[:]); e != nil {
+		t.Fatal(e)
+	}
+	if e := m.Read(addr+2*vmPage, b[:]); e != nil {
+		t.Fatal(e)
+	}
+	r = vmArgs(t, m, addr+vmPage)
+	r.GPR[4] = 0
+	if !k.trap(&r, m) || r.GPR[0] != 0 {
+		t.Fatal(r)
+	}
+	m.Read(addr+vmPage, b[:])
+	if b != [8]byte{} {
+		t.Fatal("reallocated page not zero", b)
+	}
+	// Removing an image reservation releases its virtual address for fixed maps.
+	k.reserved = []addressSpan{{0x200000000, 0x200008000}}
+	r.GPR[16] = 0xfffffff4
+	r.GPR[0] = 0x103
+	r.GPR[1] = 0x200004000
+	r.GPR[2] = vmPage
+	if !k.trap(&r, m) || len(k.reserved) != 1 || k.reserved[0].hi != 0x200004000 {
+		t.Fatal(k.reserved)
+	}
+}
+func TestMachDeallocateErrorsAndProtectedRegions(t *testing.T) {
+	for _, tc := range []struct {
+		task, start, size, want uint64
+		handled                 bool
+	}{
+		{0, 0, 1, 0x10000003, true}, {0x103, ^uint64(0), 0, 0, true}, {0x103, ^uint64(0), 2, 4, true}, {0x103, 0x2000, 1, 0, true}, {0x103, 0x4000, 1, 0, false},
+	} {
+		m := &usermem.AddressSpace{}
+		m.Map(0x4000, vmPage, usermem.Read, nil)
+		k := kernelState{protected: []addressSpan{{0x4000, 0x8000}}}
+		r := emu.Registers{}
+		r.GPR[16] = 0xfffffff4
+		r.GPR[0] = tc.task
+		r.GPR[1] = tc.start
+		r.GPR[2] = tc.size
+		before := r
+		got := k.trap(&r, m)
+		if got != tc.handled || (got && r.GPR[0] != tc.want) || (!got && r != before) {
+			t.Fatal(tc, r, got)
+		}
+		if len(m.Mappings()) != 1 {
+			t.Fatal("error changed mappings")
+		}
+	}
+}

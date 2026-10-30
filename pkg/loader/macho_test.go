@@ -92,3 +92,21 @@ func FuzzParseMachO(f *testing.F) {
 	f.Add([]byte("bad"))
 	f.Fuzz(func(t *testing.T, b []byte) { _, _ = ParseMachO(b, 2); _, _ = ParseMachO(b, 7) })
 }
+
+func TestMachOAllImageInfoSectionMetadata(t *testing.T) {
+	b := machotest.WithAllImageInfo(machotest.Image(7))
+	i, err := ParseMachO(b, 7)
+	if err != nil || i.AllImageInfoAddress != 0x4100 || i.AllImageInfoSize != 0x170 {
+		t.Fatal(i, err)
+	}
+	u := binary.LittleEndian
+	size := int(u.Uint32(b[20:]))
+	copy(b[336:32+size+80], b[256:32+size])
+	copy(b[256:336], b[176:256])
+	u.PutUint32(b[108:], 232)
+	u.PutUint32(b[168:], 2)
+	u.PutUint32(b[20:], uint32(size+80))
+	if _, err := ParseMachO(b, 7); err == nil {
+		t.Fatal("ambiguous all-image-info sections accepted")
+	}
+}

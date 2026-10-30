@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"reflect"
 	"testing"
 )
 
@@ -137,5 +138,55 @@ func TestReaderAtFullEOFIsValid(t *testing.T) {
 	var b [16]byte
 	if err := m.Read(0x1000, b[:]); err != nil || b[15] != 5 {
 		t.Fatal(err, b)
+	}
+}
+
+func TestUnmapSplitsAndReclaimsPrivatePages(t *testing.T) {
+	m := &AddressSpace{MaxLazyBytes: 8}
+	if err := m.MapReader(0x1000, 12, Read|Write, Read|Write, bytes.NewReader([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}), 4); err != nil {
+		t.Fatal(err)
+	}
+	var b [8]byte
+	if err := m.Read(0x1000, b[:]); err != nil {
+		t.Fatal(err)
+	}
+	if m.lazyBytes != 8 {
+		t.Fatal(m.lazyBytes)
+	}
+	if err := m.Unmap(0x1002, 4); err != nil {
+		t.Fatal(err)
+	}
+	// Each partial surviving page is retained until its last mapped byte is gone.
+	if m.lazyBytes != 8 {
+		t.Fatal(m.lazyBytes)
+	}
+	if err := m.Read(0x1002, b[:1]); err == nil {
+		t.Fatal("unmapped bytes readable")
+	}
+	if err := m.Unmap(0x1000, 6); err != nil {
+		t.Fatal(err)
+	}
+	if m.lazyBytes != 4 {
+		t.Fatal(m.lazyBytes)
+	}
+	if err := m.Read(0x1008, b[:4]); err != nil {
+		t.Fatal("resident budget not reclaimed", err)
+	}
+	if !bytes.Equal(b[:4], []byte{9, 10, 11, 12}) {
+		t.Fatal("split backing offset", b)
+	}
+	if err := m.Unmap(0x1000, 0x100); err != nil || m.lazyBytes != 0 || len(m.Mappings()) != 0 {
+		t.Fatal(err, m.lazyBytes)
+	}
+	if err := m.Map(0x1000, 12, Read|Write, nil); err != nil {
+		t.Fatal(err)
+	}
+	m.Read(0x1000, b[:])
+	if b != [8]byte{} {
+		t.Fatal("reused VA retained old bytes", b)
+	}
+	before := m.Mappings()
+	if err := m.Unmap(^uint64(0), 2); err == nil || !reflect.DeepEqual(before, m.Mappings()) {
+		t.Fatal("overflow changed mappings")
 	}
 }

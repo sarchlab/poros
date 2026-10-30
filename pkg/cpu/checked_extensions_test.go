@@ -58,7 +58,7 @@ func newExtensionExecution(t *testing.T, words []uint32) *extensionExecution {
 func TestCheckedAtomicAndOrderedMemoryAcrossTimingModels(t *testing.T) {
 	// Load compare; CASA; load replacement; SWPL zero; load zero; DMB ISH;
 	// STLR replacement; LDAR result; NOP.
-	words := []uint32{0xb9400061, 0x88e17c62, 0xb9400064, 0xb87f8065, 0xb9400066, 0xd5033bbf, 0x889ffc62, 0x88dffc67, 0x885f7c61, 0x88057c62, 0x885f7c61, 0xd5033f5f, 0x88047c62, 0xd503201f}
+	words := []uint32{0xb9400061, 0x88e17c62, 0xb9400064, 0xb87f8065, 0xb9400066, 0xd5033bbf, 0x889ffc62, 0x88dffc67, 0x885f7c61, 0x88057c62, 0x885f7c61, 0xd5033f5f, 0x88047c62, 0xb8270068, 0xb9400069, 0xd503201f}
 	for _, mode := range []string{"functional", "inorder", "ooo"} {
 		t.Run(mode, func(t *testing.T) {
 			x := newExtensionExecution(t, words)
@@ -100,7 +100,7 @@ func TestCheckedAtomicAndOrderedMemoryAcrossTimingModels(t *testing.T) {
 					}
 				}
 			}
-			if x.regs.GPR[1] != 9 || x.regs.GPR[4] != 1 || x.regs.GPR[5] != 0 || x.regs.GPR[6] != 0 || x.regs.GPR[7] != 9 {
+			if x.regs.GPR[1] != 9 || x.regs.GPR[4] != 1 || x.regs.GPR[5] != 0 || x.regs.GPR[6] != 0 || x.regs.GPR[7] != 9 || x.regs.GPR[8] != 9 || x.regs.GPR[9] != 18 {
 				t.Fatal(x.regs.GPR[:7])
 			}
 		})
@@ -159,7 +159,7 @@ func TestOoOPartialRegisterWritesWaitForOldDestination(t *testing.T) {
 	for _, tc := range []struct {
 		word uint32
 		want uint64
-	}{{0xf2b579a1, 0xabcd0007}, {0xb3703c41, 0x90007}} {
+	}{{0xf2b579a1, 0xabcd0007}, {0xb3703c41, 0x90007}, {0xb3400c41, 9}} {
 		x := newExtensionExecution(t, []uint32{0xf9400061, tc.word, 0xd503201f})
 		s := sim.MakeBuilder().Build()
 		spec := ooo.DefaultSpec()
@@ -175,5 +175,45 @@ func TestOoOPartialRegisterWritesWaitForOldDestination(t *testing.T) {
 			t.Fatal(tc, x.regs.GPR[1], c.State.GprReady[1], c.State.Err)
 		}
 		s.Terminate()
+	}
+}
+
+func TestOoOFullBitfieldOverwriteDoesNotWaitForOldDestination(t *testing.T) {
+	for _, word := range []uint32{0xb340fc41, 0x33007c41} {
+		x := newExtensionExecution(t, []uint32{0xf9400061, word, 0x91000424})
+		s := sim.MakeBuilder().Build()
+		spec := ooo.DefaultSpec()
+		spec.LoadLatency = 40
+		c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+		if err := s.Initialize(); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 500 && !c.State.Done; i++ {
+			c.Middlewares.Pipeline.Handle(nil)
+		}
+		if c.State.Err != "" || !c.State.Done || x.regs.GPR[4] != 10 || c.State.GprReady[4] >= 40 {
+			t.Fatal(word, c.State.Err, x.regs.GPR[4], c.State.GprReady[4])
+		}
+		s.Terminate()
+	}
+}
+
+func TestOoOVectorInsertWaitsForOldDestination(t *testing.T) {
+	// LDR Q0,[X3]; MOV V0.D[1],V1.D[0]; ORR V2.16B,V0.16B,V0.16B.
+	x := newExtensionExecution(t, []uint32{0x3dc00060, 0x6e180420, 0x4ea01c02})
+	x.regs.WriteQ(1, 0x1234, 0xabcd)
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.FP[2].Lo != 7 || x.regs.FP[2].Hi != 0x1234 || c.State.FpReady[2] < 40 {
+		t.Fatal(c.State.Err, x.regs.FP[2], c.State.FpReady[2])
 	}
 }

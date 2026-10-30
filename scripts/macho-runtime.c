@@ -16,6 +16,15 @@ static uint64_t u64(const void*p){uint64_t v;memcpy(&v,p,8);return v;}
 static uint32_t u32(const void*p){uint32_t v;memcpy(&v,p,4);return v;}
 static void hex(const unsigned char *p,size_t n){putchar('"');for(size_t i=0;i<n;i++)printf("%02x",p[i]);putchar('"');}
 static int path(uint64_t base,uint64_t size,uint32_t off){if(off==0){printf("null");return 1;}if(off>=size)return 0;char s[1025];size_t i;for(i=0;i<1024&&off+i<size;i++){if(!read_self(base+off+i,s+i,1))return 0;if(s[i]==0)break;}if(i==1024||off+i>=size||s[0]!='/')return 0;putchar('"');for(size_t j=0;j<i;j++){unsigned char c=s[j];if(c=='"'||c=='\\')printf("\\%c",c);else if(c<32)printf("\\u%04x",c);else putchar(c);}putchar('"');return 1;}
+// Capture only the 16-byte strlen read envelope around the bounded path.
+static int path_window(uint64_t base,uint64_t size,uint32_t off){
+ if(off==0){printf("\"\"");return 1;}if(off>=size)return 0;
+ size_t length=0;unsigned char c=1;
+ while(length<1025&&off+length<size){if(!read_self(base+off+length,&c,1))return 0;length++;if(c==0)break;}
+ if(c!=0)return 0;uint64_t start=(uint64_t)off&~15ULL,end=((uint64_t)off+length+15)&~15ULL;
+ unsigned char window[1056];if(end>size||end-start>sizeof(window)||!read_self(base+start,window,(size_t)(end-start)))return 0;
+ hex(window,(size_t)(end-start));return 1;
+}
 static int print_native_dyld(void) {
  task_dyld_info_data_t d;mach_msg_type_number_t n=TASK_DYLD_INFO_COUNT;
  if(task_info(mach_task_self(),TASK_DYLD_INFO,(task_info_t)&d,&n)!=KERN_SUCCESS)return 1;
@@ -34,14 +43,15 @@ static int print_native_dyld(void) {
 }
 static int print_cache_dynamic(void){task_dyld_info_data_t d;mach_msg_type_number_t n=TASK_DYLD_INFO_COUNT;if(task_info(mach_task_self(),TASK_DYLD_INFO,(task_info_t)&d,&n)!=KERN_SUCCESS)return 2;
 const struct dyld_all_image_infos*a=(const void*)(uintptr_t)d.all_image_info_addr;
-uint64_t base=a->sharedCacheBaseAddress;unsigned char h[512],r[80]={0};if(!read_self(base,h,sizeof(h)))return 3;
+uint64_t base=a->sharedCacheBaseAddress;unsigned char h[512],r[96]={0};if(!read_self(base,h,sizeof(h)))return 3;
 uint64_t off=u64(h+496),size=u64(h+504);if(!off||size<80||size>16384||base>UINT64_MAX-off||!read_self(base+off,r,32))return 4;
 if(memcmp(r,"dyld_data    v",14)||r[14]<'0'||r[14]>'4'||r[15]!=0)return 7;
 unsigned version=r[14]-'0';
 if(version>=1&&!read_self(base+off+32,r+32,4))return 8;
 if(version>=2&&!read_self(base+off+36,r+36,4))return 9;
 if(version>=3&&!read_self(base+off+48,r+48,32))return 10;
-printf("{\"cache_uuid\":");hex(a->sharedCacheUUID,16);printf(",\"dynamic_offset\":%llu,\"dynamic_size\":%llu,\"magic_hex\":",off,size);hex(r,16);printf(",\"file_id_hex\":");hex(r+16,16);printf(",\"system_flags_hex\":");hex(r+48,16);printf(",\"processor_flags_hex\":");hex(r+64,16);printf(",\"cryptex_offset\":%u,\"cache_path_offset\":%u,\"cryptex_path\":",u32(r+32),u32(r+36));if(!path(base+off,size,u32(r+32)))return 5;printf(",\"cache_path\":");if(!path(base+off,size,u32(r+36)))return 6;printf("}");return 0;}
+if(version>=4&&(size<112||!read_self(base+off+88,r+88,8)))return 11;
+printf("{\"cache_uuid\":");hex(a->sharedCacheUUID,16);printf(",\"dynamic_offset\":%llu,\"dynamic_size\":%llu,\"magic_hex\":",off,size);hex(r,16);printf(",\"file_id_hex\":");hex(r+16,16);printf(",\"system_flags_hex\":");hex(r+48,16);printf(",\"processor_flags_hex\":");hex(r+64,16);printf(",\"cryptex_offset\":%u,\"cache_path_offset\":%u,\"cryptex_path\":",u32(r+32),u32(r+36));if(!path(base+off,size,u32(r+32)))return 5;printf(",\"cache_path\":");if(!path(base+off,size,u32(r+36)))return 6;if(version>=4)printf(",\"cryptex_length\":%u,\"cache_path_length\":%u",u32(r+88),u32(r+92));if(u32(r+32)){printf(",\"cryptex_window_hex\":");if(!path_window(base+off,size,u32(r+32)))return 12;}if(u32(r+36)){printf(",\"cache_path_window_hex\":");if(!path_window(base+off,size,u32(r+36)))return 13;}printf("}");return 0;}
 
 static int atomic_probe(unsigned offset) {
     pid_t child=fork(); if(child<0)return -1;
@@ -80,10 +90,11 @@ static int pointer_strip_probe(void) {
 }
 static int exclusive_signature(void) {
  _Alignas(128) uint32_t data[64]={0};uint32_t *p=data,*q=data+32;
- for(unsigned kind=0;kind<3;kind++) {
+ for(unsigned kind=0;kind<4;kind++) {
  uint32_t loaded,status,compare=5,value=9;*p=7;*q=0;
  if(kind==0)__asm__ volatile(".arch armv8.1-a\nldxr %w[l],[%x[p]]\ncas %w[c],%w[v],[%x[q]]\nstxr %w[s],%w[v],[%x[p]]" : [l]"=&r"(loaded),[s]"=&r"(status),[c]"+&r"(compare):[p]"r"(p),[q]"r"(q),[v]"r"(value):"memory");
  else if(kind==1)__asm__ volatile(".arch armv8.1-a\nldxr %w[l],[%x[p]]\nswp %w[v],%w[c],[%x[q]]\nstxr %w[s],%w[v],[%x[p]]" : [l]"=&r"(loaded),[s]"=&r"(status),[c]"=&r"(compare):[p]"r"(p),[q]"r"(q),[v]"r"(value):"memory");
+ else if(kind==2)__asm__ volatile(".arch armv8.1-a\nldxr %w[l],[%x[p]]\nldadd wzr,%w[c],[%x[q]]\nstxr %w[s],%w[v],[%x[p]]" : [l]"=&r"(loaded),[s]"=&r"(status),[c]"=&r"(compare):[p]"r"(p),[q]"r"(q),[v]"r"(value):"memory");
  else __asm__ volatile("ldxr %w[l],[%x[p]]\nmov x16,#20\nsvc #0x80\nstxr %w[s],%w[v],[%x[p]]" : [l]"=&r"(loaded),[s]"=&r"(status):[p]"r"(p),[v]"r"(value):"x0","x1","x16","cc","memory");
  if(status!=1||loaded!=7||*p!=7||*q!=(kind==1?9u:0u))return 0;
  }

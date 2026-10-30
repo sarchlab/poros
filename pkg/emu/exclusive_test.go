@@ -271,3 +271,55 @@ func TestExclusiveNativeLSEInvalidation(t *testing.T) {
 		}
 	}
 }
+
+func TestLDADDNativeClearsLocalMonitor(t *testing.T) {
+	var native struct {
+		Cases []struct {
+			Bits, Offset, Add, Success, Failure int
+			Control                             bool
+		}
+	}
+	nativeAtomicObservation(t, "exclusive-ldadd-probe.c", &native)
+	if len(native.Cases) != 136 {
+		t.Fatal("missing native LDADD monitor cases")
+	}
+	for _, tc := range native.Cases {
+		load, add, store := uint32(0x885f7c61), uint32(0xb8250087), uint32(0x88027c66)
+		if tc.Bits == 64 {
+			load |= 1 << 30
+			add |= 1 << 30
+			store |= 1 << 30
+		}
+		if tc.Control {
+			add = 0xd503201f
+		}
+		r, m := exclusiveFixture(t, []uint32{load, add, store}, 0x2000+uint64(tc.Offset))
+		r.GPR[5] = uint64(tc.Add)
+		r.GPR[6] = 13
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], 7)
+		m.Space.Write(r.GPR[4], b[:])
+		for range 3 {
+			if _, e := StepChecked(&r, m); e != nil {
+				t.Fatal(e)
+			}
+		}
+		want := uint64(1)
+		if tc.Control {
+			want = 0
+		}
+		if r.GPR[2] != want || (tc.Control && tc.Success != 100) || (!tc.Control && tc.Failure != 100) {
+			t.Fatal(tc, r.GPR[2])
+		}
+		m.Space.Read(0x2000, b[:])
+		v := uint64(7)
+		if tc.Control {
+			v = 13
+		} else if tc.Offset == 0 {
+			v += uint64(tc.Add)
+		}
+		if binary.LittleEndian.Uint64(b[:]) != v {
+			t.Fatal(tc, b)
+		}
+	}
+}

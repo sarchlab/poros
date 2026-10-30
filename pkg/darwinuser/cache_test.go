@@ -1,11 +1,13 @@
 package darwinuser
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"github.com/sarchlab/poros/internal/machotest"
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/loader"
+	"github.com/sarchlab/poros/pkg/usermem"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,8 +76,9 @@ func TestBorrowedCacheAndSharedRegionQuery(t *testing.T) {
 func TestDynamicProfileIdentityKnownFieldsAndUnknownGap(t *testing.T) {
 	c := ownedCache(t, true)
 	path := "/system/cache"
+	length, empty := uint32(len(path)+1), uint32(0)
 	zero := hex.EncodeToString(make([]byte, 16))
-	d := CacheDynamicProfile{UUID: c.UUID, Offset: c.DynamicOffset, Size: c.DynamicSize, MagicHex: hex.EncodeToString([]byte("dyld_data    v4\x00")), FileIDHex: zero, SystemFlagsHex: zero, ProcessorFlagsHex: zero, CachePathOffset: 112, CachePath: &path}
+	d := CacheDynamicProfile{UUID: c.UUID, Offset: c.DynamicOffset, Size: c.DynamicSize, MagicHex: hex.EncodeToString([]byte("dyld_data    v4\x00")), FileIDHex: zero, SystemFlagsHex: zero, ProcessorFlagsHex: zero, CachePathOffset: 112, CachePath: &path, CryptexLength: &empty, CachePathLength: &length}
 	profile := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, CacheDynamic: &d}
 	p := process(t, Options{SharedCache: c, RuntimeProfile: &profile})
 	if textAt(t, p, c.Base+c.DynamicOffset+112) != path {
@@ -103,5 +106,47 @@ func TestDynamicCacheRespectsUnmappedReservedSpan(t *testing.T) {
 	binary.LittleEndian.PutUint32(main[164:], 0)
 	if _, err := Parse(main, machotest.Image(7), Options{SharedCache: c}); err == nil || !strings.Contains(err.Error(), "overlaps reserved process region") {
 		t.Fatal("reserved gap accepted", err)
+	}
+}
+
+func TestDynamicPathEnvelopePreservesPaddingAndChecksKnownFields(t *testing.T) {
+	c := ownedCache(t, true)
+	path := "/system/cache"
+	length, zero := uint32(len(path)+1), uint32(0)
+	empty := hex.EncodeToString(make([]byte, 16))
+	window := append([]byte(path), 0, 0xa5, 0x5a)
+	d := CacheDynamicProfile{UUID: c.UUID, Offset: c.DynamicOffset, Size: c.DynamicSize, MagicHex: hex.EncodeToString([]byte("dyld_data    v4\x00")), FileIDHex: empty, SystemFlagsHex: empty, ProcessorFlagsHex: empty, CachePathOffset: 112, CachePath: &path, CryptexLength: &zero, CachePathLength: &length, CachePathWindowHex: hex.EncodeToString(window)}
+	m := &usermem.AddressSpace{}
+	if err := d.mapRegion(m, c); err != nil {
+		t.Fatal(err)
+	}
+	var got [16]byte
+	if err := m.Read(c.Base+c.DynamicOffset+112, got[:]); err != nil || !bytes.Equal(got[:], window) {
+		t.Fatal("padding changed", err, got)
+	}
+	for _, mutate := range []func(*CacheDynamicProfile){func(p *CacheDynamicProfile) { v := length + 1; p.CachePathLength = &v }, func(p *CacheDynamicProfile) { p.CachePathWindowHex = "00" }, func(p *CacheDynamicProfile) { p.CachePathLength = nil }, func(p *CacheDynamicProfile) { p.CachePathOffset = 80 }} {
+		bad := d
+		mutate(&bad)
+		if err := bad.mapRegion(&usermem.AddressSpace{}, c); err == nil {
+			t.Fatal("invalid path accepted")
+		}
+	}
+	// An older unaligned path envelope can overlap already known header fields.
+	// Those bytes must agree before the remaining captured bytes are mapped.
+	older := d
+	older.MagicHex = hex.EncodeToString([]byte("dyld_data    v2\x00"))
+	older.CachePathOffset = 41
+	w := make([]byte, 32)
+	binary.LittleEndian.PutUint32(w[4:], 41)
+	copy(w[9:], path)
+	w[30] = 0xa5
+	older.CachePathWindowHex = hex.EncodeToString(w)
+	if err := older.mapRegion(&usermem.AddressSpace{}, c); err != nil {
+		t.Fatal("consistent known overlap", err)
+	}
+	w[0] = 1
+	older.CachePathWindowHex = hex.EncodeToString(w)
+	if err := older.mapRegion(&usermem.AddressSpace{}, c); err == nil {
+		t.Fatal("inconsistent known overlap accepted")
 	}
 }

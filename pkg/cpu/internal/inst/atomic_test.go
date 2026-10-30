@@ -157,3 +157,16 @@ func TestNonTemporalPairDependencies(t *testing.T) {
 		}
 	}
 }
+
+func TestLDADDDependenciesAndClassification(t *testing.T) {
+	var b [4]byte
+	binary.LittleEndian.PutUint32(b[:], 0xf8210062)
+	i, err := emu.DecodeChecked(b[:], emu.PointerAuthUnspecified)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, f := DestRegs(i)
+	if g != 2 || f != -1 || !reflect.DeepEqual(SourceGPRs(i), []int{1, 3}) || !IsLoad(i.Op) || !IsStore(i.Op) || !IsBarrier(i.Op) {
+		t.Fatal(i, g, f, SourceGPRs(i))
+	}
+}

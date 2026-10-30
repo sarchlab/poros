@@ -373,3 +373,196 @@ func TestMOVKNativePreservesOldDestination(t *testing.T) {
 		}
 	}
 }
+
+func TestBFXILNativeVectors(t *testing.T) {
+	var native struct {
+		Cases []struct {
+			Bits, LSB, Width            int
+			Alias                       bool
+			Destination, Source, Output string
+		}
+	}
+	nativeAtomicObservation(t, "bfxil-probe.c", &native)
+	if len(native.Cases) != 640 {
+		t.Fatal("native BFXIL cases missing")
+	}
+	for _, tc := range native.Cases {
+		parse := func(s string) uint64 {
+			v, e := strconv.ParseUint(s, 16, 64)
+			if e != nil {
+				t.Fatal(e)
+			}
+			return v
+		}
+		word := uint32(0x33000001) | uint32(tc.LSB)<<16 | uint32(tc.LSB+tc.Width-1)<<10
+		if tc.Bits == 64 {
+			word |= 0x80400000
+		}
+		rn := 2
+		if tc.Alias {
+			rn = 1
+		}
+		word |= uint32(rn) << 5
+		r := Registers{PC: 0x1000, C: true}
+		r.GPR[1] = parse(tc.Destination)
+		r.GPR[rn] = parse(tc.Source)
+		before := r
+		want := parse(tc.Output)
+		if _, e := StepChecked(&r, authMemory{word}); e != nil || r.GPR[1] != want {
+			t.Fatal(tc, e, r.GPR[1])
+		}
+		before.GPR[1] = want
+		before.PC += 4
+		if r != before {
+			t.Fatal("BFXIL changed unrelated state")
+		}
+	}
+}
+
+func TestScalarReversalOneHotAndZeroRegisters(t *testing.T) {
+	for _, size := range []int{32, 64} {
+		for _, reverseBytes := range []bool{false, true} {
+			base := uint32(0x5ac00000)
+			if size == 64 {
+				base |= 0x80000000
+			}
+			if reverseBytes {
+				base |= 0x800
+				if size == 64 {
+					base |= 0x400
+				}
+			}
+			for bit := 0; bit < size; bit++ {
+				r := Registers{PC: 0x1000}
+				r.GPR[2] = uint64(1) << bit
+				target := size - 1 - bit
+				if reverseBytes {
+					target = (size/8-1-bit/8)*8 + bit%8
+				}
+				if _, err := StepChecked(&r, authMemory{base | 2<<5 | 1}); err != nil || r.GPR[1] != (uint64(1)<<target) {
+					t.Fatal(size, reverseBytes, bit, err, r.GPR[1])
+				}
+			}
+			r := Registers{PC: 0x1000}
+			r.GPR[1] = ^uint64(0)
+			if _, err := StepChecked(&r, authMemory{base | 31<<5 | 1}); err != nil || r.GPR[1] != 0 {
+				t.Fatal("zero source", err, r.GPR[1])
+			}
+			before := r
+			if _, err := StepChecked(&r, authMemory{base | 1<<5 | 31}); err != nil {
+				t.Fatal(err)
+			}
+			before.PC += 4
+			if r != before {
+				t.Fatal("zero destination changed state")
+			}
+		}
+	}
+}
+
+func TestScalarReversalNativeVectors(t *testing.T) {
+	var native struct {
+		Cases []struct {
+			Operation     string
+			Bits          int
+			Alias         bool
+			Input, Output string
+		}
+	}
+	nativeAtomicObservation(t, "rbit-probe.c", &native)
+	if len(native.Cases) != 544 {
+		t.Fatal("native reversal cases missing")
+	}
+	for _, tc := range native.Cases {
+		word := uint32(0x5ac00001)
+		if tc.Bits == 64 {
+			word |= 0x80000000
+		}
+		if tc.Operation == "rev" {
+			word |= 0x800
+			if tc.Bits == 64 {
+				word |= 0x400
+			}
+		}
+		rn := 2
+		if tc.Alias {
+			rn = 1
+		}
+		word |= uint32(rn) << 5
+		input, err := strconv.ParseUint(tc.Input, 16, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := strconv.ParseUint(tc.Output, 16, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := Registers{PC: 0x1000, C: true}
+		r.GPR[1] = ^uint64(0)
+		r.GPR[rn] = input
+		before := r
+		if _, err := StepChecked(&r, authMemory{word}); err != nil || r.GPR[1] != want {
+			t.Fatal(tc, err, r.GPR[1])
+		}
+		before.GPR[1] = want
+		before.PC += 4
+		if r != before {
+			t.Fatal("reversal changed unrelated state")
+		}
+	}
+}
+
+func TestCSINVNativeConditionsAndAliases(t *testing.T) {
+	var native struct {
+		Cases []struct {
+			Bits, Condition, Alias, NZCV int
+			A, B, Output                 string
+		}
+	}
+	nativeAtomicObservation(t, "csinv-probe.c", &native)
+	if len(native.Cases) != 1536 {
+		t.Fatal("missing native CSINV vectors")
+	}
+	for _, tc := range native.Cases {
+		parse := func(s string) uint64 {
+			v, e := strconv.ParseUint(s, 16, 64)
+			if e != nil {
+				t.Fatal(e)
+			}
+			return v
+		}
+		rd := 3
+		if tc.Alias != 0 {
+			rd = tc.Alias
+		}
+		word := uint32(0x5a800000) | 2<<16 | uint32(tc.Condition)<<12 | 1<<5 | uint32(rd)
+		if tc.Bits == 64 {
+			word |= 1 << 31
+		}
+		r := Registers{PC: 0x1000, N: tc.NZCV&8 != 0, Z: tc.NZCV&4 != 0, C: tc.NZCV&2 != 0, V: tc.NZCV&1 != 0}
+		r.GPR[1] = parse(tc.A)
+		r.GPR[2] = parse(tc.B)
+		before := r
+		want := parse(tc.Output)
+		if _, err := StepChecked(&r, authMemory{word}); err != nil || r.GPR[rd] != want {
+			t.Fatal(tc, err, r.GPR[rd])
+		}
+		before.GPR[rd] = want
+		before.PC += 4
+		if before != r {
+			t.Fatal("CSINV changed unrelated state")
+		}
+	}
+	// Actual dyld form: CSINV W8,W8,WZR,CS.
+	for _, carry := range []bool{false, true} {
+		r := Registers{PC: 0x1000, C: carry}
+		r.GPR[8] = 0x123456789abcdef0
+		want := uint64(0xffffffff)
+		if carry {
+			want = 0x9abcdef0
+		}
+		if _, err := StepChecked(&r, authMemory{0x5a9f2108}); err != nil || r.GPR[8] != want {
+			t.Fatal(carry, err, r.GPR[8])
+		}
+	}
+}

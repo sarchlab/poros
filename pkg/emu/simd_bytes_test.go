@@ -255,3 +255,58 @@ func TestXTNNativeVectors(t *testing.T) {
 		}
 	}
 }
+
+func TestVectorLaneInsertNativeVectors(t *testing.T) {
+	var native struct {
+		Inputs []struct{ Destination, Source string }
+		Cases  []struct {
+			Bits, Sample    int
+			DestinationLane int `json:"destination_lane"`
+			SourceLane      int `json:"source_lane"`
+			Alias           bool
+			Output          string
+		}
+	}
+	nativeAtomicObservation(t, "ins-lane-probe.c", &native)
+	if len(native.Cases) != 1360 || len(native.Inputs) != 2 {
+		t.Fatal("missing native lane vectors")
+	}
+	for _, tc := range native.Cases {
+		decode := func(s string) []byte {
+			v, e := hex.DecodeString(s)
+			if e != nil || len(v) != 16 {
+				t.Fatal(s, e)
+			}
+			return v
+		}
+		input := native.Inputs[tc.Sample]
+		d, s := decode(input.Destination), decode(input.Source)
+		rn := uint32(1)
+		if tc.Alias {
+			rn = 0
+			s = d
+		}
+		size := bits.TrailingZeros(uint(tc.Bits / 8))
+		imm5 := uint32(1<<size) | uint32(tc.DestinationLane)<<(size+1)
+		imm4 := uint32(tc.SourceLane) << size
+		word := uint32(0x6e000400) | imm5<<16 | imm4<<11 | rn<<5
+		r := Registers{PC: 0x1000, C: true}
+		r.WriteQ(1, binary.LittleEndian.Uint64(s[:8]), binary.LittleEndian.Uint64(s[8:]))
+		r.WriteQ(0, binary.LittleEndian.Uint64(d[:8]), binary.LittleEndian.Uint64(d[8:]))
+		before := r
+		want := decode(tc.Output)
+		if _, err := StepChecked(&r, authMemory{word}); err != nil {
+			t.Fatal(tc, err)
+		}
+		before.PC += 4
+		before.WriteQ(0, binary.LittleEndian.Uint64(want[:8]), binary.LittleEndian.Uint64(want[8:]))
+		if r != before {
+			t.Fatal(tc, "lane preservation or alias failure", r.FP[0])
+		}
+	}
+	for _, word := range []uint32{0x6e000420, 0x6e180c20} {
+		if simdForm(word) != 0 {
+			t.Fatal("reserved INS encoding accepted")
+		}
+	}
+}

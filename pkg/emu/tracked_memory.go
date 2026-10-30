@@ -76,3 +76,16 @@ func (m *TrackedMemory) WriteExclusive(a uint64, b []byte, enabled bool) error {
 	}
 	return nil
 }
+
+func (m *TrackedMemory) FetchAdd(a uint64, increment, old []byte) error {
+	memory, ok := m.Space.(AtomicMemory)
+	if !ok {
+		return fmt.Errorf("memory does not implement atomic RMW")
+	}
+	if err := memory.FetchAdd(a, increment, old); err != nil {
+		return err
+	}
+	m.record(a, len(old), false)
+	m.record(a, len(old), true)
+	return nil
+}

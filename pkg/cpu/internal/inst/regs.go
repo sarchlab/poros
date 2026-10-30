@@ -92,7 +92,7 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 		}
 		return gpr, -1
 	}
-	if op == emu.OpSWP {
+	if op == emu.OpSWP || op == emu.OpLDADD {
 		gpr = ArgGPR(inst.Args[1])
 		if gpr == 31 {
 			gpr = -1
@@ -353,6 +353,9 @@ func SourceFPs(inst arm64asm.Inst) []int {
 		return srcs
 	}
 
+	if _, partial := inst.Args[0].(arm64asm.RegisterWithArrangementAndIndex); partial {
+		add(ArgFP(inst.Args[0]))
+	}
 	for i := 1; i < len(inst.Args); i++ {
 		if inst.Args[i] == nil {
 			break

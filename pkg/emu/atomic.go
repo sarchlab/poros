@@ -10,11 +10,12 @@ import (
 // OpCAS is in Poros's reserved 0xff00..0xffff extension range. x/arch v0.24
 // has no FEAT_LSE decoder. Never assign an unrelated base opcode to an RMW.
 const (
-	OpCAS arm64asm.Op = 0xff00
-	OpSWP arm64asm.Op = 0xff01
+	OpCAS   arm64asm.Op = 0xff00
+	OpSWP   arm64asm.Op = 0xff01
+	OpLDADD arm64asm.Op = 0xff04
 )
 
-func IsAtomicOperation(op arm64asm.Op) bool { return op == OpCAS || op == OpSWP }
+func IsAtomicOperation(op arm64asm.Op) bool { return op == OpCAS || op == OpSWP || op == OpLDADD }
 
 // AtomicAlignmentPolicy describes effective hardware/OS alignment behavior.
 // It covers atomic RMW and acquire/release single-register accesses.
@@ -33,14 +34,17 @@ const (
 type AtomicMemory interface {
 	CompareExchange(address uint64, expected, replacement, old []byte) (bool, error)
 	Exchange(address uint64, replacement, old []byte) error
+	FetchAdd(address uint64, increment, old []byte) error
 }
 
 func decodeAtomic(word uint32) (arm64asm.Inst, bool) {
-	// CAS/CASA/CASL/CASAL and SWP variants, 32/64-bit only.
+	// CAS, SWP and LDADD ordering variants, 32/64-bit only.
 	// Byte/halfword forms, CASP and other LSE operations are unsupported.
 	op := OpCAS
 	if word&0xbf20fc00 == 0xb8208000 {
 		op = OpSWP
+	} else if word&0xbf20fc00 == 0xb8200000 {
+		op = OpLDADD
 	} else if word&0xbfa07c00 != 0x88a07c00 {
 		return arm64asm.Inst{}, false
 	}
@@ -68,8 +72,11 @@ func InstructionString(inst arm64asm.Inst) string {
 	}
 	name := "CAS"
 	acquire, release := uint32(1<<22), uint32(1<<15)
-	if inst.Op == OpSWP {
+	if inst.Op == OpSWP || inst.Op == OpLDADD {
 		name = "SWP"
+		if inst.Op == OpLDADD {
+			name = "LDADD"
+		}
 		acquire = 1 << 23
 		release = 1 << 22
 	}
@@ -112,6 +119,9 @@ func (e *executor) execAtomic(inst arm64asm.Inst) error {
 	var err error
 	if inst.Op == OpSWP {
 		err = memory.Exchange(addr, expected[:size], old[:size])
+		rs = rt
+	} else if inst.Op == OpLDADD {
+		err = memory.FetchAdd(addr, expected[:size], old[:size])
 		rs = rt
 	} else {
 		_, err = memory.CompareExchange(addr, expected[:size], replacement[:size], old[:size])

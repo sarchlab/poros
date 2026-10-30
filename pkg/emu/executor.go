@@ -38,7 +38,7 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, nil
 	case OpXPACI, OpXPACD:
 		return false, e.execPointerStrip(inst)
-	case OpCAS, OpSWP:
+	case OpCAS, OpSWP, OpLDADD:
 		return false, e.execAtomic(inst)
 	// Integer arithmetic
 	case arm64asm.ADD:
@@ -99,6 +99,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execCCMN(inst)
 	case arm64asm.CSEL:
 		return false, e.execCSEL(inst)
+	case arm64asm.CSINV:
+		return false, e.execCSINV(inst)
 	case arm64asm.CSINC:
 		return false, e.execCSINC(inst)
 	case arm64asm.CSNEG:
@@ -157,8 +159,14 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execBFM(inst)
 	case arm64asm.BFI:
 		return false, e.execBFI(inst)
+	case arm64asm.BFXIL:
+		return false, e.execBFXIL(inst)
 	case arm64asm.EXTR:
 		return false, e.execEXTR(inst)
+	case arm64asm.REV:
+		return false, e.execREV(inst)
+	case arm64asm.RBIT:
+		return false, e.execRBIT(inst)
 	case arm64asm.CLZ:
 		return false, e.execCLZ(inst)
 

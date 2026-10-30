@@ -181,6 +181,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		if o.RuntimeProfile == nil || o.RuntimeProfile.CacheDynamic == nil {
 			return nil, fmt.Errorf("shared cache requires captured native dynamic-region fields")
 		}
+		reserved = append(reserved, addressSpan{lo, hi})
 		if err := o.RuntimeProfile.CacheDynamic.mapRegion(memory, o.SharedCache); err != nil {
 			return nil, err
 		}
@@ -244,10 +245,20 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		counter.Frequency = 1_000_000_000 * uint64(o.RuntimeProfile.TimebaseDenom) / uint64(o.RuntimeProfile.TimebaseNumer)
 	}
 	identity := func(i *loader.MachOImage) Identity { return Identity{i.SHA256, i.UUID, i.Subtype} }
-	kernel := kernelState{entropyState: o.EntropySeed, reserved: append([]addressSpan(nil), reserved...)}
+	kernel := kernelState{entropyState: o.EntropySeed, reserved: append([]addressSpan(nil), reserved...), protected: []addressSpan{{0xfffffc000, 0x1000000000}, {0xfffff4000, 0xfffff8000}}}
+	if dyld.AllImageInfoAddress != 0 || dyld.AllImageInfoSize != 0 {
+		kernel.dyldInfoAddress = dyld.AllImageInfoAddress + DyldBase
+		kernel.dyldInfoSize = dyld.AllImageInfoSize
+	}
+
 	if o.SharedCache != nil {
 		kernel.sharedCacheBase = o.SharedCache.Base
 		kernel.reserved = append(kernel.reserved, addressSpan{o.SharedCache.Base, o.SharedCache.Base + o.SharedCache.Size})
+		kernel.protected = append(kernel.protected, addressSpan{o.SharedCache.Base, o.SharedCache.Base + o.SharedCache.Size})
+		if o.SharedCache.DynamicSize != 0 {
+			start := o.SharedCache.Base + o.SharedCache.DynamicOffset
+			kernel.protected = append(kernel.protected, addressSpan{start, start + o.SharedCache.DynamicSize})
+		}
 	}
 	exclusive := emu.ExclusiveState{}
 	if o.RuntimeProfile != nil && o.RuntimeProfile.ExclusiveMonitor == "m2-local-64-byte" {

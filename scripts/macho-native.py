@@ -64,11 +64,15 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--shared-cache", help="explicit matching native warm cache file")
     parser.add_argument("--samples", type=int, default=3)
+    parser.add_argument("--max-instructions", type=int, default=2_000_000)
+    parser.add_argument("--execution-timeout-seconds", type=int, default=10)
     options = parser.parse_args()
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         parser.error("native observations require ARM64 macOS")
     if not 1 <= options.samples <= 100:
         parser.error("samples must be in [1,100]")
+    if not 1 <= options.max_instructions <= 100_000_000 or not 1 <= options.execution_timeout_seconds <= 60:
+        parser.error("capture budgets require 1..100M instructions and 1..60 execution seconds")
     manifest = load_manifest(ROOT)  # also verifies frozen Linux sources/binaries
     folder = ROOT / "tests/macho"
     build = json.loads((folder / "build.json").read_text())
@@ -85,7 +89,10 @@ def main():
                   cpu=subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip(),
                   architecture=platform.machine(), dyld_sha256=digest(options.dyld),
                   poros_sha256=digest(options.poros), manifest_sha256=digest(ROOT / "tests/usertime/manifest.json"),
-                  protocol=dict(samples=options.samples, native_timeout_seconds=30, clock="wait4 child ru_utime", env={},
+                  protocol=dict(samples=options.samples, native_timeout_seconds=30,
+                                simulator_max_instructions=options.max_instructions,
+                                simulator_execution_timeout_seconds=options.execution_timeout_seconds,
+                                simulator_outer_timeout_seconds=120, clock="wait4 child ru_utime", env={},
                                 quality="raw observations only; no acceptance threshold or accuracy comparison"),
                   build=build, cases=[])
     shared_files = None
@@ -101,6 +108,8 @@ def main():
                 samples.append(usage)
             sim = subprocess.run([str(Path(options.poros).resolve()), "macho", "--dyld", options.dyld,
                                   *( ["--shared-cache", options.shared_cache] if options.shared_cache else [] ),
+                                  "--max-instructions", str(options.max_instructions),
+                                  "--timeout", str(options.execution_timeout_seconds)+"s",
                                   "--runtime-profile", profile_file.name, "--argv0", case["args"][0], str(binary), *case["args"][1:]],
                                  capture_output=True, timeout=120)
             if sim.returncode != 1 or sim.stderr:
