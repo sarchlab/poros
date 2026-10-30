@@ -105,7 +105,7 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 			}
 		}
 	}
-	if inst.Op == arm64asm.HINT {
+	if inst.Op == arm64asm.HINT && !btiAllowed(inst.Enc, regs.BranchTarget) {
 		return fail("unsupported_instruction", fmt.Errorf("unsupported hint: %s", inst))
 	}
 	// Scalar FP/integer conversions also have AdvSIMD scalar-register and

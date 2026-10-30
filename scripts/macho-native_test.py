@@ -6,6 +6,7 @@ import os
 import platform
 import signal
 import subprocess
+import struct
 import sys
 import time
 from pathlib import Path
@@ -108,6 +109,77 @@ class StartupIdentityTests(unittest.TestCase):
         with patch.object(macho, "run_startup_helper", return_value=self.output):
             with self.assertRaisesRegex(ValueError, "changed during startup"):
                 self.capture(resolve)
+
+
+class NativeSymbolTests(unittest.TestCase):
+    UUID="0102030405060708090a0b0c0d0e0f10"
+
+    def image(self):
+        data=bytearray(0x300)
+        commands=bytearray()
+        segment=bytearray(152)
+        struct.pack_into("<II",segment,0,0x19,152)
+        segment[8:14]=b"__TEXT"
+        struct.pack_into("<4Q4I",segment,24,0x1000,0x1000,0,len(data),5,5,1,0)
+        segment[72:78]=b"__text"
+        struct.pack_into("<QQI",segment,104,0x1200,16,0x200)
+        commands+=segment
+        commands+=struct.pack("<II",0x1b,24)+bytes.fromhex(self.UUID)
+        names=b"\0___chkstk_darwin\0"
+        commands+=struct.pack("<6I",2,24,0x220,1,0x240,len(names))
+        struct.pack_into("<8I",data,0,0xfeedfacf,0x100000c,0x80000002,7,3,len(commands),0,0)
+        data[32:32+len(commands)]=commands
+        struct.pack_into("<II",data,0x200,0xd503245f,0xd65f03c0)
+        struct.pack_into("<IBBHQ",data,0x220,1,0xf,1,0,0x1200)
+        data[0x240:0x240+len(names)]=names
+        return data
+
+    def fat(self, blob, duplicate=False):
+        count=2 if duplicate else 1
+        data=bytearray(0x1000*(count+1))
+        struct.pack_into(">II",data,0,0xcafebabe,count)
+        for i in range(count):
+            struct.pack_into(">5I",data,8+i*20,0x100000c,0x80000002,0x1000*(i+1),len(blob),12)
+            data[0x1000*(i+1):0x1000*(i+1)+len(blob)]=blob
+        return data
+
+    def test_native_symbol_uses_image_relative_offset(self):
+        for data in (self.image(),self.fat(self.image())):
+            self.assertEqual(macho.stack_probe_offset(data,self.UUID),0x200)
+        with self.assertRaisesRegex(ValueError,"ambiguous matching"):
+            macho.stack_probe_offset(self.fat(self.image(),True),self.UUID)
+
+    def test_duplicate_uuid_and_unterminated_symbol_rejected(self):
+        data=self.image()
+        struct.pack_into("<II",data,16,4,224)
+        data[232:256]=struct.pack("<II",0x1b,24)+bytes.fromhex(self.UUID)
+        with self.assertRaises(ValueError):macho.stack_probe_offset(data,self.UUID)
+        data=self.image();struct.pack_into("<I",data,228,17)
+        with self.assertRaises(ValueError):macho.stack_probe_offset(data,self.UUID)
+
+    def test_malformed_symbol_metadata_rejected(self):
+        changes=[
+            lambda b:b[:31],
+            lambda b:(struct.pack_into("<I",b,20,0xffffffff),b)[1],
+            lambda b:(struct.pack_into("<I",b,36,148),b)[1],
+            lambda b:(struct.pack_into("<I",b,32+176+8,0xfffffffe),b)[1],
+            lambda b:(struct.pack_into("<I",b,0x220,0xffffffff),b)[1],
+            lambda b:(struct.pack_into("<B",b,0x224,1),b)[1],
+            lambda b:(struct.pack_into("<B",b,0x225,2),b)[1],
+            lambda b:(struct.pack_into("<Q",b,0x228,0x1800),b)[1],
+            lambda b:(struct.pack_into("<I",b,0x200,0),b)[1],
+            lambda b:(struct.pack_into("<I",b,32+60,1),b)[1],
+            lambda b:(struct.pack_into("<I",b,32+176+12,2),b.__setitem__(slice(0x230,0x240),b[0x220:0x230]),b)[2],
+        ]
+        for change in changes:
+            with self.subTest(change=change),self.assertRaises(ValueError):
+                macho.stack_probe_offset(change(self.image()),self.UUID)
+        with self.assertRaises(ValueError):
+            macho.stack_probe_offset(self.image(),"00"*16)
+        data=self.fat(self.image(),True)
+        struct.pack_into(">I",data,8+20+8,0x1000)
+        with self.assertRaisesRegex(ValueError,"overlapping"):
+            macho.stack_probe_offset(data,self.UUID)
 
 
 class AMFICaptureTests(unittest.TestCase):

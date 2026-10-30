@@ -4,12 +4,15 @@ import (
 	"encoding/binary"
 	"errors"
 	"github.com/sarchlab/poros/pkg/emu"
+	"github.com/sarchlab/poros/pkg/loader"
 	"github.com/sarchlab/poros/pkg/usermem"
 )
 
 // KernelState is a private, single-thread process namespace. Port names are
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
+	executableCanonical                        string
+	executableImage                            *loader.MachOImage
 	executablePaths                            []string
 	executableStat                             *FileStat
 	outputFiles                                [2]*guestOpenFile
@@ -23,9 +26,9 @@ type kernelState struct {
 	sandboxSyscalls                            []SandboxSyscallPermission
 	reserved                                   []addressSpan
 	protected                                  []addressSpan
-	anonymous                                  []addressSpan
-	anonymousBytes                             uint64
-	anonymousMappings                          uint32
+	ownedRanges                                []addressSpan
+	ownedBytes                                 uint64
+	ownedMappings                              uint32
 	dyldInfoAddress, dyldInfoSize              uint64
 	dyldInfoFinal                              bool
 	taskSendRefs, hostSendRefs, threadSendRefs uint32
@@ -53,6 +56,10 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return true
 	}
 	switch number {
+	case 197:
+		return k.mmapFile(r, m)
+	case 3:
+		return k.read(r, m)
 	case 4:
 		return k.write(r, m)
 	case 5:
@@ -107,6 +114,13 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 			r.GPR[0] = 0
 			break
 		}
+		if prot&4 != 0 {
+			for _, span := range k.ownedRanges {
+				if addr < span.hi && span.lo < end {
+					return false
+				}
+			}
+		} // Owned memory needs an explicit signing/JIT policy before executable transitions.
 		err := m.Protect(addr, end-addr, machPermissions(uint32(prot)), r.GPR[3] != 0)
 		r.GPR[0] = 0
 		if err != nil {

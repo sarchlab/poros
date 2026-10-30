@@ -22,11 +22,13 @@ CNEG and register-count shift fixes described below. Its raw native observations
 remain diagnostic history; its guest startup path is not a validated execution
 reference and must not be used for accuracy or progression claims.
 Current integer/1000 validation with those fixes, the captured runtime profile,
-and the explicit warm shared cache retires 1,253,236 instructions and stops at
-BSD5 (`open`) on the captured main executable at PC `0x18048d0a4`, with no guest
+and the explicit warm shared cache retires 1,281,130 instructions and stops at
+`REV64 V0.2S, V0.2S` at PC `0x180514308`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
-resolved selected runtime directories, queried main-file metadata and reached
-the next required file operation. This remains incomplete startup, not benchmark
+resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
+and resolved their canonical path. It then executes scalar BICS and reaches the
+stack-probe BTI under captured non-enforcement, then reaches the next missing
+SIMD operation while processing the libSystem dependency. This remains incomplete startup, not benchmark
 main or successful exit. The 24-case dataset has not been relabeled as a run of
 this newer collector.
 
@@ -248,7 +250,7 @@ and a delayed-load shift-count dependency are regression tests.
 The launch profile now records explicit `/dev/null` stdin and two distinct empty
 regular output files. Native child `dup2` actions establish those descriptors;
 Poros owns private buffers and shared open-file descriptions for dup aliases.
-BSD339 fstat64 and BSD4 write have native 10/15-case oracles. Combined output is
+BSD339 fstat64 and BSD4 write have native 10/18-case oracles. Combined output is
 bounded (default 1 MiB), retained in reports as base64, and never written through
 host guest descriptors. Post-write stat timestamps/blocks and partly accessible
 copy buffers remain explicit unsupported cases. Native temporary-file metadata
@@ -261,3 +263,44 @@ The profile must match the loaded image's SHA, size and inode. Eleven native
 stat64 cases verify the full 144-byte payload, errors and output boundaries;
 partly writable outputs remain unsupported before mutation. Unknown paths never
 become fabricated ENOENT results or implicit access to the host filesystem.
+
+
+### Immutable main-file access
+
+The Mach-O loader owns one complete file snapshot. Parse copies caller input;
+Load takes ownership of its bounded read. Segment copies initialize private guest
+memory, while `ReadAt` reads the unchanged original file including universal
+container bytes. Neither caller input changes, writable guest segments nor
+private mmap writes can alter subsequent file reads. Each open owns an offset;
+dup aliases share it. Closing a descriptor leaves existing mappings alive.
+
+BSD3 read has 24 native cases, including original-count validation before FD
+lookup, short reads, EOF with invalid output pointers, shared/independent offsets,
+and output bounds. BSD197 supports the observed private file mappings, including
+aligned file offsets, native max protection, lazy backing, final partial-page zero
+tail, and independent private writes. Fifteen native mapping cases and five native
+counterexamples establish the supported boundary. Whole pages beyond EOF,
+MAP_FIXED replacement, legacy unaligned/zero-length/no-sharing forms, nonzero
+hints and WRITE-only protection remain explicitly unsupported before mutation.
+The latter cases have native behavior different from the supported UNIX03 path;
+they are not converted to fabricated EINVAL or zero-filled mappings. Execute
+transitions on owned memory require a future explicit signing/JIT policy.
+
+Scalar BICS has 4,608 native width/shift/alias/NZCV cases. Its NZCV destination and
+CSET/CINC flag sources participate in timing dependencies. A delayed-load chain
+checks the flag consumers against an independent instruction. The separate
+80-kernel-case plus 8-pipeline-case audit passes with unchanged strict baseline
+counts, digests and cycles; no golden values changed for this correction; this remains
+functional bring-up with no whole-program accuracy claim.
+
+
+BTI is explicit architectural effective state: unspecified or enforced landing
+checks remain unsupported. The captured non-enforced mode applies only to a
+generic ARM64 main and a matching native dyld identity. It does not claim the CPU
+lacks FEAT_BTI (this M2 reports the feature present) or implement future guarded
+mappings. Four BTI forms preserve all state in 64 native NZCV cases; ten native
+branch checks include plain and mismatched landing targets plus the real dyld
+stack-probe entry and the instruction after its BTI. Capture repeats those checks
+in owned children, discovers the stack-probe symbol from bounded UUID-matched
+Mach-O metadata, verifies its native opcode, and binds the result to runtime/cache
+identity and source/binary hashes. Unknown HINT instructions still fail closed.

@@ -75,7 +75,7 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 	// Logic / move
 	case arm64asm.AND:
 		return false, e.execAND(inst)
-	case arm64asm.ANDS:
+	case arm64asm.ANDS, arm64asm.BICS:
 		return false, e.execANDS(inst)
 	case arm64asm.ORR:
 		return false, e.execORR(inst)
@@ -306,9 +306,12 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 	case arm64asm.NOP:
 		return false, nil
 
-	// Hints we can safely ignore
+	// BTI preserves state only in explicitly captured non-enforced mode.
 	case arm64asm.HINT:
-		return false, nil
+		if btiAllowed(inst.Enc, e.regs.BranchTarget) {
+			return false, nil
+		}
+		return false, &UnsupportedInstructionError{Instruction: inst}
 
 	default:
 		return false, &UnsupportedInstructionError{Instruction: inst}

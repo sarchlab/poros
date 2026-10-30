@@ -13,7 +13,7 @@ int main(void){char path[]="/tmp/poros-write-native-XXXXXX";int fd=mkstemp(path)
  {"regular_bytes",0,0,7,7,0},{"low32_fd",3,0,7,7,0},{"zero_null",0,1,0,0,0},{"zero_unmapped",0,2,0,0,0},
  {"invalid_fd",1,0,7,7,0},{"invalid_fd_zero",1,1,0,0,0},{"readonly_fd",2,0,7,7,0},{"readonly_fd_zero",2,1,0,0,0},
  {"null_nonzero",0,1,7,0,0},{"unmapped_nonzero",0,2,7,0,0},{"readonly_input",0,3,7,7,0},
- {"exact_boundary",0,2,7,7,0},{"partial_one",0,2,7,1,0},{"partial_six",0,2,7,6,0},{"dup_shared_offset",4,0,7,7,1}};
+ {"exact_boundary",0,2,7,7,0},{"partial_one",0,2,7,1,0},{"partial_six",0,2,7,6,0},{"dup_shared_offset",4,0,7,7,1},{"oversize_null",0,1,0x80000000ULL,0,0},{"oversize_invalid_fd",1,1,UINT64_MAX,0,0},{"oversize_readonly_fd",2,1,UINT64_MAX,0,0}};
  puts("[");for(unsigned i=0;i<sizeof(cases)/sizeof(cases[0]);i++){
  if(ftruncate(fd,0)||lseek(fd,0,SEEK_SET))return 6;if(cases[i].prefix&&write(fd,"prefix:",7)!=7)return 7;
  const void*buf="hello!\n";if(cases[i].kind==1)buf=NULL;if(cases[i].kind==2)buf=guard+ps-cases[i].capacity;if(cases[i].kind==3){buf=guard;if(mprotect(guard,ps,PROT_READ))return 8;}

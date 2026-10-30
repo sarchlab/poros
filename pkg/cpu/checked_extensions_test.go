@@ -366,3 +366,28 @@ func TestOoORegisterShiftWaitsForLoadedCount(t *testing.T) {
 		t.Fatal("lost register-count dependency or false control dependency", c.State.GprReady[:7])
 	}
 }
+
+func TestOoOBICSFlagsWaitForDelayedSource(t *testing.T) {
+	// LDR W1,[X3]; BICS WZR,W1,W4; CSET W2,EQ; independent ADD X6,X7,#1.
+	x := newExtensionExecution(t, []uint32{0xb9400061, 0x6a24003f, 0x1a9f17e2, 0x1a8514a8, 0x910004e6, 0xd503201f})
+	x.regs.GPR[4] = 7
+	x.regs.GPR[5] = 10
+	x.regs.GPR[7] = 20
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := ooo.DefaultSpec()
+	spec.LoadLatency = 40
+	c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 500 && !c.State.Done; i++ {
+		c.Middlewares.Pipeline.Handle(nil)
+	}
+	if c.State.Err != "" || !c.State.Done || x.regs.GPR[2] != 1 || x.regs.GPR[8] != 11 || x.regs.GPR[6] != 21 || !x.regs.Z || x.regs.N || x.regs.C || x.regs.V {
+		t.Fatal(c.State.Err, x.regs)
+	}
+	if c.State.FlagsReady <= c.State.GprReady[1] || c.State.GprReady[2] <= c.State.FlagsReady || c.State.GprReady[8] <= c.State.FlagsReady || c.State.GprReady[6] >= c.State.GprReady[1] {
+		t.Fatal("BICS flag dependency missing", c.State.FlagsReady, c.State.GprReady[:8])
+	}
+}

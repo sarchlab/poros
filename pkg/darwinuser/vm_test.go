@@ -34,8 +34,8 @@ func TestMachMapAnonymousRoundZeroPrivateAndReserve(t *testing.T) {
 	var out [8]byte
 	m.Read(0x1000, out[:])
 	addr := binary.LittleEndian.Uint64(out[:])
-	if addr != 0x100040000 || k.anonymousBytes != vmPage {
-		t.Fatal(addr, k.anonymousBytes)
+	if addr != 0x100040000 || k.ownedBytes != vmPage {
+		t.Fatal(addr, k.ownedBytes)
 	}
 	b := make([]byte, vmPage)
 	if err := m.Read(addr, b); err != nil {
@@ -69,8 +69,8 @@ func TestMachMapCopyoutFailureRetainsMapping(t *testing.T) {
 	r := vmArgs(t, m, 0x100000000)
 	m.Protect(0x1000, 16, usermem.Read, false)
 	k := kernelState{taskSendRefs: 1}
-	if !k.trap(&r, m) || r.GPR[0] != 10 || k.anonymousBytes != vmPage {
-		t.Fatal(r, k.anonymousBytes)
+	if !k.trap(&r, m) || r.GPR[0] != 10 || k.ownedBytes != vmPage {
+		t.Fatal(r, k.ownedBytes)
 	}
 	if err := m.Write(0x100000000, []byte{1}); err != nil {
 		t.Fatal("copyout failure rolled back mapping", err)
@@ -88,7 +88,7 @@ func TestMachMapErrorsAndUnsupportedFlags(t *testing.T) {
 		{"zero-size", func(r *emu.Registers) { r.GPR[2] = 0 }, 4, true},
 		{"overflow", func(r *emu.Registers) { r.GPR[2] = ^uint64(0) }, 4, true},
 		{"protection", func(r *emu.Registers) { r.GPR[5] = 8 }, 4, true},
-		{"capacity", func(r *emu.Registers) { r.GPR[2] = maxAnonymousBytes + 1 }, 3, true},
+		{"capacity", func(r *emu.Registers) { r.GPR[2] = maxOwnedMappingBytes + 1 }, 3, true},
 		{"unsupported-flags", func(r *emu.Registers) { r.GPR[4] = 2 }, 0, false},
 		{"executable", func(r *emu.Registers) { r.GPR[5] = 5 }, 0, false},
 	} {
@@ -100,7 +100,7 @@ func TestMachMapErrorsAndUnsupportedFlags(t *testing.T) {
 			before := r
 			k := kernelState{taskSendRefs: 1}
 			handled := k.trap(&r, m)
-			if handled != tc.handled || (handled && r.GPR[0] != tc.want) || (!handled && r != before) || len(m.Mappings()) != 1 || k.anonymousBytes != 0 {
+			if handled != tc.handled || (handled && r.GPR[0] != tc.want) || (!handled && r != before) || len(m.Mappings()) != 1 || k.ownedBytes != 0 {
 				t.Fatal(handled, r.GPR[:6], len(m.Mappings()))
 			}
 		})
@@ -112,7 +112,7 @@ func TestMachMapFixedCollisionAndAlignmentMask(t *testing.T) {
 	k := kernelState{taskSendRefs: 1, reserved: []addressSpan{{0x100000000, 0x100040000}}}
 	r := vmArgs(t, m, 0x100000000)
 	r.GPR[4] = 0
-	if !k.trap(&r, m) || r.GPR[0] != 3 || k.anonymousBytes != 0 {
+	if !k.trap(&r, m) || r.GPR[0] != 3 || k.ownedBytes != 0 {
 		t.Fatal("fixed overwrite accepted")
 	}
 	r = vmArgs(t, m, 0x100000000)
@@ -150,7 +150,7 @@ func TestMachDeallocateRoundingReuseAndAccounting(t *testing.T) {
 	if !k.trap(&r, m) || r.GPR[0] != 0 || !r.C {
 		t.Fatal(r)
 	}
-	if k.anonymousBytes != 2*vmPage || k.anonymousMappings != 2 {
+	if k.ownedBytes != 2*vmPage || k.ownedMappings != 2 {
 		t.Fatal(k)
 	}
 	if e := m.Read(addr+vmPage, b[:]); e == nil {
@@ -211,20 +211,20 @@ func TestMunmapProtectedRangeAndAccounting(t *testing.T) {
 	const base uint64 = 0x200000000
 	m := &usermem.AddressSpace{}
 	m.Map(base, 3*vmPage, usermem.Read|usermem.Write, nil)
-	k := kernelState{anonymous: []addressSpan{{base, base + 3*vmPage}}, anonymousBytes: 3 * vmPage, anonymousMappings: 1, reserved: []addressSpan{{base, base + 3*vmPage}}, protected: []addressSpan{{base + vmPage, base + 2*vmPage}}}
+	k := kernelState{ownedRanges: []addressSpan{{base, base + 3*vmPage}}, ownedBytes: 3 * vmPage, ownedMappings: 1, reserved: []addressSpan{{base, base + 3*vmPage}}, protected: []addressSpan{{base + vmPage, base + 2*vmPage}}}
 	r := emu.Registers{C: true}
 	r.GPR[16] = 73
 	r.GPR[0] = base
 	r.GPR[1] = 3 * vmPage
 	old := r
-	if k.trap(&r, m) || r != old || k.anonymousBytes != 3*vmPage || len(m.Mappings()) != 1 {
+	if k.trap(&r, m) || r != old || k.ownedBytes != 3*vmPage || len(m.Mappings()) != 1 {
 		t.Fatal("unsupported protected unmap mutated state")
 	}
 	k.protected = nil
 	r.GPR[0] = base + vmPage
 	r.GPR[1] = 1
 	r.GPR[2] = 0x80 // stale third register is not an advice argument
-	if !k.trap(&r, m) || r.GPR[0] != 0 || r.GPR[1] != 0 || r.C || k.anonymousBytes != 2*vmPage || k.anonymousMappings != 2 || len(k.reserved) != 2 || len(m.Mappings()) != 2 {
+	if !k.trap(&r, m) || r.GPR[0] != 0 || r.GPR[1] != 0 || r.C || k.ownedBytes != 2*vmPage || k.ownedMappings != 2 || len(k.reserved) != 2 || len(m.Mappings()) != 2 {
 		t.Fatal(r, k)
 	}
 	if m.Check(base+vmPage, 1, usermem.Read, "removed") == nil {

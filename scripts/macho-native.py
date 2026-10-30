@@ -19,6 +19,7 @@ import tempfile
 import time
 
 from workload_contract import check_output, digest, load_manifest
+from macho_symbols import MAX_DYLD_BYTES, stack_probe_offset
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,6 +49,8 @@ def observe(binary, args):
 
 
 def runtime_profile():
+    native_dyld=Path("/usr/lib/dyld")
+    before_dyld=digest(native_dyld)
     with tempfile.TemporaryDirectory(prefix="poros-runtime-profile-") as directory:
         binary = Path(directory) / "profile"
         compiler = subprocess.check_output(["xcrun", "--find", "clang"], text=True).strip()
@@ -58,7 +61,24 @@ def runtime_profile():
         cache_parent=str(Path(profile["cache_dynamic"]["cache_path"]).parent)
         if not any(d["canonical_path"]==cache_parent for d in profile["directories"]):
             raise ValueError("captured directory does not match native shared-cache location")
-        return profile, dict(source_sha256=digest(source), source_dependencies_sha256={"macho-stat.h":digest(ROOT/"scripts/macho-stat.h")}, binary_sha256=digest(binary),
+        with native_dyld.open("rb") as opened:
+            dyld_bytes=opened.read(MAX_DYLD_BYTES+1)
+        if hashlib.sha256(dyld_bytes).hexdigest()!=before_dyld:
+            raise ValueError("native dyld changed during runtime capture")
+        offset=stack_probe_offset(dyld_bytes,profile["native_dyld"]["uuid"])
+        bti_source=ROOT/"scripts/macho-bti.c"
+        bti_binary=Path(directory)/"bti"
+        subprocess.run([compiler,"-isysroot",sdk,"-arch","arm64","-Wall","-Wextra","-Werror",str(bti_source),"-o",str(bti_binary)],check=True,timeout=30)
+        observed=json.loads(run_startup_helper([str(bti_binary),hex(offset),profile["native_dyld"]["uuid"]]))
+        if (observed["mode"]!="non-enforced" or observed["generic_arm64"] is not True or observed["checks_passed"]!=10
+            or observed["feature"] not in (0,1) or observed["dyld_uuid"]!=profile["native_dyld"]["uuid"]
+            or observed["cache_uuid"]!=profile["cache_dynamic"]["cache_uuid"] or observed["stack_probe_offset"]!=offset
+            or digest(native_dyld)!=before_dyld):
+            raise ValueError("branch target evidence differs from captured native runtime")
+        profile["branch_target_mode"]=observed["mode"]
+        return profile, dict(source_sha256=digest(source), source_dependencies_sha256={"macho-stat.h":digest(ROOT/"scripts/macho-stat.h"),"macho_symbols.py":digest(ROOT/"scripts/macho_symbols.py")}, binary_sha256=digest(binary),
+                             branch_target_probe=dict(source_sha256=digest(bti_source),binary_sha256=digest(bti_binary),dyld_sha256=before_dyld,observation=observed,
+                                protocol="generic-arm64 helper; UUID-matched dyld symbol; own child plain/mismatched landing and actual stack-probe entry/after-entry checks; no guarded-page enforcement claim"),
                              compiler=subprocess.check_output([compiler, "--version"], text=True).strip())
 
 

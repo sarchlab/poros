@@ -1,6 +1,7 @@
 package loader
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -28,13 +29,12 @@ func machoError(kind, format string, args ...any) error {
 	return &MachOError{kind, fmt.Sprintf(format, args...)}
 }
 
-// MachOSegment preserves virtual and file extents. Data owns the file bytes;
+// MachOSegment preserves virtual and file extents. The image owns the file bytes;
 // the process mapper supplies zero-filled BSS. Protections use Mach VM bits R=1,W=2,X=4.
 type MachOSegment struct {
-	Name                      string
-	Address, Size, FileOffset uint64
-	Protection, MaxProtection uint32
-	Data                      []byte
+	Name                                string
+	Address, Size, FileOffset, FileSize uint64
+	Protection, MaxProtection           uint32
 }
 type MachOLinkedit struct {
 	Command      uint32
@@ -45,6 +45,7 @@ type MachOLinkedit struct {
 // imports, execute initializers, apply fixups, or verify an Apple code signature.
 // MainEntry belongs to dyld; ThreadEntry is the kernel entry for MH_DYLINKER.
 type MachOImage struct {
+	source, slice                                    []byte // one private immutable file snapshot; slice aliases source
 	FileSize                                         uint64 // complete supplied file, including all universal slices
 	Type, Subtype, Flags                             uint32
 	HeaderAddress, MainEntry, ThreadEntry, StackSize uint64
@@ -67,13 +68,19 @@ func LoadMachO(path string, fileType uint32) (*MachOImage, error) {
 	if e != nil {
 		return nil, e
 	}
-	return ParseMachO(b, fileType)
+	return parseMachOOwned(b, fileType)
 }
 
 // ParseMachO selects generic ARM64 for an executable and arm64e (then ARM64)
 // for dyld. CPU subtype capability/version bits are retained. Unknown required
 // load commands fail; ordinary dynamic metadata is preserved for the runtime.
 func ParseMachO(input []byte, fileType uint32) (*MachOImage, error) {
+	if len(input) > MaxMachOFileBytes {
+		return nil, machoError("limit", "file exceeds %d bytes", MaxMachOFileBytes)
+	}
+	return parseMachOOwned(append([]byte(nil), input...), fileType)
+}
+func parseMachOOwned(input []byte, fileType uint32) (*MachOImage, error) {
 	if fileType != MachOExecutable && fileType != MachODylinker {
 		return nil, machoError("unsupported", "file type %d", fileType)
 	}
@@ -100,7 +107,7 @@ func ParseMachO(input []byte, fileType uint32) (*MachOImage, error) {
 		return nil, machoError("malformed", "load commands outside file")
 	}
 	hash := sha256.Sum256(input)
-	img := &MachOImage{FileSize: uint64(len(input)), Type: typ, Subtype: sub, Flags: u.Uint32(b[24:]), SHA256: hex.EncodeToString(hash[:])}
+	img := &MachOImage{source: input, slice: b, FileSize: uint64(len(input)), Type: typ, Subtype: sub, Flags: u.Uint32(b[24:]), SHA256: hex.EncodeToString(hash[:])}
 	var mainSeen, threadSeen, headerSeen, dylinkerSeen, allImageInfoSeen bool
 	var entryOffset, total uint64
 	off, end := uint64(32), uint64(32)+uint64(size)
@@ -169,7 +176,7 @@ func ParseMachO(input []byte, fileType uint32) (*MachOImage, error) {
 				headerSeen = true
 				img.HeaderAddress = s.Address
 			}
-			s.Data = append([]byte(nil), b[s.FileOffset:s.FileOffset+fs]...)
+			s.FileSize = fs
 			img.Segments = append(img.Segments, s)
 		case 0x80000028: // LC_MAIN
 			if n != 24 || mainSeen {
@@ -280,7 +287,7 @@ func ParseMachO(input []byte, fileType uint32) (*MachOImage, error) {
 		}
 		found := false
 		for _, s := range img.Segments {
-			if entryOffset >= s.FileOffset && entryOffset-s.FileOffset < uint64(len(s.Data)) && s.Protection&4 != 0 {
+			if entryOffset >= s.FileOffset && entryOffset-s.FileOffset < s.FileSize && s.Protection&4 != 0 {
 				img.MainEntry = s.Address + entryOffset - s.FileOffset
 				found = true
 				break
@@ -368,4 +375,23 @@ func machoSlice(b []byte, typ uint32) ([]byte, error) {
 		return nil, machoError("unsupported", "universal file has no supported ARM64 slice")
 	}
 	return chosen, nil
+}
+
+// ReadAt reads the complete original file, including universal container bytes.
+// Neither input slices nor guest memory can mutate this owned snapshot.
+func (i *MachOImage) ReadAt(p []byte, offset int64) (int, error) {
+	return bytes.NewReader(i.source).ReadAt(p, offset)
+}
+
+// SegmentData returns a private copy for initial guest mapping. It never exposes
+// the image's immutable file backing; BSS is supplied by the address-space mapper.
+func (i *MachOImage) SegmentData(index int) ([]byte, error) {
+	if index < 0 || index >= len(i.Segments) {
+		return nil, fmt.Errorf("Mach-O segment index outside image")
+	}
+	s := i.Segments[index]
+	if s.FileOffset > uint64(len(i.slice)) || s.FileSize > uint64(len(i.slice))-s.FileOffset {
+		return nil, fmt.Errorf("Mach-O segment extent outside image")
+	}
+	return append([]byte(nil), i.slice[s.FileOffset:s.FileOffset+s.FileSize]...), nil
 }

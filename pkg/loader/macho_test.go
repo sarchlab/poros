@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/sarchlab/poros/internal/machotest"
@@ -20,7 +21,7 @@ func TestMachOExecutableAndDyld(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			if len(i.Segments) != 2 || len(i.Segments[1].Data) != 0 || len(i.SHA256) != 64 {
+			if len(i.Segments) != 2 || i.Segments[1].FileSize != 0 || len(i.SHA256) != 64 {
 				t.Fatal(i)
 			}
 			if kind == 2 && (i.MainEntry != 0x100000400 || i.Dylinker != "/usr/lib/dyld") {
@@ -29,9 +30,18 @@ func TestMachOExecutableAndDyld(t *testing.T) {
 			if kind == 7 && i.ThreadEntry != 0x400 {
 				t.Fatal(i)
 			}
-			before := i.Segments[0].Data[0]
+			data, e := i.SegmentData(0)
+			if e != nil {
+				t.Fatal(e)
+			}
+			before := data[0]
 			clear(b)
-			if i.Segments[0].Data[0] != before {
+			clear(data)
+			data, e = i.SegmentData(0)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if data[0] != before {
 				t.Fatal("image aliases input")
 			}
 		}
@@ -108,5 +118,47 @@ func TestMachOAllImageInfoSectionMetadata(t *testing.T) {
 	u.PutUint32(b[20:], uint32(size+80))
 	if _, err := ParseMachO(b, 7); err == nil {
 		t.Fatal("ambiguous all-image-info sections accepted")
+	}
+}
+
+func TestMachOOriginalFileSnapshotAndSegmentCopies(t *testing.T) {
+	for _, fat := range []bool{false, true} {
+		input := machotest.Image(2)
+		if fat {
+			input = machotest.Universal(input)
+		}
+		original := append([]byte(nil), input...)
+		image, err := ParseMachO(input, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clear(input)
+		data, err := image.SegmentData(0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clear(data)
+		got := make([]byte, len(original))
+		n, err := image.ReadAt(got, 0)
+		if err != nil || n != len(got) || !bytes.Equal(got, original) || image.FileSize != uint64(len(original)) {
+			t.Fatal("file snapshot aliases caller or segment", n, err)
+		}
+		var tail [8]byte
+		n, err = image.ReadAt(tail[:], int64(len(original)-3))
+		if n != 3 || err != io.EOF || !bytes.Equal(tail[:3], original[len(original)-3:]) {
+			t.Fatal("short EOF semantics", n, err)
+		}
+		if _, err = image.ReadAt(tail[:], -1); err == nil {
+			t.Fatal("negative offset accepted")
+		}
+		for _, index := range []int{-1, len(image.Segments)} {
+			if _, err = image.SegmentData(index); err == nil {
+				t.Fatal("bad segment index")
+			}
+		}
+		image.Segments[0].FileOffset = ^uint64(0)
+		if _, err = image.SegmentData(0); err == nil {
+			t.Fatal("caller-mutated extent accepted")
+		}
 	}
 }

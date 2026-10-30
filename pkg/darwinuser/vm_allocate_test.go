@@ -126,7 +126,7 @@ func TestMachVMAddressPartialCopyoutUnsupportedBeforeAllocation(t *testing.T) {
 		r.GPR[5] = 3
 		r.GPR[16] = number
 		before := r
-		if k.trap(&r, m) || r != before || k.anonymousBytes != 0 || len(m.Mappings()) != 2 {
+		if k.trap(&r, m) || r != before || k.ownedBytes != 0 || len(m.Mappings()) != 2 {
 			t.Fatal("partial copyout mutated process", number)
 		}
 	}

@@ -10,8 +10,8 @@ import (
 
 type addressSpan struct{ lo, hi uint64 }
 
-// Bound virtual anonymous reservations independently of the resident-page limit.
-const maxAnonymousBytes uint64 = 8 << 30
+// Bound owned anonymous and private-file mappings independently of resident pages.
+const maxOwnedMappingBytes uint64 = 8 << 30
 const userAddressLimit uint64 = 1 << 47
 const vmPage uint64 = 16384
 
@@ -84,6 +84,11 @@ func (k *kernelState) mapAnonymous(r *emu.Registers, m *usermem.AddressSpace) bo
 // allocateAnonymous is shared by the fast Mach trap and the full MIG request.
 // It takes actual VM policy, independent of either ABI's copyin/copyout framing.
 func (k *kernelState) allocateAnonymous(m *usermem.AddressSpace, hint, size, mask uint64, flags, prot, maxProt uint32) (uint64, uint64, bool) {
+	return k.allocateMemory(m, hint, size, mask, flags, prot, maxProt, nil)
+}
+
+// allocateMemory shares address selection and ownership accounting, not syscall ABI.
+func (k *kernelState) allocateMemory(m *usermem.AddressSpace, hint, size, mask uint64, flags, prot, maxProt uint32, source io.ReaderAt) (uint64, uint64, bool) {
 	if flags&^uint32(0xff000001) != 0 {
 		return 0, 0, false
 	}
@@ -94,9 +99,9 @@ func (k *kernelState) allocateAnonymous(m *usermem.AddressSpace, hint, size, mas
 	prot &= maxProt // XNU clamps requested current permissions to the maximum.
 	if prot&4 != 0 {
 		return 0, 0, false
-	} // Executable anonymous mappings need Darwin JIT policy.
+	} // Owned executable mappings need explicit Darwin signing/JIT policy.
 	size = (size + vmPage - 1) &^ (vmPage - 1)
-	if size > maxAnonymousBytes-k.anonymousBytes || k.anonymousMappings >= 4096 {
+	if k.ownedBytes > maxOwnedMappingBytes || size > maxOwnedMappingBytes-k.ownedBytes || k.ownedMappings >= 4096 {
 		return 0, 3, true
 	}
 	alignmentMask := mask | (vmPage - 1)
@@ -144,12 +149,15 @@ func (k *kernelState) allocateAnonymous(m *usermem.AddressSpace, hint, size, mas
 	if address > userAddressLimit-size {
 		return 0, 3, true
 	}
-	if err := m.MapReader(address, size, machPermissions(prot), machPermissions(maxProt), zeroMemory(size), vmPage); err != nil {
+	if source == nil {
+		source = zeroMemory(size)
+	}
+	if err := m.MapReader(address, size, machPermissions(prot), machPermissions(maxProt), source, vmPage); err != nil {
 		return 0, 3, true
 	}
-	k.anonymous = append(k.anonymous, addressSpan{address, address + size})
-	k.anonymousBytes += size
-	k.anonymousMappings++
+	k.ownedRanges = append(k.ownedRanges, addressSpan{address, address + size})
+	k.ownedBytes += size
+	k.ownedMappings++
 	return address, 0, true
 }
 
@@ -204,12 +212,12 @@ func (k *kernelState) unmapRange(m *usermem.AddressSpace, start, end uint64) boo
 		return false
 	}
 	k.reserved = subtractSpan(k.reserved, start, end)
-	k.anonymous = subtractSpan(k.anonymous, start, end)
-	k.anonymousBytes = 0
-	for _, v := range k.anonymous {
-		k.anonymousBytes += v.hi - v.lo
+	k.ownedRanges = subtractSpan(k.ownedRanges, start, end)
+	k.ownedBytes = 0
+	for _, v := range k.ownedRanges {
+		k.ownedBytes += v.hi - v.lo
 	}
-	k.anonymousMappings = uint32(len(k.anonymous))
+	k.ownedMappings = uint32(len(k.ownedRanges))
 	return true
 }
 func (k *kernelState) munmap(r *emu.Registers, m *usermem.AddressSpace) bool {

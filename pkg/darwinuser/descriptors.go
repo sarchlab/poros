@@ -16,13 +16,13 @@ type guestDescriptor struct {
 const maxGuestDescriptors = 256
 
 func (k *kernelState) open(r *emu.Registers, m *usermem.AddressSpace) bool {
-	return k.openDirectory(r, m, r.GPR[0], uint32(r.GPR[1]), 0, false)
+	return k.openFile(r, m, r.GPR[0], uint32(r.GPR[1]), 0, false)
 }
 func (k *kernelState) openAt(r *emu.Registers, m *usermem.AddressSpace) bool {
-	return k.openDirectory(r, m, r.GPR[1], uint32(r.GPR[2]), uint32(r.GPR[0]), true)
+	return k.openFile(r, m, r.GPR[1], uint32(r.GPR[2]), uint32(r.GPR[0]), true)
 }
 
-func (k *kernelState) openDirectory(r *emu.Registers, m *usermem.AddressSpace, address uint64, flags, dirfd uint32, relative bool) bool {
+func (k *kernelState) openFile(r *emu.Registers, m *usermem.AddressSpace, address uint64, flags, dirfd uint32, relative bool) bool {
 	if flags&^uint32(0x20100000) != 0 {
 		return false
 	}
@@ -33,6 +33,22 @@ func (k *kernelState) openDirectory(r *emu.Registers, m *usermem.AddressSpace, a
 	}
 	if errno != 0 {
 		return finish(errno, true)
+	}
+	// Known main-file aliases use the exact loader-owned file snapshot. Only
+	// read-only flags zero are modeled; writes and uncaptured path properties fail.
+	for _, known := range k.executablePaths {
+		if name != known {
+			continue
+		}
+		if flags != 0 || k.executableImage == nil || k.executableStat == nil {
+			return false
+		}
+		file := &guestOpenFile{stat: *k.executableStat, reader: k.executableImage, flags: 0}
+		fd, ok := k.allocateDescriptor(guestDescriptor{path: k.executableCanonical, file: file})
+		if !ok {
+			return false
+		}
+		return finish(uint64(fd), false)
 	}
 	canonical := ""
 	symlink := false
@@ -182,7 +198,7 @@ func (k *kernelState) fcntl(r *emu.Registers, m *usermem.AddressSpace) bool {
 	if !ok {
 		return finish(9)
 	}
-	if node.file != nil {
+	if node.file != nil && (node.file.reader == nil || node.path == "") {
 		return false
 	} // No host temporary path exposed.
 	value := append([]byte(node.path), 0)

@@ -97,7 +97,7 @@ func SetsFlags(op arm64asm.Op) bool {
 	switch op {
 	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST,
 		arm64asm.CCMP, arm64asm.CCMN,
-		arm64asm.ADDS, arm64asm.SUBS, arm64asm.ANDS,
+		arm64asm.ADDS, arm64asm.SUBS, arm64asm.ANDS, arm64asm.BICS,
 		arm64asm.FCMP, arm64asm.FCCMP, arm64asm.FCCMPE:
 		return true
 	}
@@ -108,7 +108,7 @@ func SetsFlags(op arm64asm.Op) bool {
 // Branch instructions are excluded — they are predicted, not data-dependent.
 func UsesFlags(op arm64asm.Op) bool {
 	switch op {
-	case arm64asm.CSEL, arm64asm.CSINC, arm64asm.CSINV, arm64asm.CSNEG, arm64asm.CNEG,
+	case arm64asm.CSEL, arm64asm.CSINC, arm64asm.CSINV, arm64asm.CSNEG, arm64asm.CNEG, arm64asm.CSET, arm64asm.CINC,
 		arm64asm.CCMP, arm64asm.CCMN,
 		arm64asm.FCSEL, arm64asm.FCCMP, arm64asm.FCCMPE:
 		return true

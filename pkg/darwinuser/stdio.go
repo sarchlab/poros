@@ -2,6 +2,7 @@ package darwinuser
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/usermem"
@@ -55,6 +56,7 @@ func validateInitialDescriptors(entries []InitialDescriptor) error {
 // guestOpenFile is a private open-file description. Dup aliases share its
 // metadata and, once IO occurs, its byte content and current offset.
 type guestOpenFile struct {
+	reader    io.ReaderAt // immutable explicitly supplied regular input, nil for outputs/null
 	initialFD uint32
 	stat      FileStat
 	flags     uint32
@@ -74,7 +76,7 @@ func (k *kernelState) fstat(r *emu.Registers, m *usermem.AddressSpace) bool {
 	}
 	var stat *FileStat
 	if node.file != nil {
-		if len(node.file.data) != 0 {
+		if node.file.reader == nil && len(node.file.data) != 0 {
 			return false
 		} // Post-write filesystem timestamps/blocks are not yet modeled.
 		stat = &node.file.stat
@@ -103,6 +105,12 @@ func (k *kernelState) fstat(r *emu.Registers, m *usermem.AddressSpace) bool {
 // write copies guest bytes into a private captured output file. It never writes
 // the host descriptor used by the command's own JSON report.
 func (k *kernelState) write(r *emu.Registers, m *usermem.AddressSpace) bool {
+	if r.GPR[2] > 0x7fffffff {
+		r.GPR[0] = 22
+		r.GPR[1] = 0
+		r.C = true
+		return true
+	}
 	fd := uint32(r.GPR[0])
 	if fd < 3 && !k.standardIO {
 		return false
@@ -148,3 +156,70 @@ func (k *kernelState) write(r *emu.Registers, m *usermem.AddressSpace) bool {
 	file.offset += count
 	return finish(count, false)
 }
+
+// read transfers only bytes available from an explicitly owned immutable input.
+// An EOF or zero-length request does not inspect the guest output pointer.
+func (k *kernelState) read(r *emu.Registers, m *usermem.AddressSpace) bool {
+	if r.GPR[2] > 0x7fffffff {
+		r.GPR[0] = 22
+		r.GPR[1] = 0
+		r.C = true
+		return true
+	}
+	fd := uint32(r.GPR[0])
+	if fd < 3 && !k.standardIO {
+		return false
+	}
+	finish := func(value uint64, failed bool) bool { r.GPR[0] = value; r.GPR[1] = 0; r.C = failed; return true }
+	descriptor, ok := k.descriptors[fd]
+	if !ok {
+		return finish(9, true)
+	}
+	file := descriptor.file
+	if file == nil {
+		return false
+	}
+	if file.flags&3 == 1 {
+		return finish(9, true)
+	}
+	if file.reader == nil {
+		return false
+	} // Output-file reads and null-device IO remain uncaptured.
+	count := r.GPR[2]
+	if count == 0 {
+		return finish(0, false)
+	}
+	if file.stat.Size < 0 {
+		return false
+	}
+	size := uint64(file.stat.Size)
+	if file.offset >= size {
+		return finish(0, false)
+	}
+	if count > size-file.offset {
+		count = size - file.offset
+	}
+	// Keep individual guest copy operations bounded independently of image size.
+	if count > maxFileReadBytes {
+		return false
+	}
+	address := r.GPR[1]
+	if m.Check(address, int(count), usermem.Write, "read output") != nil {
+		if m.Check(address, 1, usermem.Write, "read output") == nil {
+			return false
+		}
+		return finish(14, true)
+	}
+	data := make([]byte, int(count))
+	n, err := file.reader.ReadAt(data, int64(file.offset))
+	if n != len(data) || (err != nil && err != io.EOF) {
+		return false
+	}
+	if m.Write(address, data) != nil {
+		return false
+	}
+	file.offset += count
+	return finish(count, false)
+}
+
+const maxFileReadBytes uint64 = 16 << 20

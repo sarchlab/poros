@@ -72,7 +72,7 @@ func TestMessageUnsupportedIsBeforeMutation(t *testing.T) {
 		}
 		m.Write(0x1000, b)
 		before := r
-		if k.trap(&r, m) || r != before || k.anonymousBytes != 0 || len(m.Mappings()) != 1 {
+		if k.trap(&r, m) || r != before || k.ownedBytes != 0 || len(m.Mappings()) != 1 {
 			t.Fatal("unsupported mutated state", tc)
 		}
 		got := make([]byte, 100)
@@ -90,7 +90,7 @@ func TestMessageCopiesOnlyTailAndPreservesEffectsOnBadOutput(t *testing.T) {
 	m.Unmap(0x1000, 128)
 	m.Map(0x1000+28, 72, usermem.Read, b[28:])
 	old := r
-	if !k.trap(&r, m) || r.GPR[0] != 0x10004008 || !r.C || r.GPR[1] != old.GPR[1] || k.anonymousBytes != 0x16c000 {
+	if !k.trap(&r, m) || r.GPR[0] != 0x10004008 || !r.C || r.GPR[1] != old.GPR[1] || k.ownedBytes != 0x16c000 {
 		t.Fatal("copyin/header or copyout order", r, k)
 	}
 	found := false
@@ -234,7 +234,7 @@ func TestMessageMixedPermissionOutputFailsBeforeVMEffect(t *testing.T) {
 	m.Map(0x1000, 40, usermem.Read|usermem.Write, b[:40])
 	m.Map(0x1028, 60, usermem.Read, b[40:])
 	old := r
-	if k.trap(&r, m) || r != old || k.anonymousBytes != 0 || len(m.Mappings()) != 2 {
+	if k.trap(&r, m) || r != old || k.ownedBytes != 0 || len(m.Mappings()) != 2 {
 		t.Fatal("partial-copyout contract was guessed", r, k)
 	}
 }

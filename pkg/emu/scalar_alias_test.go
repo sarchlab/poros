@@ -10,7 +10,7 @@ func TestScalarAliasesMatchNativeFullState(t *testing.T) {
 	for _, probe := range []struct {
 		source string
 		count  int
-	}{{"cneg-probe.c", 7168}, {"variable-shift-probe.c", 3584}, {"reverse-probe.c", 48}} {
+	}{{"cneg-probe.c", 7168}, {"variable-shift-probe.c", 3584}, {"reverse-probe.c", 48}, {"bics-probe.c", 4608}, {"bti-state-probe.c", 64}} {
 		var cases []struct {
 			Instruction, Encoding string
 			Before, After         [3]string
@@ -32,6 +32,9 @@ func TestScalarAliasesMatchNativeFullState(t *testing.T) {
 			r := Registers{PC: 0x1000, N: tc.NZCVBefore&(1<<31) != 0, Z: tc.NZCVBefore&(1<<30) != 0, C: tc.NZCVBefore&(1<<29) != 0, V: tc.NZCVBefore&(1<<28) != 0}
 			for i, s := range tc.Before {
 				r.GPR[i] = parse(s)
+			}
+			if probe.source == "bti-state-probe.c" {
+				r.BranchTarget = BranchTargetNonEnforced
 			}
 			before := r
 			if _, err := StepChecked(&r, authMemory{uint32(parse(tc.Encoding))}); err != nil {
@@ -94,5 +97,26 @@ func TestScalarAliasZeroRegisterAndUnsupportedVector(t *testing.T) {
 	before := r
 	if _, err := StepChecked(&r, authMemory{0x4e201820}); err == nil || r != before {
 		t.Fatal("unsupported vector REV16 silently executed")
+	}
+}
+
+func TestBICSZeroOperandsAndFlags(t *testing.T) {
+	for _, tc := range []struct {
+		word           uint32
+		want           uint64
+		negative, zero bool
+	}{
+		{0x6a2103e0, 0, false, true},                   // BICS W0,WZR,W1
+		{0x6a3f0020, 0x80000001, true, false},          // BICS W0,W1,WZR
+		{0xea3f0020, 0x1234567880000001, false, false}, // BICS X0,X1,XZR
+	} {
+		r := Registers{PC: 0x1000, C: true, V: true}
+		r.GPR[1] = 0x1234567880000001
+		if _, err := StepChecked(&r, authMemory{tc.word}); err != nil {
+			t.Fatal(err)
+		}
+		if r.GPR[0] != tc.want || r.GPR[1] != 0x1234567880000001 || r.N != tc.negative || r.Z != tc.zero || r.C || r.V {
+			t.Fatal(tc, r)
+		}
 	}
 }

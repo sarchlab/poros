@@ -137,8 +137,8 @@ func TestWriteMatchesNativePrivateFileContract(t *testing.T) {
 		DupOffset  uint64 `json:"dup_offset"`
 		Contents   string
 	}
-	kernelNativeResult(t, "write-probe.c", &cases)
-	if len(cases) != 15 {
+	kernelNativeResult(t, "write-large-probe.c", &cases)
+	if len(cases) != 18 {
 		t.Fatal(len(cases))
 	}
 	for _, tc := range cases {
@@ -155,11 +155,11 @@ func TestWriteMatchesNativePrivateFileContract(t *testing.T) {
 			switch tc.Case {
 			case "low32_fd":
 				r.GPR[0] |= 1 << 32
-			case "invalid_fd", "invalid_fd_zero":
+			case "invalid_fd", "invalid_fd_zero", "oversize_invalid_fd":
 				r.GPR[0] = 500
-			case "readonly_fd", "readonly_fd_zero":
+			case "readonly_fd", "readonly_fd_zero", "oversize_readonly_fd":
 				r.GPR[0] = 0
-			case "zero_null", "null_nonzero":
+			case "zero_null", "null_nonzero", "oversize_null":
 				r.GPR[1] = 0
 			case "zero_unmapped", "unmapped_nonzero":
 				r.GPR[1] = 1

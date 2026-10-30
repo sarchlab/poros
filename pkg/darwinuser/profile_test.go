@@ -3,6 +3,7 @@ package darwinuser
 import (
 	"encoding/binary"
 	"github.com/sarchlab/poros/internal/machotest"
+	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/usermem"
 	"strings"
 	"testing"
@@ -23,6 +24,21 @@ func TestNativeDyldIdentityMustMatchSelectedSlice(t *testing.T) {
 	if _, err := Parse(machotest.Image(2), runtime, Options{RuntimeProfile: &profile}); err != nil {
 		t.Fatal(err)
 	}
+	profile.BranchTarget = "non-enforced"
+	p, err := Parse(machotest.Image(2), runtime, Options{RuntimeProfile: &profile})
+	if err != nil || p.Registers.BranchTarget != emu.BranchTargetNonEnforced {
+		t.Fatal(p, err)
+	}
+	arm64e := machotest.Image(2)
+	binary.LittleEndian.PutUint32(arm64e[8:], 0x80000002)
+	if _, err := Parse(arm64e, runtime, Options{RuntimeProfile: &profile}); err == nil || !strings.Contains(err.Error(), "requires generic ARM64") {
+		t.Fatal("captured non-enforcement applied to arm64e", err)
+	}
+	profile.BranchTarget = "enforced"
+	if _, err := Parse(machotest.Image(2), runtime, Options{RuntimeProfile: &profile}); err == nil {
+		t.Fatal("unimplemented guarded-page mode accepted")
+	}
+	profile.BranchTarget = "non-enforced"
 	identity.Subtype = 0x80000001
 	if _, err := Parse(machotest.Image(2), runtime, Options{RuntimeProfile: &profile}); err == nil {
 		t.Fatal("wrong native dyld subtype accepted")

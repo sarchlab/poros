@@ -8,6 +8,7 @@ import (
 
 // Registers holds the complete ARM64 register state.
 type Registers struct {
+	BranchTarget     BranchTargetMode      `json:",omitempty"`
 	Exclusive        ExclusiveState        `json:",omitzero"`
 	PointerStrip     PointerStripPolicy    `json:",omitempty"`
 	SPAlignmentCheck bool                  `json:",omitempty"`

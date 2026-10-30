@@ -73,6 +73,9 @@ func Parse(binary, dyld []byte, o Options) (*Process, error) {
 	return start(image, runtime, o)
 }
 func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
+	if o.RuntimeProfile != nil && o.RuntimeProfile.BranchTarget == "non-enforced" && image.Subtype != 0 {
+		return nil, fmt.Errorf("captured branch-target mode requires generic ARM64 main")
+	}
 	if o.RuntimeProfile != nil {
 		if err := validateDirectories(o.RuntimeProfile.Directories); err != nil {
 			return nil, err
@@ -140,7 +143,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	}
 	reserved := []addressSpan{{StackTop - reservation, StackTop}, {commpageRegionStart, commpageRegionEnd}}
 	mapImage := func(img *loader.MachOImage, slide uint64) error {
-		for _, s := range img.Segments {
+		for index, s := range img.Segments {
 			if s.Size == 0 {
 				continue
 			}
@@ -157,7 +160,11 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 			if s.Protection == 0 {
 				continue
 			}
-			if err := memory.MapProtected(lo, s.Size, machPermissions(s.Protection), machPermissions(s.MaxProtection), s.Data); err != nil {
+			data, err := img.SegmentData(index)
+			if err != nil {
+				return err
+			}
+			if err := memory.MapProtected(lo, s.Size, machPermissions(s.Protection), machPermissions(s.MaxProtection), data); err != nil {
 				return err
 			}
 		}
@@ -273,6 +280,8 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		if o.StartupProfile.ExecutableStat != nil {
 			stat := *o.StartupProfile.ExecutableStat
 			kernel.executableStat = &stat
+			kernel.executableImage = image
+			kernel.executableCanonical = o.StartupProfile.ExecutableFile.Path
 			kernel.executablePaths = []string{o.ExecName, o.StartupProfile.ExecutableFile.Path}
 		}
 		if len(o.StartupProfile.StandardIO) != 0 {
@@ -330,6 +339,10 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	if o.RuntimeProfile != nil && o.RuntimeProfile.PointerStrip == "darwin-47-bit" {
 		strip = emu.PointerStripDarwin47Bit
 	}
+	branchTarget := emu.BranchTargetUnspecified
+	if o.RuntimeProfile != nil && o.RuntimeProfile.BranchTarget == "non-enforced" {
+		branchTarget = emu.BranchTargetNonEnforced
+	}
 	alignment := emu.AtomicNaturalAlignment
 	if o.RuntimeProfile != nil && o.RuntimeProfile.AtomicAlignment == "within-16-byte" {
 		alignment = emu.AtomicWithin16Bytes
@@ -359,5 +372,5 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		config := *o.RuntimeProfile.CSRConfig
 		kernel.csrConfig = &config
 	}
-	return &Process{kernel: kernel, Registers: emu.Registers{Exclusive: exclusive, PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
+	return &Process{kernel: kernel, Registers: emu.Registers{BranchTarget: branchTarget, Exclusive: exclusive, PointerStrip: strip, SPAlignmentCheck: true, AtomicAlignment: alignment, PC: dyld.ThreadEntry + DyldBase, SP: base + sp, PointerAuth: authMode, Counter: counter}, Memory: memory, Binary: identity(image), Dyld: identity(dyld), MainEntry: image.MainEntry}, nil
 }
