@@ -75,6 +75,54 @@ class StatObservationTests(unittest.TestCase):
                 query.assert_called_once_with(profile["access_enoent_paths"][0])
 
 
+
+class SharedMemorySnapshotTests(unittest.TestCase):
+    def test_snapshot_recheck_requires_exact_bytes_and_metadata(self):
+        contents=b"captured configuration"
+        stat=dict(size=str(len(contents)),device=0,inode="0",mode=420,uid=0,gid=0,links=0,
+                  mtime=dict(seconds="0",nanoseconds="0"),generation=0)
+        entry=dict(name="runtime.config",sha256=macho.hashlib.sha256(contents).hexdigest(),
+                   contents_base64=macho.base64.b64encode(contents).decode(),stat=stat)
+        with patch.object(macho,"read_shared_memory_snapshot",return_value=(contents,stat)) as read:
+            macho.verify_captured_shared_memory({"read_only_shared_memory":[entry]})
+            read.assert_called_once_with("runtime.config")
+        for raw,metadata in ((b"changed configuration",stat),(contents,{**stat,"mode":384}),
+                             (contents,{**stat,"mtime":dict(seconds="1",nanoseconds="0")}),
+                             (contents,{**stat,"generation":1})):
+            with patch.object(macho,"read_shared_memory_snapshot",return_value=(raw,metadata)):
+                with self.assertRaises(ValueError):macho.verify_captured_shared_memory({"read_only_shared_memory":[entry]})
+        with patch.object(macho,"read_shared_memory_snapshot") as read:
+            with self.assertRaises(ValueError):macho.verify_captured_shared_memory({"read_only_shared_memory":[{**entry,"sha256":"0"*64}]})
+            read.assert_not_called()
+
+    def test_snapshot_reader_closes_descriptor_on_failure(self):
+        from unittest.mock import MagicMock
+        library=MagicMock();library.shm_open.return_value=7
+        with patch.object(macho.ctypes,"CDLL",return_value=library),patch.object(macho,"native_stat64",return_value=dict(size="16")),patch.object(macho.os,"close") as close,patch.object(macho.mmap,"mmap",side_effect=OSError("mapping failed")):
+            with self.assertRaises(OSError):macho.read_shared_memory_snapshot("runtime.config")
+            close.assert_called_once_with(7)
+            library.shm_open.assert_called_once_with(b"runtime.config",os.O_RDONLY,0)
+
+    def test_full_stat64_payload_preserves_precise_metadata(self):
+        from unittest.mock import MagicMock
+        import ctypes
+        library=MagicMock()
+        raw=bytearray(144)
+        struct.pack_into("<IHHQIII",raw,0,11,420,2,15,16,17,18)
+        for i in range(4):struct.pack_into("<qq",raw,32+i*16,-10-i,123+i)
+        struct.pack_into("<qqiII",raw,96,32768,4,4096,7,9)
+        def query(fd,output):
+            self.assertEqual(fd,8);ctypes.memmove(output,bytes(raw),144);return 0
+        library.fstat64.side_effect=query
+        with patch.object(macho.ctypes,"CDLL",return_value=library):
+            result=macho.native_stat64(8)
+        self.assertEqual(result["birthtime"],dict(seconds="-13",nanoseconds="126"))
+        self.assertEqual((result["rdev"],result["blocks"],result["block_size"],result["flags"],result["generation"]),(18,"4",4096,7,9))
+        raw[128]=1
+        with patch.object(macho.ctypes,"CDLL",return_value=library):
+            with self.assertRaises(ValueError):macho.native_stat64(8)
+
+
 class StartupIdentityTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

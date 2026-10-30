@@ -18,8 +18,8 @@ All initialization, arithmetic, output and exit remain native program work.
 The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
 Current integer/1000 validation with the corrected ISA, captured runtime profile,
-and the explicit warm shared cache retires 2,261,364 instructions and stops at
-BSD `shm_open("com.apple.featureflags.shm", O_RDONLY)` at PC `0x18054954c`, with no guest
+and the explicit warm shared cache retires 2,270,834 instructions and stops at
+BSD `ioctl(2, FIODTYPE, ...)` at PC `0x18054c340`, with no guest
 stdout/stderr. It has executed real dyld code, consumed captured kernel policies,
 resolved selected runtime directories, queried main-file metadata, opened/mapped the same immutable executable bytes,
 and resolved their canonical path. It executes scalar BICS, captured non-enforced
@@ -52,9 +52,24 @@ receives and authority retained after readonly copyout failure. The last send
 reference removes the object; native lifecycle evidence also verifies copied send
 references and stale-name rejection. Explicit semaphore destruction, blocking/waiting
 and scheduling remain unsupported until exercised and modeled.
-Shared-memory runtime content is a separate, currently unsupported dependency.
+The selected `com.apple.featureflags.shm` object is captured as an immutable launch
+snapshot, bound by full stat64 metadata, byte count, SHA256 and native runtime
+identity. The collector maps it read-only twice, requires equal bytes/metadata,
+and rechecks the full snapshot before and after each measurement. It never writes
+to the object or claims live daemon synchronization. Guest `shm_open`, `fstat`,
+read-only shared mappings and close use private descriptors and retained snapshot
+bytes; unknown names remain unsupported. Native shared-map maxima are read-only,
+so write upgrades fail. Legacy zero-length/unaligned mappings and direct descriptor
+reads remain explicit unsupported operations. Snapshots have a 64 KiB aggregate
+bound; the JSON profile has a 128 KiB bound for the base64 payload. Portable tests
+use synthetic owned snapshots plus the small native windows recorded by the ABI
+oracles; there is no second checked-in full host configuration blob.
 The object lifecycle follows XNU `sync_sema.c` no-senders/free behavior; all
 objects and rights remain private to the simulated task.
+The published commpage active/physical/logical CPU counts and cluster count are
+explicit captured launch fields, checked against native observations and mapped
+read-only. They guide guest library initialization; they do not retune Poros CPU
+model parameters or add hotplug/scheduling. Missing fields remain unmapped.
 
 `scripts/macho-startup.c` captures documented kernel apple metadata from each
 explicit executable as a newly spawned, suspended child, then kills/reaps that
@@ -242,7 +257,7 @@ installed dyld methods, not asserted as a public cross-version ABI. Native data
 records 4,115 images and two 515-byte bitmaps; even all-zero values are captured,
 not synthesized. Read-only mapping validates ranges, disjoint bitmaps and exact
 agreement where the first bitmap overlaps the 16-byte cache-path read envelope.
-Bytes 85–87 remain unknown and unmapped. The runtime JSON is bounded at 64 KiB,
+Bytes 85–87 remain unknown and unmapped. The runtime JSON is bounded at 128 KiB,
 with smaller field/count bounds; the captured local profile is 5,200 bytes.
 
 Cache `fsgetpath` reuses the native dynamic-region FileIdTuple and canonical path.

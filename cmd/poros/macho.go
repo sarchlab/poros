@@ -15,7 +15,7 @@ import (
 	"github.com/sarchlab/poros/pkg/loader"
 )
 
-const maxMachORuntimeProfileBytes = 64 << 10
+const maxMachORuntimeProfileBytes = 128 << 10
 
 // runMachO reports actual runtime progress. Incomplete startup is a failing
 // execution, never a benchmark result or a prediction of complete user time.

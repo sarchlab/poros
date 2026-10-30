@@ -10,10 +10,12 @@ import datetime
 import ctypes
 import hashlib
 import json
+import mmap
 import os
 from pathlib import Path
 import platform
 import signal
+import struct
 import subprocess
 import tempfile
 import time
@@ -75,6 +77,65 @@ def verify_captured_stat_absences(profile):
         raise ValueError("captured stat absence became present: " + name)
 
 
+def native_stat64(descriptor):
+    """Decode the same defined 144-byte ARM64 stat64 ABI as macho-stat.h."""
+    library = ctypes.CDLL(None, use_errno=True)
+    query = library.fstat64
+    query.argtypes = [ctypes.c_int, ctypes.c_void_p]
+    query.restype = ctypes.c_int
+    output = ctypes.create_string_buffer(b"\xa5" * 160, 160)
+    if query(descriptor, output) != 0:
+        raise OSError(ctypes.get_errno(), "shared-memory stat64 failed")
+    raw = output.raw
+    if raw[144:] != b"\xa5" * 16 or any(raw[28:32]) or any(raw[124:144]):
+        raise ValueError("unsupported native stat64 layout or reserved fields")
+    value = lambda kind, offset: struct.unpack_from("<" + kind, raw, offset)[0]
+    metadata = dict(device=value("I",0), mode=value("H",4), links=value("H",6),
+                    inode=str(value("Q",8)), uid=value("I",16), gid=value("I",20),
+                    rdev=value("I",24), size=str(value("q",96)), blocks=str(value("q",104)),
+                    block_size=value("i",112), flags=value("I",116), generation=value("I",120))
+    for name, offset in (("atime",32),("mtime",48),("ctime",64),("birthtime",80)):
+        metadata[name] = dict(seconds=str(value("q",offset)), nanoseconds=str(value("q",offset+8)))
+    return metadata
+
+
+def read_shared_memory_snapshot(name):
+    """Read only an explicitly selected POSIX object; never create or modify it."""
+    library = ctypes.CDLL(None, use_errno=True)
+    query = library.shm_open
+    query.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_uint]
+    query.restype = ctypes.c_int
+    descriptor = query(os.fsencode(name), os.O_RDONLY, 0)
+    if descriptor < 0:
+        raise OSError(ctypes.get_errno(), "shared-memory snapshot open failed", name)
+    try:
+        before = native_stat64(descriptor)
+        size = int(before["size"])
+        if not 0 < size <= 65536:
+            raise ValueError("shared-memory snapshot exceeds capture bound")
+        with mmap.mmap(descriptor, size, access=mmap.ACCESS_READ) as view:
+            contents = bytes(view)
+        with mmap.mmap(descriptor, size, access=mmap.ACCESS_READ) as view:
+            repeated = bytes(view)
+        after = native_stat64(descriptor)
+        if contents != repeated or before != after:
+            raise ValueError("shared-memory object changed during capture")
+        return contents, before
+    finally:
+        os.close(descriptor)
+
+
+def verify_captured_shared_memory(profile):
+    for entry in profile.get("read_only_shared_memory", []):
+        expected = base64.b64decode(entry["contents_base64"], validate=True)
+        if not 0 < len(expected) <= 65536 or hashlib.sha256(expected).hexdigest() != entry["sha256"]:
+            raise ValueError("invalid shared-memory snapshot identity")
+        contents, stat = read_shared_memory_snapshot(entry["name"])
+        if contents != expected or stat != entry["stat"]:
+            raise ValueError("captured shared-memory snapshot changed: " + entry["name"])
+
+
+
 def preserve_failure(result, destination, diagnostic):
     """A failed gate still retains its native observations and bounded diagnosis."""
     result["bringup_failure_diagnostic"] = diagnostic
@@ -117,6 +178,13 @@ def runtime_profile():
         source = ROOT / "scripts/macho-runtime.c"
         subprocess.run([compiler, "-isysroot", sdk, "-arch", "arm64", str(source), "-o", str(binary)], check=True, timeout=30)
         profile = json.loads(subprocess.check_output([str(binary)], env={}, timeout=5))
+        for entry in profile.get("read_only_shared_memory", []):
+            contents = bytes.fromhex(entry.pop("contents_hex"))
+            if not 0 < len(contents) <= 65536 or len(contents) != int(entry["stat"]["size"]):
+                raise ValueError("invalid captured shared-memory size")
+            entry["contents_base64"] = base64.b64encode(contents).decode("ascii")
+            entry["sha256"] = hashlib.sha256(contents).hexdigest()
+        verify_captured_shared_memory(profile)
         cache_parent=str(Path(profile["cache_dynamic"]["cache_path"]).parent)
         if not any(d["canonical_path"]==cache_parent for d in profile["directories"]):
             raise ValueError("captured directory does not match native shared-cache location")
@@ -137,6 +205,7 @@ def runtime_profile():
         profile["branch_target_mode"]=observed["mode"]
         verify_captured_stat_absences(profile)
         verify_captured_access_absences(profile)
+        verify_captured_shared_memory(profile)
         return profile, dict(source_sha256=digest(source), source_dependencies_sha256={"macho-stat.h":digest(ROOT/"scripts/macho-stat.h"),"macho_symbols.py":digest(ROOT/"scripts/macho_symbols.py")}, binary_sha256=digest(binary),
                              branch_target_probe=dict(source_sha256=digest(bti_source),binary_sha256=digest(bti_binary),dyld_sha256=before_dyld,observation=observed,
                                 protocol="generic-arm64 helper; UUID-matched dyld symbol; own child plain/mismatched landing and actual stack-probe entry/after-entry checks; no guarded-page enforcement claim"),
@@ -385,6 +454,7 @@ def main():
         if metadata["binary_sha256"] != build["binaries"][name + ".macho"] or metadata["dyld_sha256"] != initial_dyld:
             raise ValueError("captured startup metadata differs from frozen build/runtime")
     def verify_inputs():
+        verify_captured_shared_memory(profile)
         verify_captured_stat_absences(profile)
         verify_captured_access_absences(profile)
         if digest(options.dyld) != initial_dyld:

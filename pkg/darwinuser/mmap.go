@@ -47,6 +47,12 @@ func (f filePages) ReadAt(dst []byte, offset int64) (int, error) {
 func (k *kernelState) mmapFile(r *emu.Registers, m *usermem.AddressSpace) bool {
 	hint, length, offset := r.GPR[0], r.GPR[1], r.GPR[5]
 	prot, flags, fd := uint32(r.GPR[2]), uint32(r.GPR[3]), uint32(r.GPR[4])
+	if flags == 1 || flags == 0x40001 {
+		return k.mmapSharedMemory(r, m)
+	}
+	if descriptor, ok := k.descriptors[fd]; ok && descriptor.sharedMemory != nil {
+		return k.mmapSharedMemory(r, m)
+	}
 	finish := func(value uint64, failed bool) bool { r.GPR[0] = value; r.GPR[1] = 0; r.C = failed; return true }
 	if flags != 2 && flags != 0x40002 {
 		if flags == 0x40000 {

@@ -8,10 +8,11 @@ import (
 
 // Root is structural; descriptors never mount or expose the host filesystem.
 type guestDescriptor struct {
-	dtrace bool
-	file   *guestOpenFile
-	path   string
-	flags  uint32
+	sharedMemory *ReadOnlySharedMemory
+	dtrace       bool
+	file         *guestOpenFile
+	path         string
+	flags        uint32
 }
 
 const maxGuestDescriptors = 256
@@ -187,7 +188,7 @@ func (k *kernelState) directoryPath(m *usermem.AddressSpace, address uint64, dir
 			}
 			return "", 9, true
 		}
-		if directory.file != nil || directory.dtrace {
+		if directory.path == "" || directory.file != nil || directory.dtrace || directory.sharedMemory != nil {
 			return "", 0, false
 		}
 		if directory.path == "/" && (name == "." || name == "..") {
@@ -212,7 +213,7 @@ func (k *kernelState) fcntl(r *emu.Registers, m *usermem.AddressSpace) bool {
 	if !ok {
 		return finish(9)
 	}
-	if node.dtrace {
+	if node.path == "" || node.dtrace || node.sharedMemory != nil {
 		return false
 	}
 	if node.file != nil && (node.file.reader == nil || node.path == "") {

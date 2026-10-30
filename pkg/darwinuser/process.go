@@ -351,6 +351,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 		alignment = emu.AtomicWithin16Bytes
 	}
 	if o.RuntimeProfile != nil {
+		kernel.sharedMemory = copySharedMemory(o.RuntimeProfile.ReadOnlySharedMemory)
 		kernel.statENOENTPaths = append([]string(nil), o.RuntimeProfile.StatENOENTPaths...)
 		kernel.accessENOENTPaths = append([]string(nil), o.RuntimeProfile.AccessENOENTPaths...)
 		for _, name := range append(append([]string(nil), kernel.statENOENTPaths...), kernel.accessENOENTPaths...) {

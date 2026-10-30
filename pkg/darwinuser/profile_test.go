@@ -304,3 +304,83 @@ func TestCapturedHostPrioritiesAreBoundAndPrivate(t *testing.T) {
 		t.Fatal("unbound priorities")
 	}
 }
+
+func TestCPUCountsNativeCaptureAndReadOnlyMapping(t *testing.T) {
+	var native struct {
+		Clusters uint8
+		Samples  []struct {
+			ClustersBefore uint8 `json:"clusters_before"`
+			ClustersAfter  uint8 `json:"clusters_after"`
+			Counts         []struct {
+				Offset               uint64
+				Before, After, Value uint8
+				Result, Size         int
+				Sysctl               string
+			}
+		}
+	}
+	kernelNativeResult(t, "commpage-topology-probe.c", &native)
+	if len(native.Samples) != 3 {
+		t.Fatal(native)
+	}
+	names := []string{"hw.activecpu", "hw.physicalcpu_max", "hw.logicalcpu_max"}
+	for _, round := range native.Samples {
+		sample := round.Counts
+		if len(sample) != 3 || round.ClustersBefore != native.Clusters || round.ClustersAfter != native.Clusters {
+			t.Fatal(round)
+		}
+		counts := CPUCounts{sample[0].Value, sample[1].Value, sample[2].Value}
+		clusters := native.Clusters
+		profile := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3, CPUCounts: &counts, CPUClusters: &clusters}
+		m := &usermem.AddressSpace{}
+		if e := profile.validate(); e != nil {
+			t.Fatal(e)
+		}
+		if e := profile.mapCommpage(m); e != nil {
+			t.Fatal(e)
+		}
+		for i, c := range sample {
+			var b [1]byte
+			if c.Offset != uint64(0x34+i) || c.Sysctl != names[i] || c.Result != 0 || c.Size != 4 || c.Before != c.Value || c.After != c.Value {
+				t.Fatal(c)
+			}
+			if e := m.Read(0xfffffc000+c.Offset, b[:]); e != nil || b[0] != c.Value {
+				t.Fatal(c, e)
+			}
+			if m.Write(0xfffffc000+c.Offset, []byte{1}) == nil {
+				t.Fatal("writable topology")
+			}
+		}
+		counts.Physical = 1
+		clusters = 0
+		var b [1]byte
+		m.Read(0xfffffc035, b[:])
+		if b[0] != sample[1].Value {
+			t.Fatal("borrowed mutable counts")
+		}
+		if e := m.Read(0xfffffc02f, b[:]); e != nil || b[0] != native.Clusters {
+			t.Fatal("cluster byte missing/borrowed", e)
+		}
+		if m.Write(0xfffffc02f, []byte{1}) == nil {
+			t.Fatal("writable cluster count")
+		}
+		if m.Read(0xfffffc033, b[:]) == nil {
+			t.Fatal("unobserved adjacent field mapped")
+		}
+	}
+	profile := RuntimeProfile{Version: 3, UserPageShift: 14, CacheLineSize: 128, TimebaseNumer: 125, TimebaseDenom: 3}
+	m := &usermem.AddressSpace{}
+	if e := profile.mapCommpage(m); e != nil {
+		t.Fatal(e)
+	}
+	var b [1]byte
+	if m.Read(0xfffffc035, b[:]) == nil || m.Read(0xfffffc02f, b[:]) == nil {
+		t.Fatal("missing topology synthesized")
+	}
+	for _, counts := range []CPUCounts{{0, 1, 1}, {1, 0, 1}, {1, 1, 0}, {3, 1, 2}, {1, 3, 2}} {
+		profile.CPUCounts = &counts
+		if profile.validate() == nil {
+			t.Fatal("invalid topology accepted", counts)
+		}
+	}
+}

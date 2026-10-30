@@ -11,7 +11,10 @@ import (
 // native reference host. Unmodeled commpage fields remain unmapped, not guessed as zero.
 // Dynamic time offsets use a separate deterministic virtual epoch of zero.
 type RuntimeProfile struct {
-	HostPriorities []int32 `json:"host_priorities,omitempty"`
+	CPUClusters          *uint8                 `json:"cpu_clusters,omitempty"`
+	CPUCounts            *CPUCounts             `json:"cpu_counts,omitempty"`
+	ReadOnlySharedMemory []ReadOnlySharedMemory `json:"read_only_shared_memory,omitempty"`
+	HostPriorities       []int32                `json:"host_priorities,omitempty"`
 	// ThreadProtectionByte is the exact byte consumed by the matching native
 	// libdyld TPRO entry at commpage +0x10c, not a published XNU field layout.
 	ThreadProtectionByte *uint8               `json:"thread_protection_capability_byte,omitempty"`
@@ -44,12 +47,29 @@ type RuntimeProfile struct {
 	TimebaseDenom        uint32               `json:"timebase_denom"`
 }
 
+// CPUCounts are the published commpage active/physical/logical topology bytes.
+// They are captured launch state, not a simulated hotplug or scheduler service.
+type CPUCounts struct {
+	Active   uint8 `json:"active"`
+	Physical uint8 `json:"physical"`
+	Logical  uint8 `json:"logical"`
+}
+
 type PageShifts struct {
 	User   uint8 `json:"user"`
 	Kernel uint8 `json:"kernel"`
 }
 
 func (p RuntimeProfile) validate() error {
+	if c := p.CPUCounts; c != nil && (c.Active == 0 || c.Physical == 0 || c.Logical == 0 || c.Active > c.Logical || c.Physical > c.Logical) {
+		return fmt.Errorf("invalid captured CPU counts")
+	}
+	if len(p.ReadOnlySharedMemory) != 0 && p.NativeDyld == nil {
+		return fmt.Errorf("shared-memory snapshot requires native runtime identity")
+	}
+	if err := validateSharedMemory(p.ReadOnlySharedMemory); err != nil {
+		return err
+	}
 	if p.HostPriorities != nil && (len(p.HostPriorities) != 8 || p.NativeDyld == nil) {
 		return fmt.Errorf("host priorities require exactly8 captured values and native runtime identity")
 	}
@@ -78,6 +98,16 @@ func (p RuntimeProfile) validate() error {
 }
 
 func (p RuntimeProfile) mapCommpage(m *usermem.AddressSpace) error {
+	if p.CPUClusters != nil {
+		if err := m.Map(0xfffffc02f, 1, usermem.Read, []byte{*p.CPUClusters}); err != nil {
+			return err
+		}
+	}
+	if c := p.CPUCounts; c != nil {
+		if err := m.Map(0xfffffc034, 3, usermem.Read, []byte{c.Active, c.Physical, c.Logical}); err != nil {
+			return err
+		}
+	}
 	if p.ThreadProtectionByte != nil {
 		if err := m.Map(0xfffffc10c, 1, usermem.Read, []byte{*p.ThreadProtectionByte}); err != nil {
 			return err

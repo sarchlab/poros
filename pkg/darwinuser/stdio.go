@@ -75,7 +75,9 @@ func (k *kernelState) fstat(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return finish(9)
 	}
 	var stat *FileStat
-	if node.file != nil {
+	if node.sharedMemory != nil {
+		stat = &node.sharedMemory.Stat
+	} else if node.file != nil {
 		if node.file.reader == nil && len(node.file.data) != 0 {
 			return false
 		} // Post-write filesystem timestamps/blocks are not yet modeled.

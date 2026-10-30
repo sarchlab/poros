@@ -1,0 +1,5 @@
+#include <sys/sysctl.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <errno.h>
+int main(void){const char*names[]={"hw.activecpu","hw.physicalcpu_max","hw.logicalcpu_max"};printf("{\"clusters\":%u,\"samples\":[",*(volatile uint8_t*)(uintptr_t)0xfffffc02fULL);for(unsigned round=0;round<3;round++){unsigned cluster_before=*(volatile uint8_t*)(uintptr_t)0xfffffc02fULL;printf("%s{\"clusters_before\":%u,\"counts\":[",round?",":"",cluster_before);for(unsigned i=0;i<3;i++){uint8_t before=*(volatile uint8_t*)(uintptr_t)(0xfffffc034ULL+i);int v=0;size_t size=sizeof(v);errno=0;int r=sysctlbyname(names[i],&v,&size,NULL,0),saved=errno;uint8_t after=*(volatile uint8_t*)(uintptr_t)(0xfffffc034ULL+i);printf("%s{\"offset\":%u,\"sysctl\":\"%s\",\"before\":%u,\"after\":%u,\"value\":%d,\"result\":%d,\"errno\":%d,\"size\":%zu}",i?",":"",0x34+i,names[i],before,after,v,r,saved,size);if(r||size!=4||v!=before||before!=after||v<1)return 2;}unsigned cluster_after=*(volatile uint8_t*)(uintptr_t)0xfffffc02fULL;printf("],\"clusters_after\":%u}",cluster_after);if(cluster_before!=cluster_after)return 3;}printf("]}\n");return 0;}

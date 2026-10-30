@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <errno.h>
 #include <sys/sysctl.h>
 #include <mach-o/dyld_images.h>
@@ -194,6 +195,29 @@ static int print_access_enoent_paths(void){
  if(errno!=ENOENT){fprintf(stderr,"selected access observation failed: %d\n",errno);return 1;}
  printf("[\"%s\"]",name);return 0;
 }
+// This selected system object is immutable only for the captured launch window.
+// No creation, truncation, shared writes or daemon interaction is permitted.
+static int print_readonly_shared_memory(void) {
+ const char *name="com.apple.featureflags.shm";
+ int fd=shm_open(name,O_RDONLY,0);
+ if(fd<0){if(errno==ENOENT){printf("[]");return 0;}return 1;}
+ struct stat before={0},after={0};
+ if(fstat(fd,&before)||before.st_size<=0||before.st_size>65536){close(fd);return 2;}
+ size_t size=(size_t)before.st_size;
+ void *first=mmap(NULL,size,PROT_READ,MAP_SHARED,fd,0);
+ if(first==MAP_FAILED){close(fd);return 3;}
+ unsigned char bytes[65536],repeated[65536];
+ if(!read_self((uint64_t)(uintptr_t)first,bytes,size)){munmap(first,size);close(fd);return 4;}
+ if(munmap(first,size)){close(fd);return 4;}
+ void *second=mmap(NULL,size,PROT_READ,MAP_SHARED,fd,0);
+ if(second==MAP_FAILED){close(fd);return 5;}
+ int failed=!read_self((uint64_t)(uintptr_t)second,repeated,size)||memcmp(bytes,repeated,size)||fstat(fd,&after)||memcmp(&before,&after,sizeof(before));
+ if(munmap(second,size))failed=1;if(close(fd))failed=1;
+ if(failed)return 6;
+ printf("[{\"name\":\"%s\",\"stat\":",name);if(print_file_stat(&before))return 7;
+ printf(",\"contents_hex\":");hex(bytes,size);printf("}]");return 0;
+}
+
 int main(void) {
     host_priority_info_data_t priority={0};mach_msg_type_number_t priority_count=HOST_PRIORITY_INFO_COUNT;
     mach_port_t host=mach_host_self();kern_return_t priority_result=host_info(host,HOST_PRIORITY_INFO,(host_info_t)&priority,&priority_count);
@@ -218,6 +242,13 @@ int main(void) {
     // published XNU field. The collector binds it to native dyld/cache identity.
     printf("{\"host_priorities\":[");for(unsigned i=0;i<8;i++)printf("%s%d",i?",":"",((int*)&priority)[i]);
     printf("],\"thread_protection_capability_byte\":%u,\"dtrace_dof_enabled\":%u,",p[0x10c],p[0x92]);
+    uint8_t clusters=p[0x2f];
+    printf("\"cpu_clusters\":%u,",clusters);
+    if(p[0x2f]!=clusters)return 33;
+    uint8_t counts[3]={p[0x34],p[0x35],p[0x36]};
+    const char *count_names[]={"hw.activecpu","hw.physicalcpu_max","hw.logicalcpu_max"};
+    for(unsigned i=0;i<3;i++){uint32_t value=0;size_t size=sizeof(value);if(sysctlbyname(count_names[i],&value,&size,NULL,0)||size!=sizeof(value)||value!=counts[i]||value==0||p[0x34+i]!=counts[i])return 32;}
+    printf("\"cpu_counts\":{\"active\":%u,\"physical\":%u,\"logical\":%u},",counts[0],counts[1],counts[2]);
     uint32_t csr;
     int (*get_csr)(uint32_t *) = (int (*)(uint32_t *))dlsym(RTLD_DEFAULT, "csr_get_active_config");
     if (!get_csr || get_csr(&csr) != 0) return 2;
@@ -239,6 +270,7 @@ int main(void) {
     printf(",\"pointer_strip\":\"darwin-47-bit\",\"cache_dynamic\":");
     if(print_cache_dynamic()!=0)return 4;
     printf(",\"sysctl_names\":");if(print_sysctl_names()!=0)return 8;
+    printf(",\"read_only_shared_memory\":");if(print_readonly_shared_memory()!=0){fprintf(stderr,"readonly shared-memory capture failed\n");return 13;}
     printf(",\"directories\":");int directory_error=print_runtime_directories();if(directory_error){fprintf(stderr,"runtime directory capture failed at check %d\n",directory_error);return 9;}
     printf(",\"stat_enoent_paths\":");if(print_stat_enoent_paths()!=0)return 10;
  printf(",\"access_enoent_paths\":");if(print_access_enoent_paths()!=0)return 10;
