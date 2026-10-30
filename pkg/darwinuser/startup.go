@@ -20,18 +20,24 @@ type FileIdentity struct {
 // StartupProfile is specific to one executable and native boot. It captures
 // nonsecret kernel launch metadata before dyld consumes the apple vector.
 // Guest addresses, port names, and entropy remain explicitly virtual state.
+type SandboxSyscallPermission struct {
+	Number   uint32 `json:"number"`
+	Decision uint64 `json:"decision,string"`
+}
+
 type StartupProfile struct {
-	BinarySHA256        string       `json:"binary_sha256"`
-	DyldSHA256          string       `json:"dyld_sha256"`
-	ExecutableFile      FileIdentity `json:"executable_file"`
-	DyldFile            FileIdentity `json:"dyld_file"`
-	CDHash              string       `json:"cdhash"`
-	BootHash            string       `json:"boot_hash"`
-	PFZ                 uint64       `json:"pfz"`
-	StackSize           uint64       `json:"stack_size"`
-	StackAllocationSize uint64       `json:"stack_allocation_size"`
-	SecurityConfig      uint64       `json:"security_config"`
-	ARM64eABI           string       `json:"arm64e_abi,omitempty"`
+	SandboxSyscalls     []SandboxSyscallPermission `json:"sandbox_syscall_permissions,omitempty"`
+	BinarySHA256        string                     `json:"binary_sha256"`
+	DyldSHA256          string                     `json:"dyld_sha256"`
+	ExecutableFile      FileIdentity               `json:"executable_file"`
+	DyldFile            FileIdentity               `json:"dyld_file"`
+	CDHash              string                     `json:"cdhash"`
+	BootHash            string                     `json:"boot_hash"`
+	PFZ                 uint64                     `json:"pfz"`
+	StackSize           uint64                     `json:"stack_size"`
+	StackAllocationSize uint64                     `json:"stack_allocation_size"`
+	SecurityConfig      uint64                     `json:"security_config"`
+	ARM64eABI           string                     `json:"arm64e_abi,omitempty"`
 }
 
 const maxStackReservation = 128 << 20
@@ -50,6 +56,16 @@ func nextEntropyWord(state *uint64) uint64 {
 }
 
 func (s *StartupProfile) validate(image, dyld *loader.MachOImage) error {
+	if len(s.SandboxSyscalls) > 32 {
+		return fmt.Errorf("too many captured sandbox syscall rules")
+	}
+	seen := map[uint32]bool{}
+	for _, rule := range s.SandboxSyscalls {
+		if seen[rule.Number] || rule.Decision != 0 {
+			return fmt.Errorf("unsupported or duplicate sandbox syscall decision")
+		}
+		seen[rule.Number] = true
+	}
 	if s.BinarySHA256 != image.SHA256 || s.DyldSHA256 != dyld.SHA256 {
 		return fmt.Errorf("startup profile input hash mismatch")
 	}

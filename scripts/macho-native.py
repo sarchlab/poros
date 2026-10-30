@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import signal
 import subprocess
 import tempfile
 import time
@@ -58,9 +59,36 @@ def runtime_profile():
                              compiler=subprocess.check_output([compiler, "--version"], text=True).strip())
 
 
+def run_startup_helper(command, timeout=10):
+    # Own a new process group so a timed-out helper cannot leave its suspended
+    # child behind. Regular completion is reaped by the helper itself.
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        process = subprocess.Popen(command, env={}, stdout=out, stderr=err,
+                                   start_new_session=True)
+        try:
+            code = process.wait(timeout=timeout)
+            if code:
+                raise subprocess.CalledProcessError(code, command)
+            out.seek(0)
+            err.seek(0)
+            data, diagnostic = out.read(65537), err.read(65537)
+            if len(data) > 65536 or diagnostic:
+                raise ValueError("invalid startup helper output")
+            return data
+        finally:
+            # Even successful/malformed output must not leave descendants.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            finally:
+                process.wait()
+
+
+
 def capture_startup_profile(helper, binary, dyld, identity):
     before_binary, before_dyld = digest(binary), digest(dyld)
-    captured = json.loads(subprocess.check_output([str(helper), str(binary.resolve())], env={}, timeout=10))
+    captured = json.loads(run_startup_helper([str(helper), str(binary.resolve())]))
     fields = {item["key"]: item for item in captured["filtered_apple"]}
     if len(fields) != len(captured["filtered_apple"]) or "ptrauth_disabled" in fields:
         raise ValueError("unsupported duplicate or downgraded arm64e startup metadata")
@@ -68,6 +96,7 @@ def capture_startup_profile(helper, binary, dyld, identity):
     if stack["top_minus_allocation_base"] != stack["allocation_size"]:
         raise ValueError("unsupported native stack reservation geometry")
     profile = dict(binary_sha256=before_binary, dyld_sha256=before_dyld,
+                   sandbox_syscall_permissions=captured["sandbox_syscall_permissions"],
                    executable_file=identity(fields["executable_file"]["value"]),
                    dyld_file=identity(fields["dyld_file"]["value"]),
                    cdhash=fields["executable_cdhash"]["value"].lower(),

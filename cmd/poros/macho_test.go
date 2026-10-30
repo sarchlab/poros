@@ -8,6 +8,7 @@ import (
 	"github.com/sarchlab/poros/pkg/darwinuser"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -83,7 +84,7 @@ func TestMachOCLIUsesAndReportsBoundStartupProfile(t *testing.T) {
 	if e := json.Unmarshal(output.Bytes(), &report); e != nil {
 		t.Fatal(e, diagnostic.String())
 	}
-	if code != 1 || diagnostic.Len() != 0 || report.Startup != profile || report.Instructions != 6 {
+	if code != 1 || diagnostic.Len() != 0 || !reflect.DeepEqual(report.Startup, profile) || report.Instructions != 6 {
 		t.Fatal(code, report, diagnostic.String())
 	}
 	profile.BinarySHA256 = strings.Repeat("0", 64)

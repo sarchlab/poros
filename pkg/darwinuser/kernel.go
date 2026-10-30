@@ -11,6 +11,7 @@ import (
 // guest values, never host Mach rights. Reply ports receive distinct names.
 type kernelState struct {
 	files                                      []FileIdentity
+	sandboxSyscalls                            []SandboxSyscallPermission
 	reserved                                   []addressSpan
 	protected                                  []addressSpan
 	anonymous                                  []addressSpan
@@ -43,6 +44,8 @@ func (k *kernelState) trap(r *emu.Registers, m *usermem.AddressSpace) bool {
 		return true
 	}
 	switch number {
+	case 381:
+		return k.macSyscall(r, m)
 	case 427:
 		return k.fsgetpath(r, m)
 	case 73:

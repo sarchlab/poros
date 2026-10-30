@@ -263,6 +263,7 @@ func start(image, dyld *loader.MachOImage, o Options) (*Process, error) {
 	kernel := kernelState{entropyState: entropyState, reserved: append([]addressSpan(nil), reserved...), protected: []addressSpan{{commpageRegionStart, commpageRegionEnd}}}
 	if o.StartupProfile != nil {
 		kernel.files = []FileIdentity{o.StartupProfile.ExecutableFile, o.StartupProfile.DyldFile}
+		kernel.sandboxSyscalls = append([]SandboxSyscallPermission(nil), o.StartupProfile.SandboxSyscalls...)
 		kernel.threadSendRefs = 1 // XNU installs one pinned main-thread send reference.
 	}
 	if dyld.AllImageInfoAddress != 0 || dyld.AllImageInfoSize != 0 {

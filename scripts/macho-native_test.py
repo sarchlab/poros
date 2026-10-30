@@ -2,6 +2,12 @@
 """Portable provenance checks; native execution is not needed for mutation tests."""
 import importlib.util
 import json
+import os
+import platform
+import signal
+import subprocess
+import sys
+import time
 from pathlib import Path
 import tempfile
 import unittest
@@ -25,7 +31,7 @@ class StartupIdentityTests(unittest.TestCase):
         fields = [dict(key=k, value=v) for k, v in values.items()]
         fields.append(dict(key="main_stack", stack_size=0x7fc000,
                            allocation_size=64<<20, top_minus_allocation_base=64<<20))
-        self.output = json.dumps(dict(filtered_apple=fields)).encode()
+        self.output = json.dumps(dict(filtered_apple=fields, sandbox_syscall_permissions=[dict(number=550,decision="0")])).encode()
 
     def identity(self, value):
         return dict(fsid="1", object_id="2" if value == "exe" else "3",
@@ -35,7 +41,7 @@ class StartupIdentityTests(unittest.TestCase):
         return macho.capture_startup_profile("helper", self.program, self.dyld, identity or self.identity)
 
     def test_success_binds_before_capture_bytes(self):
-        with patch.object(macho.subprocess, "check_output", return_value=self.output):
+        with patch.object(macho, "run_startup_helper", return_value=self.output):
             result = self.capture()
         self.assertEqual(result["binary_sha256"], macho.digest(self.program))
         self.assertEqual(result["dyld_sha256"], macho.digest(self.dyld))
@@ -46,7 +52,7 @@ class StartupIdentityTests(unittest.TestCase):
                 def capture(*args, **kwargs):
                     target.write_bytes(target.read_bytes()+b"changed")
                     return self.output
-                with patch.object(macho.subprocess, "check_output", side_effect=capture):
+                with patch.object(macho, "run_startup_helper", side_effect=capture):
                     with self.assertRaisesRegex(ValueError, "changed during startup"):
                         self.capture()
 
@@ -55,7 +61,7 @@ class StartupIdentityTests(unittest.TestCase):
             if value == "dyld":
                 self.program.write_bytes(b"changed while resolving")
             return self.identity(value)
-        with patch.object(macho.subprocess, "check_output", return_value=self.output):
+        with patch.object(macho, "run_startup_helper", return_value=self.output):
             with self.assertRaisesRegex(ValueError, "changed during startup"):
                 self.capture(resolve)
 
@@ -67,9 +73,52 @@ class StartupIdentityTests(unittest.TestCase):
             if value == "exe":
                 identity["path"] = str(other)
             return identity
-        with patch.object(macho.subprocess, "check_output", return_value=self.output):
+        with patch.object(macho, "run_startup_helper", return_value=self.output):
             with self.assertRaisesRegex(ValueError, "changed during startup"):
                 self.capture(resolve)
+
+
+class StartupCleanupTests(unittest.TestCase):
+    def test_failed_helper_group_does_not_leave_suspended_child(self):
+        for mode in ("timeout", "error", "malformed"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                script, record = Path(directory) / "helper.py", Path(directory) / "child.pid"
+                script.write_text("""import os,signal,sys,time
+child=os.fork()
+if child==0:
+    os.kill(os.getpid(),signal.SIGSTOP)
+    os._exit(0)
+os.waitpid(child,os.WUNTRACED)
+with open(sys.argv[1],"w") as f:f.write(str(child))
+if sys.argv[2]=="error":os._exit(9)
+if sys.argv[2]=="malformed":
+    os.write(1,b"not JSON")
+    os._exit(0)
+time.sleep(30)
+""")
+                exception = {"timeout": subprocess.TimeoutExpired, "error": subprocess.CalledProcessError, "malformed": json.JSONDecodeError}[mode]
+                with self.assertRaises(exception):
+                    json.loads(macho.run_startup_helper([sys.executable, str(script), str(record), mode], timeout=1))
+                child = int(record.read_text())
+                deadline = time.monotonic()+3
+                while True:
+                    try:
+                        os.kill(child, 0)
+                    except ProcessLookupError:
+                        break
+                    # Linux container init may retain an already-dead zombie;
+                    # the requirement is no live or stopped owned child.
+                    if platform.system() == "Linux":
+                        try:
+                            state = Path(f"/proc/{child}/stat").read_text().rsplit(")", 1)[1].split()[0]
+                        except FileNotFoundError:
+                            break
+                        if state == "Z":
+                            break
+                    if time.monotonic() >= deadline:
+                        os.kill(child, signal.SIGKILL)
+                        self.fail("owned suspended child survived helper cleanup")
+                    time.sleep(0.02)
 
 
 if __name__ == "__main__":

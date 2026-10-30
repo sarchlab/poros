@@ -17,6 +17,21 @@ static const char *keys[] = {"pfz", "stack_guard", "malloc_entropy", "ptr_munge"
     "main_stack", "executable_file", "dyld_file", "executable_cdhash",
     "executable_boothash", "th_port", "security_config", "arm64e_abi",
     "ptrauth_disabled", "executable_path"};
+// Query only the owned suspended child's permission, before any dyld code runs.
+// This records that executable's policy rather than assuming the helper's.
+static int syscall_permission(pid_t child, uint64_t *decision) {
+    uint64_t output[4]={UINT64_MAX,UINT64_MAX,UINT64_MAX,UINT64_MAX};
+    uint64_t request[20]={0};
+    request[0]=(uintptr_t)output;request[1]=(uint64_t)child;
+    request[2]=(uintptr_t)"syscall-unix";request[3]=0x41;
+    request[4]=550;request[5]=1;
+    register uint64_t a __asm__("x0")=(uintptr_t)"Sandbox";
+    register uint64_t b __asm__("x1")=2,c __asm__("x2")=(uintptr_t)request;
+    register uint64_t number __asm__("x16")=381;uint64_t flags;
+    __asm__ volatile("svc #0x80\nmrs %2,nzcv":"+r"(a),"+r"(b),"=&r"(flags):"r"(c),"r"(number):"memory","cc");
+    if(a||b||(flags&(1ull<<29))||output[1]!=UINT64_MAX||output[2]!=UINT64_MAX||output[3]!=UINT64_MAX)return -1;
+    *decision=output[0];return 0;
+}
 static int reap(pid_t child) {
     if (kill(child, SIGKILL) != 0 && errno != ESRCH) return -1;
     int status; pid_t got;
@@ -35,7 +50,7 @@ static int hex_value(const char *s, uint64_t *value) {
     if (errno || *end) return -1;
     *value=(uint64_t)v; return 0;
 }
-static int emit(char *buffer, size_t size) {
+static int emit(char *buffer, size_t size, uint64_t decision) {
     if (size < 4) return -1;
     int argc; memcpy(&argc,buffer,4); if (argc != 2) return -1;
     size_t pos=4; char *s;
@@ -83,7 +98,7 @@ static int emit(char *buffer, size_t size) {
         else printf(",\"value\":\"%s\"",values[k]);
         printf("}");
     }
-    printf("]}\n"); return 0;
+    printf("],\"sandbox_syscall_permissions\":[{\"number\":550,\"decision\":\"%llu\"}]}\n",(unsigned long long)decision); return 0;
 }
 int main(int argc,char **argv) {
     if(argc!=2 || argv[1][0]!='/')return 2;
@@ -97,9 +112,11 @@ int main(int argc,char **argv) {
     if(error){free(buffer);fprintf(stderr,"startup capture spawn failed: %d\n",error);return 5;}
     int mib[]={CTL_KERN,KERN_PROCARGS2,child};size_t size=capacity;
     int result=sysctl(mib,3,buffer,&size,NULL,0);int saved=errno;
+    uint64_t decision=0;int policy=result?0:syscall_permission(child,&decision);
     if(reap(child)){free(buffer);fprintf(stderr,"startup capture could not reap its child\n");return 6;}
     if(result||size>capacity){free(buffer);fprintf(stderr,"startup capture query failed: %d\n",saved);return 7;}
-    result=emit(buffer,size);memset(buffer,0,capacity);free(buffer);
+    if(policy){memset(buffer,0,capacity);free(buffer);fprintf(stderr,"owned child syscall permission query failed\n");return 9;}
+    result=emit(buffer,size,decision);memset(buffer,0,capacity);free(buffer);
     if(result){fprintf(stderr,"unsupported or malformed kernel startup metadata\n");return 8;}
     return 0;
 }

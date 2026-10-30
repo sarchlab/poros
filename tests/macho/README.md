@@ -15,16 +15,19 @@ opaque to if-conversion. They emit no instructions; disassembly confirms an
 actual `tbz` of bit 16. The ordinary C `main` adapts argc/argv to `guest_main`.
 All initialization, arithmetic, output and exit remain native program work.
 
-Current simulator status: the loader maps the executable and explicitly
+The loader maps the executable and explicitly
 supplied dyld, creates the kernel-to-dyld argument stack and starts dyld.
-With captured native runtime and per-executable startup profiles and an explicit
-warm shared cache, the installed M2 runtime reaches BSD trap 381 (`__mac_syscall`,
+The retained 24-case checkpoint from `7556bc3`, using captured native runtime
+and per-executable startup profiles and an explicit warm shared cache, reaches BSD trap 381 (`__mac_syscall`,
 Sandbox query) after 1,471,645 user instructions for integer/1000. It has executed
 the real cached dyld, retired the original dyld mapping, managed reply rights,
 and reserved its released address range through a real `mach_msg2`/`mach_vm_map`
 request. The 24 retained cases reach 1,471,269–1,556,144 instructions at that same
 read-only syscall-permission query. They have not reached benchmark main.
-The query is not assumed allowed; absent policy support remains a failure.
+That snapshot predates the selected sandbox-query handler. Current single-case
+validation reaches BSD 202 (`__sysctl` NAME2OID for
+`security.mac.lockdown_mode_state`) after 1,472,048 instructions for integer/1000.
+The 24-case samples have not been relabeled as a run of this newer collector.
 
 `scripts/macho-startup.c` captures documented kernel apple metadata from each
 explicit executable as a newly spawned, suspended child, then kills/reaps that
@@ -134,3 +137,14 @@ zero comparisons, and 200 ORN vector cases, including aliases and preserved
 register/flag state. Timing dependency tests link the vector load to the GPR
 consumer. The accompanying ordinary-RegSP classifier fix and its complete
 88-case cycle-impact audit are documented in `pkg/cpu/testdata/README.md`.
+
+Selected Sandbox syscall decisions are now captured for each newly spawned,
+suspended benchmark's own PID before dyld runs; the native PID is not retained.
+The guest implements the observed read-only `syscall-unix` query from that
+explicit per-image profile. Twenty-one native raw-call cases verify full
+160-byte request copyin and an eight-byte result without overwriting its tail.
+Only independently observed zero decisions are supported; other decisions,
+unlisted syscalls, other policies/operations, and partial copyout faults remain
+explicitly unsupported. The collector launches its metadata helper in an owned
+process group, terminates that group and waits for the helper on every completion path, including
+timeout, error and malformed output, so suspended children cannot escape cleanup.

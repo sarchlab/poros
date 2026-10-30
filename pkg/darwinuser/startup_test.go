@@ -5,6 +5,7 @@ import (
 	"github.com/sarchlab/poros/internal/machotest"
 	"github.com/sarchlab/poros/pkg/loader"
 	"github.com/sarchlab/poros/pkg/usermem"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -102,7 +103,7 @@ func TestStartupProfileBoundaries(t *testing.T) {
 		t.Fatal(e)
 	}
 	var q StartupProfile
-	if e = json.Unmarshal(b, &q); e != nil || q != *p {
+	if e = json.Unmarshal(b, &q); e != nil || !reflect.DeepEqual(q, *p) {
 		t.Fatal("64-bit identity JSON did not roundtrip", e, string(b))
 	}
 }
@@ -132,5 +133,22 @@ func TestCommpageKernelReservationNativeContract(t *testing.T) {
 	}
 	if p.kernel.unmapRange(p.Memory, lo, lo+vmPage) {
 		t.Fatal("kernel submap unmap silently allowed")
+	}
+}
+
+func TestStartupSandboxPolicyIsBoundAndCopied(t *testing.T) {
+	profile := startupFixture(t)
+	profile.SandboxSyscalls = []SandboxSyscallPermission{{550, 0}}
+	p := process(t, Options{StartupProfile: profile})
+	profile.SandboxSyscalls[0].Number = 551
+	if p.kernel.sandboxSyscalls[0].Number != 550 {
+		t.Fatal("mutable captured policy borrowed")
+	}
+	for _, rules := range [][]SandboxSyscallPermission{{{550, 1}}, {{550, 0}, {550, 0}}, make([]SandboxSyscallPermission, 33)} {
+		profile := startupFixture(t)
+		profile.SandboxSyscalls = rules
+		if _, e := Parse(machotest.Image(2), machotest.Image(7), Options{StartupProfile: profile}); e == nil {
+			t.Fatal("unsupported policy profile accepted", rules)
+		}
 	}
 }
