@@ -42,6 +42,10 @@ time is nonpositive, the median is below 100 microseconds, or
 `(P90-P10)/median > 0.20` (the unchanged order-statistic definition). No sample is
 selected, retried, replaced by total CPU time, or selected by simulator error.
 
+The recorded final campaign has **247 qualified points and 17 noisy points**
+across all 44 workloads, with no nonpositive references. These are measurement
+quality results, not a claim of improved simulator accuracy.
+
 Only compact plotting data is committed: `performance-v1.json` contains each
 case's median, P10/P90, extrema, sample/nonpositive counts, quality, and complete
 native output SHA256/length, with exact collection/source/ELF identities. The
@@ -111,7 +115,8 @@ missing prepare/download artifacts produce an explicit failure report.
 A failed-jobs/aggregate-only retry can reuse an earlier prepare/shard artifact
 from the same run and identical plan. The newest attempt for each shard wins,
 including failures; whole-workflow reruns create a new plan. The required final
-job remains **User-time accuracy report**, and the publisher-facing artifact is
+leaf job is **User-time accuracy report**; GitHub displays it under the reusable
+caller as **Accuracy / User-time accuracy report**. The publisher-facing artifact is
 `user-time-accuracy-${run_attempt}`. Shards have read-only repository permissions.
 
 ## Publication and historical evidence

@@ -6,6 +6,8 @@ from pathlib import Path
 import tempfile
 import shutil
 import subprocess
+import io
+import tarfile
 import publish_accuracy as publisher
 import unittest
 
@@ -126,6 +128,20 @@ class CompactReferenceTests(unittest.TestCase):
                         publisher.verify_source(source,bundle,commit)
                 else:
                     publisher.verify_source(source,bundle,commit)
+
+    def test_historical_compute_packaging_selects_original_reference_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);source=root/"source";source.mkdir()
+            archive=subprocess.check_output(["git","-C",str(ROOT),"archive","ec5df8efdd80fd02a0db7bd80e9ae413c509852b"])
+            with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
+                tree.extractall(source,filter="data")
+            destination=root/"evidence"
+            paths=site.copy_compute_evidence(source,destination,compute.LEGACY_PROTOCOL)
+            self.assertEqual(set(paths),compute.evidence_paths(destination))
+            self.assertEqual((destination/"reference/reference.json").read_bytes(),(source/"evaluation/usertime/compute-linuxvm-v1/reference.json").read_bytes())
+            self.assertEqual(compute.validate_reference(destination/"reference",destination/"source")["protocol"],compute.LEGACY_PROTOCOL)
+            with self.assertRaisesRegex(ValueError,"unsupported"):
+                site.copy_compute_evidence(source,root/"unknown","unknown")
 
 
 if __name__ == "__main__":

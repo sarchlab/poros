@@ -421,6 +421,27 @@ def check_compute_source_identity(report, root, names):
             raise ValueError("compute retained file does not match tested commit: " + original)
 
 
+def copy_compute_evidence(source, destination, protocol):
+    """Choose historical evidence only from the report's explicit protocol."""
+    roots = {compute.LEGACY_PROTOCOL: "evaluation/usertime/compute-linuxvm-v1", compute.PROTOCOL: compute.REFERENCE}
+    if protocol not in roots:
+        raise ValueError("unsupported compute evidence protocol")
+    folder = source / roots[protocol]
+    measured = compute.validate_reference(folder, source)
+    if measured["protocol"] != protocol:
+        raise ValueError("report/evidence compute protocol mismatch")
+    paths = {"source/" + name: source / compute.relative(name) for name in compute.source_paths(source, protocol)}
+    for name in {"reference.json", "oracle.json", "validation-report.json", "validation-harness.py"} | {compute.output_name(row, protocol) for row in measured["cases"]}:
+        paths["reference/" + name] = folder / compute.relative(name)
+    for name, path in paths.items():
+        target = destination / compute.relative(name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(regular(path), target)
+    if set(paths) != compute.evidence_paths(destination):
+        raise ValueError("incomplete explicitly selected compute evidence")
+    return paths
+
+
 def bundle_expanded(report_path, source, output, commit):
     report = read(report_path)
     output.mkdir(parents=True, exist_ok=True)
@@ -442,7 +463,7 @@ def bundle_expanded(report_path, source, output, commit):
     old_manifest = read(output / "cohorts/original/bundle.json")
     names = {"report.json", "report.md", "cohorts/original/bundle.json"}
     names |= {"cohorts/original/" + name for name in old_manifest["files"]}
-    names |= {"cohorts/compute/" + name for name in compute.copy_evidence(source, output / "cohorts/compute")}
+    names |= {"cohorts/compute/" + name for name in copy_compute_evidence(source, output / "cohorts/compute", report["workload_manifest"]["compute"]["suite"])}
     check_compute_source_identity(report, output, names)
     write(output / "bundle.json", dict(schema=SCHEMA, commit=commit, run_id=os.environ.get("GITHUB_RUN_ID"),
                                         run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"), files={name: digest(nested_regular(output, name)) for name in sorted(names)}))
