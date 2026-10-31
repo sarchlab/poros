@@ -87,7 +87,7 @@ func TestCheckedRejectsUnsupportedOperandForms(t *testing.T) {
 	}{
 		{"scalar-simd-add", 0x5ee28420}, {"scalar-simd-sub", 0x7ee28420}, {"scalar-simd-neg", 0x7ee0b820},
 		{"svc-immediate", 0xd4000021}, {"simd", 0x4ea28420}, {"half-fp", 0x1ee22820}, {"paciasp-hint", 0xd503233f},
-		{"scvtf-vector-scalar", 0x5e61d800}, {"ucvtf-vector-scalar", 0x7e61d800}, {"fcvtzs-vector-scalar", 0x5ee1b800}, {"fcvtzu-vector-scalar", 0x7ee1b800},
+		{"fcvtzs-vector-scalar", 0x5ee1b800}, {"fcvtzu-vector-scalar", 0x7ee1b800},
 		{"scvtf-fixed", 0x9e42fc00}, {"ucvtf-fixed", 0x1e03fc00}, {"fcvtzs-fixed", 0x9e58fc00}, {"fcvtzu-fixed", 0x1e19fc00},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

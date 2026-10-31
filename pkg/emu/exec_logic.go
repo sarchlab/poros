@@ -38,6 +38,18 @@ func (e *executor) execANDS(inst arm64asm.Inst) error {
 }
 
 func (e *executor) execORR(inst arm64asm.Inst) error {
+	if dst, ok := inst.Args[0].(arm64asm.RegisterWithArrangement); ok {
+		if !checkedVectorBits(inst) {
+			return &UnsupportedInstructionError{Instruction: inst}
+		}
+		dr, _ := getRegWithArrangement(dst)
+		nr, _ := getRegWithArrangement(inst.Args[1].(arm64asm.RegisterWithArrangement))
+		mr, _ := getRegWithArrangement(inst.Args[2].(arm64asm.RegisterWithArrangement))
+		nl, nh := e.regs.ReadQ(vRegIndex(nr))
+		ml, mh := e.regs.ReadQ(vRegIndex(mr))
+		e.regs.WriteQ(vRegIndex(dr), nl|ml, nh|mh)
+		return nil
+	}
 	is32 := is32bit(inst.Args[0])
 	dst := inst.Args[0]
 	op1 := e.readOperandVal(inst.Args[1], is32)
@@ -282,7 +294,7 @@ func (e *executor) execCNEG(inst arm64asm.Inst) error {
 	cond := inst.Args[2].(arm64asm.Cond)
 	val := e.readOperandVal(inst.Args[1], is32)
 	var result uint64
-	if e.regs.EvalCond(cond) {
+	if !e.regs.EvalCond(cond) {
 		result = val
 	} else {
 		if is32 {
@@ -648,13 +660,11 @@ func (e *executor) execUBFIZ(inst arm64asm.Inst) error {
 }
 
 func (e *executor) execUBFX(inst arm64asm.Inst) error {
-	// UBFX is an alias of UBFM
-	return e.execUBFM(inst)
+	return e.execExtract(inst, false)
 }
 
 func (e *executor) execSBFX(inst arm64asm.Inst) error {
-	// SBFX is an alias of SBFM
-	return e.execSBFM(inst)
+	return e.execExtract(inst, true)
 }
 
 func (e *executor) execBFM(inst arm64asm.Inst) error {
@@ -743,5 +753,22 @@ func (e *executor) execADR(inst arm64asm.Inst) error {
 	offset := int64(inst.Args[1].(arm64asm.PCRel))
 	result := uint64(int64(e.regs.PC) + offset)
 	e.writeGPR(inst.Args[0], result)
+	return nil
+}
+
+// arm64asm exposes UBFX/SBFX operands as lsb,width, not UBFM immr,imms.
+func (e *executor) execExtract(inst arm64asm.Inst, signed bool) error {
+	is32 := is32bit(inst.Args[0])
+	src := e.readOperandVal(inst.Args[1], is32)
+	lsb, width := resolveImm(inst.Args[2]), resolveImm(inst.Args[3])
+	mask := (uint64(1) << width) - 1
+	value := (src >> lsb) & mask
+	if signed && value&(uint64(1)<<(width-1)) != 0 {
+		value |= ^mask
+	}
+	if is32 {
+		value = mask32(value)
+	}
+	e.writeGPR(inst.Args[0], value)
 	return nil
 }

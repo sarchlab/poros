@@ -439,7 +439,7 @@ func classifyUnit(op arm64asm.Op) unitType {
 		arm64asm.FMADD, arm64asm.FMSUB,
 		arm64asm.FNMUL, arm64asm.FNMADD,
 		arm64asm.FDIV, arm64asm.FSQRT,
-		arm64asm.FCMP, arm64asm.FMOV, arm64asm.FCSEL,
+		arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FMOV, arm64asm.FCSEL,
 		arm64asm.SCVTF, arm64asm.UCVTF,
 		arm64asm.FCVTZS, arm64asm.FCVTZU,
 		arm64asm.FNEG, arm64asm.FABS:

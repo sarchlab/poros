@@ -67,7 +67,7 @@ void compute_tet_forces(
 
         // Neo-Hookean: P = mu*(F - F^-T) + lambda*log(J)*F^-T
         // F^-T = (1/J) * cofactor(F)
-        double logJ = log(J);  // Needs log hook!
+        double logJ = log(J);  // Linked guest libm computes log.
 
         // Cofactor matrix (adjugate transpose)
         double c00 = f11*f22 - f12*f21;

@@ -45,6 +45,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execUMULH(inst)
 	case arm64asm.NEG:
 		return false, e.execNEG(inst)
+	case arm64asm.NEGS:
+		return false, e.execNEGS(inst)
 	case arm64asm.SDIV:
 		return false, e.execSDIV(inst)
 	case arm64asm.UDIV:
@@ -243,7 +245,7 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 	// FP move / convert / compare
 	case arm64asm.FMOV:
 		return false, e.execFMOV(inst)
-	case arm64asm.FCMP:
+	case arm64asm.FCMP, arm64asm.FCMPE:
 		return false, e.execFCMP(inst)
 	case arm64asm.FCCMP:
 		return false, e.execFCCMP(inst)

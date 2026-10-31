@@ -1,69 +1,11 @@
 # Poros
 
-Poros is a cycle-accurate, execution-driven Apple M2 CPU simulator built on the [Akita](https://github.com/sarchlab/akita) discrete-event simulation framework in Go. It models the M2's Avalanche (P-core) out-of-order superscalar pipeline with multi-core support. Its legacy kernel registry contains 40 workloads: 29 [PolyBench/C](https://web.cse.ohio-state.edu/~pouchet.2/software/polybench/) kernels and 11 [PARSEC](https://parsec.cs.princeton.edu/) workloads. MVT now runs as a complete Linux ELF program, alongside integer, memory and branch workloads in the [24-case user-time report](evaluation/usertime/README.md). Hardware accuracy remains unverified.
+Poros is an execution-driven AArch64 CPU simulator built on the [Akita](https://github.com/sarchlab/akita) discrete-event simulation framework in Go. It models an Apple M2-inspired in-order and Avalanche-style out-of-order pipeline, with independent multicore process experiments. All 41 existing compute kernels now run as complete Linux ELF programs, alongside integer, memory and branch microbenchmarks: **44 named workloads**. The PARSEC names denote simplified compute kernels, not full applications. Hardware accuracy remains unverified.
 
-## Historical accuracy results
-
-The following figures and tables describe the pre-migration 41-kernel suite, including embedded-function MVT. They are historical measurements, not results for the current ELF suite or evidence of validated hardware accuracy.
-
-- **Average error: 15.8%** (target: ≤20%)
-- **Maximum error: 42.5%** on `swaptions` (target: ≤50%)
-- All 41 historical benchmarks passed the then-used ≤50% error threshold
-
-Error is calculated as `|sim_time - native_time| / min(sim_time, native_time)`.
-
-### PolyBench/C Results
-
-| Benchmark | Error |
-|-----------|------:|
-| atax | 12.0% |
-| mvt | 6.5% |
-| gemm | 18.0% |
-| 2mm | 5.4% |
-| 3mm | 4.1% |
-| bicg | 8.0% |
-| gesummv | 3.4% |
-| gemver | 19.3% |
-| doitgen | 15.4% |
-| trisolv | 28.8% |
-| durbin | 24.5% |
-| jacobi1d | 26.7% |
-| syrk | 13.3% |
-| syr2k | 15.4% |
-| trmm | 1.9% |
-| symm | 2.0% |
-| cholesky | 3.0% |
-| lu | 2.2% |
-| floydwarshall | 1.6% |
-| covariance | 3.2% |
-| correlation | 2.9% |
-| gramschmidt | 2.0% |
-| ludcmp | 36.0% |
-| nussinov | 3.1% |
-| adi | 21.0% |
-| fdtd2d | 29.0% |
-| heat3d | 26.4% |
-| jacobi2d | 19.7% |
-| seidel2d | 26.5% |
-| deriche | 10.9% |
-
-### PARSEC Results (11 benchmarks)
-
-| Benchmark | Description | Error |
-|-----------|-------------|------:|
-| blackscholes | Option pricing via Black-Scholes PDE | 17.1% |
-| bodytrack | Particle filter body tracking (vision) | 20.4% |
-| canneal | Simulated annealing for chip routing | 7.6% |
-| facesim | FEM tetrahedron force computation | 38.6% |
-| ferret | k-NN similarity search | 24.0% |
-| fluidanimate | SPH fluid dynamics simulation | 39.3% |
-| raytrace | BVH ray-triangle intersection | 1.6% |
-| streamcluster | Online clustering of streaming data | 36.0% |
-| swaptions | Interest-rate derivative pricing (HJM) | 42.5% |
-| vips | 2D image convolution | 10.0% |
-| x264 | H.264 motion estimation (integer SAD/SATD) | 19.3% |
-
-**Skipped benchmarks:** `dedup` (pipeline parallelism incompatible with function-level emulation) and `freqmine` (pointer-chasing tree traversal not representable in flat-memory emulator).
+The [complete ELF workload contract](tests/benchmarks/README.md) defines inputs,
+outputs, provenance and correctness checks. The existing four-workload,
+24-case [user-time accuracy report](evaluation/usertime/README.md) remains a
+separate measurement contract; the new compute suite makes no timing-accuracy claim.
 
 ## Build and Run
 
@@ -81,7 +23,7 @@ go test ./... -timeout 45m # Run all tests (including long regressions)
 ### CLI Usage
 
 ```bash
-# List all 40 legacy kernels
+# List all 44 complete ELF workloads
 ./poros list
 
 # Run a single benchmark
@@ -174,7 +116,8 @@ pkg/cpu/ooo/     — OoO Akita v5 ticking component and branch predictor
 pkg/cpu/internal/inst/ — Shared instruction dependency and latency helpers
 pkg/emu/       — ARM64 functional emulator
 pkg/mem/       — Cache hierarchy (L1, shared L2, DRAM)
-pkg/benchmark/ — Benchmark definitions and kernel registry
+internal/benchmarks/ — ELF inventory, provenance and complete-output validation
+tests/benchmarks/ — Forty complete guest programs and six-point inputs
 pkg/loader/    — Mach-O extraction/disassembly and static AArch64 ELF image loading
 pkg/linuxuser/ — Checked static Linux AArch64 startup, execution and captured syscalls
 polybench/     — PolyBench/C benchmark suite and native timing data
@@ -188,7 +131,7 @@ cmd/disasm/    — ARM64 disassembler tool
 
 Poros pins **Akita v5.0.0** and requires **Go 1.27.0 or newer**. The migration
 preserves the M2 timing parameters, functional emulator, synchronous cache model,
-benchmark definitions, and stored native baselines. It does not introduce new CPU
+the existing pipeline semantics and stored native measurements. It does not introduce new CPU
 models, asynchronous memory, or CPU–GPU offload.
 
 The in-order, OoO, and demo components each use the v5
@@ -205,16 +148,18 @@ simulation := sim.MakeBuilder().Build()
 defer func() {
     if err := simulation.Terminate(); err != nil { panic(err) }
 }()
-b := benchmark.ByName("raytrace")
+image, err := os.ReadFile("tests/benchmarks/gemm.elf")
+if err != nil { panic(err) }
+p, err := linuxuser.Parse(image, linuxuser.Options{Args: []string{"gemm", "7", "9", "11"}})
+if err != nil { panic(err) }
+execution, err := p.NewExecution(context.Background(), linuxuser.RunOptions{})
+if err != nil { panic(err) }
+defer execution.Close()
 spec := ooo.DefaultSpec()
-spec.FuncHookCycles = cpu.HookCycleSpec(b.FuncHookCycles)
-em := b.Setup()
-em.Mem.TrackAccesses = true
 cache := mem.NewCache(mem.DefaultCacheConfig())
-benchmark.WarmCache(cache, b.Regions)
 core := modeling.MakeBuilder[*ooo.Comp](spec).
     WithSimulation(simulation).
-    WithResources(ooo.Resources{Emu: em, Cache: cache}).
+    WithResources(ooo.Resources{Execution: execution, Cache: cache}).
     Build("CPU")
 if err := simulation.Initialize(); err != nil { panic(err) }
 core.TickLater()
@@ -223,14 +168,14 @@ if err := simulation.Run(); err != nil { panic(err) }
 // A functional execution error is reported in core.State.Err (empty on success).
 ```
 
-The imports are `github.com/sarchlab/poros/pkg/benchmark`,
-`github.com/sarchlab/akita/v5/sim`, `.../sim/modeling`, and Poros's `pkg/cpu`,
-`pkg/cpu/ooo`, and `pkg/mem`. Set memory tracking and warm caches during setup.
-Initialize once after all components have been built. Multi-core assembly accepts
-the shared `*sim.Simulation` and enables memory-access tracking on each supplied
-emulator during setup. Call its `Initialize()` before `MultiCorePipeline.Run()`
-and `Terminate()` afterwards. All cores use the same default serial simulation,
-with the existing core registration order. Recording remains off by default.
+The imports are `context`, `os`, `github.com/sarchlab/poros/pkg/linuxuser`,
+`github.com/sarchlab/akita/v5/sim`, `.../sim/modeling`, and Poros's
+`pkg/cpu/ooo` and `pkg/mem`. Initialize once after all components have been built,
+and terminate afterwards. `elfsim.Run` owns this lifecycle for normal callers.
+Multicore assembly accepts distinct execution resources, private L1 caches and a
+modeled shared L2; process deadlines remain owned and closed by its caller.
+These are independent process copies, not Linux threads or validated physical
+address-space isolation. Recording remains off by default.
 
 Akita v5 schedules using integer picoseconds: at 3.49 GHz its period is truncated
 to **286 ps**. The CLI continues to report simulated seconds as `cycles / 3.49e9`,
@@ -243,14 +188,12 @@ supported by this migration:** functional emulator registers/memory/hooks and th
 synchronous cache hierarchy remain external live Resources and are not saved by
 component checkpoints. Restoring pipeline State alone cannot resume a workload.
 
-`go test ./... -timeout 45m` includes the long existing benchmark tests and the
-v4 regression fixture. `go test -short ./...` retains representative baseline and
-determinism checks while skipping the full sweep. `TestV4Baseline` compares every
-registered kernel on one and two cores against pre-migration instruction counts,
-cycle counts, register values, and benchmark data-region contents. See
-[pkg/cpu/testdata/README.md](pkg/cpu/testdata/README.md) for fixture provenance.
-All three component packages also check that Akita's static inspector agrees with
-the runtime component schema and defaults.
+`go test ./... -timeout 45m` requires all six new input points in all three
+execution modes. `go test -short ./...` covers every name at a nontrivial small
+point. Complete native/QEMU differential checks replace obsolete whole-kernel
+instruction-array goldens. Isolated ISA, cache, pipeline and Akita lifecycle tests
+remain, including branch-prediction variants and multicore termination. All three
+component packages check that Akita's static inspector agrees with runtime schemas.
 
 ## Evaluation and calibration
 

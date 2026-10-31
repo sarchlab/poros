@@ -124,6 +124,16 @@ func (e *executor) execFSQRT(inst arm64asm.Inst) error {
 }
 
 func (e *executor) execFNEG(inst arm64asm.Inst) error {
+	if dst, ok := inst.Args[0].(arm64asm.RegisterWithArrangement); ok {
+		if !checkedVectorBits(inst) {
+			return &UnsupportedInstructionError{Instruction: inst}
+		}
+		dr, _ := getRegWithArrangement(dst)
+		sr, _ := getRegWithArrangement(inst.Args[1].(arm64asm.RegisterWithArrangement))
+		lo, hi := e.regs.ReadQ(vRegIndex(sr))
+		e.regs.WriteQ(vRegIndex(dr), lo^(uint64(1)<<63), hi^(uint64(1)<<63))
+		return nil
+	}
 	if isFPDouble(inst.Args[0]) {
 		di := dRegIndex(inst.Args[0].(arm64asm.Reg))
 		val := e.regs.ReadD(dRegIndex(inst.Args[1].(arm64asm.Reg)))
@@ -316,24 +326,23 @@ func (e *executor) execFCSEL(inst arm64asm.Inst) error {
 func (e *executor) execSCVTF(inst arm64asm.Inst) error {
 	dst := inst.Args[0].(arm64asm.Reg)
 	src := inst.Args[1].(arm64asm.Reg)
-
-	dstDI := dRegIndex(dst)
-	dstSI := sRegIndex(dst)
-	srcXI := xRegIndex(src)
-	srcWI := wRegIndex(src)
-
-	if dstDI >= 0 {
-		if srcXI >= 0 {
-			e.regs.WriteD(dstDI, float64(int64(e.regs.ReadX(srcXI))))
-		} else if srcWI >= 0 {
-			e.regs.WriteD(dstDI, float64(int32(e.regs.ReadW(srcWI))))
-		}
-	} else if dstSI >= 0 {
-		if srcXI >= 0 {
-			e.regs.WriteS(dstSI, float32(int64(e.regs.ReadX(srcXI))))
-		} else if srcWI >= 0 {
-			e.regs.WriteS(dstSI, float32(int32(e.regs.ReadW(srcWI))))
-		}
+	var v int64
+	switch {
+	case xRegIndex(src) >= 0:
+		v = int64(e.regs.ReadX(xRegIndex(src)))
+	case wRegIndex(src) >= 0:
+		v = int64(int32(e.regs.ReadW(wRegIndex(src))))
+	case dRegIndex(src) >= 0:
+		v = int64(e.regs.ReadDRaw(dRegIndex(src)))
+	case sRegIndex(src) >= 0:
+		v = int64(int32(e.regs.ReadSRaw(sRegIndex(src))))
+	default:
+		return &UnsupportedInstructionError{Instruction: inst}
+	}
+	if dRegIndex(dst) >= 0 {
+		e.regs.WriteD(dRegIndex(dst), float64(v))
+	} else {
+		e.regs.WriteS(sRegIndex(dst), float32(v))
 	}
 	return nil
 }
@@ -341,24 +350,23 @@ func (e *executor) execSCVTF(inst arm64asm.Inst) error {
 func (e *executor) execUCVTF(inst arm64asm.Inst) error {
 	dst := inst.Args[0].(arm64asm.Reg)
 	src := inst.Args[1].(arm64asm.Reg)
-
-	dstDI := dRegIndex(dst)
-	dstSI := sRegIndex(dst)
-	srcXI := xRegIndex(src)
-	srcWI := wRegIndex(src)
-
-	if dstDI >= 0 {
-		if srcXI >= 0 {
-			e.regs.WriteD(dstDI, float64(e.regs.ReadX(srcXI)))
-		} else if srcWI >= 0 {
-			e.regs.WriteD(dstDI, float64(e.regs.ReadW(srcWI)))
-		}
-	} else if dstSI >= 0 {
-		if srcXI >= 0 {
-			e.regs.WriteS(dstSI, float32(e.regs.ReadX(srcXI)))
-		} else if srcWI >= 0 {
-			e.regs.WriteS(dstSI, float32(e.regs.ReadW(srcWI)))
-		}
+	var v uint64
+	switch {
+	case xRegIndex(src) >= 0:
+		v = e.regs.ReadX(xRegIndex(src))
+	case wRegIndex(src) >= 0:
+		v = uint64(e.regs.ReadW(wRegIndex(src)))
+	case dRegIndex(src) >= 0:
+		v = e.regs.ReadDRaw(dRegIndex(src))
+	case sRegIndex(src) >= 0:
+		v = uint64(e.regs.ReadSRaw(sRegIndex(src)))
+	default:
+		return &UnsupportedInstructionError{Instruction: inst}
+	}
+	if dRegIndex(dst) >= 0 {
+		e.regs.WriteD(dRegIndex(dst), float64(v))
+	} else {
+		e.regs.WriteS(sRegIndex(dst), float32(v))
 	}
 	return nil
 }

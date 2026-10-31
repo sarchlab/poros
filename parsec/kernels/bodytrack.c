@@ -13,7 +13,7 @@
 //   W5 = stateDim
 //   W6 = obsDim
 //
-// Note: calls exp() via BL - needs function hook in emulator.
+// exp() is linked into the freestanding ELF and executes in the guest.
 #include <math.h>
 
 void bodytrack_likelihood(
@@ -41,6 +41,6 @@ void bodytrack_likelihood(
 
         // Likelihood = exp(-0.5 * sum)
         double arg = -0.5 * sum;
-        likelihood[p] = exp(arg);  // This will generate BL _exp
+        likelihood[p] = exp(arg);  // Guest libm call.
     }
 }

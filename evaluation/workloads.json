@@ -1,54 +1,74 @@
 {
   "schema_version": 1,
   "split_version": "m0-v1",
-  "split_limitation": "Legacy kernels were previously used in development; validation-legacy is held out from future fitting only, not an independent historical validation set. Patched CNEG forms exist in legacy kernels. Unknown historical build details remain unknown.",
+  "split_limitation": "The forty migrated compute workloads validate ELF functionality, not performance accuracy. MVT and three microbenchmarks retain the separate frozen six-point user-time calibration/held-out contract. Planned workloads remain non-executable.",
   "workloads": [
     {
       "id": "atax",
-      "status": "legacy",
-      "role": "calibration",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/atax.c",
       "sizes": [
         {
-          "id": "legacy-default",
+          "id": "1",
+          "dimensions": {
+            "m": 1,
+            "n": 1
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "m": 7,
+            "n": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "m": 19,
+            "n": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "m": 39,
+            "n": 41
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "m": 97,
+            "n": 102
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
           "dimensions": {
             "m": 390,
             "n": 410
           },
-          "working_set_bytes": 1288880,
-          "status": "legacy",
-          "constraint": "Data arrays only, excludes code/stack. Fixed legacy registry layout; historical compiler provenance unknown."
-        },
-        {
-          "id": "planned-0",
-          "dimensions": {
-            "m": 8,
-            "n": 9
-          },
-          "working_set_bytes": 784,
-          "status": "planned",
-          "constraint": "Requires size-aware setup and independent reference before execution."
-        },
-        {
-          "id": "planned-1",
-          "dimensions": {
-            "m": 127,
-            "n": 129
-          },
-          "working_set_bytes": 134144,
-          "status": "planned",
-          "constraint": "Requires size-aware setup and independent reference before execution."
-        },
-        {
-          "id": "planned-2",
-          "dimensions": {
-            "m": 1536,
-            "n": 1537
-          },
-          "working_set_bytes": 18923536,
-          "status": "planned",
-          "constraint": "Requires size-aware setup and independent reference before execution."
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
@@ -117,662 +137,2668 @@
     },
     {
       "id": "gemm",
-      "status": "legacy",
-      "role": "calibration",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/gemm.c",
       "sizes": [
         {
-          "id": "legacy-default",
+          "id": "1",
+          "dimensions": {
+            "ni": 1,
+            "nj": 1,
+            "nk": 1
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "ni": 2,
+            "nj": 2,
+            "nk": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "ni": 3,
+            "nj": 3,
+            "nk": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "ni": 6,
+            "nj": 7,
+            "nk": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "ni": 15,
+            "nj": 17,
+            "nk": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
           "dimensions": {
             "ni": 60,
             "nj": 70,
             "nk": 80
           },
-          "working_set_bytes": 116800,
-          "status": "legacy",
-          "constraint": "Data arrays only, excludes code/stack. Fixed legacy registry layout; historical compiler provenance unknown."
-        },
-        {
-          "id": "planned-0",
-          "dimensions": {
-            "ni": 8,
-            "nj": 9,
-            "nk": 7
-          },
-          "working_set_bytes": 1528,
-          "status": "planned",
-          "constraint": "Requires size-aware setup and independent reference before execution."
-        },
-        {
-          "id": "planned-1",
-          "dimensions": {
-            "ni": 64,
-            "nj": 65,
-            "nk": 63
-          },
-          "working_set_bytes": 98296,
-          "status": "planned",
-          "constraint": "Requires size-aware setup and independent reference before execution."
-        },
-        {
-          "id": "planned-2",
-          "dimensions": {
-            "ni": 1024,
-            "nj": 1025,
-            "nk": 1023
-          },
-          "working_set_bytes": 25165816,
-          "status": "planned",
-          "constraint": "Requires size-aware setup and independent reference before execution."
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "2mm",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/2mm.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "ni": 1,
+            "nj": 1,
+            "nk": 1,
+            "nl": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "ni": 2,
+            "nj": 2,
+            "nk": 2,
+            "nl": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "ni": 2,
+            "nj": 2,
+            "nk": 3,
+            "nl": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "ni": 4,
+            "nj": 5,
+            "nk": 7,
+            "nl": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "ni": 10,
+            "nj": 12,
+            "nk": 17,
+            "nl": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "ni": 40,
+            "nj": 50,
+            "nk": 70,
+            "nl": 80
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "3mm",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/3mm.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "ni": 1,
+            "nj": 1,
+            "nk": 1,
+            "nl": 1,
+            "nm": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "ni": 2,
+            "nj": 2,
+            "nk": 2,
+            "nl": 2,
+            "nm": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "ni": 2,
+            "nj": 2,
+            "nk": 3,
+            "nl": 3,
+            "nm": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "ni": 4,
+            "nj": 5,
+            "nk": 6,
+            "nl": 7,
+            "nm": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "ni": 10,
+            "nj": 12,
+            "nk": 15,
+            "nl": 17,
+            "nm": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "ni": 40,
+            "nj": 50,
+            "nk": 60,
+            "nl": 70,
+            "nm": 80
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "bicg",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/bicg.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "m": 1,
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "m": 2,
+            "n": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "m": 5,
+            "n": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "m": 11,
+            "n": 12
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "m": 29,
+            "n": 31
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "m": 116,
+            "n": 124
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "gesummv",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/gesummv.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 5
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 12
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 25
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 62
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 250
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "gemver",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/gemver.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 12
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 30
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 120
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "doitgen",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/doitgen.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "nr": 1,
+            "nq": 1,
+            "np": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "nr": 2,
+            "nq": 2,
+            "np": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "nr": 3,
+            "nq": 3,
+            "np": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "nr": 2,
+            "nq": 2,
+            "np": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "nr": 6,
+            "nq": 5,
+            "np": 7
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "nr": 25,
+            "nq": 20,
+            "np": 30
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "trisolv",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/trisolv.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 40
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 100
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 400
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "durbin",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/durbin.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 40
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 100
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 400
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "jacobi1d",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/jacobi1d.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "tsteps": 1,
+            "n": 3
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "tsteps": 2,
+            "n": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "tsteps": 5,
+            "n": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "tsteps": 10,
+            "n": 40
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "tsteps": 25,
+            "n": 100
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "tsteps": 100,
+            "n": 400
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "syrk",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/syrk.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1,
+            "m": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 2,
+            "m": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 4,
+            "m": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 8,
+            "m": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 20,
+            "m": 15
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 80,
+            "m": 60
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "syr2k",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/syr2k.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1,
+            "m": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 2,
+            "m": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 4,
+            "m": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 8,
+            "m": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 20,
+            "m": 15
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 80,
+            "m": 60
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "trmm",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/trmm.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "m": 1,
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "m": 2,
+            "n": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "m": 3,
+            "n": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "m": 6,
+            "n": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "m": 15,
+            "n": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "m": 60,
+            "n": 80
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "symm",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/symm.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "m": 1,
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "m": 2,
+            "n": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "m": 3,
+            "n": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "m": 6,
+            "n": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "m": 15,
+            "n": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "m": 60,
+            "n": 80
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "cholesky",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/cholesky.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 12
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 30
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 120
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "lu",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/lu.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 12
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 30
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 120
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "floydwarshall",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/floydwarshall.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 9
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 18
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 45
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 180
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "covariance",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/covariance.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "m": 1,
+            "n": 2
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "m": 2,
+            "n": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "m": 4,
+            "n": 5
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "m": 8,
+            "n": 10
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "m": 20,
+            "n": 25
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "m": 80,
+            "n": 100
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "correlation",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/correlation.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "m": 1,
+            "n": 2
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "m": 2,
+            "n": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "m": 4,
+            "n": 5
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "m": 8,
+            "n": 10
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "m": 20,
+            "n": 25
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "m": 80,
+            "n": 100
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "gramschmidt",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/gramschmidt.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "m": 2,
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "m": 3,
+            "n": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "m": 7,
+            "n": 5
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "m": 15,
+            "n": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "m": 31,
+            "n": 17
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "m": 60,
+            "n": 60
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "ludcmp",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/ludcmp.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 12
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 30
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 120
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "nussinov",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/nussinov.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 9
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 18
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 45
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 180
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "adi",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/adi.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "tsteps": 1,
+            "n": 3
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "tsteps": 2,
+            "n": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "tsteps": 2,
+            "n": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "tsteps": 4,
+            "n": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "tsteps": 10,
+            "n": 15
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "tsteps": 40,
+            "n": 60
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "fdtd2d",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/fdtd2d.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "tmax": 1,
+            "nx": 1,
+            "ny": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "tmax": 2,
+            "nx": 2,
+            "ny": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "tmax": 2,
+            "nx": 3,
+            "ny": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "tmax": 4,
+            "nx": 6,
+            "ny": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "tmax": 10,
+            "nx": 15,
+            "ny": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "tmax": 40,
+            "nx": 60,
+            "ny": 80
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "heat3d",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/heat3d.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "tsteps": 1,
+            "n": 3
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "tsteps": 2,
+            "n": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "tsteps": 2,
+            "n": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "tsteps": 4,
+            "n": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "tsteps": 10,
+            "n": 5
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "tsteps": 40,
+            "n": 20
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "jacobi2d",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/jacobi2d.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "tsteps": 1,
+            "n": 3
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "tsteps": 2,
+            "n": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "tsteps": 4,
+            "n": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "tsteps": 4,
+            "n": 9
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "tsteps": 10,
+            "n": 22
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "tsteps": 40,
+            "n": 90
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "seidel2d",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/seidel2d.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "tsteps": 1,
+            "n": 3
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "tsteps": 2,
+            "n": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "tsteps": 2,
+            "n": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "tsteps": 4,
+            "n": 12
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "tsteps": 10,
+            "n": 30
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "tsteps": 40,
+            "n": 120
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "deriche",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/deriche.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "w": 1,
+            "h": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "w": 3,
+            "h": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "w": 9,
+            "h": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "w": 19,
+            "h": 12
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "w": 48,
+            "h": 32
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "w": 192,
+            "h": 128
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "swaptions",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/swaptions.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 5
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 12
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 50
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "blackscholes",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/blackscholes.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 7
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 16
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 63
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 256
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 1024
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "streamcluster",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/streamcluster.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1,
+            "dim": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 10,
+            "dim": 1
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 25,
+            "dim": 1
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 51,
+            "dim": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 128,
+            "dim": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 512,
+            "dim": 32
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "canneal",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/canneal.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1,
+            "m": 2
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 163,
+            "m": 10
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 409,
+            "m": 25
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 819,
+            "m": 51
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 2048,
+            "m": 128
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 8192,
+            "m": 512
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "fluidanimate",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/fluidanimate.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 7
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 13
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 16
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "raytrace",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/raytrace.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "nrays": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "nrays": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "nrays": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "nrays": 7
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "nrays": 15
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "nrays": 32
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "vips",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/vips.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "w": 3,
+            "h": 3
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "w": 4,
+            "h": 5
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "w": 7,
+            "h": 9
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "w": 15,
+            "h": 16
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "w": 31,
+            "h": 33
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "w": 64,
+            "h": 64
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "bodytrack",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/bodytrack.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "n": 1,
+            "state_dim": 1,
+            "obs_dim": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "n": 2,
+            "state_dim": 3,
+            "obs_dim": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "n": 7,
+            "state_dim": 6,
+            "obs_dim": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "n": 15,
+            "state_dim": 4,
+            "obs_dim": 5
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "n": 31,
+            "state_dim": 6,
+            "obs_dim": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "n": 64,
+            "state_dim": 6,
+            "obs_dim": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "facesim",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/facesim.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "ntets": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "ntets": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "ntets": 7
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "ntets": 15
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "ntets": 23
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "ntets": 32
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "ferret",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/ferret.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "nq": 1,
+            "nd": 1,
+            "dim": 1,
+            "k": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "nq": 2,
+            "nd": 5,
+            "dim": 3,
+            "k": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "nq": 3,
+            "nd": 7,
+            "dim": 5,
+            "k": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "nq": 7,
+            "nd": 31,
+            "dim": 8,
+            "k": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "nq": 11,
+            "nd": 63,
+            "dim": 13,
+            "k": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "nq": 16,
+            "nd": 128,
+            "dim": 16,
+            "k": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },
     {
       "id": "x264",
-      "status": "legacy",
-      "role": "validation-legacy",
-      "execution": "embedded-function",
-      "source": "pkg/benchmark/registry.go",
+      "status": "elf",
+      "role": "validation",
+      "execution": "linux-elf-user",
+      "source": "tests/benchmarks/x264.c",
       "sizes": [
         {
-          "id": "legacy-default",
-          "dimensions": {},
+          "id": "1",
+          "dimensions": {
+            "range": 1
+          },
           "working_set_bytes": null,
-          "status": "legacy",
-          "constraint": "Fixed registry configuration; dimensions and binary provenance are not independently reconstructed."
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "2",
+          "dimensions": {
+            "range": 2
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "3",
+          "dimensions": {
+            "range": 3
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "4",
+          "dimensions": {
+            "range": 4
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "5",
+          "dimensions": {
+            "range": 6
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
+        },
+        {
+          "id": "6",
+          "dimensions": {
+            "range": 8
+          },
+          "working_set_bytes": null,
+          "status": "elf",
+          "constraint": "Bounded complete guest execution; static capacity is not a measured active working set. See tests/benchmarks/manifest.json for input bounds."
         }
       ]
     },

@@ -6,7 +6,7 @@ import (
 
 	"github.com/sarchlab/akita/v5/sim"
 	"github.com/sarchlab/akita/v5/sim/timing"
-	"github.com/sarchlab/poros/pkg/benchmark"
+
 	"github.com/sarchlab/poros/pkg/emu"
 )
 
@@ -104,102 +104,4 @@ func TestMultiCore_Basic(t *testing.T) {
 		mc.Cores[0].State.InstDone, mc.Cores[0].State.Cycles,
 		mc.Cores[1].State.InstDone, mc.Cores[1].State.Cycles,
 		mc.TotalCycles, mc.TotalInstructions)
-}
-
-// runMultiCoreParsec runs a PARSEC benchmark on nCores cores in parallel,
-// each core running an independent Setup() instance. Returns the
-// MultiCorePipeline for inspection.
-func runMultiCoreParsec(t *testing.T, name string, nCores int) *MultiCorePipeline {
-	t.Helper()
-	b := benchmark.ByName(name)
-	if b == nil {
-		t.Fatalf("benchmark %q not found", name)
-	}
-
-	configs := make([]CoreConfig, nCores)
-	for i := 0; i < nCores; i++ {
-		configs[i] = CoreConfig{
-			Emulator:       b.Setup(),
-			FuncHookCycles: b.FuncHookCycles,
-		}
-	}
-
-	simulation := sim.MakeBuilder().Build()
-	mc := NewMultiCorePipeline("Poros", simulation, 3490*timing.MHz, configs)
-
-	// Warm caches for each core.
-	for _, core := range mc.Cores {
-		benchmark.WarmCache(core.Resources.Cache, b.Regions)
-	}
-
-	if err := simulation.Initialize(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := simulation.Terminate(); err != nil {
-			t.Error(err)
-		}
-	}()
-
-	err := mc.Run()
-	if err != nil {
-		t.Fatalf("%s multi-core Run() error: %v", name, err)
-	}
-
-	// Verify all cores halted.
-	for i, core := range mc.Cores {
-		if !core.Resources.Emu.Halted {
-			t.Errorf("%s core %d did not halt", name, i)
-		}
-		if core.State.Err != "" {
-			t.Errorf("%s core %d error: %v", name, i, core.State.Err)
-		}
-	}
-
-	t.Logf("%s %d-core: %d total insts, %d max cycles (per-core: %d, %d, %d, %d)",
-		name, nCores, mc.TotalInstructions, mc.TotalCycles,
-		mc.Cores[0].State.Cycles, mc.Cores[1].State.Cycles,
-		mc.Cores[2].State.Cycles, mc.Cores[3].State.Cycles)
-
-	return mc
-}
-
-func TestMultiCore_Blackscholes_4(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping multi-core test in short mode")
-	}
-	mc := runMultiCoreParsec(t, "blackscholes", 4)
-	if mc.TotalCycles == 0 {
-		t.Error("TotalCycles should be > 0")
-	}
-}
-
-func TestMultiCore_Swaptions_4(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping multi-core test in short mode")
-	}
-	mc := runMultiCoreParsec(t, "swaptions", 4)
-	if mc.TotalCycles == 0 {
-		t.Error("TotalCycles should be > 0")
-	}
-}
-
-func TestMultiCore_Streamcluster_4(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping multi-core test in short mode")
-	}
-	mc := runMultiCoreParsec(t, "streamcluster", 4)
-	if mc.TotalCycles == 0 {
-		t.Error("TotalCycles should be > 0")
-	}
-}
-
-func TestMultiCore_Canneal_4(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping multi-core test in short mode")
-	}
-	mc := runMultiCoreParsec(t, "canneal", 4)
-	if mc.TotalCycles == 0 {
-		t.Error("TotalCycles should be > 0")
-	}
 }

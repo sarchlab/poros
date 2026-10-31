@@ -83,23 +83,22 @@ func logFor(t *testing.T, root string, required map[string]bool, omit string, ac
 		if id == omit {
 			continue
 		}
-		enc.Encode(map[string]string{"Action": action, "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": id})
+		enc.Encode(map[string]string{"Action": action, "Package": "github.com/sarchlab/poros/pkg/elfsim", "Test": id})
 	}
-	enc.Encode(map[string]string{"Action": "pass", "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": "TestRegistryFacesimNumericalReference"})
 	return b.Bytes()
 }
 func TestRegressionCoverage(t *testing.T) {
 	root := repo(t)
 	req, e := RequiredCases(root, "full")
-	if e != nil || len(req) != 88 {
+	if e != nil || len(req) != 770 {
 		t.Fatalf("%d %v", len(req), e)
 	}
 	good := logFor(t, root, req, "", "pass")
 	r, e := Regression(root, "full", "test", bytes.NewReader(good))
-	if e != nil || r.Status != "pass" || len(r.Cases) != 88 || len(r.Planned) != 6 {
+	if e != nil || r.Status != "pass" || len(r.Cases) != 770 || len(r.Planned) != 6 {
 		t.Fatalf("%+v %v", r, e)
 	}
-	for _, bad := range [][]byte{logFor(t, root, req, "TestV4Baseline/atax/1", "pass"), logFor(t, root, req, "", "skip"), logFor(t, root, req, "", "fail"), good[:len(good)/2], nil} {
+	for _, bad := range [][]byte{logFor(t, root, req, "TestBenchmarkELF/atax/1/functional", "pass"), logFor(t, root, req, "", "skip"), logFor(t, root, req, "", "fail"), good[:len(good)/2], nil} {
 		if _, e := Regression(root, "full", "test", bytes.NewReader(bad)); e == nil {
 			t.Fatal("accepted incomplete/failed report")
 		}
@@ -108,84 +107,29 @@ func TestRegressionCoverage(t *testing.T) {
 		t.Fatal("accepted invalid JSON")
 	}
 }
-func TestPortableHookRequiresNumericalReference(t *testing.T) {
-	root := repo(t)
-	req, err := RequiredCases(root, "full")
-	if err != nil {
-		t.Fatal(err)
-	}
-	good := logFor(t, root, req, "", "pass")
-	for _, workload := range []string{"blackscholes", "bodytrack"} {
-		for _, action := range []string{"missing", "skip", "fail", "pass"} {
-			t.Run(workload+"/"+action, func(t *testing.T) {
-				var log bytes.Buffer
-				log.Write(good)
-				enc := json.NewEncoder(&log)
-				enc.Encode(map[string]string{"Action": "output", "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": "TestV4Baseline/" + workload + "/1", "Output": "nonportable host-math hook reference:"})
-				if action != "missing" {
-					enc.Encode(map[string]string{"Action": action, "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": map[string]string{"blackscholes": "TestRegistryBlackScholesNumericalReference", "bodytrack": "TestRegistryBodytrackNumericalReference"}[workload]})
-				}
-				report, err := Regression(root, "full", "test", &log)
-				if (err == nil) != (action == "pass") {
-					t.Fatalf("status %s: %v", action, err)
-				}
-				if len(report.Cases) != 88 || len(report.IndependentChecks) != 2 || report.IndependentChecks[0].Status != action {
-					t.Fatalf("incorrect coverage: %+v", report)
-				}
-			})
-		}
-	}
-}
-
-func TestFacesimReferenceRequired(t *testing.T) {
+func TestGuestMathReferenceRequired(t *testing.T) {
 	root := repo(t)
 	for _, tier := range []string{"short", "full"} {
 		req, err := RequiredCases(root, tier)
 		if err != nil {
 			t.Fatal(err)
 		}
-		good := logFor(t, root, req, "", "pass")
-		lines := bytes.Split(good, []byte("\n"))
-		var without bytes.Buffer
-		for _, line := range lines {
-			if len(line) > 0 && !bytes.Contains(line, []byte("TestRegistryFacesimNumericalReference")) {
-				without.Write(line)
-				without.WriteByte('\n')
+		for _, action := range []string{"missing", "skip", "fail", "pass"} {
+			var log bytes.Buffer
+			log.Write(logFor(t, root, req, "TestGuestMath/functional", "pass"))
+			if action != "missing" {
+				json.NewEncoder(&log).Encode(map[string]string{"Action": action, "Package": "github.com/sarchlab/poros/pkg/elfsim", "Test": "TestGuestMath/functional"})
+			}
+			_, err := Regression(root, tier, "test", &log)
+			if (err == nil) != (action == "pass") {
+				t.Fatalf("%s/%s: %v", tier, action, err)
 			}
 		}
-		for _, action := range []string{"missing", "skip", "fail", "pass"} {
-			t.Run(tier+"/"+action, func(t *testing.T) {
-				var log bytes.Buffer
-				log.Write(without.Bytes())
-				if action != "missing" {
-					json.NewEncoder(&log).Encode(map[string]string{"Action": action, "Package": "github.com/sarchlab/poros/pkg/cpu", "Test": "TestRegistryFacesimNumericalReference"})
-				}
-				_, err := Regression(root, tier, "test", &log)
-				if (err == nil) != (action == "pass") {
-					t.Fatalf("action%s error%v", action, err)
-				}
-			})
-		}
 	}
 }
-
 func TestMissingFixture(t *testing.T) {
-	if _, e := RequiredCases(t.TempDir(), "full"); e == nil {
-		t.Fatal("accepted missing fixture")
-	}
-}
-func TestFixtureIdentity(t *testing.T) {
-	root := repo(t)
-	for path, want := range map[string]string{
-		"akita-v4-baseline.jsonl": "4e7f6639bade643ca713b37378b14d67345b31377f41a10fd1f1b6b5790c077f", "pipeline-v4-baseline.jsonl": "2834a614b5147b0500cb000e7437e879e594af59339a8ee487bda13476d9820a",
-	} {
-		b, e := os.ReadFile(filepath.Join(root, "pkg/cpu/testdata", path))
-		if e != nil {
-			t.Fatal(e)
-		}
-		if hash(b) != want {
-			t.Fatalf("fixture changed: %s; investigate, do not regenerate", path)
-		}
+	if _, err := RequiredCases(t.TempDir(), "full"); err == nil {
+		t.Fatal("accepted missing ELF inventory")
 	}
 }
 

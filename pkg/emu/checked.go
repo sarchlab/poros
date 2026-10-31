@@ -79,7 +79,13 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 	// Reject these before handlers that assume scalar register forms.
 	for _, arg := range inst.Args {
 		switch a := arg.(type) {
-		case arm64asm.RegisterWithArrangement, arm64asm.RegisterWithArrangementAndIndex:
+		case arm64asm.RegisterWithArrangement:
+			// Narrow bitwise forms emitted by scalar GCC code, not general SIMD.
+			if checkedVectorBits(inst) {
+				continue
+			}
+			return fail("unsupported_instruction", fmt.Errorf("SIMD operand in %s", inst))
+		case arm64asm.RegisterWithArrangementAndIndex:
 			return fail("unsupported_instruction", fmt.Errorf("SIMD operand in %s", inst))
 		case arm64asm.Reg:
 			if a >= arm64asm.B0 && !checkedFPRegisterSupported(inst.Op, a) {
@@ -91,8 +97,8 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 		return fail("unsupported_instruction", fmt.Errorf("unsupported hint: %s", inst))
 	}
 	// Scalar FP/integer conversions also have AdvSIMD scalar-register and
-	// fixed-point encodings. The legacy handlers only implement unscaled GPR
-	// <-> S/D forms; reject other forms instead of their silent fallthrough.
+	// fixed-point encodings. Support unscaled GPR <-> S/D and same-width
+	// scalar integer-bit S/D -> S/D forms; reject scaled/other arrangements.
 	switch inst.Op {
 	case arm64asm.SCVTF, arm64asm.UCVTF, arm64asm.FCVTZS, arm64asm.FCVTZU:
 		dst, dok := inst.Args[0].(arm64asm.Reg)
@@ -101,7 +107,8 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 		isFP := func(r arm64asm.Reg) bool { return dRegIndex(r) >= 0 || sRegIndex(r) >= 0 }
 		valid := dok && sok && inst.Args[2] == nil
 		if inst.Op == arm64asm.SCVTF || inst.Op == arm64asm.UCVTF {
-			valid = valid && isFP(dst) && isInt(src)
+			sameScalar := (dRegIndex(dst) >= 0 && dRegIndex(src) >= 0) || (sRegIndex(dst) >= 0 && sRegIndex(src) >= 0)
+			valid = valid && isFP(dst) && (isInt(src) || sameScalar)
 		} else {
 			valid = valid && isInt(dst) && isFP(src)
 		}
@@ -141,11 +148,23 @@ func checkedFPRegisterSupported(op arm64asm.Op, r arm64asm.Reg) bool {
 	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FMUL, arm64asm.FDIV,
 		arm64asm.FMADD, arm64asm.FMSUB, arm64asm.FSQRT, arm64asm.FNEG,
 		arm64asm.FABS, arm64asm.FNMUL, arm64asm.FNMADD, arm64asm.MOVI,
-		arm64asm.FMOV, arm64asm.FCMP, arm64asm.FCCMP, arm64asm.FMAXNM,
+		arm64asm.FMOV, arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCCMP, arm64asm.FMAXNM,
 		arm64asm.FMINNM, arm64asm.FCSEL, arm64asm.SCVTF, arm64asm.UCVTF,
 		arm64asm.FCVT, arm64asm.FCVTZS, arm64asm.FCVTZU:
 		return sRegIndex(r) >= 0 || dRegIndex(r) >= 0
 	default:
 		return false
 	}
+}
+
+func checkedVectorBits(inst arm64asm.Inst) bool {
+	switch inst.Op {
+	case arm64asm.MOVI:
+		return inst.Enc&0xffffffe0 == 0x4f000400 // Vd.4S, #0
+	case arm64asm.FNEG:
+		return inst.Enc&0xfffffc00 == 0x6ee0f800 // Vd.2D, Vn.2D
+	case arm64asm.ORR:
+		return inst.Enc&0xffe0fc00 == 0x4ea01c00 // Vd.16B, Vn.16B, Vm.16B
+	}
+	return false
 }
