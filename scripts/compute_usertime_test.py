@@ -363,7 +363,7 @@ class ComputeTimeTests(unittest.TestCase):
     def test_public_destination_never_leaves_partial_pass(self):
         output = self.directory / "partial.json"
         args = SimpleNamespace(output=str(output), compute_reference=str(self.folder))
-        def partial(old_args):
+        def partial(old_args, executor=None):
             compute.write(old_args.output, self.report["original_report"])
             return 0
         with patch.object(gate, "compare24", side_effect=partial), patch.object(compute, "extend_report", side_effect=RuntimeError("interruption")):

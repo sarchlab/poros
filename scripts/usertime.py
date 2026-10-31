@@ -62,6 +62,11 @@ def execute(poros, case, mode=None, expected_output=None):
             + p.stderr.decode(errors="replace")
         )
     r = json.loads(p.stdout)
+    return validate_execution(r, case, mode, expected_output)
+
+
+def validate_execution(r, case, mode=None, expected_output=None):
+    """Apply identical checks to live and recorded simulator executions."""
     if (
         r["binary_sha256"] != case["sha256"]
         or r["args"] != case["args"]
@@ -70,6 +75,8 @@ def execute(poros, case, mode=None, expected_output=None):
         raise ValueError("executed input provenance mismatch")
     if r["termination"] != "exit" or r["exit_status"] != 0 or r["stderr_base64"]:
         raise ValueError("timing correctness failed: " + case["id"])
+    if type(r["instructions"]) is not int or r["instructions"] <= 0:
+        raise ValueError("instruction count must be a positive integer")
     actual = base64.b64decode(r["stdout_base64"], validate=True)
     if expected_output is None:
         check_output(case, actual)
@@ -79,6 +86,8 @@ def execute(poros, case, mode=None, expected_output=None):
         if actual != expected_output:
             raise ValueError("compute complete output mismatch: " + case["id"])
     if mode == "functional":
+        if "timing" in r:
+            raise ValueError("functional execution unexpectedly contains timing")
         return r
     t = r["timing"]
     if (
@@ -140,7 +149,8 @@ def source_state():
     )
 
 
-def compare24(args):
+def compare24(args, executor=None):
+    executor = executor or execute
     report = dict(
         schema=2,
         formula=FORMULA,
@@ -230,14 +240,14 @@ def compare24(args):
                 reference_user_seconds=ref["median_user_seconds"],
                 reference_quality=ref["quality"],
             )
-            functional = execute(args.head, c, mode="functional")
+            functional = executor(args.head, c, mode="functional")
             for label, binary, revision in (
                 ("head", args.head, state["commit"]),
                 ("base", args.base, args.base_commit),
             ):
                 if not binary:
                     continue
-                r = execute(binary, c)
+                r = executor(binary, c)
                 validate_timing(r, c)
                 if label == "head" and (
                     functional["instructions"] != r["instructions"]
@@ -349,7 +359,8 @@ def compare24(args):
     return 0 if report["artifact_status"] == "pass" else 1
 
 
-def compare(args):
+def compare(args, executor=None):
+    executor = executor or execute
     import compute_usertime as compute
     if not getattr(args, "compute_reference", None):
         args.compute_reference = str(ROOT / compute.REFERENCE)
@@ -361,14 +372,14 @@ def compare(args):
     with tempfile.TemporaryDirectory(prefix="poros-original24-") as temporary:
         old_args = copy.copy(args)
         old_args.output = str(Path(temporary) / "report.json")
-        status = compare24(old_args)
+        status = compare24(old_args, executor)
         original = json.loads(Path(old_args.output).read_text())
         if status:
             original["schema"] = 3
             output.write_text(json.dumps(original, indent=2) + "\n")
             output.with_suffix(".md").write_text(Path(old_args.output).with_suffix(".md").read_text())
             return status
-    report = compute.extend_report(original, args, execute, validate_timing, error_percent, source_state)
+    report = compute.extend_report(original, args, executor, validate_timing, error_percent, source_state)
     Path(args.output).write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
     lines = ["# Whole-program user-time accuracy report", "",
              f"Artifact: **{report['artifact_status']}**; hardware accuracy: **unverified**",

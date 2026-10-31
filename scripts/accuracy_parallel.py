@@ -1,0 +1,304 @@
+#!/usr/bin/env python3
+"""Prepare, execute and aggregate source-bound accuracy shards.
+
+Shards transport full simulator results, not precomputed report rows. Aggregation
+reuses the serial comparison and validates every result before consuming it.
+"""
+import argparse
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import time
+from types import SimpleNamespace
+
+import accuracy_site as site
+import compute_usertime as compute
+import usertime as user
+
+ROOT = user.ROOT
+REFERENCE = "evaluation/usertime/m2-linuxvm-user-v2.json"
+SCHEMA = 1
+
+
+def read(path):
+    return site.read(path)
+
+
+def write(path, value):
+    site.write(path, value)
+
+
+def identity(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+
+
+def positive(value):
+    if type(value) is not int or value < 1:
+        raise ValueError("expected positive integer")
+    return value
+
+
+def git(*args):
+    return subprocess.check_output(["git", "-C", str(ROOT), *args], text=True).strip()
+
+
+def inputs():
+    original = user.inventory()
+    reference = compute.validate_reference(ROOT / compute.REFERENCE)
+    cases = original["cases"] + reference["contract"]["cases"]
+    if len(cases) != 264 or len({c["id"] for c in cases}) != 264:
+        raise ValueError("expected all 264 unique accuracy cases")
+    witnesses = {c["id"]: compute.witness(ROOT / compute.REFERENCE, c, row)
+                 for c, row in zip(reference["contract"]["cases"], reference["cases"])}
+    return cases, witnesses
+
+
+def partition(cases, count):
+    """Interleave six-point groups rather than concentrating them in one job."""
+    if not 1 <= positive(count) <= len(cases):
+        raise ValueError("invalid shard count")
+    return [[c["id"] for c in cases[i::count]] for i in range(count)]
+
+
+def prepare(base, directory, run_id, attempt, shards):
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=False)
+    state = user.source_state()
+    if state["dirty"]:
+        raise ValueError("prepare requires clean committed source")
+    base = git("rev-parse", base + "^{commit}")
+    cases, _ = inputs()
+    compute_base = compute.base_declares_cohort(base)
+    # Current 264-case acceptance supports a timing-capable base, with only the
+    # historical pre-compute base allowed to omit its new compute executions.
+    subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", base + ":pkg/elfsim/run.go"], check=True)
+    head_binary, base_binary = directory / "head", directory / "base"
+    subprocess.run(["go", "build", "-o", str(head_binary), "./cmd/poros"], cwd=ROOT, check=True)
+    with tempfile.TemporaryDirectory(prefix="poros-accuracy-base-") as temporary:
+        tree = Path(temporary) / "source"
+        subprocess.run(["git", "-C", str(ROOT), "worktree", "add", "--detach", str(tree), base], check=True)
+        try:
+            subprocess.run(["go", "build", "-o", str(base_binary), "./cmd/poros"], cwd=tree, check=True)
+        finally:
+            subprocess.run(["git", "-C", str(ROOT), "worktree", "remove", "--force", str(tree)], check=True)
+    if user.source_state() != state:
+        raise ValueError("source changed during prepare")
+    plan = dict(schema=SCHEMA, run_id=str(run_id), prepared_attempt=positive(attempt),
+                head=state, base_commit=base, compute_base_available=compute_base,
+                binaries={"head": user.digest(head_binary), "base": user.digest(base_binary)},
+                references={"original24": user.digest(ROOT / REFERENCE),
+                            "compute240": user.digest(ROOT / compute.REFERENCE / "reference.json")},
+                cases=cases, shards=partition(cases, shards))
+    if not plan["run_id"]:
+        raise ValueError("run identity is required")
+    write(directory / "plan.json", plan)
+    return identity(plan)
+
+
+def load_plan(directory, run_id, attempt):
+    directory = Path(directory)
+    plan = read(directory / "plan.json")
+    if plan["schema"] != SCHEMA or plan["run_id"] != str(run_id):
+        raise ValueError("plan schema/run mismatch")
+    if positive(plan["prepared_attempt"]) > positive(attempt):
+        raise ValueError("plan belongs to a future attempt")
+    state = user.source_state()
+    if state["dirty"] or plan["head"] != state:
+        raise ValueError("plan source mismatch")
+    site.sha(plan["base_commit"])
+    cases, witnesses = inputs()
+    if plan["cases"] != cases or plan["shards"] != partition(cases, len(plan["shards"])):
+        raise ValueError("plan coverage/partition mismatch")
+    if plan["compute_base_available"] is not compute.base_declares_cohort(plan["base_commit"]):
+        raise ValueError("plan base capability mismatch")
+    if plan["references"] != {"original24": user.digest(ROOT / REFERENCE),
+                               "compute240": user.digest(ROOT / compute.REFERENCE / "reference.json")}:
+        raise ValueError("plan reference mismatch")
+    if set(plan["binaries"]) != {"head", "base"}:
+        raise ValueError("plan binaries missing")
+    for label, digest in plan["binaries"].items():
+        path = site.regular(directory / label)
+        if user.digest(path) != digest:
+            raise ValueError("plan binary mismatch: " + label)
+    return plan, witnesses
+
+
+def roles(plan, case, witnesses):
+    result = ["functional", "head"]
+    if case["id"] not in witnesses or plan["compute_base_available"]:
+        result.append("base")
+    return result
+
+
+def validate_result(result, plan, case, role, witnesses):
+    mode = "functional" if role == "functional" else None
+    user.validate_execution(result, case, mode, witnesses.get(case["id"]))
+    revision = plan["base_commit"] if role == "base" else plan["head"]["commit"]
+    if result["build"].get("vcs.revision") != revision or result["build"].get("vcs.modified") != "false":
+        raise ValueError("execution build provenance mismatch")
+    if role != "functional":
+        user.validate_timing(result, case)
+
+
+def run_shard(directory, run_id, attempt, index, output):
+    plan, witnesses = load_plan(directory, run_id, attempt)
+    if type(index) is not int or not 0 <= index < len(plan["shards"]):
+        raise ValueError("unknown shard")
+    report = dict(schema=SCHEMA, plan_id=identity(plan), run_id=str(run_id),
+                  attempt=attempt, shard=index, status="fail", records=[], errors=[],
+                  started_at=time.time())
+    write(output, report)
+    cases = {c["id"]: c for c in plan["cases"]}
+    for ident in plan["shards"][index]:
+        case = cases[ident]
+        record = dict(case_id=ident, executions={})
+        report["records"].append(record)
+        try:
+            for role in roles(plan, case, witnesses):
+                label = "base" if role == "base" else "head"
+                result = user.execute(Path(directory) / label, case,
+                                      mode="functional" if role == "functional" else None,
+                                      expected_output=witnesses.get(ident))
+                validate_result(result, plan, case, role, witnesses)
+                record["executions"][role] = result
+            print("accuracy shard", index, ident, "pass", flush=True)
+        except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as exc:
+            report["errors"].append(dict(case_id=ident, error=str(exc)))
+            print("accuracy shard", index, ident, "FAIL", str(exc), flush=True)
+        write(output, report)
+    # Repeat identity checks after execution; a changed binary/source invalidates
+    # the whole shard even when its individual executions appeared successful.
+    load_plan(directory, run_id, attempt)
+    report["status"] = "fail" if report["errors"] else "pass"
+    report["completed_at"] = time.time()
+    write(output, report)
+    return 0 if report["status"] == "pass" else 1
+
+
+def select_shards(plan, reports, attempt):
+    """A failed-job rerun can reuse older successful shards of this exact plan.
+
+    A newer failure supersedes an older success. Whole reruns create a new plan
+    and workflow download patterns isolate it from older prepared artifacts.
+    """
+    selected, seen = {}, set()
+    for report in reports:
+        if report["schema"] != SCHEMA or report["plan_id"] != identity(plan) or report["run_id"] != plan["run_id"]:
+            raise ValueError("foreign shard identity")
+        index, recorded_attempt = report["shard"], report["attempt"]
+        if type(index) is not int or not 0 <= index < len(plan["shards"]):
+            raise ValueError("unexpected shard")
+        if not plan["prepared_attempt"] <= positive(recorded_attempt) <= positive(attempt):
+            raise ValueError("shard attempt outside current plan/run")
+        if (index, recorded_attempt) in seen:
+            raise ValueError("duplicate shard attempt")
+        seen.add((index, recorded_attempt))
+        if index not in selected or selected[index]["attempt"] < recorded_attempt:
+            selected[index] = report
+    if set(selected) != set(range(len(plan["shards"]))):
+        raise ValueError("missing required shards")
+    for index, report in selected.items():
+        if report["status"] != "pass" or report["errors"] or not report.get("completed_at"):
+            raise ValueError("shard failed or incomplete: " + str(index))
+        if [r["case_id"] for r in report["records"]] != plan["shards"][index]:
+            raise ValueError("missing/duplicate/unexpected shard cases")
+    return selected
+
+
+def recorded_executor(plan, selected, witnesses, directory):
+    cases = {c["id"]: c for c in plan["cases"]}
+    records = {}
+    for report in selected.values():
+        for record in report["records"]:
+            case = cases[record["case_id"]]
+            expected_roles = roles(plan, case, witnesses)
+            if set(record["executions"]) != set(expected_roles):
+                raise ValueError("missing/extra execution roles")
+            for role, result in record["executions"].items():
+                validate_result(result, plan, case, role, witnesses)
+                records[(case["id"], role)] = result
+    remaining = set(records)
+
+    def execute(binary, case, mode=None, expected_output=None):
+        label = "head" if Path(binary) == Path(directory) / "head" else "base" if Path(binary) == Path(directory) / "base" else None
+        role = "functional" if mode == "functional" and label == "head" else label
+        key = (case["id"], role)
+        if label is None or case != cases[case["id"]] or expected_output != witnesses.get(case["id"]):
+            raise ValueError("recorded execution request mismatch")
+        if key not in remaining:
+            raise ValueError("missing or reused execution")
+        remaining.remove(key)
+        return copy.deepcopy(records[key])
+
+    return execute, remaining
+
+
+def aggregate(directory, results, run_id, attempt, output, shard_status="success"):
+    output = Path(output)
+    # Create a valid failure artifact even when prepare/download was unavailable.
+    site.failure(output.parent, git("rev-parse", "HEAD"), "Parallel accuracy aggregation incomplete")
+    try:
+        if shard_status != "success":
+            raise ValueError("upstream shard jobs did not succeed: " + shard_status)
+        plan, witnesses = load_plan(directory, run_id, attempt)
+        paths = sorted(Path(results).rglob("shard.json"))
+        selected = select_shards(plan, [read(path) for path in paths], attempt)
+        executor, remaining = recorded_executor(plan, selected, witnesses, directory)
+        args = SimpleNamespace(head=str(Path(directory) / "head"), base=str(Path(directory) / "base"),
+                               base_unavailable=False, base_commit=plan["base_commit"],
+                               reference=str(ROOT / REFERENCE), compute_reference=str(ROOT / compute.REFERENCE),
+                               output=str(output))
+        status = user.compare(args, executor)
+        if status:
+            # The shared comparator already wrote its detailed failure report.
+            return status
+        if remaining:
+            raise ValueError("executions remained unused")
+        load_plan(directory, run_id, attempt)
+        write(output.parent / "shard-summary.json", dict(plan_id=identity(plan), run_id=run_id, attempt=attempt,
+              shards=[dict(shard=i, attempt=r["attempt"], cases=len(r["records"]),
+                           elapsed_seconds=r["completed_at"] - r["started_at"])
+                      for i, r in sorted(selected.items())]))
+        return 0
+    except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as exc:
+        site.failure(output.parent, git("rev-parse", "HEAD"), "Parallel accuracy aggregation failed: " + str(exc))
+        return 1
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    for name in ("prepare", "shard", "aggregate"):
+        p = sub.add_parser(name)
+        p.add_argument("--prepared", required=True)
+        p.add_argument("--run-id", required=True)
+        p.add_argument("--attempt", type=int, required=True)
+        if name == "prepare":
+            p.add_argument("--base", required=True)
+            p.add_argument("--shards", type=int, default=8)
+        else:
+            p.add_argument("--output", required=True)
+        if name == "shard":
+            p.add_argument("--index", type=int, required=True)
+        if name == "aggregate":
+            p.add_argument("--results", required=True)
+            p.add_argument("--shard-status", default="success")
+    args = parser.parse_args()
+    if args.command == "prepare":
+        plan_id = prepare(args.base, args.prepared, args.run_id, args.attempt, args.shards)
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+                out.write("plan_id=" + plan_id + "\n")
+        print(plan_id)
+        return 0
+    if args.command == "shard":
+        return run_shard(args.prepared, args.run_id, args.attempt, args.index, args.output)
+    return aggregate(args.prepared, args.results, args.run_id, args.attempt, args.output, args.shard_status)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

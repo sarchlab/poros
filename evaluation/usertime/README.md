@@ -309,3 +309,68 @@ with a tag it backfills an existing published release. Release/manual artifacts
 also carry attempt-specific names, with validated earlier-attempt reuse when only
 failed jobs are rerun. Publication failure is a failed Actions job, not a silent
 green result.
+
+## Parallel accuracy CI
+
+The Evaluation workflow builds the exact base and head binaries once, then runs
+all 264 cases in eight independent jobs. The canonical case order is interleaved
+round-robin: each shard receives 33 cases, spreading each six-point workload
+across several jobs. This is deterministic distribution, not a claim of equal
+runtime. A single slow case is not split or sampled, and each simulator process
+keeps the serial limits of 150 million instructions and ten minutes.
+
+Each case still runs head functional execution, head OoO execution, and base
+OoO execution when the base declares that cohort. The known pre-compute base is
+the only exception for the new 240 cases. No native timing is collected in CI.
+All input sizes, quality rules, raw references, simulator settings and complete
+output checks are unchanged. Eight-way concurrency reduces elapsed waiting;
+it does not reduce the amount of simulated work or billed runner time.
+
+`scripts/accuracy_parallel.py` separates three operations:
+
+- `prepare` builds base/head and records their hashes, clean source identities,
+  both reference hashes, the complete case inventory, workflow run identity and
+  partition in `plan.json`.
+- `shard` validates that plan against its checkout and binaries, executes its
+  cases, and saves complete simulator results plus per-case errors. Other shards
+  continue after a failure (`fail-fast: false`).
+- `aggregate` rejects missing, duplicate, foreign, failed or incomplete shards
+  and checks every execution's inputs, build, complete output and timing fields.
+  It then supplies those records to the same comparison functions used by the
+  serial CLI. It never fills missing cases with fabricated rows or silently
+  re-executes them.
+
+The aggregate job retains the required check name `User-time accuracy report`
+and produces `user-time-accuracy-RUN_ATTEMPT`, so the main/release publisher and
+historical schema-1/2/3 archive readers consume the same final bundle format.
+The aggregate runs even after upstream failure and uploads a failure report;
+success requires both successful upstream jobs and all 264 validated cases.
+Shard artifacts and a successful `accuracy-shard-summary-RUN_ATTEMPT` diagnostic
+retain execution records and per-shard durations for 30 days.
+
+A rerun of failed jobs can reuse the unchanged prepared artifact and successful
+shards from the same workflow run. The latest attempt for each shard wins, so a
+new failure cannot be hidden by an older success. Duplicate same-attempt shards,
+future attempts and different plan/run identities fail. A rerun of all jobs
+creates a new prepared plan; its artifact names isolate it from old results.
+
+The serial `scripts/usertime-ci.sh BASE OUTPUT` entry point remains available for
+local comparisons and historical release backfill. Release publication continues
+to reuse retained evidence when available; its fallback execution path is not
+changed to require parallel support in old source revisions. No Pages settings,
+retention policy, or publication permissions change.
+
+To reproduce the parallel path locally, use a clean committed checkout and keep
+artifacts outside it. For example:
+
+```sh
+python3 scripts/accuracy_parallel.py prepare --base origin/main \
+  --prepared /tmp/accuracy-prepared --run-id local-check --attempt 1 --shards 8
+# Run these eight indices concurrently or sequentially with the same plan:
+python3 scripts/accuracy_parallel.py shard --prepared /tmp/accuracy-prepared \
+  --run-id local-check --attempt 1 --index 0 --output /tmp/accuracy-shards/0/shard.json
+# Repeat index/output directory 1 through 7, then:
+python3 scripts/accuracy_parallel.py aggregate --prepared /tmp/accuracy-prepared \
+  --run-id local-check --attempt 1 --results /tmp/accuracy-shards \
+  --output /tmp/accuracy-report/report.json
+```

@@ -27,6 +27,7 @@ jobs:
       - run: python3 scripts/workload_contract_test.py
       - run: python3 scripts/accuracy_site_test.py
       - run: python3 scripts/compute_usertime_test.py
+      - run: python3 scripts/accuracy_parallel_test.py
       - run: scripts/evaluation-ci.sh static
         env:
           FORMAT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -90,10 +91,13 @@ jobs:
         with:
           name: elf-functional-differential
           path: evaluation-results/
-  user-time-accuracy:
-    name: User-time accuracy report
+  accuracy-prepare:
+    name: Prepare accuracy inputs
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 15
+    outputs:
+      plan_id: ${{ steps.prepare.outputs.plan_id }}
+      artifact: accuracy-prepared-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,17 +106,89 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.0'
-      - name: Compare frozen references against base and head
+      - name: Build exact base/head and freeze the 264-point plan
+        id: prepare
         env:
           BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: scripts/usertime-ci.sh "${BASE_REVISION:-HEAD^}"
+        run: |
+          python3 scripts/accuracy_parallel.py prepare --base "${BASE_REVISION:-HEAD^}" \
+            --prepared "$RUNNER_TEMP/prepared" --shards 8 \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accuracy-prepared-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/prepared/
+          retention-days: 30
+          if-no-files-found: error
+  accuracy-shards:
+    name: Accuracy shard ${{ matrix.shard }}
+    needs: accuracy-prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.accuracy-prepare.outputs.artifact }}
+          path: ${{ runner.temp }}/prepared/
+      - name: Execute this shard with the prepared binaries
+        run: |
+          chmod +x "$RUNNER_TEMP/prepared/head" "$RUNNER_TEMP/prepared/base"
+          python3 scripts/accuracy_parallel.py shard --prepared "$RUNNER_TEMP/prepared" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --index '${{ matrix.shard }}' --output "$RUNNER_TEMP/shard/shard.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: accuracy-shard-${{ needs.accuracy-prepare.outputs.plan_id }}-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/shard/
+          retention-days: 30
+          if-no-files-found: warn
+  user-time-accuracy:
+    name: User-time accuracy report
+    needs: [accuracy-prepare, accuracy-shards]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/download-artifact@v4
+        if: needs.accuracy-prepare.result == 'success'
+        with:
+          name: ${{ needs.accuracy-prepare.outputs.artifact }}
+          path: ${{ runner.temp }}/prepared/
+      - uses: actions/download-artifact@v4
+        if: always() && needs.accuracy-prepare.result == 'success'
+        with:
+          pattern: accuracy-shard-${{ needs.accuracy-prepare.outputs.plan_id }}-*
+          path: ${{ runner.temp }}/shards/
+      - name: Validate complete shard coverage and build the report
+        if: always()
+        env:
+          SHARD_STATUS: ${{ needs.accuracy-shards.result }}
+        run: |
+          python3 scripts/accuracy_parallel.py aggregate --prepared "$RUNNER_TEMP/prepared" \
+            --results "$RUNNER_TEMP/shards" --shard-status "$SHARD_STATUS" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --output evaluation-results/usertime/report.json
       - name: Build browsable evidence bundle
         if: always()
         env:
           REPORT_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           if [ ! -f evaluation-results/usertime/report.json ]; then
-            python3 scripts/accuracy_site.py failure --output evaluation-results/usertime --commit "$REPORT_COMMIT" --message 'Accuracy job failed before producing a report; inspect its logs.'
+            python3 scripts/accuracy_site.py failure --output evaluation-results/usertime --commit "$REPORT_COMMIT" --message 'Accuracy aggregation failed before producing a report; inspect the workflow logs.'
           fi
           python3 scripts/accuracy_site.py bundle --report evaluation-results/usertime/report.json --output evaluation-results/accuracy-bundle --commit "$REPORT_COMMIT"
           cat evaluation-results/usertime/report.md >> "$GITHUB_STEP_SUMMARY"
@@ -123,6 +199,13 @@ jobs:
           path: evaluation-results/accuracy-bundle/
           retention-days: 30
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: accuracy-shard-summary-${{ github.run_attempt }}
+          path: evaluation-results/usertime/shard-summary.json
+          retention-days: 30
+          if-no-files-found: warn
   diagnostics:
     name: Extended CLI diagnostics
     if: github.event_name == 'workflow_dispatch'
