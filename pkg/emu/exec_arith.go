@@ -227,3 +227,14 @@ func (e *executor) execUDIV(inst arm64asm.Inst) error {
 	}
 	return nil
 }
+
+// NEGS is SUBS from the zero register, with the same NZCV behavior.
+func (e *executor) execNEGS(inst arm64asm.Inst) error {
+	zero := arm64asm.XZR
+	if is32bit(inst.Args[0]) {
+		zero = arm64asm.WZR
+	}
+	inst.Args[2] = inst.Args[1]
+	inst.Args[1] = zero
+	return e.execSUBS(inst)
+}

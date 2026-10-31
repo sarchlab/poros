@@ -17,6 +17,7 @@ import (
 // Emulator during setup, before any component is built.
 type CoreConfig struct {
 	Emulator       *emu.Emulator
+	Execution      emu.Execution  // complete checked process; mutually exclusive with Emulator
 	FuncHookCycles map[uint64]int // optional cycle costs for hooked functions
 }
 
@@ -42,6 +43,28 @@ func NewMultiCorePipeline(
 	freq timing.Freq,
 	configs []CoreConfig,
 ) *MultiCorePipeline {
+	if len(configs) == 0 {
+		panic("multicore: at least one core is required")
+	}
+	registers := map[*emu.Registers]bool{}
+	for _, cc := range configs {
+		if (cc.Emulator == nil) == (cc.Execution == nil) {
+			panic("multicore: exactly one emulator or execution per core is required")
+		}
+		var state *emu.Registers
+		if cc.Execution != nil {
+			state = cc.Execution.CPURegisters()
+		} else {
+			state = cc.Emulator.CPURegisters()
+		}
+		if state == nil || registers[state] {
+			panic("multicore: each core requires distinct nonnil architectural registers")
+		}
+		registers[state] = true
+		if cc.Execution != nil && len(cc.FuncHookCycles) != 0 {
+			panic("multicore: function hooks are not supported for processes")
+		}
+	}
 	cfg := mem.DefaultCacheConfig()
 	sharedL2 := mem.NewSharedL2(cfg)
 
@@ -55,12 +78,14 @@ func NewMultiCorePipeline(
 		cache := mem.NewPrivateL1WithSharedL2(cfg, sharedL2)
 
 		coreName := fmt.Sprintf("%s.Core%d", name, i)
-		cc.Emulator.Mem.TrackAccesses = true
+		if cc.Emulator != nil {
+			cc.Emulator.Mem.TrackAccesses = true
+		}
 		spec := ooo.DefaultSpec()
 		spec.Freq = freq
 		spec.FuncHookCycles = HookCycleSpec(cc.FuncHookCycles)
 		p := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(simulation).
-			WithResources(ooo.Resources{Emu: cc.Emulator, Cache: cache}).Build(coreName)
+			WithResources(ooo.Resources{Emu: cc.Emulator, Execution: cc.Execution, Cache: cache}).Build(coreName)
 		mc.Cores[i] = p
 	}
 
@@ -99,9 +124,10 @@ func (mc *MultiCorePipeline) Run() error {
 	// Compute aggregate stats.
 	mc.TotalCycles = 0
 	mc.TotalInstructions = 0
+	var firstError error
 	for _, core := range mc.Cores {
-		if core.State.Err != "" {
-			return fmt.Errorf("%s: %s", core.Name(), core.State.Err)
+		if core.State.Err != "" && firstError == nil {
+			firstError = fmt.Errorf("%s: %s", core.Name(), core.State.Err)
 		}
 		mc.TotalInstructions += core.State.InstDone
 		if core.State.Cycles > mc.TotalCycles {
@@ -109,7 +135,7 @@ func (mc *MultiCorePipeline) Run() error {
 		}
 	}
 
-	return nil
+	return firstError
 }
 
 // HookCycleSpec converts the benchmark map into deterministic immutable configuration.

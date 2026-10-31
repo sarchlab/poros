@@ -16,7 +16,7 @@ func ExecuteLatency(op arm64asm.Op) int {
 		return 10
 
 	// FP simple (M2 Avalanche: 3-cycle FADD/FSUB)
-	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FCMP,
+	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FCMP, arm64asm.FCMPE,
 		arm64asm.FMOV, arm64asm.FCSEL,
 		arm64asm.SCVTF, arm64asm.UCVTF,
 		arm64asm.FCVTZS, arm64asm.FCVTZU,
@@ -88,8 +88,8 @@ func SetsFlags(op arm64asm.Op) bool {
 	switch op {
 	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST,
 		arm64asm.CCMP, arm64asm.CCMN,
-		arm64asm.ADDS, arm64asm.SUBS, arm64asm.ANDS,
-		arm64asm.FCMP, arm64asm.FCCMP, arm64asm.FCCMPE:
+		arm64asm.ADDS, arm64asm.SUBS, arm64asm.NEGS, arm64asm.ANDS,
+		arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCCMP, arm64asm.FCCMPE:
 		return true
 	}
 	return false

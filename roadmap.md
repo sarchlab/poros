@@ -62,15 +62,21 @@ complete merely because one related milestone is complete.
 **Acceptance**
 
 A clean environment can build, run, compare, and produce a machine-readable
-report. Deliberately incorrect output or a changed cycle expectation fails the
-gate. Missing assets and skipped tests are reported distinctly from passes.
+report. Functional correctness, complete outputs, bound provenance and required
+coverage are hard gates; missing assets and skipped required tests fail acceptance.
+Whole-kernel cycle pinning has been retired. The separate 264-case accuracy report
+shows base/head timing changes for review; it is not an automatic accuracy gate.
 
 **Regression and rollback**
 
-Keep the 80 remaining legacy one/two-core baseline cases and eight pipeline variants; MVT is covered by the complete ELF suite.
-See [baseline provenance](pkg/cpu/testdata/README.md). These preserve legacy
-behavior; they are not an independent ARM correctness oracle or fresh hardware
-validation. Do not regenerate golden data merely to pass a failing test.
+The legacy whole-kernel golden rows have been replaced by
+[complete ELF coverage](tests/benchmarks/README.md): all 41 compute kernels run
+through guest startup and normal process exit, with full-output references,
+same-ELF differential checks and retained isolated pipeline/ISA tests. The frozen
+M0 calibration split still applies; functional migration does not create an
+independent historical holdout or establish hardware accuracy. Revert this ELF
+migration as a coherent change if needed: restoring old patched instruction
+arrays alone is incompatible with the corrected CNEG semantics.
 
 ## M1 — ELF entry to process exit
 
@@ -267,10 +273,11 @@ uses a different denominator and does not validate this contract.
   hardware accuracy, simulation speed, and memory consumption.
 - Functional bugs block promotion. Unvalidated profiles remain experimental.
   Never silently fall back to another profile or fabricate a missing reference.
-- Golden changes require evidence: independent references for functional fixes;
-  old/new comparisons and rationale for intentional timing changes. Preserve
-  historical fixtures and label corrected behavior rather than retaining a bug
-  solely to keep a golden test unchanged.
+- Changes to retained component expectations require evidence: independent
+  references for functional fixes, and old/new comparisons with rationale for
+  intentional timing changes. Retain useful failing regression cases; obsolete
+  whole-kernel snapshots need not remain in the active tree. Do not retain a bug
+  solely to keep an expectation unchanged.
 - Regressions after merge: prefer reverting the narrow responsible change and
   restore the last accepted default configuration. Retain the failing case as a
   permanent test. Avoid irreversible fixture/config migrations in feature PRs.
@@ -303,7 +310,10 @@ unverified for bare-metal hardware accuracy. See evaluation/usertime/README.md.
 
 MVT uses whole-program user time, superseding the issue’s original mandatory ROI
 wording. All six MVT dimensions and six points each for integer, memory and branch
-are required in the unified accuracy report. MVT has left the embedded registry;
-40 kernels remain for #49. Schema-1 archived reports remain readable while the
-versioned manifest defines the new 24-case suite. No hardware-accuracy promotion
-or parameter fitting is implied.
+are required in the unified accuracy report. MVT first left the embedded registry
+in #48; all 40 remaining kernels have now migrated to complete ELF execution
+under #49. Schema-1 archived reports remain readable while the
+versioned manifest defines that original 24-case suite. The #49 migration adds
+a separately measured 240-case compute cohort to the unified 264-case report,
+retaining all original raw measurements and frozen calibration roles. No
+hardware-accuracy promotion or parameter fitting is implied.

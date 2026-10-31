@@ -7,9 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"github.com/sarchlab/poros/pkg/benchmark"
+	"github.com/sarchlab/poros/internal/benchmarks"
 )
 
 type Size struct {
@@ -62,8 +61,16 @@ func (m Manifest) Validate(root string) error {
 		return fmt.Errorf("missing/unsupported manifest contract")
 	}
 	expected := map[string]bool{"mvt": true}
-	for _, b := range benchmark.All() {
-		expected[b.Name] = true
+	for _, name := range benchmarks.ComputeNames() {
+		expected[name] = true
+	}
+	catalog, err := benchmarks.Load(root)
+	if err != nil {
+		return err
+	}
+	migrated := map[string]benchmarks.Workload{}
+	for _, w := range catalog.Workloads {
+		migrated[w.Name] = w
 	}
 	seen := map[string]bool{}
 	for _, w := range m.Workloads {
@@ -74,22 +81,28 @@ func (m Manifest) Validate(root string) error {
 		if w.Role != "calibration" && w.Role != "validation" && w.Role != "validation-legacy" {
 			return fmt.Errorf("invalid role %q", w.Role)
 		}
-		if w.Status != "legacy" && w.Status != "planned" && w.Status != "elf" {
+		if w.Status != "planned" && w.Status != "elf" {
 			return fmt.Errorf("invalid status %q", w.Status)
 		}
-		if w.Status == "legacy" {
-			if w.ID == "mvt" || !expected[w.ID] || w.Execution != "embedded-function" {
-				return fmt.Errorf("unknown legacy workload %s", w.ID)
+		if w.Status == "elf" && w.ID != "mvt" {
+			b, ok := migrated[w.ID]
+			if !ok || w.Execution != "linux-elf-user" || w.Source != b.Source || len(w.Sizes) != 6 {
+				return fmt.Errorf("invalid ELF workload %s", w.ID)
 			}
-			if w.Source == "" || filepath.IsAbs(w.Source) || strings.Contains(w.Source, "..") {
-				return fmt.Errorf("invalid source path")
-			}
-			if _, err := os.Stat(filepath.Join(root, w.Source)); err != nil {
-				return err
+			for i, size := range w.Sizes {
+				c := b.Cases[i]
+				if size.ID != c.ID || size.Status != "elf" || len(size.Dimensions) != len(b.Dimensions) {
+					return fmt.Errorf("ELF case inventory mismatch %s", w.ID)
+				}
+				for j, d := range b.Dimensions {
+					if fmt.Sprint(size.Dimensions[d.Name]) != c.Args[j] {
+						return fmt.Errorf("ELF dimensions mismatch %s", w.ID)
+					}
+				}
 			}
 			delete(expected, w.ID)
 		}
-		if w.Status == "elf" {
+		if w.Status == "elf" && w.ID == "mvt" {
 			if w.ID != "mvt" || w.Role != "calibration" || w.Execution != "linux-elf-user" || w.Source != "tests/usertime/mvt.c" || len(w.Sizes) != 6 {
 				return fmt.Errorf("invalid migrated ELF workload")
 			}
@@ -138,32 +151,28 @@ func (m Manifest) Validate(root string) error {
 				return fmt.Errorf("invalid size in %s", w.ID)
 			}
 			sizes[s.ID] = true
-			if s.Status != "legacy" && s.Status != "planned" && s.Status != "elf" {
+			if s.Status != "planned" && s.Status != "elf" {
 				return fmt.Errorf("invalid size status")
 			}
 			if w.Status == "planned" && s.Status != "planned" {
 				return fmt.Errorf("planned workload cannot have executable sizes")
 			}
-			if s.Status != "legacy" {
-				if len(s.Dimensions) == 0 || s.WorkingSetBytes == nil || *s.WorkingSetBytes == 0 {
-					return fmt.Errorf("size needs dimensions and bytes")
-				}
-				for _, n := range s.Dimensions {
-					if n < 1 {
-						return fmt.Errorf("nonpositive dimension")
-					}
+			if len(s.Dimensions) == 0 || ((w.ID == "mvt" || s.Status == "planned") && (s.WorkingSetBytes == nil || *s.WorkingSetBytes == 0)) {
+				return fmt.Errorf("size needs dimensions and bytes")
+			}
+			for _, n := range s.Dimensions {
+				if n < 1 {
+					return fmt.Errorf("nonpositive dimension")
 				}
 			}
-			if s.Status == "elf" {
+			if s.Status == "elf" && w.ID == "mvt" {
 				n, ok := s.Dimensions["n"]
 				if w.ID != "mvt" || !ok || len(s.Dimensions) != 1 || n < 1 || n > 1536 || *s.WorkingSetBytes != uint64(8*(n*n+4*n)) {
 					return fmt.Errorf("invalid MVT ELF size")
 				}
 			}
 		}
-		if w.Status == "legacy" && !sizes["legacy-default"] {
-			return fmt.Errorf("missing legacy default")
-		}
+
 	}
 	if len(expected) > 0 {
 		return fmt.Errorf("missing required workloads: %v", expected)

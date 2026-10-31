@@ -84,16 +84,7 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 		return 2
 	}
 	sum := sha256.Sum256(b)
-	build := map[string]string{}
-	if info, ok := debug.ReadBuildInfo(); ok {
-		build["go_version"] = info.GoVersion
-		for _, setting := range info.Settings {
-			switch setting.Key {
-			case "vcs.revision", "vcs.modified", "vcs.time", "GOOS", "GOARCH":
-				build[setting.Key] = setting.Value
-			}
-		}
-	}
+	build := buildMetadata()
 	report := struct {
 		Schema       int                `json:"schema"`
 		BinarySHA256 string             `json:"binary_sha256"`
@@ -111,4 +102,18 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 		return 0
 	}
 	return 1
+}
+
+func buildMetadata() map[string]string {
+	build := map[string]string{}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		build["go_version"] = info.GoVersion
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision", "vcs.modified", "vcs.time", "GOOS", "GOARCH":
+				build[setting.Key] = setting.Value
+			}
+		}
+	}
+	return build
 }

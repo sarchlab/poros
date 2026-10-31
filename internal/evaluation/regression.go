@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/sarchlab/poros/internal/benchmarks"
 	"io"
 	"os"
 	"os/exec"
@@ -39,147 +40,94 @@ type RegressionReport struct {
 	IndependentChecks []Case            `json:"independent_checks"`
 	Planned           []string          `json:"planned"`
 }
-type fixture struct {
-	Name, Mode           string
-	Cores                int
-	Instructions, Cycles []uint64
-	Digest               []string
-}
 
+// RequiredCases is independent of observed output and requires every supported
+// name. Full: six points x three modes; short: point3 x three modes.
 func RequiredCases(root, tier string) (map[string]bool, error) {
 	if tier != "short" && tier != "full" {
 		return nil, fmt.Errorf("unknown tier %q", tier)
 	}
+	if _, err := benchmarks.Load(root); err != nil {
+		return nil, err
+	}
 	required := map[string]bool{}
-	for _, file := range []string{"akita-v4-baseline.jsonl", "pipeline-v4-baseline.jsonl"} {
-		f, e := os.Open(filepath.Join(root, "pkg/cpu/testdata", file))
-		if e != nil {
-			return nil, e
-		}
-		s := bufio.NewScanner(f)
-		count := 0
-		for s.Scan() {
-			var r fixture
-			if e := json.Unmarshal(s.Bytes(), &r); e != nil {
-				f.Close()
-				return nil, e
+	for _, name := range benchmarks.ComputeNames() {
+		for point := 1; point <= 6; point++ {
+			if tier == "short" && point != 3 {
+				continue
 			}
-			if r.Name == "" || r.Cores < 1 || len(r.Cycles) != r.Cores || len(r.Instructions) != r.Cores || len(r.Digest) != r.Cores {
-				f.Close()
-				return nil, fmt.Errorf("invalid fixture row")
+			for _, mode := range []string{"functional", "inorder", "ooo"} {
+				required[fmt.Sprintf("TestBenchmarkELF/%s/%d/%s", name, point, mode)] = true
 			}
-			id := fmt.Sprintf("TestV4Baseline/%s/%d", r.Name, r.Cores)
-			if file == "pipeline-v4-baseline.jsonl" {
-				id = "TestV4PipelineVariants/" + r.Name + "/" + r.Mode
-			}
-			if required[id] {
-				f.Close()
-				return nil, fmt.Errorf("duplicate case %s", id)
-			}
-			required[id] = true
-			count++
 		}
-		e = s.Err()
-		f.Close()
-		if e != nil {
-			return nil, e
-		}
-		want := 80
-		if file == "pipeline-v4-baseline.jsonl" {
-			want = 8
-		}
-		if count != want {
-			return nil, fmt.Errorf("%s has %d rows, expected %d", file, count, want)
-		}
+		required["TestBenchmarkELF/"+name+"/invalid"] = true
 	}
-	if tier == "short" {
-		for id := range required {
-			if !containsCase(id, "raytrace") && !containsCase(id, "blackscholes") {
-				delete(required, id)
-			}
-		}
+	for _, mode := range []string{"functional", "inorder", "ooo"} {
+		required["TestMVTCompleteELF/"+mode] = true
+		required["TestGuestMath/"+mode] = true
 	}
+	for _, name := range []string{"integer", "memory", "branch"} {
+		required["TestCompleteWorkloadShapesAndResults/"+name] = true
+	}
+	required["TestELFMultiCoreLifecycle"] = true
 	return required, nil
-}
-func containsCase(id, name string) bool {
-	return strings.HasPrefix(id, "TestV4Baseline/"+name+"/") || strings.HasPrefix(id, "TestV4PipelineVariants/"+name+"/")
 }
 
 func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error) {
-	report := RegressionReport{Acceptance: "unverified", Provenance: "unknown", SchemaVersion: 1, Commit: commit, GoVersion: runtime.Version(), Platform: runtime.GOOS + "/" + runtime.GOARCH, Tier: tier, Status: "fail", Evidence: "legacy-behavior-only"}
-	dirty, e := WorkingTreeDirty(root)
-	if e != nil {
-		return report, e
+	report := RegressionReport{Acceptance: "unverified", Provenance: "unknown", SchemaVersion: 1, Commit: commit, GoVersion: runtime.Version(), Platform: runtime.GOOS + "/" + runtime.GOARCH, Tier: tier, Status: "fail", Evidence: "complete ELF execution; native compiler oracle; full output checks; independent numerical equations; architectural mode agreement"}
+	var err error
+	report.Dirty, err = WorkingTreeDirty(root)
+	if err != nil {
+		return report, err
 	}
-	report.Dirty = dirty
-	report.Profile = "legacy-default;3490MHz;registry-warm-regions;registry-hook-costs"
+	report.Profile = "whole ELF user execution;3490MHz;default CPU/cache parameters;cold modeled caches;no host application hooks;not performance calibration"
 	report.Hashes = map[string]string{}
-	for _, name := range []string{"evaluation/workloads.json", "pkg/cpu/testdata/akita-v4-baseline.jsonl", "pkg/cpu/testdata/pipeline-v4-baseline.jsonl", "pkg/benchmark/registry.go", "pkg/cpu/ooo/pipeline.go", "pkg/cpu/inorder/pipeline.go", "pkg/mem/cache.go"} {
+	for _, name := range []string{"evaluation/workloads.json", "tests/benchmarks/manifest.json", "tests/benchmarks/provenance.json", "tests/usertime/manifest.json", "pkg/cpu/ooo/pipeline.go", "pkg/cpu/inorder/pipeline.go", "pkg/mem/cache.go"} {
 		b, e := os.ReadFile(filepath.Join(root, name))
 		if e != nil {
 			return report, e
 		}
 		report.Hashes[name] = hash(b)
 	}
-	data, e := io.ReadAll(r)
-	if e != nil {
-		return report, e
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return report, err
 	}
 	report.Hashes["go-test-json"] = hash(data)
 	cmd := exec.Command("go", "list", "-f", "{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}", "./...")
 	cmd.Dir = root
-	packages, e := cmd.Output()
-	if e != nil {
-		return report, e
+	packages, err := cmd.Output()
+	if err != nil {
+		return report, err
 	}
 	report.RequiredPackages = strings.Fields(string(packages))
 	if len(report.RequiredPackages) == 0 {
 		return report, fmt.Errorf("no test-bearing packages")
 	}
-	m, e := LoadManifest(root)
-	if e != nil {
-		return report, e
+	m, err := LoadManifest(root)
+	if err != nil {
+		return report, err
 	}
 	for _, w := range m.Workloads {
 		if w.Status == "planned" {
 			report.Planned = append(report.Planned, w.ID)
 		}
 	}
-	required, e := RequiredCases(root, tier)
-	if e != nil {
-		return report, e
+	required, err := RequiredCases(root, tier)
+	if err != nil {
+		return report, err
 	}
 	seen := map[string]string{}
-	modes := map[string]string{}
 	packagePass := map[string]bool{}
 	packageRun := map[string]bool{}
 	packageSkip := map[string]bool{}
-	numericalTests := map[string]string{
-		"blackscholes": "TestRegistryBlackScholesNumericalReference",
-		"bodytrack":    "TestRegistryBodytrackNumericalReference",
-		"facesim":      "TestRegistryFacesimNumericalReference",
-	}
-	numericalStatus := map[string]string{}
-	for _, name := range numericalTests {
-		numericalStatus[name] = "missing"
-	}
 	failed := false
 	scan := bufio.NewScanner(bytes.NewReader(data))
 	scan.Buffer(make([]byte, 4096), 4<<20)
 	for scan.Scan() {
 		var ev struct{ Action, Package, Test, Output string }
-		if e := json.Unmarshal(scan.Bytes(), &ev); e != nil {
-			return report, fmt.Errorf("invalid go test JSON: %w", e)
-		}
-		// This marker is emitted by portableHookReference in pkg/cpu/migration_test.go.
-		if ev.Package == "github.com/sarchlab/poros/pkg/cpu" && required[ev.Test] && strings.Contains(ev.Output, "nonportable host-math hook reference:") {
-			modes[ev.Test] = "same-host functional architectural digest; independent numerical test required"
-		}
-		if ev.Package == "github.com/sarchlab/poros/pkg/cpu" && numericalStatus[ev.Test] != "" && (ev.Action == "pass" || ev.Action == "skip" || ev.Action == "fail") {
-			if numericalStatus[ev.Test] != "missing" {
-				return report, fmt.Errorf("duplicate result %s", ev.Test)
-			}
-			numericalStatus[ev.Test] = ev.Action
+		if err := json.Unmarshal(scan.Bytes(), &ev); err != nil {
+			return report, fmt.Errorf("invalid go test JSON: %w", err)
 		}
 		if ev.Action == "fail" {
 			failed = true
@@ -193,15 +141,15 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		if ev.Test == "" && ev.Action == "pass" {
 			packagePass[ev.Package] = true
 		}
-		if ev.Package == "github.com/sarchlab/poros/pkg/cpu" && required[ev.Test] && (ev.Action == "pass" || ev.Action == "skip" || ev.Action == "fail") {
+		if ev.Package == "github.com/sarchlab/poros/pkg/elfsim" && required[ev.Test] && (ev.Action == "pass" || ev.Action == "skip" || ev.Action == "fail") {
 			if seen[ev.Test] != "" {
 				return report, fmt.Errorf("duplicate result %s", ev.Test)
 			}
 			seen[ev.Test] = ev.Action
 		}
 	}
-	if e := scan.Err(); e != nil {
-		return report, e
+	if err := scan.Err(); err != nil {
+		return report, err
 	}
 	ids := []string{}
 	for id := range required {
@@ -216,37 +164,8 @@ func Regression(root, tier, commit string, r io.Reader) (RegressionReport, error
 		if status != "pass" {
 			failed = true
 		}
-		mode := modes[id]
-		if mode == "" {
-			mode = "frozen ARM64 architectural digest"
-			if containsCase(id, "facesim") {
-				mode = "corrected finite Facesim fixture (M0), not historical v4"
-			}
-		}
-		evidence := "exact historical instructions/cycles; " + mode
-		if containsCase(id, "facesim") {
-			evidence = "exact corrected Facesim instructions/cycles; " + mode
-		}
-		report.Cases = append(report.Cases, Case{id, status, evidence})
+		report.Cases = append(report.Cases, Case{id, status, report.Evidence})
 	}
-	for _, workload := range []string{"blackscholes", "bodytrack", "facesim"} {
-		// Corrected Facesim inputs require numerical validation on every tier.
-		needed := workload == "facesim"
-		for id := range modes {
-			if containsCase(id, workload) {
-				needed = true
-			}
-		}
-		if needed {
-			name := numericalTests[workload]
-			status := numericalStatus[name]
-			report.IndependentChecks = append(report.IndependentChecks, Case{name, status, "all registry outputs; reference independent of simulated instructions, shares host math"})
-			if status != "pass" {
-				failed = true
-			}
-		}
-	}
-
 	for pkg := range packageRun {
 		if !packagePass[pkg] && !packageSkip[pkg] {
 			failed = true

@@ -240,7 +240,7 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		// 3. Classify instruction and find execution unit.
-		ut := classifyUnit(inst.Op)
+		ut := classifyUnit(inst)
 		dispatchCycle := p.comp.State.Cycles
 		issueCycle := dispatchCycle
 		if srcReady > issueCycle {
@@ -430,7 +430,11 @@ func (p *middleware) fetchAndProcess() {
 }
 
 // classifyUnit determines which execution unit type an instruction needs.
-func classifyUnit(op arm64asm.Op) unitType {
+func classifyUnit(instruction arm64asm.Inst) unitType {
+	op := instruction.Op
+	if (op == arm64asm.ORR || op == arm64asm.MOVI) && instinfo.ArgFP(instruction.Args[0]) >= 0 {
+		return unitFP
+	}
 	if instinfo.IsLoad(op) || instinfo.IsStore(op) {
 		return unitLDST
 	}
@@ -439,7 +443,7 @@ func classifyUnit(op arm64asm.Op) unitType {
 		arm64asm.FMADD, arm64asm.FMSUB,
 		arm64asm.FNMUL, arm64asm.FNMADD,
 		arm64asm.FDIV, arm64asm.FSQRT,
-		arm64asm.FCMP, arm64asm.FMOV, arm64asm.FCSEL,
+		arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FMOV, arm64asm.FCSEL,
 		arm64asm.SCVTF, arm64asm.UCVTF,
 		arm64asm.FCVTZS, arm64asm.FCVTZU,
 		arm64asm.FNEG, arm64asm.FABS:

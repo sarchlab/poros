@@ -2,6 +2,8 @@
 """Compare whole-program user-time predictions with frozen native measurements."""
 
 import argparse
+import copy
+import tempfile
 import base64
 import json
 from pathlib import Path
@@ -33,7 +35,7 @@ def error_percent(simulated, reference):
     return value
 
 
-def execute(poros, case, mode=None):
+def execute(poros, case, mode=None, expected_output=None):
     argv = [
         str(poros),
         "elf",
@@ -50,9 +52,9 @@ def execute(poros, case, mode=None):
     ]
     for entry in case["env"]:
         argv += ["--env", entry]
-    argv += [str(ROOT / "tests/usertime" / case["file"])] + case["args"][1:]
+    argv += [str(ROOT / case["file"] if expected_output is not None else ROOT / "tests/usertime" / case["file"])] + case["args"][1:]
     p = subprocess.run(argv, capture_output=True, timeout=650)
-    if p.returncode != 0:
+    if p.returncode != 0 or p.stderr:
         raise ValueError(
             "timing execution failed: "
             + case["id"]
@@ -68,7 +70,14 @@ def execute(poros, case, mode=None):
         raise ValueError("executed input provenance mismatch")
     if r["termination"] != "exit" or r["exit_status"] != 0 or r["stderr_base64"]:
         raise ValueError("timing correctness failed: " + case["id"])
-    check_output(case, base64.b64decode(r["stdout_base64"]))
+    actual = base64.b64decode(r["stdout_base64"], validate=True)
+    if expected_output is None:
+        check_output(case, actual)
+    else:
+        import compute_usertime as compute
+        compute.differential.check_output(case, actual)
+        if actual != expected_output:
+            raise ValueError("compute complete output mismatch: " + case["id"])
     if mode == "functional":
         return r
     t = r["timing"]
@@ -131,7 +140,7 @@ def source_state():
     )
 
 
-def compare(args):
+def compare24(args):
     report = dict(
         schema=2,
         formula=FORMULA,
@@ -340,6 +349,42 @@ def compare(args):
     return 0 if report["artifact_status"] == "pass" else 1
 
 
+def compare(args):
+    import compute_usertime as compute
+    if not getattr(args, "compute_reference", None):
+        args.compute_reference = str(ROOT / compute.REFERENCE)
+    # A timeout, process kill or unexpected exception must never leave a 24-row
+    # PASS at the public destination for this 264-case acceptance contract.
+    output = Path(args.output)
+    output.write_text(json.dumps(dict(schema=3, artifact_status="fail", accuracy_status="unverified", error="264-case comparison incomplete")) + "\n")
+    output.with_suffix(".md").write_text("# User-time accuracy report\nArtifact: **fail**; 264-case comparison incomplete.\n")
+    with tempfile.TemporaryDirectory(prefix="poros-original24-") as temporary:
+        old_args = copy.copy(args)
+        old_args.output = str(Path(temporary) / "report.json")
+        status = compare24(old_args)
+        original = json.loads(Path(old_args.output).read_text())
+        if status:
+            original["schema"] = 3
+            output.write_text(json.dumps(original, indent=2) + "\n")
+            output.with_suffix(".md").write_text(Path(old_args.output).with_suffix(".md").read_text())
+            return status
+    report = compute.extend_report(original, args, execute, validate_timing, error_percent, source_state)
+    Path(args.output).write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
+    lines = ["# Whole-program user-time accuracy report", "",
+             f"Artifact: **{report['artifact_status']}**; hardware accuracy: **unverified**",
+             f"Formula: `{FORMULA}`. Original 24 + compute 240 required points.", "",
+             "| Case / split | Reference (s) | Quality | Base (s) | Head (s) | Head error % |",
+             "|---|---:|---|---:|---:|---:|"]
+    for row in report["cases"]:
+        lines.append(f"| {row['id']} / {row['split']} | {row['reference_user_seconds']:.9g} | {row['reference_quality']} | {row.get('base', {}).get('predicted_user_seconds', 'unavailable')} | {row['head']['predicted_user_seconds']:.9g} | {row['head'].get('error_percent', 'unverified')} |")
+    for split, summary in report.get("summary", {}).items():
+        lines.append(f"{split}: `{json.dumps(summary, sort_keys=True)}`")
+    if "error" in report:
+        lines.append("Failure: " + report["error"])
+    Path(args.output).with_suffix(".md").write_text("\n".join(lines) + "\n")
+    return 0 if report["artifact_status"] == "pass" else 1
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -355,6 +400,7 @@ def main():
     p.add_argument("--base-unavailable", action="store_true")
     p.add_argument("--base-commit", required=True)
     p.add_argument("--reference", required=True)
+    p.add_argument("--compute-reference", help="additional frozen 240-case compute cohort directory")
     p.add_argument("--output", required=True)
     p = sub.add_parser("measure")
     p.add_argument("--measurement-id", required=True)

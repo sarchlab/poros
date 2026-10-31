@@ -25,8 +25,10 @@ Hand-derived tests check a minimal exit timeline. Deadline/cancellation is check
 at architectural steps; already-issued finite-latency work drains before return.
 The CLI uses fixed bounded latencies (maximum DRAM latency 335 cycles); it does
 not expose arbitrarily long pipeline stalls. Cancelled and timed-out loops are
-tested, including no execution for a pre-cancelled context. The 80 remaining legacy baseline cases and eight pipeline variants stay
-unchanged after removing MVT’s two superseded rows. Existing function-level hooks remain a legacy adapter only.
+tested, including no execution for a pre-cancelled context. All compute workloads
+now execute as complete ELF programs; the legacy whole-kernel golden rows and
+host application hooks have been retired. Isolated pipeline variants, ISA and
+lifecycle checks remain. See the [evaluation contract](../README.md) for required coverage.
 
 ## Workload suite and builds
 
@@ -123,23 +125,85 @@ are frozen by identity; changes to workload bytes, inputs, protocol or environme
 require a new capture. Generic `measure -- PROGRAM ARGS` remains available for
 native executables, but Mach-O measurements do not become same-ELF references.
 
+## Compute cohort and 264-case report
+
+`compute-linuxvm-v1/reference.json` adds all 40 migrated compute kernels at their
+six declared input points: 240 cases and 5,040 retained samples, plus one recorded
+warm-up per case. The guest ELF files, dimensions, startup and algorithm sources
+are unchanged. The new collector is `scripts/compute_usertime.py`; the original
+`native_usertime.py`, `workload_contract.py`, 24-case manifest and reference bytes
+remain unchanged. One predetermined 21-sample campaign is retained in full;
+zero-user and noisy observations are never dropped or rerolled.
+
+Each sample retains user time, system time, exit status, stdout/stderr hashes and
+lengths. Each complete stdout witness is retained once under `outputs/SHA.bin`,
+rather than duplicating large arrays across every sample. Offline validation
+checks every sample against the complete witness and its output shape. A compact
+240-case oracle binds each witness to independent same-ELF native/QEMU agreement.
+The original bound validation report and its exact historical validation harness
+are retained alongside it; guest source/build/input identities must still match.
+The existing native-C, independent numerical and full three-mode Go tests remain
+hard gates. Oracle preparation and simulation run outside the native timing campaign.
+
+The native reference describes an Apple M2 Mac14,3 host with 24 GiB RAM running
+Docker's native ARM64 Linux VM, not bare-metal Linux or macOS timing. VM core
+identity, instantaneous frequency and exclusive host isolation remain unknown.
+Sub-millisecond runs can show zero user time with nonzero system time; system time
+is retained for diagnosis but never substituted into the user-time metric. The
+existing 100 microsecond floor, any-zero invalidation and 20% P10–P90 spread rule
+apply unchanged. Every point remains visible, qualified or not.
+
+The first retained compute campaign (`m2-linuxvm-compute-v1-20261031`) ran from
+2026-10-31 01:54:43 to 01:59:08 UTC. All 240 outputs and normal exits passed.
+Of 5,040 retained samples, 1,202 had zero user time. The unchanged quality policy
+classifies 227 cases as `invalid_nonpositive` and 13 as `noisy`: none is qualified
+for a numeric accuracy error. These are measurement limitations, not missing
+workloads or zero model error. The original 24-case cohort still has its two
+qualified branch points. All raw values and model predictions remain visible.
+The retained cohort occupies about 5.18 MB, including 219 distinct complete
+output witnesses totaling 2.52 MB, the raw measurements and validation evidence.
+
+The combined schema-3 inventory has 264 required rows and 44 six-point curves.
+Original integer/MVT and new ATAX/GEMM contribute 24 calibration points; the
+original memory/branch cohorts retain 12 held-out points. The remaining 228
+compute points retain `validation-legacy`: previously used in development,
+held out from future fitting only, not an independent historical holdout.
+Multi-dimensional compute curves use input points 1–6 with actual dimension
+labels on hover; they do not pretend every kernel has one matrix-dimension axis.
+
+```sh
+# After the collector/protocol is committed and correctness evidence is complete:
+docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,size=64m \
+  -e PYTHONDONTWRITEBYTECODE=1 -e POROS_REFERENCE_IMAGE=sha256:IMAGE_ID \
+  -v "$PWD:/work:ro" -v /private/tmp:/out -w /work poros-elf-reference:local \
+  python3 scripts/compute_usertime.py --oracle /out/validated-differential.json \
+  --measurement-id UNIQUE_ID --hardware 'exact host and Linux VM description' \
+  --output /out/new-empty-compute-reference
+```
+
 ## Required PR report
 
-`scripts/usertime-ci.sh BASE` builds clean exact head/base binaries and runs all 24
+`scripts/usertime-ci.sh BASE` builds clean exact head/base binaries and runs all 264
 required cases: head functional mode and head/base OoO timing mode. Every case
 uses the same ELF/arguments and frozen CPU/cache profile across both revisions.
 Missing cases, wrong output, base failure, changed identities or mismatched
 profiles fail artifact acceptance. The comparison has a10minute per-execution
 budget and150million-instruction limit. It runs on every PR/main push; the full
 inventory is never silently reduced to smoke cases. A pre-timing predecessor is
-explicitly unavailable, not assigned a fabricated base score.
+explicitly unavailable, not assigned a fabricated base score. For the compute
+cohort, only the known pre-support revision `cb965b4d41fc7d52281652c3bce7803cc893cae0`
+may omit all 40 ELF programs; a base with that program inventory must execute
+every new point, even if it predates the measurement reference. Any failure in a
+capable base fails acceptance. The public report cannot become PASS until all
+264 points and both retained references have been validated.
 
-Schema2 report JSON embeds the validated workload manifest. The archived bundle
-retains the reference, manifest, source/ELF files, native collector and imported
-contract module. The publisher verifies their hashes against the exact source
-commit and can still render schema1 bundles without requiring new files.
-History trends separate different references/profiles, so the new suite is not
-spliced onto a six-case trend.
+Schema-3 report JSON embeds both cohort contracts and the unchanged original
+24-case comparison. The evidence bundle retains both references, every complete
+output witness, source/ELF files and measurement/validation harnesses. Namespaced
+paths preserve original source directories without basename collisions. The
+publisher verifies their hashes against the exact tested source commit and still
+reads schema-1/2 historical bundles. A composite reference identity includes both
+cohorts, keeping historical and expanded trends separate.
 
 Formula `absolute-difference-over-min-v2` is unchanged:
 `100*abs(predicted-reference)/min(predicted,reference)`. Only finite positive,
@@ -228,6 +292,7 @@ Validation entry points:
 
 ```sh
 python3 scripts/accuracy_site_test.py
+python3 scripts/compute_usertime_test.py
 python3 scripts/accuracy_site.py bundle --report /path/report.json \
   --source . --output /tmp/accuracy-preview --commit "$(git rev-parse HEAD)"
 python3 -m http.server 8000 --directory /tmp/accuracy-preview

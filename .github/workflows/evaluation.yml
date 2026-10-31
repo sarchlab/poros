@@ -22,8 +22,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.0'
+      - run: python3 scripts/benchmark-differential_test.py
+      - run: python3 scripts/math-oracle.py --check
       - run: python3 scripts/workload_contract_test.py
       - run: python3 scripts/accuracy_site_test.py
+      - run: python3 scripts/compute_usertime_test.py
       - run: scripts/evaluation-ci.sh static
         env:
           FORMAT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -66,7 +69,7 @@ jobs:
   elf-functional:
     name: Linux ELF functional and QEMU differential
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,6 +84,7 @@ jobs:
           go test -count=1 ./pkg/loader ./pkg/linuxuser ./pkg/emu ./cmd/poros
           python3 scripts/elf-differential_test.py
           python3 scripts/elf-differential.py --require-clean --poros /tmp/poros --output evaluation-results/elf-differential.json
+          python3 scripts/benchmark-differential.py --require-clean --poros /tmp/poros --output evaluation-results/benchmark-differential.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -133,7 +137,7 @@ jobs:
           go-version: '1.27.0'
       - run: |
           mkdir -p evaluation-results
-          go run ./cmd/poros run --all >evaluation-results/cli-comparison.txt
+          go run ./cmd/poros run --all --case 3 >evaluation-results/cli-results.jsonl
       - uses: actions/upload-artifact@v4
         if: always()
         with:

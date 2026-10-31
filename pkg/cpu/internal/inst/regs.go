@@ -87,7 +87,7 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 	// Compare/test instructions only set flags.
 	switch op {
 	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST,
-		arm64asm.CCMP, arm64asm.FCMP:
+		arm64asm.CCMP, arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCCMP, arm64asm.FCCMPE:
 		return
 	}
 
@@ -285,7 +285,12 @@ func SourceFPs(inst arm64asm.Inst) []int {
 		return srcs
 	}
 
-	for i := 1; i < len(inst.Args); i++ {
+	start := 1
+	switch inst.Op {
+	case arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCCMP, arm64asm.FCCMPE:
+		start = 0
+	}
+	for i := start; i < len(inst.Args); i++ {
 		if inst.Args[i] == nil {
 			break
 		}

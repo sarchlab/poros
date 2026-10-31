@@ -38,22 +38,24 @@ def verify_source(source, bundle, commit):
         )
         if hashlib.sha256(data).hexdigest() != report["head"]["files"][path]:
             raise ValueError("report source hash differs from commit: " + path)
-    inputs = site.read(Path(bundle) / "manifest.json")
+    original = "cohorts/original/" if report["schema"] == 3 else ""
+    inputs = site.read(Path(bundle) / (original + "manifest.json"))
     bindings = {
-        "reference.json": "evaluation/usertime/"
+        original + "reference.json": "evaluation/usertime/"
         + site.safe_name(inputs.get("reference_file", "m2-linuxvm-user-v1.json")),
-        "manifest.json": "tests/usertime/manifest.json",
-        "native_usertime.py": "scripts/native_usertime.py",
+        original + "manifest.json": "tests/usertime/manifest.json",
+        original + "native_usertime.py": "scripts/native_usertime.py",
     }
     if inputs["schema"] == 2:
-        bindings["workload_contract.py"] = "scripts/workload_contract.py"
-    bindings.update(
-        {
-            n: "tests/usertime/" + n[7:]
-            for n in manifest["files"]
-            if n.startswith("inputs/")
-        }
-    )
+        bindings[original + "workload_contract.py"] = "scripts/workload_contract.py"
+    input_prefix = original + "inputs/"
+    for name in manifest["files"]:
+        if name.startswith(input_prefix):
+            bindings[name] = "tests/usertime/" + name[len(input_prefix):]
+        elif report["schema"] == 3 and name.startswith("cohorts/compute/source/"):
+            bindings[name] = name[len("cohorts/compute/source/"):]
+        elif report["schema"] == 3 and name.startswith("cohorts/compute/reference/"):
+            bindings[name] = site.compute.REFERENCE + "/" + name[len("cohorts/compute/reference/"):]
     for artifact, path in bindings.items():
         if site.digest(Path(bundle) / artifact) != report["head"]["files"][path]:
             raise ValueError("bundled evidence differs from source commit")

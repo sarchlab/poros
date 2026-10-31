@@ -65,7 +65,7 @@ class UserTimeTests(unittest.TestCase):
                 "source_state",
                 return_value=dict(commit="head", dirty=False, files={}),
             ), patch.object(gate, "digest", return_value="hash"):
-                self.assertEqual(gate.compare(args), 1)
+                self.assertEqual(gate.compare24(args), 1)
             report = json.loads(output.read_text())
             self.assertEqual(report["artifact_status"], "fail")
             self.assertEqual(report["accuracy_status"], "unverified")
@@ -166,7 +166,7 @@ class UserTimeTests(unittest.TestCase):
                 ), patch.object(
                     gate, "execute", side_effect=runner
                 ):
-                    return gate.compare(args)
+                    return gate.compare24(args)
 
             self.assertEqual(run(reference), 0)
             self.assertEqual(
