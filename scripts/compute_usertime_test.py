@@ -15,6 +15,7 @@ from unittest.mock import patch
 import accuracy_site as site
 import compute_usertime as compute
 import usertime as gate
+import publish_accuracy as publisher
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = "a" * 40
@@ -265,6 +266,99 @@ class ComputeTimeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 site.validate_bundle(bundle, SHA)
 
+
+    def committed_bundle(self):
+        # A real commit includes every declared source/reference byte. The
+        # publisher must verify Git objects, not merely a self-consistent bundle.
+        (self.source / "marker.txt").write_text("preserve unrelated content\n")
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(self.source), *args], stderr=subprocess.DEVNULL).decode().strip()
+        git("init", "-q")
+        git("config", "user.name", "test")
+        git("config", "user.email", "test@example.invalid")
+        git("add", ".")
+        git("commit", "-qm", "synthetic committed evidence fixture")
+        git("branch", "-M", "main")
+        commit = git("rev-parse", "HEAD")
+        report = copy.deepcopy(self.report)
+        state = dict(commit=commit, dirty=False, files={name: compute.legacy.digest(self.source / name) for name in git("ls-tree", "-r", "--name-only", commit).splitlines()})
+        report["head"] = state
+        report["original_report"]["head"] = state
+        path = self.directory / "committed-report.json"
+        compute.write(path, report)
+        path.with_suffix(".md").write_text("# Synthetic committed evidence test\n")
+        bundle = self.directory / "committed-bundle"
+        site.bundle(path, self.source, bundle, commit)
+        return commit, report, bundle, git
+
+    @staticmethod
+    def metadata(commit, kind="main", run=1):
+        url = f"https://github.com/sarchlab/poros/actions/runs/{run}/attempts/1"
+        result = dict(commit=commit, kind=kind, conclusion="success", run_id=run, run_attempt=1, run_url=url,
+                      evaluation_conclusion="success", evaluation_run_id=run, evaluation_run_attempt=1, evaluation_run_url=url)
+        if kind == "release":
+            result["release"] = dict(id=run, tag="v-test")
+        return result
+
+    def test_committed_schema3_publisher_verification_and_rehashed_tamper(self):
+        commit, report, bundle, git = self.committed_bundle()
+        publisher.verify_source(self.source, bundle, commit)
+        tampered = self.directory / "rehashed-bundle"
+        shutil.copytree(bundle, tampered)
+        changed = copy.deepcopy(report)
+        changed["head"]["files"]["marker.txt"] = "0" * 64
+        changed["original_report"]["head"] = changed["head"]
+        compute.write(tampered / "report.json", changed)
+        compute.write(tampered / "cohorts/original/report.json", changed["original_report"])
+        for folder in (tampered / "cohorts/original", tampered):
+            manifest = compute.read(folder / "bundle.json")
+            manifest["files"] = {name: compute.legacy.digest(folder / name) for name in manifest["files"]}
+            compute.write(folder / "bundle.json", manifest)
+        # Internal consistency alone is insufficient: a rewritten source hash
+        # must still be rejected against the actual recorded Git commit.
+        site.validate_bundle(tampered, commit)
+        with self.assertRaisesRegex(ValueError, "source hash differs from commit"):
+            publisher.verify_source(self.source, tampered, commit)
+
+        remote = self.directory / "remote.git"
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        git("remote", "add", "origin", str(remote))
+        git("push", "origin", "main:main", "main:gh-pages")
+        publication = publisher.publish(self.source, bundle, self.metadata(commit), str(remote), build=False)
+        self.assertEqual(git("ls-remote", str(remote), "gh-pages").split()[0], publication)
+        index = json.loads(subprocess.check_output(["git", "--git-dir", str(remote), "show", "gh-pages:calibration/index.json"]))
+        self.assertEqual(index["entries"][0]["summary"]["validation-legacy"]["required"], 228)
+        marker = subprocess.check_output(["git", "--git-dir", str(remote), "show", "gh-pages:marker.txt"], text=True)
+        self.assertEqual(marker, "preserve unrelated content\n")
+
+    def test_schema3_archive_reuse_release_retention_and_index(self):
+        commit, report, bundle, _ = self.committed_bundle()
+        pages = self.directory / "pages"
+        order = ["d" * 40, "c" * 40, commit]
+        site.archive(pages, bundle, self.metadata(commit), order, keep=1)
+        site.archive(pages, bundle, self.metadata(commit, "release"), order, keep=1)
+        archived = pages / "calibration/runs" / commit
+        self.assertTrue(site.reusable_bundle(archived, commit))
+        for i, revision in enumerate(("c" * 40, "d" * 40), 2):
+            next_report = copy.deepcopy(report)
+            next_report["head"]["commit"] = revision
+            next_report["original_report"]["head"]["commit"] = revision
+            path = self.directory / (revision + ".json")
+            compute.write(path, next_report)
+            path.with_suffix(".md").write_text("# Synthetic retention test\n")
+            next_bundle = self.directory / revision
+            site.bundle(path, self.source, next_bundle, revision)
+            index = site.archive(pages, next_bundle, self.metadata(revision, run=i), order, keep=1)
+        self.assertEqual({e["commit"] for e in index["entries"]}, {commit, "d" * 40})
+        self.assertTrue(site.reusable_bundle(archived, commit))
+        self.assertFalse((pages / "calibration/runs" / ("c" * 40)).exists())
+        home = (pages / "calibration/index.html").read_text()
+        self.assertTrue("Validation-legacy mean" in home, "third split missing from history")
+        self.assertTrue("v-test" in home, "release pin missing from history")
+        retained, _ = site.validate_bundle(archived, commit)
+        self.assertEqual(len(retained["cases"]), 264)
+        self.assertEqual(len(site.report_manifest(retained)["workloads"]), 44)
+        self.assertEqual(index["latest_success"], "d" * 40)
 
     def test_public_destination_never_leaves_partial_pass(self):
         output = self.directory / "partial.json"
