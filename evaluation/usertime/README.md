@@ -22,6 +22,9 @@ No offset fitting, batching, or anchor removal is used. The CPU/cache profile,
 - `tests/benchmarks/performance.json` declares six actual dimension tuples and
   complete output shapes for each of the other 40 programs.
 
+Manifest `reference_file` fields name local raw-capture or historical protocol files;
+the active committed plotting reference is `evaluation/usertime/performance-v1.json`.
+
 Both inventories execute the same rebuilt ELF files. There are no alternate
 algorithm implementations or outer repetition loops. PARSEC names still mean
 simplified compute kernels, not full applications. Tiled Facesim extends its
@@ -120,6 +123,13 @@ caller as **Accuracy / User-time accuracy report**. The publisher-facing artifac
 `user-time-accuracy-${run_attempt}`. Shards have read-only repository permissions.
 
 ## Publication and historical evidence
+
+PRs introducing a new measurement campaign must preserve the actual clean
+collection commit in the target branch's history. **Merge PR #57 with a merge
+commit (`gh pr merge 57 --merge`), not squash or rebase.** Deleting its feature
+branch is then safe: full-history checkouts still contain the measured commit.
+Prepare and publication reject a missing or non-ancestor collection commit with
+an explicit diagnostic; a tag or separately retained branch is not required.
 
 The existing branch-based Pages publisher remains. It archives recent 20 main
 commits and permanently retains release reports. Publication verifies exact Git

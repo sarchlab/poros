@@ -196,6 +196,14 @@ class ParallelAccuracyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "execution roles"):
             parallel.recorded_executor(self.plan, selected, self.witnesses, self.prepared)
 
+    def test_prepare_rejects_missing_collection_before_build(self):
+        destination = self.root / "rejected-prepare"
+        with self.assertRaisesRegex(ValueError, "collection commit.*--merge"):
+            parallel.prepare(BASE, destination, "123", 1, 8)
+        self.assertFalse((destination / "head").exists())
+        self.assertFalse((destination / "base").exists())
+
+
     def test_full_264_serial_and_recorded_report_paths_agree(self):
         args = SimpleNamespace(head=str(self.prepared / "head"), base=str(self.prepared / "base"),
                                base_unavailable=False, base_commit=BASE,

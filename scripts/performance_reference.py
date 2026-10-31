@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 import re
 import statistics
+import subprocess
 
 import compute_usertime as compute
 import native_usertime as native
@@ -23,10 +24,19 @@ def inventory(root):
     return compute.expanded_manifest(contract.load_manifest(root, performance=True), compute.contract(root))
 
 
-def output_size(case):
-    if "outputs" in case:
-        return sum(o["count"] * (8 if o["type"] == "double" else 4) for o in case["outputs"])
-    return 16 * int(case["args"][1]) if case["workload"] == "mvt" else 8
+def require_collection_ancestor(root, collection, target):
+    """A measured commit must survive branch deletion in the target's history."""
+    if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}", value) for value in (collection, target)):
+        raise ValueError("collection ancestry requires full commit identities")
+    result = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", collection, target],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+    )
+    if result.returncode != 0:
+        raise ValueError(
+            f"Native collection commit {collection} is unavailable or not an ancestor of target {target}; "
+            "preserve measured commits with a merge commit (--merge), not squash or rebase."
+        )
 
 
 def quality(row):
@@ -106,7 +116,7 @@ def validate(reference, declared):
         if row.get("quality") != quality(row):
             raise ValueError("compact quality differs from unchanged policy")
         numerical = "equations" if case["workload"] in NUMERICAL else "shape_finite" if "outputs" in case else "analytic"
-        if row.get("numerical_check") != numerical or type(row.get("output_bytes")) is not int or row["output_bytes"] != output_size(case) or not re.fullmatch(r"[0-9a-f]{64}", row.get("output_sha256", "")):
+        if row.get("numerical_check") != numerical or type(row.get("output_bytes")) is not int or row["output_bytes"] != compute.expected_output_bytes(case) or not re.fullmatch(r"[0-9a-f]{64}", row.get("output_sha256", "")):
             raise ValueError("invalid complete-output oracle identity")
     return reference
 

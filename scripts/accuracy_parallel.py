@@ -73,6 +73,7 @@ def prepare(base, directory, run_id, attempt, shards):
         raise ValueError("prepare requires clean committed source")
     base = git("rev-parse", base + "^{commit}")
     cases, _ = inputs()
+    reference.require_collection_ancestor(ROOT, read(ROOT / REFERENCE)["collection_commit"], state["commit"])
     compute_base = compute.base_declares_cohort(base)
     if not compute_base:
         raise ValueError("performance plan requires a compute-ELF-capable base")

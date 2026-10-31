@@ -28,6 +28,31 @@ class CompactReferenceTests(unittest.TestCase):
         cls.fixture = fixtures.Evidence(ROOT, Path(cls.temp.name))
         cls.declared, cls.reference = performance.load(cls.fixture.source)
 
+    def test_collection_ancestry_survives_only_history_preserving_merge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(root), *args], text=True, stderr=subprocess.DEVNULL).strip()
+            git("init")
+            git("config", "user.name", "Unit test")
+            git("config", "user.email", "unit@example.invalid")
+            (root / "source").write_text("measured source")
+            git("add", ".")
+            git("commit", "-m", "Actual collection source")
+            collection = git("rev-parse", "HEAD")
+            git("commit", "--allow-empty", "-m", "Reference data")
+            target = git("rev-parse", "HEAD")
+            performance.require_collection_ancestor(root, collection, target)
+            # Identical files do not make a rewritten commit the measured commit.
+            git("checkout", "--orphan", "squashed")
+            git("commit", "-m", "Squashed source")
+            squashed = git("rev-parse", "HEAD")
+            with self.assertRaisesRegex(ValueError, "not an ancestor.*--merge"):
+                performance.require_collection_ancestor(root, collection, squashed)
+            with self.assertRaisesRegex(ValueError, "unavailable.*--merge"):
+                performance.require_collection_ancestor(root, "0" * 40, target)
+
+
     def test_exact_264_summary_has_no_raw_observations_or_witnesses(self):
         self.assertEqual(len(self.reference["cases"]), 264)
         self.assertEqual(len(self.declared["workloads"]), 44)

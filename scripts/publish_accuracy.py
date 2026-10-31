@@ -42,6 +42,7 @@ def verify_source(source, bundle, commit):
             raise ValueError("report source hash differs from commit: " + path)
     if report["schema"] == 4:
         reference = site.read(Path(bundle) / "reference.json")
+        site.performance.require_collection_ancestor(source, reference["collection_commit"], commit)
         def committed_json(path):
             return json.loads(subprocess.check_output(["git", "-C", str(source), "show", commit + ":" + path]))
         micro = committed_json("tests/usertime/performance.json")
