@@ -25,8 +25,10 @@ Hand-derived tests check a minimal exit timeline. Deadline/cancellation is check
 at architectural steps; already-issued finite-latency work drains before return.
 The CLI uses fixed bounded latencies (maximum DRAM latency 335 cycles); it does
 not expose arbitrarily long pipeline stalls. Cancelled and timed-out loops are
-tested, including no execution for a pre-cancelled context. The 80 remaining legacy baseline cases and eight pipeline variants stay
-unchanged after removing MVT’s two superseded rows. Existing function-level hooks remain a legacy adapter only.
+tested, including no execution for a pre-cancelled context. All compute workloads
+now execute as complete ELF programs; the legacy whole-kernel golden rows and
+host application hooks have been retired. Isolated pipeline variants, ISA and
+lifecycle checks remain. See the [evaluation contract](../README.md) for required coverage.
 
 ## Workload suite and builds
 

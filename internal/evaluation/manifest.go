@@ -157,14 +157,12 @@ func (m Manifest) Validate(root string) error {
 			if w.Status == "planned" && s.Status != "planned" {
 				return fmt.Errorf("planned workload cannot have executable sizes")
 			}
-			if s.Status != "legacy" {
-				if len(s.Dimensions) == 0 || ((w.ID == "mvt" || s.Status == "planned") && (s.WorkingSetBytes == nil || *s.WorkingSetBytes == 0)) {
-					return fmt.Errorf("size needs dimensions and bytes")
-				}
-				for _, n := range s.Dimensions {
-					if n < 1 {
-						return fmt.Errorf("nonpositive dimension")
-					}
+			if len(s.Dimensions) == 0 || ((w.ID == "mvt" || s.Status == "planned") && (s.WorkingSetBytes == nil || *s.WorkingSetBytes == 0)) {
+				return fmt.Errorf("size needs dimensions and bytes")
+			}
+			for _, n := range s.Dimensions {
+				if n < 1 {
+					return fmt.Errorf("nonpositive dimension")
 				}
 			}
 			if s.Status == "elf" && w.ID == "mvt" {

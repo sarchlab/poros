@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/sarchlab/poros/internal/benchmarks"
 	"github.com/sarchlab/poros/pkg/elfsim"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -42,9 +43,17 @@ func TestNamedELFInventoryAndRun(t *testing.T) {
 	if command([]string{"run", "--root", "../..", "--cores", "2", "--case", "3", "canneal"}, &out, &diag) != 0 {
 		t.Fatal(diag.String())
 	}
-	var multi elfsim.MultiCoreResult
+	var multi struct {
+		Schema int               `json:"schema"`
+		Build  map[string]string `json:"build"`
+		Args   []string          `json:"args"`
+		elfsim.MultiCoreResult
+	}
 	if err := json.Unmarshal(out.Bytes(), &multi); err != nil {
 		t.Fatal(err)
+	}
+	if multi.Schema != 1 || multi.Build["go_version"] == "" || !reflect.DeepEqual(multi.Args, []string{"canneal", "409", "25"}) {
+		t.Fatalf("incomplete multicore provenance: %+v", multi)
 	}
 	if len(multi.Cores) != 2 {
 		t.Fatal("incorrect core count")

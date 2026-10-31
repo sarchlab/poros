@@ -3,6 +3,7 @@ package cpu
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/sarchlab/akita/v5/sim"
 	"github.com/sarchlab/akita/v5/sim/modeling"
 	"github.com/sarchlab/poros/pkg/cpu/ooo"
+	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/linuxuser"
 	"github.com/sarchlab/poros/pkg/mem"
 )
@@ -87,14 +89,38 @@ func TestMultiCoreRejectsInvalidResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer x.Close()
-	for _, configs := range [][]CoreConfig{nil, {{}}, {{Execution: x, FuncHookCycles: map[uint64]int{1: 2}}}} {
+	emulator := emu.NewEmulator()
+	alias := emu.NewEmulator()
+	alias.Regs = emulator.Regs
+	// Non-comparable dynamic interface values must not be used as map keys.
+	view := executionView{Execution: x, marker: []byte{1}}
+	for _, tc := range []struct {
+		configs []CoreConfig
+		want    string
+	}{
+		{nil, "multicore: at least one core is required"},
+		{[]CoreConfig{{}}, "multicore: exactly one emulator or execution per core is required"},
+		{[]CoreConfig{{Execution: x, Emulator: emulator}}, "multicore: exactly one emulator or execution per core is required"},
+		{[]CoreConfig{{Execution: x, FuncHookCycles: map[uint64]int{1: 2}}}, "multicore: function hooks are not supported for processes"},
+		{[]CoreConfig{{Execution: x}, {Execution: x}}, "multicore: each core requires distinct nonnil architectural registers"},
+		{[]CoreConfig{{Execution: view}, {Execution: view}}, "multicore: each core requires distinct nonnil architectural registers"},
+		{[]CoreConfig{{Emulator: emulator}, {Emulator: alias}}, "multicore: each core requires distinct nonnil architectural registers"},
+		{[]CoreConfig{{Emulator: emulator}, {Execution: emulator}}, "multicore: each core requires distinct nonnil architectural registers"},
+		{[]CoreConfig{{Emulator: &emu.Emulator{}}}, "multicore: each core requires distinct nonnil architectural registers"},
+	} {
 		func() {
 			defer func() {
-				if recover() == nil {
-					t.Error("accepted invalid multicore resources")
+				if got := fmt.Sprint(recover()); got != tc.want {
+					t.Errorf("resource validation panic %q, want %q", got, tc.want)
 				}
 			}()
-			NewMultiCorePipeline("bad", nil, 1, configs)
+			// A nil simulation proves rejection occurs before attempting to build any component.
+			NewMultiCorePipeline("bad", nil, 1, tc.configs)
 		}()
 	}
+}
+
+type executionView struct {
+	emu.Execution
+	marker []byte
 }

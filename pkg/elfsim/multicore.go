@@ -21,7 +21,8 @@ type MultiCoreResult struct {
 // RunMultiCore runs independent processes on OoO cores sharing a modeled L2.
 // This preserves the old independent-copy benchmark experiment, not Linux
 // threads, shared guest memory, or validated physical address-space isolation.
-// The runner owns execution deadlines and simulation termination.
+// The runner owns execution deadlines and simulation termination. Each deadline
+// measures host elapsed time, including time spent simulating the other cores.
 func RunMultiCore(ctx context.Context, processes []*linuxuser.Process, o Options) (result MultiCoreResult, err error) {
 	if o.Model == "" {
 		o.Model = "ooo"

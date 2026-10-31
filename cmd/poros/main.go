@@ -47,7 +47,7 @@ func namedCommand(operation string, args []string, out, diag io.Writer) int {
 	mode := fs.String("mode", "ooo", "functional, inorder or ooo")
 	cores := fs.Int("cores", 1, "independent OoO process copies with modeled shared L2 (1..64)")
 	steps := fs.Uint64("max-instructions", 200_000_000, "per-process instruction budget")
-	timeout := fs.Duration("timeout", 5*time.Minute, "per-process host timeout")
+	timeout := fs.Duration("timeout", 5*time.Minute, "host elapsed timeout (multicore deadlines include time spent simulating the other cores)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -103,7 +103,7 @@ func namedCommand(operation string, args []string, out, diag io.Writer) int {
 		}
 		processes := make([]*linuxuser.Process, *cores)
 		for i := range processes {
-			processes[i], e = linuxuser.Parse(image, linuxuser.Options{Args: append([]string{w.Name}, guestArgs...)})
+			processes[i], e = linuxuser.Parse(image, linuxuser.Options{Args: append([]string{w.Name}, guestArgs...), ExecName: w.Name})
 			if e != nil {
 				fmt.Fprintln(diag, e)
 				return 2
@@ -112,11 +112,13 @@ func namedCommand(operation string, args []string, out, diag io.Writer) int {
 		r, e := elfsim.RunMultiCore(context.Background(), processes, elfsim.Options{Model: "ooo", Limits: linuxuser.RunOptions{MaxInstructions: *steps, Timeout: *timeout, MaxOutput: 16 << 20}})
 		sum := sha256.Sum256(image)
 		report := struct {
-			Name      string   `json:"workload"`
-			BinarySHA string   `json:"binary_sha256"`
-			Args      []string `json:"args"`
+			Schema    int               `json:"schema"`
+			Build     map[string]string `json:"build"`
+			Name      string            `json:"workload"`
+			BinarySHA string            `json:"binary_sha256"`
+			Args      []string          `json:"args"`
 			elfsim.MultiCoreResult
-		}{w.Name, hex.EncodeToString(sum[:]), guestArgs, r}
+		}{1, buildMetadata(), w.Name, hex.EncodeToString(sum[:]), append([]string{w.Name}, guestArgs...), r}
 		if err := json.NewEncoder(out).Encode(report); err != nil {
 			fmt.Fprintln(diag, err)
 			return 2

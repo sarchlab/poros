@@ -46,10 +46,21 @@ func NewMultiCorePipeline(
 	if len(configs) == 0 {
 		panic("multicore: at least one core is required")
 	}
+	registers := map[*emu.Registers]bool{}
 	for _, cc := range configs {
 		if (cc.Emulator == nil) == (cc.Execution == nil) {
 			panic("multicore: exactly one emulator or execution per core is required")
 		}
+		var state *emu.Registers
+		if cc.Execution != nil {
+			state = cc.Execution.CPURegisters()
+		} else {
+			state = cc.Emulator.CPURegisters()
+		}
+		if state == nil || registers[state] {
+			panic("multicore: each core requires distinct nonnil architectural registers")
+		}
+		registers[state] = true
 		if cc.Execution != nil && len(cc.FuncHookCycles) != 0 {
 			panic("multicore: function hooks are not supported for processes")
 		}

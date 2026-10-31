@@ -46,6 +46,9 @@ type Manifest struct {
 	Workloads     []Workload
 }
 
+// Load validates the complete inventory and its checked-in source/binary provenance.
+// The repository root must contain the matching sources, ELF files and provenance
+// manifest; editing a bound source requires rebuilding before Load can succeed.
 func Load(root string) (Manifest, error) {
 	var m Manifest
 	b, err := os.ReadFile(filepath.Join(root, "tests/benchmarks/manifest.json"))
