@@ -16,11 +16,12 @@ import time
 from types import SimpleNamespace
 
 import accuracy_site as site
+import performance_reference as reference
 import compute_usertime as compute
 import usertime as user
 
 ROOT = user.ROOT
-REFERENCE = "evaluation/usertime/m2-linuxvm-user-v2.json"
+REFERENCE = reference.PATH
 SCHEMA = 1
 
 
@@ -47,14 +48,14 @@ def git(*args):
 
 
 def inputs():
-    original = user.inventory()
-    reference = compute.validate_reference(ROOT / compute.REFERENCE)
-    cases = original["cases"] + reference["contract"]["cases"]
-    if len(cases) != 264 or len({c["id"] for c in cases}) != 264:
-        raise ValueError("expected all 264 unique accuracy cases")
-    witnesses = {c["id"]: compute.witness(ROOT / compute.REFERENCE, c, row)
-                 for c, row in zip(reference["contract"]["cases"], reference["cases"])}
-    return cases, witnesses
+    declared, measured = reference.load(ROOT)
+    cases = declared["cases"]
+    identities = {r["id"]: user.OutputIdentity(r["output_bytes"], r["output_sha256"]) for r in measured["cases"]}
+    return cases, identities
+
+
+def load_witness(identities, ident):
+    return identities[ident]
 
 
 def partition(cases, count):
@@ -73,8 +74,8 @@ def prepare(base, directory, run_id, attempt, shards):
     base = git("rev-parse", base + "^{commit}")
     cases, _ = inputs()
     compute_base = compute.base_declares_cohort(base)
-    # Current 264-case acceptance supports a timing-capable base, with only the
-    # historical pre-compute base allowed to omit its new compute executions.
+    if not compute_base:
+        raise ValueError("performance plan requires a compute-ELF-capable base")
     subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", base + ":pkg/elfsim/run.go"], check=True)
     head_binary, base_binary = directory / "head", directory / "base"
     subprocess.run(["go", "build", "-o", str(head_binary), "./cmd/poros"], cwd=ROOT, check=True)
@@ -88,10 +89,9 @@ def prepare(base, directory, run_id, attempt, shards):
     if user.source_state() != state:
         raise ValueError("source changed during prepare")
     plan = dict(schema=SCHEMA, run_id=str(run_id), prepared_attempt=positive(attempt),
-                head=state, base_commit=base, compute_base_available=compute_base,
+                head=state, base_commit=base, compute_base_available=compute_base, base_capability=compute.base_capability(base),
                 binaries={"head": user.digest(head_binary), "base": user.digest(base_binary)},
-                references={"original24": user.digest(ROOT / REFERENCE),
-                            "compute240": user.digest(ROOT / compute.REFERENCE / "reference.json")},
+                references={"performance264": user.digest(ROOT / REFERENCE)},
                 cases=cases, shards=partition(cases, shards))
     if not plan["run_id"]:
         raise ValueError("run identity is required")
@@ -113,10 +113,11 @@ def load_plan(directory, run_id, attempt):
     cases, witnesses = inputs()
     if plan["cases"] != cases or plan["shards"] != partition(cases, len(plan["shards"])):
         raise ValueError("plan coverage/partition mismatch")
+    if plan["base_capability"] != compute.base_capability(plan["base_commit"]):
+        raise ValueError("plan base image capability mismatch")
     if plan["compute_base_available"] is not compute.base_declares_cohort(plan["base_commit"]):
         raise ValueError("plan base capability mismatch")
-    if plan["references"] != {"original24": user.digest(ROOT / REFERENCE),
-                               "compute240": user.digest(ROOT / compute.REFERENCE / "reference.json")}:
+    if plan["references"] != {"performance264": user.digest(ROOT / REFERENCE)}:
         raise ValueError("plan reference mismatch")
     if set(plan["binaries"]) != {"head", "base"}:
         raise ValueError("plan binaries missing")
@@ -129,14 +130,14 @@ def load_plan(directory, run_id, attempt):
 
 def roles(plan, case, witnesses):
     result = ["functional", "head"]
-    if case["id"] not in witnesses or plan["compute_base_available"]:
+    if plan["compute_base_available"] and compute.case_base_status(case, plan["base_capability"]) == "available":
         result.append("base")
     return result
 
 
-def validate_result(result, plan, case, role, witnesses):
+def validate_result(result, plan, case, role, golden):
     mode = "functional" if role == "functional" else None
-    user.validate_execution(result, case, mode, witnesses.get(case["id"]))
+    user.validate_execution(result, case, mode, expected_identity=golden)
     revision = plan["base_commit"] if role == "base" else plan["head"]["commit"]
     if result["build"].get("vcs.revision") != revision or result["build"].get("vcs.modified") != "false":
         raise ValueError("execution build provenance mismatch")
@@ -158,12 +159,13 @@ def run_shard(directory, run_id, attempt, index, output):
         record = dict(case_id=ident, executions={})
         report["records"].append(record)
         try:
+            golden = load_witness(witnesses, ident)
             for role in roles(plan, case, witnesses):
                 label = "base" if role == "base" else "head"
                 result = user.execute(Path(directory) / label, case,
                                       mode="functional" if role == "functional" else None,
-                                      expected_output=witnesses.get(ident))
-                validate_result(result, plan, case, role, witnesses)
+                                      expected_identity=golden)
+                validate_result(result, plan, case, role, golden)
                 record["executions"][role] = result
             print("accuracy shard", index, ident, "pass", flush=True)
         except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as exc:
@@ -218,16 +220,19 @@ def recorded_executor(plan, selected, witnesses, directory):
             expected_roles = roles(plan, case, witnesses)
             if set(record["executions"]) != set(expected_roles):
                 raise ValueError("missing/extra execution roles")
+            golden = load_witness(witnesses, case["id"])
             for role, result in record["executions"].items():
-                validate_result(result, plan, case, role, witnesses)
+                validate_result(result, plan, case, role, golden)
                 records[(case["id"], role)] = result
     remaining = set(records)
 
-    def execute(binary, case, mode=None, expected_output=None):
+    def execute(binary, case, mode=None, expected_output=None, expected_identity=None):
         label = "head" if Path(binary) == Path(directory) / "head" else "base" if Path(binary) == Path(directory) / "base" else None
         role = "functional" if mode == "functional" and label == "head" else label
         key = (case["id"], role)
-        if label is None or case != cases[case["id"]] or expected_output != witnesses.get(case["id"]):
+        witness = witnesses.get(case["id"])
+        output_matches = expected_output is None and expected_identity == witness
+        if label is None or case != cases[case["id"]] or not output_matches:
             raise ValueError("recorded execution request mismatch")
         if key not in remaining:
             raise ValueError("missing or reused execution")
@@ -250,7 +255,7 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
         executor, remaining = recorded_executor(plan, selected, witnesses, directory)
         args = SimpleNamespace(head=str(Path(directory) / "head"), base=str(Path(directory) / "base"),
                                base_unavailable=False, base_commit=plan["base_commit"],
-                               reference=str(ROOT / REFERENCE), compute_reference=str(ROOT / compute.REFERENCE),
+                               reference=str(ROOT / REFERENCE),
                                output=str(output))
         status = user.compare(args, executor)
         if status:
@@ -279,7 +284,7 @@ def main():
         p.add_argument("--attempt", type=int, required=True)
         if name == "prepare":
             p.add_argument("--base", required=True)
-            p.add_argument("--shards", type=int, default=8)
+            p.add_argument("--shards", type=int, default=132)
         else:
             p.add_argument("--output", required=True)
         if name == "shard":

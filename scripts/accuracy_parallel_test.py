@@ -15,6 +15,7 @@ from unittest.mock import patch
 import accuracy_parallel as parallel
 import accuracy_site as site
 import usertime as user
+import accuracy_test_support as fixtures
 
 HEAD = "a" * 40
 BASE = "ec5df8efdd80fd02a0db7bd80e9ae413c509852b"
@@ -23,12 +24,28 @@ BASE = "ec5df8efdd80fd02a0db7bd80e9ae413c509852b"
 class ParallelAccuracyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.cases, cls.witnesses = parallel.inputs()
-        original = parallel.read(parallel.ROOT / parallel.REFERENCE)
-        cls.outputs = {r["id"]: base64.b64decode(r["samples"][0]["stdout_base64"]) for r in original["cases"]}
-        cls.outputs.update(cls.witnesses)
+        # Small synthetic evidence exercises all264 transport identities without
+        # copying hundreds of MiB of production numerical witnesses per mutation.
+        temporary = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(temporary.cleanup)
+        cls.fixture = fixtures.Evidence(parallel.ROOT, Path(temporary.name))
+        original_validate = parallel.compute.validate_reference
+        validation = patch.object(parallel.compute, "validate_reference", side_effect=lambda folder, root=None: original_validate(folder, cls.fixture.source if root is None else root))
+        validation.start()
+        cls.addClassCleanup(validation.stop)
         cls.state = user.source_state()
         cls.state.update(commit=HEAD, dirty=False)
+        for module in (parallel, user, user.native):
+            patcher = patch.object(module, "ROOT", cls.fixture.source)
+            patcher.start()
+            cls.addClassCleanup(patcher.stop)
+        git_patch = patch.object(parallel, "git", return_value=HEAD)
+        git_patch.start()
+        cls.addClassCleanup(git_patch.stop)
+        cls.cases, cls.witnesses = parallel.inputs()
+        original = parallel.read(cls.fixture.source / "evaluation/usertime/m2-linuxvm-performance-v1.json")
+        cls.outputs = {r["id"]: base64.b64decode(r["samples"][0]["stdout_base64"]) for r in original["cases"]}
+        cls.outputs.update({case["id"]: parallel.compute.witness(cls.fixture.folder, case, row) for case, row in zip(cls.fixture.declared["cases"], cls.fixture.reference["cases"])})
         cls.profile = user.inventory()["profile"]
 
     def setUp(self):
@@ -40,10 +57,9 @@ class ParallelAccuracyTests(unittest.TestCase):
         for name in ("head", "base"):
             (self.prepared / name).write_text("synthetic unit binary " + name)
         self.plan = dict(schema=1, run_id="123", prepared_attempt=1,
-                         head=self.state, base_commit=BASE, compute_base_available=True,
+                         head=self.state, base_commit=BASE, compute_base_available=True, base_capability=parallel.compute.base_capability(BASE),
                          binaries={name: user.digest(self.prepared / name) for name in ("head", "base")},
-                         references={"original24": user.digest(parallel.ROOT / parallel.REFERENCE),
-                                     "compute240": user.digest(parallel.ROOT / parallel.compute.REFERENCE / "reference.json")},
+                         references={"performance264": user.digest(parallel.ROOT / parallel.REFERENCE)},
                          cases=self.cases, shards=parallel.partition(self.cases, 8))
         parallel.write(self.prepared / "plan.json", self.plan)
         self.state_patch = patch.object(user, "source_state", return_value=self.state)
@@ -145,7 +161,7 @@ class ParallelAccuracyTests(unittest.TestCase):
     def test_recorded_execution_validates_full_output_build_profile_and_metrics(self):
         case = self.cases[24]
         good = self.result(case, "head")
-        parallel.validate_result(good, self.plan, case, "head", self.witnesses)
+        parallel.validate_result(good, self.plan, case, "head", self.witnesses[case["id"]])
         mutations = [lambda r: r.update(termination="time_limit"), lambda r: r.update(exit_status=1),
                      lambda r: r.update(stdout_base64=base64.b64encode(b"wrong").decode()),
                      lambda r: r.update(binary_sha256="0"*64), lambda r: r.update(args=["wrong"]),
@@ -161,21 +177,21 @@ class ParallelAccuracyTests(unittest.TestCase):
             bad = copy.deepcopy(good)
             mutate(bad)
             with self.assertRaises(ValueError):
-                parallel.validate_result(bad, self.plan, case, "head", self.witnesses)
+                parallel.validate_result(bad, self.plan, case, "head", self.witnesses[case["id"]])
         bad = self.result(case, "functional")
         bad["instructions"] = False
         with self.assertRaises(ValueError):
-            parallel.validate_result(bad, self.plan, case, "functional", self.witnesses)
+            parallel.validate_result(bad, self.plan, case, "functional", self.witnesses[case["id"]])
         with self.assertRaisesRegex(ValueError, "functional execution"):
-            parallel.validate_result(good, self.plan, case, "functional", self.witnesses)
+            parallel.validate_result(good, self.plan, case, "functional", self.witnesses[case["id"]])
 
     def test_recorded_execution_roles_and_consumption_are_exact(self):
         selected = parallel.select_shards(self.plan, self.shards(), 1)
         executor, remaining = parallel.recorded_executor(self.plan, selected, self.witnesses, self.prepared)
-        self.assertEqual(len(remaining), 792)
-        executor(self.prepared / "head", self.cases[0], mode="functional")
+        self.assertEqual(len(remaining), sum(len(parallel.roles(self.plan,c,self.witnesses)) for c in self.cases))
+        executor(self.prepared / "head", self.cases[0], mode="functional", expected_identity=self.witnesses[self.cases[0]["id"]])
         with self.assertRaisesRegex(ValueError, "reused"):
-            executor(self.prepared / "head", self.cases[0], mode="functional")
+            executor(self.prepared / "head", self.cases[0], mode="functional", expected_identity=self.witnesses[self.cases[0]["id"]])
         del selected[0]["records"][0]["executions"]["base"]
         with self.assertRaisesRegex(ValueError, "execution roles"):
             parallel.recorded_executor(self.plan, selected, self.witnesses, self.prepared)
@@ -186,7 +202,7 @@ class ParallelAccuracyTests(unittest.TestCase):
                                reference=str(parallel.ROOT / parallel.REFERENCE),
                                compute_reference=str(parallel.ROOT / parallel.compute.REFERENCE),
                                output=str(self.root / "serial.json"))
-        def live(binary, case, mode=None, expected_output=None):
+        def live(binary, case, mode=None, expected_output=None, expected_identity=None):
             role = "functional" if mode == "functional" else "base" if Path(binary).name == "base" else "head"
             return self.result(case, role)
         with contextlib.redirect_stdout(io.StringIO()):
@@ -212,7 +228,7 @@ class ParallelAccuracyTests(unittest.TestCase):
 
     def test_shard_failure_retains_partial_records_and_continues_other_cases(self):
         ids = self.plan["shards"][0]
-        def live(binary, case, mode=None, expected_output=None):
+        def live(binary, case, mode=None, expected_output=None, expected_identity=None):
             if case["id"] == ids[0]:
                 raise ValueError("deliberate execution failure")
             role = "functional" if mode == "functional" else "base" if Path(binary).name == "base" else "head"
@@ -223,7 +239,8 @@ class ParallelAccuracyTests(unittest.TestCase):
         self.assertEqual(report["status"], "fail")
         self.assertEqual(len(report["records"]), 33)
         self.assertEqual(len(report["errors"]), 1)
-        self.assertEqual(set(report["records"][-1]["executions"]), {"functional", "head", "base"})
+        last = next(c for c in self.cases if c["id"] == report["records"][-1]["case_id"])
+        self.assertEqual(set(report["records"][-1]["executions"]), set(parallel.roles(self.plan,last,self.witnesses)))
 
     def test_strict_json_rejects_nonfinite_values(self):
         path = self.root / "bad.json"

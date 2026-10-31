@@ -1,21 +1,21 @@
 #include "../../polybench/kernels/kernel_doitgen.c"
 #include "runtime.h"
 
-static double A[15000];
-static double C4[900];
-static double sum[30];
+static double A[960000];
+static double C4[14400];
+static double sum[120];
 
 int workload(int argc, char **argv) {
   if (argc != 4)
     return 2;
   int nr;
-  if (!argument(argv[1], 1, 25, &nr))
+  if (!argument(argv[1], 1, 100, &nr))
     return 2;
   int nq;
-  if (!argument(argv[2], 1, 20, &nq))
+  if (!argument(argv[2], 1, 80, &nq))
     return 2;
   int np;
-  if (!argument(argv[3], 1, 30, &np))
+  if (!argument(argv[3], 1, 120, &np))
     return 2;
   for (int i = 0; i < nr; i++)
     for (int j = 0; j < nq; j++)

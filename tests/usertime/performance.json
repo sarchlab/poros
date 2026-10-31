@@ -1,0 +1,523 @@
+{
+  "schema": 2,
+  "suite": "whole-program-performance-six-point-v1",
+  "compiler": "aarch64-linux-musl-gcc (GCC) 14.2.0",
+  "sources": {
+    "start.S": "0236d9d08552be0c4f3776988b5f23ae2576dd07e635dde12c0b8dcea2a4aab6",
+    "runtime.h": "0d88776b5d232e0dba662d738619cf206e254f9fbf7da63889b2374de7a8a759",
+    "program.c": "0786eaf32bb745712595d6ed178ba156cb61d5cfe0551da93e6d69e8c8521c95",
+    "mvt.c": "fc21c7e452ee25081d9b3a30c7c3e97a24e070c103bf5e6688c0d9b3849ff148",
+    "layout.ld": "9d942ff9006b4a5269475b6a0b455837d1c82c8b2bd5d5ee8f898f782129b5e9",
+    "build.sh": "9b4d48064397d0fb76290842c6c18487da7e0484662a0c82b615e989596d148a",
+    "provenance.py": "cf26a528722f8f538ce91c47f026ea25b3b7276fcc446c84b11f9baeeaa7bb95"
+  },
+  "workloads": [
+    {
+      "id": "integer",
+      "points": [
+        16000000,
+        20000000,
+        24000000,
+        28000000,
+        32000000,
+        40000000
+      ],
+      "axis": "iterations",
+      "split": "calibration"
+    },
+    {
+      "id": "memory",
+      "points": [
+        8192,
+        65536,
+        262144,
+        1048576,
+        8388608,
+        33554432
+      ],
+      "axis": "working_set_bytes",
+      "split": "held_out",
+      "iterations": 32000000
+    },
+    {
+      "id": "branch",
+      "points": [
+        6000000,
+        7000000,
+        8000000,
+        9000000,
+        10000000,
+        11000000
+      ],
+      "axis": "iterations",
+      "split": "held_out"
+    },
+    {
+      "id": "mvt",
+      "points": [
+        3072,
+        3200,
+        3328,
+        3456,
+        3584,
+        3712
+      ],
+      "axis": "dimension",
+      "split": "calibration"
+    }
+  ],
+  "cases": [
+    {
+      "id": "integer-16000000",
+      "workload": "integer",
+      "point": 16000000,
+      "axis": "iterations",
+      "split": "calibration",
+      "args": [
+        "program",
+        "16000000"
+      ],
+      "env": [],
+      "file": "integer.elf",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "integer-20000000",
+      "workload": "integer",
+      "point": 20000000,
+      "axis": "iterations",
+      "split": "calibration",
+      "args": [
+        "program",
+        "20000000"
+      ],
+      "env": [],
+      "file": "integer.elf",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "integer-24000000",
+      "workload": "integer",
+      "point": 24000000,
+      "axis": "iterations",
+      "split": "calibration",
+      "args": [
+        "program",
+        "24000000"
+      ],
+      "env": [],
+      "file": "integer.elf",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "integer-28000000",
+      "workload": "integer",
+      "point": 28000000,
+      "axis": "iterations",
+      "split": "calibration",
+      "args": [
+        "program",
+        "28000000"
+      ],
+      "env": [],
+      "file": "integer.elf",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "integer-32000000",
+      "workload": "integer",
+      "point": 32000000,
+      "axis": "iterations",
+      "split": "calibration",
+      "args": [
+        "program",
+        "32000000"
+      ],
+      "env": [],
+      "file": "integer.elf",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "integer-40000000",
+      "workload": "integer",
+      "point": 40000000,
+      "axis": "iterations",
+      "split": "calibration",
+      "args": [
+        "program",
+        "40000000"
+      ],
+      "env": [],
+      "file": "integer.elf",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "memory-8192",
+      "workload": "memory",
+      "point": 8192,
+      "axis": "working_set_bytes",
+      "split": "held_out",
+      "args": [
+        "program",
+        "32000000",
+        "8192"
+      ],
+      "env": [],
+      "file": "memory.elf",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 33566720
+    },
+    {
+      "id": "memory-65536",
+      "workload": "memory",
+      "point": 65536,
+      "axis": "working_set_bytes",
+      "split": "held_out",
+      "args": [
+        "program",
+        "32000000",
+        "65536"
+      ],
+      "env": [],
+      "file": "memory.elf",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 33566720
+    },
+    {
+      "id": "memory-262144",
+      "workload": "memory",
+      "point": 262144,
+      "axis": "working_set_bytes",
+      "split": "held_out",
+      "args": [
+        "program",
+        "32000000",
+        "262144"
+      ],
+      "env": [],
+      "file": "memory.elf",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 33566720
+    },
+    {
+      "id": "memory-1048576",
+      "workload": "memory",
+      "point": 1048576,
+      "axis": "working_set_bytes",
+      "split": "held_out",
+      "args": [
+        "program",
+        "32000000",
+        "1048576"
+      ],
+      "env": [],
+      "file": "memory.elf",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 33566720
+    },
+    {
+      "id": "memory-8388608",
+      "workload": "memory",
+      "point": 8388608,
+      "axis": "working_set_bytes",
+      "split": "held_out",
+      "args": [
+        "program",
+        "32000000",
+        "8388608"
+      ],
+      "env": [],
+      "file": "memory.elf",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 33566720
+    },
+    {
+      "id": "memory-33554432",
+      "workload": "memory",
+      "point": 33554432,
+      "axis": "working_set_bytes",
+      "split": "held_out",
+      "args": [
+        "program",
+        "32000000",
+        "33554432"
+      ],
+      "env": [],
+      "file": "memory.elf",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 33566720
+    },
+    {
+      "id": "branch-6000000",
+      "workload": "branch",
+      "point": 6000000,
+      "axis": "iterations",
+      "split": "held_out",
+      "args": [
+        "program",
+        "6000000"
+      ],
+      "env": [],
+      "file": "branch.elf",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "branch-7000000",
+      "workload": "branch",
+      "point": 7000000,
+      "axis": "iterations",
+      "split": "held_out",
+      "args": [
+        "program",
+        "7000000"
+      ],
+      "env": [],
+      "file": "branch.elf",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "branch-8000000",
+      "workload": "branch",
+      "point": 8000000,
+      "axis": "iterations",
+      "split": "held_out",
+      "args": [
+        "program",
+        "8000000"
+      ],
+      "env": [],
+      "file": "branch.elf",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "branch-9000000",
+      "workload": "branch",
+      "point": 9000000,
+      "axis": "iterations",
+      "split": "held_out",
+      "args": [
+        "program",
+        "9000000"
+      ],
+      "env": [],
+      "file": "branch.elf",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "branch-10000000",
+      "workload": "branch",
+      "point": 10000000,
+      "axis": "iterations",
+      "split": "held_out",
+      "args": [
+        "program",
+        "10000000"
+      ],
+      "env": [],
+      "file": "branch.elf",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "branch-11000000",
+      "workload": "branch",
+      "point": 11000000,
+      "axis": "iterations",
+      "split": "held_out",
+      "args": [
+        "program",
+        "11000000"
+      ],
+      "env": [],
+      "file": "branch.elf",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 12288
+    },
+    {
+      "id": "mvt-3072",
+      "workload": "mvt",
+      "point": 3072,
+      "axis": "dimension",
+      "split": "calibration",
+      "args": [
+        "program",
+        "3072"
+      ],
+      "env": [],
+      "file": "mvt.elf",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 134361088
+    },
+    {
+      "id": "mvt-3200",
+      "workload": "mvt",
+      "point": 3200,
+      "axis": "dimension",
+      "split": "calibration",
+      "args": [
+        "program",
+        "3200"
+      ],
+      "env": [],
+      "file": "mvt.elf",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 134361088
+    },
+    {
+      "id": "mvt-3328",
+      "workload": "mvt",
+      "point": 3328,
+      "axis": "dimension",
+      "split": "calibration",
+      "args": [
+        "program",
+        "3328"
+      ],
+      "env": [],
+      "file": "mvt.elf",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 134361088
+    },
+    {
+      "id": "mvt-3456",
+      "workload": "mvt",
+      "point": 3456,
+      "axis": "dimension",
+      "split": "calibration",
+      "args": [
+        "program",
+        "3456"
+      ],
+      "env": [],
+      "file": "mvt.elf",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 134361088
+    },
+    {
+      "id": "mvt-3584",
+      "workload": "mvt",
+      "point": 3584,
+      "axis": "dimension",
+      "split": "calibration",
+      "args": [
+        "program",
+        "3584"
+      ],
+      "env": [],
+      "file": "mvt.elf",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 134361088
+    },
+    {
+      "id": "mvt-3712",
+      "workload": "mvt",
+      "point": 3712,
+      "axis": "dimension",
+      "split": "calibration",
+      "args": [
+        "program",
+        "3712"
+      ],
+      "env": [],
+      "file": "mvt.elf",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
+      "model": "ooo",
+      "frequency_hz": 3490000000,
+      "mapped_image_bytes": 134361088
+    }
+  ],
+  "profile": {
+    "configuration": {
+      "freq": 3490000000,
+      "fetch_width": 3,
+      "retire_width": 8,
+      "rob_capacity": 256,
+      "num_int": 6,
+      "num_fp": 4,
+      "num_ldst": 4,
+      "branch_penalty": 17,
+      "load_latency": 5,
+      "fp_phys_limit": 72,
+      "store_buffer_size": 56,
+      "num_mshr_entries": 12,
+      "branch_prediction": true,
+      "predictor": {
+        "bimodal_size": 4096,
+        "tagged_table_size": 2048,
+        "btb_size": 2048,
+        "btb_ways": 4,
+        "ras_size": 32,
+        "tagged_hist_len": 32
+      },
+      "func_hook_cycles": null
+    },
+    "cache_config": {
+      "L1Size": 131072,
+      "L1Ways": 8,
+      "L1LineSize": 64,
+      "L2Size": 16777216,
+      "L2Ways": 16,
+      "L2LineSize": 128,
+      "L1Latency": 5,
+      "L2Latency": 14,
+      "DRAMLatency": 335
+    }
+  },
+  "reference_file": "m2-linuxvm-performance-v1.json"
+}

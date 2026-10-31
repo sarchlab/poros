@@ -1,7 +1,7 @@
 #include "../../polybench/kernels/kernel_seidel_2d.c"
 #include "runtime.h"
 
-static double A[14400];
+static double A[1048576];
 
 int workload(int argc, char **argv) {
   if (argc != 3)
@@ -10,7 +10,7 @@ int workload(int argc, char **argv) {
   if (!argument(argv[1], 1, 40, &tsteps))
     return 2;
   int n;
-  if (!argument(argv[2], 3, 120, &n))
+  if (!argument(argv[2], 3, 1024, &n))
     return 2;
   for (int i = 0; i < n; i++)
     for (int j = 0; j < n; j++) {

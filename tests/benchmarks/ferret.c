@@ -1,18 +1,18 @@
 #include "../../parsec/kernels/ferret.c"
 #include "runtime.h"
 
-static double queries[256];
-static double database[2048];
-static double result[64];
+static double queries[16384];
+static double database[65536];
+static double result[4096];
 
 int workload(int argc, char **argv) {
   if (argc != 5)
     return 2;
   int nq;
-  if (!argument(argv[1], 1, 16, &nq))
+  if (!argument(argv[1], 1, 1024, &nq))
     return 2;
   int nd;
-  if (!argument(argv[2], 1, 128, &nd))
+  if (!argument(argv[2], 1, 4096, &nd))
     return 2;
   int dim;
   if (!argument(argv[3], 1, 16, &dim))

@@ -23,6 +23,16 @@ ROLES = {
 }
 SHA256 = re.compile(r"[0-9a-f]{64}")
 NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
+PERFORMANCE_SUITE = "whole-program-performance-six-point-v1"
+PERFORMANCE_MANIFEST = "tests/usertime/performance.json"
+PERFORMANCE_REFERENCE = "evaluation/usertime/m2-linuxvm-performance-v1.json"
+
+
+def manifest_path(manifest):
+    validate_manifest(manifest)
+    return PERFORMANCE_MANIFEST if manifest.get("suite") == PERFORMANCE_SUITE else "tests/usertime/manifest.json"
+
+
 MVT_REL_TOL = 1e-12
 MVT_ABS_TOL = 1e-11
 
@@ -40,9 +50,10 @@ def validate_manifest(m):
         if case_ids(m) != LEGACY_IDS:
             raise ValueError("missing required legacy user-time cases")
         return m
-    if m.get("schema") != 2 or m.get("suite") != "whole-program-six-point-v2":
+    performance = m.get("suite") == PERFORMANCE_SUITE
+    if m.get("schema") != 2 or m.get("suite") not in ("whole-program-six-point-v2", PERFORMANCE_SUITE):
         raise ValueError("unsupported workload manifest")
-    if m.get("reference_file") != "m2-linuxvm-user-v2.json":
+    if m.get("reference_file") != ("m2-linuxvm-performance-v1.json" if performance else "m2-linuxvm-user-v2.json"):
         raise ValueError("invalid reference file")
     groups = m["workloads"]
     if [g["id"] for g in groups] != list(ROLES):
@@ -66,13 +77,13 @@ def validate_manifest(m):
         ):
             raise ValueError("invalid sweep axis")
         if name == "memory" and (
-            g.get("iterations") != 4194304
+            g.get("iterations") != (32000000 if performance else 4194304)
             or any(n < 8 or n > 33554432 or n & (n - 1) for n in points)
         ):
             raise ValueError("invalid memory sweep")
-        if name == "mvt" and any(n > 1536 for n in points):
+        if name == "mvt" and any(n > (4096 if performance else 1536) for n in points):
             raise ValueError("MVT dimension out of range")
-        if name in ("integer", "branch") and any(n > 10000000 for n in points):
+        if name in ("integer", "branch") and any(n > (64000000 if performance else 10000000) for n in points):
             raise ValueError("iteration limit exceeded")
         for n in points:
             expected.append((g, n))
@@ -100,6 +111,8 @@ def validate_manifest(m):
             raise ValueError(
                 "case disagrees with declared sweep: " + c.get("id", "missing")
             )
+        if performance and (type(c.get("mapped_image_bytes")) is not int or not 0 < c["mapped_image_bytes"] <= 256 << 20 or c["mapped_image_bytes"] % 4096):
+            raise ValueError("invalid mapped image size")
         if not SHA256.fullmatch(c.get("sha256", "")):
             raise ValueError("invalid ELF digest")
     if not m.get("sources") or any(
@@ -110,13 +123,17 @@ def validate_manifest(m):
     return m
 
 
-def load_manifest(root):
+def load_manifest(root, performance=False):
     folder = Path(root) / "tests/usertime"
-    m = validate_manifest(json.loads((folder / "manifest.json").read_text()))
+    m = validate_manifest(json.loads((folder / ("performance.json" if performance else "manifest.json")).read_text()))
+    if performance and m.get("suite") != PERFORMANCE_SUITE:
+        raise ValueError("active timing manifest must declare the performance suite")
     for name, sha in m["sources"].items():
         if digest(folder / name) != sha:
             raise ValueError("source hash mismatch: " + name)
     for c in m["cases"]:
+        if performance and mapped_image_bytes(folder / c["file"]) != c["mapped_image_bytes"]:
+            raise ValueError("mapped image size changed")
         if digest(folder / c["file"]) != c["sha256"]:
             raise ValueError("ELF hash mismatch: " + c["id"])
     return m
@@ -202,3 +219,24 @@ def check_output(case, actual, golden=None):
             got, want, rel_tol=MVT_REL_TOL, abs_tol=MVT_ABS_TOL
         ):
             raise ValueError(f"MVT output element {i} mismatch: {got} versus {want}")
+
+
+def mapped_image_bytes(path):
+    """Page-rounded PT_LOAD total, matching the bounded ELF loader."""
+    data = Path(path).read_bytes()
+    if len(data) > 16 << 20 or len(data) < 64 or data[:6] != b'\x7fELF\x02\x01':
+        raise ValueError("invalid bounded ELF64 input")
+    offset = struct.unpack_from('<Q', data, 32)[0]
+    width, count = struct.unpack_from('<HH', data, 54)
+    if width != 56 or not 0 < count <= 128 or offset + count * width > len(data):
+        raise ValueError("invalid ELF program header table")
+    total = 0
+    for index in range(count):
+        kind, _, _, address, _, _, size, _ = struct.unpack_from('<IIQQQQQQ', data, offset + index * width)
+        if kind == 1 and size:
+            if address < 4096 or address + size > 1 << 48:
+                raise ValueError("invalid ELF address range")
+            total += ((address + size + 4095) & ~4095) - (address & ~4095)
+    if not 0 < total <= 256 << 20:
+        raise ValueError("ELF exceeds supported image bound")
+    return total

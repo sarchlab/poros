@@ -280,3 +280,34 @@ func TestELFAcceptedHeaderEdges(t *testing.T) {
 		}
 	})
 }
+
+func TestELFMappedImageBound(t *testing.T) {
+	// The final RW segment can have a large anonymous BSS without enlarging the
+	// file. Two earlier pages count toward the same total mapped-image bound.
+	for _, tc := range []struct {
+		name string
+		size uint64
+		want string
+	}{
+		{"above-legacy-64MiB", 65 << 20, ""},
+		{"exact-256MiB", MaxELFImageBytes - 2*ELFPageSize, ""},
+		{"one-byte-over-rounded-bound", MaxELFImageBytes - 2*ELFPageSize + 1, "limit"},
+		{"overflow", ^uint64(0), "malformed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := fixtureELF(t)
+			binary.LittleEndian.PutUint64(b[176+40:], tc.size)
+			_, err := ParseELF(b)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			var typed *ELFError
+			if !errors.As(err, &typed) || typed.Kind != tc.want {
+				t.Fatalf("got %v want %s", err, tc.want)
+			}
+		})
+	}
+}

@@ -69,8 +69,8 @@ func TestWorkloadInputBounds(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"mvt", nil}, {"mvt", []string{"0"}}, {"mvt", []string{"1537"}}, {"mvt", []string{"18446744073709551616"}}, {"mvt", []string{"-1"}}, {"mvt", []string{""}},
-		{"integer", []string{"10000001"}}, {"branch", []string{"1x"}},
+		{"mvt", nil}, {"mvt", []string{"0"}}, {"mvt", []string{"4097"}}, {"mvt", []string{"18446744073709551616"}}, {"mvt", []string{"-1"}}, {"mvt", []string{""}},
+		{"integer", []string{"64000001"}}, {"branch", []string{"1x"}},
 		{"memory", []string{"10"}}, {"memory", []string{"10", "7"}}, {"memory", []string{"10", "24"}}, {"memory", []string{"10", "67108864"}},
 	} {
 		t.Run(tc.name+"/"+stringArgs(tc.args), func(t *testing.T) {

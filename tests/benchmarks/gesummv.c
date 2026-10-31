@@ -1,17 +1,17 @@
 #include "../../polybench/kernels/kernel_gesummv.c"
 #include "runtime.h"
 
-static double A[62500];
-static double B[62500];
-static double x[250];
-static double y[250];
-static double tmp[250];
+static double A[5308416];
+static double B[5308416];
+static double x[2304];
+static double y[2304];
+static double tmp[2304];
 
 int workload(int argc, char **argv) {
   if (argc != 2)
     return 2;
   int n;
-  if (!argument(argv[1], 1, 250, &n))
+  if (!argument(argv[1], 1, 2304, &n))
     return 2;
   for (int i = 0; i < n; i++) {
     x[i] = (double)(i % n) / n;

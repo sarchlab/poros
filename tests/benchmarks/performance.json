@@ -1,0 +1,4610 @@
+{
+  "schema_version": 1,
+  "workloads": [
+    {
+      "name": "atax",
+      "suite": "polybench",
+      "source": "tests/benchmarks/atax.c",
+      "kernel": "tests/benchmarks/atax_kernel.h",
+      "binary": "tests/benchmarks/atax.elf",
+      "dimensions": [
+        {
+          "name": "m",
+          "min": 1,
+          "max": 4224
+        },
+        {
+          "name": "n",
+          "min": 1,
+          "max": 4224
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "3000",
+            "3000"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3000
+            },
+            {
+              "type": "double",
+              "count": 3000
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "3200",
+            "3200"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3200
+            },
+            {
+              "type": "double",
+              "count": 3200
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "3456",
+            "3456"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3456
+            },
+            {
+              "type": "double",
+              "count": 3456
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "3712",
+            "3712"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3712
+            },
+            {
+              "type": "double",
+              "count": 3712
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "3968",
+            "3968"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3968
+            },
+            {
+              "type": "double",
+              "count": 3968
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "4224",
+            "4224"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 4224
+            },
+            {
+              "type": "double",
+              "count": 4224
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 142848000
+    },
+    {
+      "name": "gemm",
+      "suite": "polybench",
+      "source": "tests/benchmarks/gemm.c",
+      "kernel": "polybench/kernels/kernel_gemm.c",
+      "binary": "tests/benchmarks/gemm.elf",
+      "dimensions": [
+        {
+          "name": "ni",
+          "min": 1,
+          "max": 480
+        },
+        {
+          "name": "nj",
+          "min": 1,
+          "max": 560
+        },
+        {
+          "name": "nk",
+          "min": 1,
+          "max": 640
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "273",
+            "318",
+            "364"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 86814
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "295",
+            "344",
+            "394"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 101480
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "321",
+            "374",
+            "428"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 120054
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "347",
+            "404",
+            "462"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 140188
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "372",
+            "434",
+            "496"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 161448
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "398",
+            "464",
+            "531"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 184672
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 7487488
+    },
+    {
+      "name": "2mm",
+      "suite": "polybench",
+      "source": "tests/benchmarks/2mm.c",
+      "kernel": "polybench/kernels/kernel_2mm.c",
+      "binary": "tests/benchmarks/2mm.elf",
+      "dimensions": [
+        {
+          "name": "ni",
+          "min": 1,
+          "max": 320
+        },
+        {
+          "name": "nj",
+          "min": 1,
+          "max": 400
+        },
+        {
+          "name": "nk",
+          "min": 1,
+          "max": 560
+        },
+        {
+          "name": "nl",
+          "min": 1,
+          "max": 640
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "92",
+            "115",
+            "161",
+            "184"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 16928
+            },
+            {
+              "type": "double",
+              "count": 10580
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "100",
+            "125",
+            "174",
+            "199"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 19900
+            },
+            {
+              "type": "double",
+              "count": 12500
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "108",
+            "135",
+            "190",
+            "217"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 23436
+            },
+            {
+              "type": "double",
+              "count": 14580
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "117",
+            "146",
+            "205",
+            "234"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 27378
+            },
+            {
+              "type": "double",
+              "count": 17082
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "126",
+            "157",
+            "220",
+            "251"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 31626
+            },
+            {
+              "type": "double",
+              "count": 19782
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "134",
+            "168",
+            "235",
+            "269"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 36046
+            },
+            {
+              "type": "double",
+              "count": 22512
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 7946240
+    },
+    {
+      "name": "3mm",
+      "suite": "polybench",
+      "source": "tests/benchmarks/3mm.c",
+      "kernel": "polybench/kernels/kernel_3mm.c",
+      "binary": "tests/benchmarks/3mm.elf",
+      "dimensions": [
+        {
+          "name": "ni",
+          "min": 1,
+          "max": 320
+        },
+        {
+          "name": "nj",
+          "min": 1,
+          "max": 400
+        },
+        {
+          "name": "nk",
+          "min": 1,
+          "max": 480
+        },
+        {
+          "name": "nl",
+          "min": 1,
+          "max": 560
+        },
+        {
+          "name": "nm",
+          "min": 1,
+          "max": 640
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "76",
+            "95",
+            "113",
+            "132",
+            "151"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 10032
+            },
+            {
+              "type": "double",
+              "count": 7220
+            },
+            {
+              "type": "double",
+              "count": 12540
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "82",
+            "102",
+            "123",
+            "143",
+            "164"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 11726
+            },
+            {
+              "type": "double",
+              "count": 8364
+            },
+            {
+              "type": "double",
+              "count": 14586
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "89",
+            "111",
+            "133",
+            "156",
+            "178"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 13884
+            },
+            {
+              "type": "double",
+              "count": 9879
+            },
+            {
+              "type": "double",
+              "count": 17316
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "96",
+            "120",
+            "144",
+            "168",
+            "192"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 16128
+            },
+            {
+              "type": "double",
+              "count": 11520
+            },
+            {
+              "type": "double",
+              "count": 20160
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "103",
+            "129",
+            "155",
+            "181",
+            "206"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 18643
+            },
+            {
+              "type": "double",
+              "count": 13287
+            },
+            {
+              "type": "double",
+              "count": 23349
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "110",
+            "138",
+            "165",
+            "193",
+            "221"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 21230
+            },
+            {
+              "type": "double",
+              "count": 15180
+            },
+            {
+              "type": "double",
+              "count": 26634
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 11939840
+    },
+    {
+      "name": "bicg",
+      "suite": "polybench",
+      "source": "tests/benchmarks/bicg.c",
+      "kernel": "polybench/kernels/kernel_bicg.c",
+      "binary": "tests/benchmarks/bicg.elf",
+      "dimensions": [
+        {
+          "name": "m",
+          "min": 1,
+          "max": 2816
+        },
+        {
+          "name": "n",
+          "min": 1,
+          "max": 2816
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "1881",
+            "1881"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1881
+            },
+            {
+              "type": "double",
+              "count": 1881
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "2036",
+            "2036"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2036
+            },
+            {
+              "type": "double",
+              "count": 2036
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "2213",
+            "2213"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2213
+            },
+            {
+              "type": "double",
+              "count": 2213
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "2390",
+            "2390"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2390
+            },
+            {
+              "type": "double",
+              "count": 2390
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "2567",
+            "2567"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2567
+            },
+            {
+              "type": "double",
+              "count": 2567
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "2744",
+            "2744"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2744
+            },
+            {
+              "type": "double",
+              "count": 2744
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 63541248
+    },
+    {
+      "name": "gesummv",
+      "suite": "polybench",
+      "source": "tests/benchmarks/gesummv.c",
+      "kernel": "polybench/kernels/kernel_gesummv.c",
+      "binary": "tests/benchmarks/gesummv.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 2304
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "1800"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1800
+            },
+            {
+              "type": "double",
+              "count": 1800
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "1900"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1900
+            },
+            {
+              "type": "double",
+              "count": 1900
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "2000"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2000
+            },
+            {
+              "type": "double",
+              "count": 2000
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "2100"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2100
+            },
+            {
+              "type": "double",
+              "count": 2100
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "2200"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2200
+            },
+            {
+              "type": "double",
+              "count": 2200
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "2304"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2304
+            },
+            {
+              "type": "double",
+              "count": 2304
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 85000192
+    },
+    {
+      "name": "gemver",
+      "suite": "polybench",
+      "source": "tests/benchmarks/gemver.c",
+      "kernel": "polybench/kernels/kernel_gemver.c",
+      "binary": "tests/benchmarks/gemver.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 2816
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "1300"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1300
+            },
+            {
+              "type": "double",
+              "count": 1300
+            },
+            {
+              "type": "double",
+              "count": 1690000
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "1407"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1407
+            },
+            {
+              "type": "double",
+              "count": 1407
+            },
+            {
+              "type": "double",
+              "count": 1979649
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "1530"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1530
+            },
+            {
+              "type": "double",
+              "count": 1530
+            },
+            {
+              "type": "double",
+              "count": 2340900
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "1652"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1652
+            },
+            {
+              "type": "double",
+              "count": 1652
+            },
+            {
+              "type": "double",
+              "count": 2729104
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "1775"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1775
+            },
+            {
+              "type": "double",
+              "count": 1775
+            },
+            {
+              "type": "double",
+              "count": 3150625
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "1897"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1897
+            },
+            {
+              "type": "double",
+              "count": 1897
+            },
+            {
+              "type": "double",
+              "count": 3598609
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 63631360
+    },
+    {
+      "name": "doitgen",
+      "suite": "polybench",
+      "source": "tests/benchmarks/doitgen.c",
+      "kernel": "polybench/kernels/kernel_doitgen.c",
+      "binary": "tests/benchmarks/doitgen.elf",
+      "dimensions": [
+        {
+          "name": "nr",
+          "min": 1,
+          "max": 100
+        },
+        {
+          "name": "nq",
+          "min": 1,
+          "max": 80
+        },
+        {
+          "name": "np",
+          "min": 1,
+          "max": 120
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "43",
+            "34",
+            "51"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 74562
+            },
+            {
+              "type": "double",
+              "count": 51
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "46",
+            "37",
+            "55"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 93610
+            },
+            {
+              "type": "double",
+              "count": 55
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "50",
+            "40",
+            "60"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 120000
+            },
+            {
+              "type": "double",
+              "count": 60
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "54",
+            "43",
+            "65"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 150930
+            },
+            {
+              "type": "double",
+              "count": 65
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "58",
+            "46",
+            "70"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 186760
+            },
+            {
+              "type": "double",
+              "count": 70
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "62",
+            "50",
+            "74"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 229400
+            },
+            {
+              "type": "double",
+              "count": 74
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 7806976
+    },
+    {
+      "name": "trisolv",
+      "suite": "polybench",
+      "source": "tests/benchmarks/trisolv.c",
+      "kernel": "polybench/kernels/kernel_trisolv.c",
+      "binary": "tests/benchmarks/trisolv.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 2816
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "1930"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1930
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "2089"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2089
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "2271"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2271
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "2453"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2453
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "2634"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2634
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "2816"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2816
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 63496192
+    },
+    {
+      "name": "durbin",
+      "suite": "polybench",
+      "source": "tests/benchmarks/durbin.c",
+      "kernel": "polybench/kernels/kernel_durbin.c",
+      "binary": "tests/benchmarks/durbin.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 8192
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "4450"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 4450
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "4817"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 4817
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "5236"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 5236
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "5655"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 5655
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "6073"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 6073
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "6492"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 6492
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 208896
+    },
+    {
+      "name": "jacobi1d",
+      "suite": "polybench",
+      "source": "tests/benchmarks/jacobi1d.c",
+      "kernel": "polybench/kernels/kernel_jacobi_1d.c",
+      "binary": "tests/benchmarks/jacobi1d.elf",
+      "dimensions": [
+        {
+          "name": "tsteps",
+          "min": 1,
+          "max": 100
+        },
+        {
+          "name": "n",
+          "min": 3,
+          "max": 262144
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "100",
+            "179696"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 179696
+            },
+            {
+              "type": "double",
+              "count": 179696
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "100",
+            "194494"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 194494
+            },
+            {
+              "type": "double",
+              "count": 194494
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "100",
+            "211406"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 211406
+            },
+            {
+              "type": "double",
+              "count": 211406
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "100",
+            "228318"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 228318
+            },
+            {
+              "type": "double",
+              "count": 228318
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "100",
+            "245232"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 245232
+            },
+            {
+              "type": "double",
+              "count": 245232
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "100",
+            "262144"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 262144
+            },
+            {
+              "type": "double",
+              "count": 262144
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 4206592
+    },
+    {
+      "name": "syrk",
+      "suite": "polybench",
+      "source": "tests/benchmarks/syrk.c",
+      "kernel": "polybench/kernels/kernel_syrk.c",
+      "binary": "tests/benchmarks/syrk.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 640
+        },
+        {
+          "name": "m",
+          "min": 1,
+          "max": 480
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "353",
+            "265"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 124609
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "383",
+            "287"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 146689
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "416",
+            "312"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 173056
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "449",
+            "337"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 201601
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "482",
+            "362"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 232324
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "516",
+            "387"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 266256
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 5746688
+    },
+    {
+      "name": "syr2k",
+      "suite": "polybench",
+      "source": "tests/benchmarks/syr2k.c",
+      "kernel": "polybench/kernels/kernel_syr2k.c",
+      "binary": "tests/benchmarks/syr2k.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 640
+        },
+        {
+          "name": "m",
+          "min": 1,
+          "max": 480
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "363",
+            "272"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 131769
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "393",
+            "294"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 154449
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "426",
+            "320"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 181476
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "460",
+            "346"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 211600
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "494",
+            "370"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 244036
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "529",
+            "396"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 279841
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 8204288
+    },
+    {
+      "name": "trmm",
+      "suite": "polybench",
+      "source": "tests/benchmarks/trmm.c",
+      "kernel": "polybench/kernels/kernel_trmm.c",
+      "binary": "tests/benchmarks/trmm.elf",
+      "dimensions": [
+        {
+          "name": "m",
+          "min": 1,
+          "max": 480
+        },
+        {
+          "name": "n",
+          "min": 1,
+          "max": 640
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "179",
+            "239"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 42781
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "194",
+            "259"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 50246
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "211",
+            "281"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 59291
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "228",
+            "304"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 69312
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "245",
+            "327"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 80115
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "262",
+            "349"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 91438
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 4313088
+    },
+    {
+      "name": "symm",
+      "suite": "polybench",
+      "source": "tests/benchmarks/symm.c",
+      "kernel": "polybench/kernels/kernel_symm.c",
+      "binary": "tests/benchmarks/symm.elf",
+      "dimensions": [
+        {
+          "name": "m",
+          "min": 1,
+          "max": 480
+        },
+        {
+          "name": "n",
+          "min": 1,
+          "max": 640
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "314",
+            "418"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 131252
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "339",
+            "453"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 153567
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "370",
+            "493"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 182410
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "398",
+            "531"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 211338
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "429",
+            "571"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 244959
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "458",
+            "610"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 279380
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 6770688
+    },
+    {
+      "name": "cholesky",
+      "suite": "polybench",
+      "source": "tests/benchmarks/cholesky.c",
+      "kernel": "polybench/kernels/kernel_cholesky.c",
+      "binary": "tests/benchmarks/cholesky.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 512
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "290"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 84100
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "314"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 98596
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "341"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 116281
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "368"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 135424
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "395"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 156025
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "422"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 178084
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 4206592
+    },
+    {
+      "name": "lu",
+      "suite": "polybench",
+      "source": "tests/benchmarks/lu.c",
+      "kernel": "polybench/kernels/kernel_lu.c",
+      "binary": "tests/benchmarks/lu.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 512
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "248"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 61504
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "269"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 72361
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "293"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 85849
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "315"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 99225
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "339"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 114921
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "363"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 131769
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 4206592
+    },
+    {
+      "name": "ludcmp",
+      "suite": "polybench",
+      "source": "tests/benchmarks/ludcmp.c",
+      "kernel": "polybench/kernels/kernel_ludcmp.c",
+      "binary": "tests/benchmarks/ludcmp.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 512
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "288"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 82944
+            },
+            {
+              "type": "double",
+              "count": 288
+            },
+            {
+              "type": "double",
+              "count": 288
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "312"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 97344
+            },
+            {
+              "type": "double",
+              "count": 312
+            },
+            {
+              "type": "double",
+              "count": 312
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "339"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 114921
+            },
+            {
+              "type": "double",
+              "count": 339
+            },
+            {
+              "type": "double",
+              "count": 339
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "366"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 133956
+            },
+            {
+              "type": "double",
+              "count": 366
+            },
+            {
+              "type": "double",
+              "count": 366
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "394"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 155236
+            },
+            {
+              "type": "double",
+              "count": 394
+            },
+            {
+              "type": "double",
+              "count": 394
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "421"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 177241
+            },
+            {
+              "type": "double",
+              "count": 421
+            },
+            {
+              "type": "double",
+              "count": 421
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 4218880
+    },
+    {
+      "name": "floydwarshall",
+      "suite": "polybench",
+      "source": "tests/benchmarks/floydwarshall.c",
+      "kernel": "polybench/kernels/kernel_floyd_warshall.c",
+      "binary": "tests/benchmarks/floydwarshall.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 640
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "304"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 92416
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "329"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 108241
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "358"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 128164
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "386"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 148996
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "415"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 172225
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "443"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 196249
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 3289088
+    },
+    {
+      "name": "covariance",
+      "suite": "polybench",
+      "source": "tests/benchmarks/covariance.c",
+      "kernel": "polybench/kernels/kernel_covariance.c",
+      "binary": "tests/benchmarks/covariance.elf",
+      "dimensions": [
+        {
+          "name": "m",
+          "min": 1,
+          "max": 640
+        },
+        {
+          "name": "n",
+          "min": 2,
+          "max": 800
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "178",
+            "222"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 31684
+            },
+            {
+              "type": "double",
+              "count": 178
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "193",
+            "241"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 37249
+            },
+            {
+              "type": "double",
+              "count": 193
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "209",
+            "262"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 43681
+            },
+            {
+              "type": "double",
+              "count": 209
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "226",
+            "283"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 51076
+            },
+            {
+              "type": "double",
+              "count": 226
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "243",
+            "303"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 59049
+            },
+            {
+              "type": "double",
+              "count": 243
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "260",
+            "324"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 67600
+            },
+            {
+              "type": "double",
+              "count": 260
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 7389184
+    },
+    {
+      "name": "correlation",
+      "suite": "polybench",
+      "source": "tests/benchmarks/correlation.c",
+      "kernel": "polybench/kernels/kernel_correlation.c",
+      "binary": "tests/benchmarks/correlation.elf",
+      "dimensions": [
+        {
+          "name": "m",
+          "min": 1,
+          "max": 640
+        },
+        {
+          "name": "n",
+          "min": 2,
+          "max": 800
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "178",
+            "222"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 31684
+            },
+            {
+              "type": "double",
+              "count": 178
+            },
+            {
+              "type": "double",
+              "count": 178
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "192",
+            "240"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 36864
+            },
+            {
+              "type": "double",
+              "count": 192
+            },
+            {
+              "type": "double",
+              "count": 192
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "209",
+            "261"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 43681
+            },
+            {
+              "type": "double",
+              "count": 209
+            },
+            {
+              "type": "double",
+              "count": 209
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "226",
+            "282"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 51076
+            },
+            {
+              "type": "double",
+              "count": 226
+            },
+            {
+              "type": "double",
+              "count": 226
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "242",
+            "303"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 58564
+            },
+            {
+              "type": "double",
+              "count": 242
+            },
+            {
+              "type": "double",
+              "count": 242
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "259",
+            "324"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 67081
+            },
+            {
+              "type": "double",
+              "count": 259
+            },
+            {
+              "type": "double",
+              "count": 259
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 7393280
+    },
+    {
+      "name": "gramschmidt",
+      "suite": "polybench",
+      "source": "tests/benchmarks/gramschmidt.c",
+      "kernel": "polybench/kernels/kernel_gramschmidt.c",
+      "binary": "tests/benchmarks/gramschmidt.elf",
+      "dimensions": [
+        {
+          "name": "m",
+          "min": 2,
+          "max": 512
+        },
+        {
+          "name": "n",
+          "min": 1,
+          "max": 512
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "194",
+            "194"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 37636
+            },
+            {
+              "type": "double",
+              "count": 37636
+            },
+            {
+              "type": "double",
+              "count": 37636
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "208",
+            "208"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 43264
+            },
+            {
+              "type": "double",
+              "count": 43264
+            },
+            {
+              "type": "double",
+              "count": 43264
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "227",
+            "227"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 51529
+            },
+            {
+              "type": "double",
+              "count": 51529
+            },
+            {
+              "type": "double",
+              "count": 51529
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "245",
+            "245"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 60025
+            },
+            {
+              "type": "double",
+              "count": 60025
+            },
+            {
+              "type": "double",
+              "count": 60025
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "264",
+            "264"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 69696
+            },
+            {
+              "type": "double",
+              "count": 69696
+            },
+            {
+              "type": "double",
+              "count": 69696
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "282",
+            "282"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 79524
+            },
+            {
+              "type": "double",
+              "count": 79524
+            },
+            {
+              "type": "double",
+              "count": 79524
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 6303744
+    },
+    {
+      "name": "nussinov",
+      "suite": "polybench",
+      "source": "tests/benchmarks/nussinov.c",
+      "kernel": "polybench/kernels/kernel_nussinov.c",
+      "binary": "tests/benchmarks/nussinov.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 768
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "473"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 223729
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "512"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 262144
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "556"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 309136
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "601"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 361201
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "645"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 416025
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "689"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 474721
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 2371584
+    },
+    {
+      "name": "adi",
+      "suite": "polybench",
+      "source": "tests/benchmarks/adi.c",
+      "kernel": "polybench/kernels/kernel_adi.c",
+      "binary": "tests/benchmarks/adi.elf",
+      "dimensions": [
+        {
+          "name": "tsteps",
+          "min": 1,
+          "max": 40
+        },
+        {
+          "name": "n",
+          "min": 3,
+          "max": 512
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "40",
+            "124"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 15376
+            },
+            {
+              "type": "double",
+              "count": 15376
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "40",
+            "134"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 17956
+            },
+            {
+              "type": "double",
+              "count": 17956
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "40",
+            "146"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 21316
+            },
+            {
+              "type": "double",
+              "count": 21316
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "40",
+            "158"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 24964
+            },
+            {
+              "type": "double",
+              "count": 24964
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "40",
+            "169"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 28561
+            },
+            {
+              "type": "double",
+              "count": 28561
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "40",
+            "181"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 32761
+            },
+            {
+              "type": "double",
+              "count": 32761
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 8400896
+    },
+    {
+      "name": "fdtd2d",
+      "suite": "polybench",
+      "source": "tests/benchmarks/fdtd2d.c",
+      "kernel": "polybench/kernels/kernel_fdtd_2d.c",
+      "binary": "tests/benchmarks/fdtd2d.elf",
+      "dimensions": [
+        {
+          "name": "tmax",
+          "min": 1,
+          "max": 40
+        },
+        {
+          "name": "nx",
+          "min": 1,
+          "max": 768
+        },
+        {
+          "name": "ny",
+          "min": 1,
+          "max": 1024
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "40",
+            "407",
+            "543"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 221001
+            },
+            {
+              "type": "double",
+              "count": 221001
+            },
+            {
+              "type": "double",
+              "count": 221001
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "40",
+            "441",
+            "588"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 259308
+            },
+            {
+              "type": "double",
+              "count": 259308
+            },
+            {
+              "type": "double",
+              "count": 259308
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "40",
+            "479",
+            "639"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 306081
+            },
+            {
+              "type": "double",
+              "count": 306081
+            },
+            {
+              "type": "double",
+              "count": 306081
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "40",
+            "518",
+            "690"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 357420
+            },
+            {
+              "type": "double",
+              "count": 357420
+            },
+            {
+              "type": "double",
+              "count": 357420
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "40",
+            "556",
+            "741"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 411996
+            },
+            {
+              "type": "double",
+              "count": 411996
+            },
+            {
+              "type": "double",
+              "count": 411996
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "40",
+            "594",
+            "792"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 470448
+            },
+            {
+              "type": "double",
+              "count": 470448
+            },
+            {
+              "type": "double",
+              "count": 470448
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 18886656
+    },
+    {
+      "name": "heat3d",
+      "suite": "polybench",
+      "source": "tests/benchmarks/heat3d.c",
+      "kernel": "polybench/kernels/kernel_heat_3d.c",
+      "binary": "tests/benchmarks/heat3d.elf",
+      "dimensions": [
+        {
+          "name": "tsteps",
+          "min": 1,
+          "max": 40
+        },
+        {
+          "name": "n",
+          "min": 3,
+          "max": 128
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "40",
+            "54"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 157464
+            },
+            {
+              "type": "double",
+              "count": 157464
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "40",
+            "58"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 195112
+            },
+            {
+              "type": "double",
+              "count": 195112
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "40",
+            "63"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 250047
+            },
+            {
+              "type": "double",
+              "count": 250047
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "40",
+            "68"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 314432
+            },
+            {
+              "type": "double",
+              "count": 314432
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "40",
+            "73"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 389017
+            },
+            {
+              "type": "double",
+              "count": 389017
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "40",
+            "78"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 474552
+            },
+            {
+              "type": "double",
+              "count": 474552
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 33566720
+    },
+    {
+      "name": "jacobi2d",
+      "suite": "polybench",
+      "source": "tests/benchmarks/jacobi2d.c",
+      "kernel": "polybench/kernels/kernel_jacobi_2d.c",
+      "binary": "tests/benchmarks/jacobi2d.elf",
+      "dimensions": [
+        {
+          "name": "tsteps",
+          "min": 1,
+          "max": 40
+        },
+        {
+          "name": "n",
+          "min": 3,
+          "max": 1024
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "40",
+            "551"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 303601
+            },
+            {
+              "type": "double",
+              "count": 303601
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "40",
+            "596"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 355216
+            },
+            {
+              "type": "double",
+              "count": 355216
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "40",
+            "648"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 419904
+            },
+            {
+              "type": "double",
+              "count": 419904
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "40",
+            "700"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 490000
+            },
+            {
+              "type": "double",
+              "count": 490000
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "40",
+            "752"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 565504
+            },
+            {
+              "type": "double",
+              "count": 565504
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "40",
+            "804"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 646416
+            },
+            {
+              "type": "double",
+              "count": 646416
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 16789504
+    },
+    {
+      "name": "seidel2d",
+      "suite": "polybench",
+      "source": "tests/benchmarks/seidel2d.c",
+      "kernel": "polybench/kernels/kernel_seidel_2d.c",
+      "binary": "tests/benchmarks/seidel2d.elf",
+      "dimensions": [
+        {
+          "name": "tsteps",
+          "min": 1,
+          "max": 40
+        },
+        {
+          "name": "n",
+          "min": 3,
+          "max": 1024
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "40",
+            "191"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 36481
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "40",
+            "207"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 42849
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "40",
+            "225"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 50625
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "40",
+            "243"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 59049
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "40",
+            "261"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 68121
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "40",
+            "279"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 77841
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 8400896
+    },
+    {
+      "name": "deriche",
+      "suite": "polybench",
+      "source": "tests/benchmarks/deriche.c",
+      "kernel": "polybench/kernels/kernel_deriche.c",
+      "binary": "tests/benchmarks/deriche.elf",
+      "dimensions": [
+        {
+          "name": "w",
+          "min": 1,
+          "max": 1536
+        },
+        {
+          "name": "h",
+          "min": 1,
+          "max": 1024
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "1156",
+            "771"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 891276
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "1251",
+            "834"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1043334
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "1360",
+            "908"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1234880
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "1468",
+            "980"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1438640
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "1500",
+            "1000"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1500000
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "1536",
+            "1024"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1572864
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 50343936
+    },
+    {
+      "name": "swaptions",
+      "suite": "parsec",
+      "source": "tests/benchmarks/swaptions.c",
+      "kernel": "parsec/kernels/swaptions.c",
+      "binary": "tests/benchmarks/swaptions.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 512
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "223"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 223
+            },
+            {
+              "type": "double",
+              "count": 49729
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "241"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 241
+            },
+            {
+              "type": "double",
+              "count": 58081
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "262"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 262
+            },
+            {
+              "type": "double",
+              "count": 68644
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "283"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 283
+            },
+            {
+              "type": "double",
+              "count": 80089
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "304"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 304
+            },
+            {
+              "type": "double",
+              "count": 92416
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "325"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 325
+            },
+            {
+              "type": "double",
+              "count": 105625
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 4214784
+    },
+    {
+      "name": "blackscholes",
+      "suite": "parsec",
+      "source": "tests/benchmarks/blackscholes.c",
+      "kernel": "parsec/kernels/blackscholes.c",
+      "binary": "tests/benchmarks/blackscholes.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 1048576
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "572808"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 572808
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "619981"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 619981
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "673892"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 673892
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "727803"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 727803
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "781715"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 781715
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "835626"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 835626
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 54542336
+    },
+    {
+      "name": "streamcluster",
+      "suite": "parsec",
+      "source": "tests/benchmarks/streamcluster.c",
+      "kernel": "parsec/kernels/streamcluster.c",
+      "binary": "tests/benchmarks/streamcluster.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 500000
+        },
+        {
+          "name": "dim",
+          "min": 1,
+          "max": 32
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "300000",
+            "32"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 300000
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "340000",
+            "32"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 340000
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "380000",
+            "32"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 380000
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "420000",
+            "32"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 420000
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "460000",
+            "32"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 460000
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "500000",
+            "32"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 500000
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 260009984
+    },
+    {
+      "name": "canneal",
+      "suite": "parsec",
+      "source": "tests/benchmarks/canneal.c",
+      "kernel": "parsec/kernels/canneal.c",
+      "binary": "tests/benchmarks/canneal.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 8388608
+        },
+        {
+          "name": "m",
+          "min": 2,
+          "max": 8192
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "6000000",
+            "8192"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "6400000",
+            "8192"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "6800000",
+            "8192"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "7200000",
+            "8192"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "7800000",
+            "8192"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "8388608",
+            "8192"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 1
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 67186688
+    },
+    {
+      "name": "fluidanimate",
+      "suite": "parsec",
+      "source": "tests/benchmarks/fluidanimate.c",
+      "kernel": "parsec/kernels/fluidanimate.c",
+      "binary": "tests/benchmarks/fluidanimate.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 4096
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "2781"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2781
+            },
+            {
+              "type": "double",
+              "count": 2781
+            },
+            {
+              "type": "double",
+              "count": 2781
+            },
+            {
+              "type": "double",
+              "count": 2781
+            },
+            {
+              "type": "double",
+              "count": 2781
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "3010"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3010
+            },
+            {
+              "type": "double",
+              "count": 3010
+            },
+            {
+              "type": "double",
+              "count": 3010
+            },
+            {
+              "type": "double",
+              "count": 3010
+            },
+            {
+              "type": "double",
+              "count": 3010
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "3271"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3271
+            },
+            {
+              "type": "double",
+              "count": 3271
+            },
+            {
+              "type": "double",
+              "count": 3271
+            },
+            {
+              "type": "double",
+              "count": 3271
+            },
+            {
+              "type": "double",
+              "count": 3271
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "3533"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3533
+            },
+            {
+              "type": "double",
+              "count": 3533
+            },
+            {
+              "type": "double",
+              "count": 3533
+            },
+            {
+              "type": "double",
+              "count": 3533
+            },
+            {
+              "type": "double",
+              "count": 3533
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "3795"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3795
+            },
+            {
+              "type": "double",
+              "count": 3795
+            },
+            {
+              "type": "double",
+              "count": 3795
+            },
+            {
+              "type": "double",
+              "count": 3795
+            },
+            {
+              "type": "double",
+              "count": 3795
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "4056"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 4056
+            },
+            {
+              "type": "double",
+              "count": 4056
+            },
+            {
+              "type": "double",
+              "count": 4056
+            },
+            {
+              "type": "double",
+              "count": 4056
+            },
+            {
+              "type": "double",
+              "count": 4056
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 372736
+    },
+    {
+      "name": "vips",
+      "suite": "parsec",
+      "source": "tests/benchmarks/vips.c",
+      "kernel": "parsec/kernels/vips.c",
+      "binary": "tests/benchmarks/vips.elf",
+      "dimensions": [
+        {
+          "name": "w",
+          "min": 3,
+          "max": 2304
+        },
+        {
+          "name": "h",
+          "min": 3,
+          "max": 2304
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "1600",
+            "1600"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2560000
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "1728",
+            "1728"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2985984
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "1856",
+            "1856"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3444736
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "1984",
+            "1984"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3936256
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "2176",
+            "2176"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 4734976
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "2304",
+            "2304"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 5308416
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 84946944
+    },
+    {
+      "name": "bodytrack",
+      "suite": "parsec",
+      "source": "tests/benchmarks/bodytrack.c",
+      "kernel": "parsec/kernels/bodytrack.c",
+      "binary": "tests/benchmarks/bodytrack.elf",
+      "dimensions": [
+        {
+          "name": "n",
+          "min": 1,
+          "max": 1048576
+        },
+        {
+          "name": "state_dim",
+          "min": 1,
+          "max": 6
+        },
+        {
+          "name": "obs_dim",
+          "min": 1,
+          "max": 8
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "718782",
+            "6",
+            "8"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 718782
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "777976",
+            "6",
+            "8"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 777976
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "845626",
+            "6",
+            "8"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 845626
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "913276",
+            "6",
+            "8"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 913276
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "980926",
+            "6",
+            "8"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 980926
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "1048576",
+            "6",
+            "8"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1048576
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 58732544
+    },
+    {
+      "name": "ferret",
+      "suite": "parsec",
+      "source": "tests/benchmarks/ferret.c",
+      "kernel": "parsec/kernels/ferret.c",
+      "binary": "tests/benchmarks/ferret.elf",
+      "dimensions": [
+        {
+          "name": "nq",
+          "min": 1,
+          "max": 1024
+        },
+        {
+          "name": "nd",
+          "min": 1,
+          "max": 4096
+        },
+        {
+          "name": "dim",
+          "min": 1,
+          "max": 16
+        },
+        {
+          "name": "k",
+          "min": 1,
+          "max": 4
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "690",
+            "4096",
+            "16",
+            "4"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2760
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "746",
+            "4096",
+            "16",
+            "4"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 2984
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "811",
+            "4096",
+            "16",
+            "4"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3244
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "876",
+            "4096",
+            "16",
+            "4"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3504
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "941",
+            "4096",
+            "16",
+            "4"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 3764
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "1006",
+            "4096",
+            "16",
+            "4"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 4024
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 700416
+    },
+    {
+      "name": "x264",
+      "suite": "parsec",
+      "source": "tests/benchmarks/x264.c",
+      "kernel": "parsec/kernels/x264.c",
+      "binary": "tests/benchmarks/x264.elf",
+      "dimensions": [
+        {
+          "name": "range",
+          "min": 1,
+          "max": 256
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "175"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "190"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "206"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "223"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "239"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 3
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "256"
+          ],
+          "outputs": [
+            {
+              "type": "int",
+              "count": 3
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 831488
+    },
+    {
+      "name": "raytrace",
+      "suite": "parsec",
+      "source": "tests/benchmarks/raytrace.c",
+      "kernel": "parsec/kernels/raytrace.c",
+      "binary": "tests/benchmarks/raytrace.elf",
+      "dimensions": [
+        {
+          "name": "nrays",
+          "min": 1,
+          "max": 1048576
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "718782"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 718782
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "777976"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 777976
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "845626"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 845626
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "913276"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 913276
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "980926"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 980926
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "1048576"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 1048576
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 8400896
+    },
+    {
+      "name": "facesim",
+      "suite": "parsec",
+      "source": "tests/benchmarks/facesim.c",
+      "kernel": "parsec/kernels/facesim.c",
+      "binary": "tests/benchmarks/facesim.elf",
+      "dimensions": [
+        {
+          "name": "ntets",
+          "min": 1,
+          "max": 524288
+        }
+      ],
+      "cases": [
+        {
+          "id": "1",
+          "args": [
+            "360000"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 675000
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "args": [
+            "392000"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 735000
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "args": [
+            "424000"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 795000
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "args": [
+            "456000"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 855000
+            }
+          ]
+        },
+        {
+          "id": "5",
+          "args": [
+            "488000"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 915000
+            }
+          ]
+        },
+        {
+          "id": "6",
+          "args": [
+            "524288"
+          ],
+          "outputs": [
+            {
+              "type": "double",
+              "count": 983040
+            }
+          ]
+        }
+      ],
+      "mapped_image_bytes": 73936896
+    }
+  ],
+  "suite": "compute-performance-six-point-v1"
+}

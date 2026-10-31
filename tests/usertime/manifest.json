@@ -1,14 +1,15 @@
 {
   "schema": 2,
   "suite": "whole-program-six-point-v2",
-  "compiler": "aarch64-linux-musl-gcc 14.2.0",
+  "compiler": "aarch64-linux-musl-gcc (GCC) 14.2.0",
   "sources": {
     "start.S": "0236d9d08552be0c4f3776988b5f23ae2576dd07e635dde12c0b8dcea2a4aab6",
     "runtime.h": "0d88776b5d232e0dba662d738619cf206e254f9fbf7da63889b2374de7a8a759",
-    "program.c": "1a6fd6e3b28efa9be0a8b26b933c6fd328f0862a7e499d44bb50b2723c316799",
-    "mvt.c": "0a8a427057c176c6aae64a5f66f5e9a429ddc238ed2bd45453c4311364a592d0",
+    "program.c": "0786eaf32bb745712595d6ed178ba156cb61d5cfe0551da93e6d69e8c8521c95",
+    "mvt.c": "fc21c7e452ee25081d9b3a30c7c3e97a24e070c103bf5e6688c0d9b3849ff148",
     "layout.ld": "9d942ff9006b4a5269475b6a0b455837d1c82c8b2bd5d5ee8f898f782129b5e9",
-    "build.sh": "badb5416c5dc21fb3df893fe4574be5763c11e5818a2755466b6aa5dff90babb"
+    "build.sh": "9b4d48064397d0fb76290842c6c18487da7e0484662a0c82b615e989596d148a",
+    "provenance.py": "cf26a528722f8f538ce91c47f026ea25b3b7276fcc446c84b11f9baeeaa7bb95"
   },
   "workloads": [
     {
@@ -72,7 +73,7 @@
       "point": 500000,
       "axis": "iterations",
       "file": "integer.elf",
-      "sha256": "45177d8074306230ad1362e883160edd068a3355fd85e8ed6e25f63c2a25a1ff",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
       "args": [
         "program",
         "500000"
@@ -88,7 +89,7 @@
       "point": 1000000,
       "axis": "iterations",
       "file": "integer.elf",
-      "sha256": "45177d8074306230ad1362e883160edd068a3355fd85e8ed6e25f63c2a25a1ff",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
       "args": [
         "program",
         "1000000"
@@ -104,7 +105,7 @@
       "point": 2000000,
       "axis": "iterations",
       "file": "integer.elf",
-      "sha256": "45177d8074306230ad1362e883160edd068a3355fd85e8ed6e25f63c2a25a1ff",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
       "args": [
         "program",
         "2000000"
@@ -120,7 +121,7 @@
       "point": 4000000,
       "axis": "iterations",
       "file": "integer.elf",
-      "sha256": "45177d8074306230ad1362e883160edd068a3355fd85e8ed6e25f63c2a25a1ff",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
       "args": [
         "program",
         "4000000"
@@ -136,7 +137,7 @@
       "point": 6000000,
       "axis": "iterations",
       "file": "integer.elf",
-      "sha256": "45177d8074306230ad1362e883160edd068a3355fd85e8ed6e25f63c2a25a1ff",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
       "args": [
         "program",
         "6000000"
@@ -152,7 +153,7 @@
       "point": 8000000,
       "axis": "iterations",
       "file": "integer.elf",
-      "sha256": "45177d8074306230ad1362e883160edd068a3355fd85e8ed6e25f63c2a25a1ff",
+      "sha256": "3c1c23c29c59f633f7a2c393dc694a96d20e78c41d479cde6fa47c2784e1ed31",
       "args": [
         "program",
         "8000000"
@@ -168,7 +169,7 @@
       "point": 8192,
       "axis": "working_set_bytes",
       "file": "memory.elf",
-      "sha256": "1ef1093efb09b09c2e028ae4bf471a13addc017efc3b487f1a91d07caa882cfa",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
       "args": [
         "program",
         "4194304",
@@ -185,7 +186,7 @@
       "point": 65536,
       "axis": "working_set_bytes",
       "file": "memory.elf",
-      "sha256": "1ef1093efb09b09c2e028ae4bf471a13addc017efc3b487f1a91d07caa882cfa",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
       "args": [
         "program",
         "4194304",
@@ -202,7 +203,7 @@
       "point": 262144,
       "axis": "working_set_bytes",
       "file": "memory.elf",
-      "sha256": "1ef1093efb09b09c2e028ae4bf471a13addc017efc3b487f1a91d07caa882cfa",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
       "args": [
         "program",
         "4194304",
@@ -219,7 +220,7 @@
       "point": 1048576,
       "axis": "working_set_bytes",
       "file": "memory.elf",
-      "sha256": "1ef1093efb09b09c2e028ae4bf471a13addc017efc3b487f1a91d07caa882cfa",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
       "args": [
         "program",
         "4194304",
@@ -236,7 +237,7 @@
       "point": 8388608,
       "axis": "working_set_bytes",
       "file": "memory.elf",
-      "sha256": "1ef1093efb09b09c2e028ae4bf471a13addc017efc3b487f1a91d07caa882cfa",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
       "args": [
         "program",
         "4194304",
@@ -253,7 +254,7 @@
       "point": 33554432,
       "axis": "working_set_bytes",
       "file": "memory.elf",
-      "sha256": "1ef1093efb09b09c2e028ae4bf471a13addc017efc3b487f1a91d07caa882cfa",
+      "sha256": "d9db18ca71d9812811b84ea9e4fbe2f60041d5f13fbf4734b24b061d4c00c9c6",
       "args": [
         "program",
         "4194304",
@@ -270,7 +271,7 @@
       "point": 500000,
       "axis": "iterations",
       "file": "branch.elf",
-      "sha256": "83456f5e8b0eb5f8338988505bf4cde8da03a7eed76255e9172ef09d1bccd194",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
       "args": [
         "program",
         "500000"
@@ -286,7 +287,7 @@
       "point": 1000000,
       "axis": "iterations",
       "file": "branch.elf",
-      "sha256": "83456f5e8b0eb5f8338988505bf4cde8da03a7eed76255e9172ef09d1bccd194",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
       "args": [
         "program",
         "1000000"
@@ -302,7 +303,7 @@
       "point": 2000000,
       "axis": "iterations",
       "file": "branch.elf",
-      "sha256": "83456f5e8b0eb5f8338988505bf4cde8da03a7eed76255e9172ef09d1bccd194",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
       "args": [
         "program",
         "2000000"
@@ -318,7 +319,7 @@
       "point": 4000000,
       "axis": "iterations",
       "file": "branch.elf",
-      "sha256": "83456f5e8b0eb5f8338988505bf4cde8da03a7eed76255e9172ef09d1bccd194",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
       "args": [
         "program",
         "4000000"
@@ -334,7 +335,7 @@
       "point": 6000000,
       "axis": "iterations",
       "file": "branch.elf",
-      "sha256": "83456f5e8b0eb5f8338988505bf4cde8da03a7eed76255e9172ef09d1bccd194",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
       "args": [
         "program",
         "6000000"
@@ -350,7 +351,7 @@
       "point": 8000000,
       "axis": "iterations",
       "file": "branch.elf",
-      "sha256": "83456f5e8b0eb5f8338988505bf4cde8da03a7eed76255e9172ef09d1bccd194",
+      "sha256": "2d3d03a110ce9ac7a94358da21a9ded1d46b462bebcebba78b592d46d5df72c9",
       "args": [
         "program",
         "8000000"
@@ -366,7 +367,7 @@
       "point": 8,
       "axis": "dimension",
       "file": "mvt.elf",
-      "sha256": "95167a590d9346cfa160577e8ef93200443a95ca015f0e6a7ed88d6ecbf28470",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
       "args": [
         "program",
         "8"
@@ -382,7 +383,7 @@
       "point": 63,
       "axis": "dimension",
       "file": "mvt.elf",
-      "sha256": "95167a590d9346cfa160577e8ef93200443a95ca015f0e6a7ed88d6ecbf28470",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
       "args": [
         "program",
         "63"
@@ -398,7 +399,7 @@
       "point": 120,
       "axis": "dimension",
       "file": "mvt.elf",
-      "sha256": "95167a590d9346cfa160577e8ef93200443a95ca015f0e6a7ed88d6ecbf28470",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
       "args": [
         "program",
         "120"
@@ -414,7 +415,7 @@
       "point": 129,
       "axis": "dimension",
       "file": "mvt.elf",
-      "sha256": "95167a590d9346cfa160577e8ef93200443a95ca015f0e6a7ed88d6ecbf28470",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
       "args": [
         "program",
         "129"
@@ -430,7 +431,7 @@
       "point": 400,
       "axis": "dimension",
       "file": "mvt.elf",
-      "sha256": "95167a590d9346cfa160577e8ef93200443a95ca015f0e6a7ed88d6ecbf28470",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
       "args": [
         "program",
         "400"
@@ -446,7 +447,7 @@
       "point": 1536,
       "axis": "dimension",
       "file": "mvt.elf",
-      "sha256": "95167a590d9346cfa160577e8ef93200443a95ca015f0e6a7ed88d6ecbf28470",
+      "sha256": "5aba9bb3bce602fa5e38d1fe5c887d42326330e513f444ff00ca1b922cee835e",
       "args": [
         "program",
         "1536"

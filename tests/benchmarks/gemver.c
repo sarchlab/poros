@@ -1,21 +1,21 @@
 #include "../../polybench/kernels/kernel_gemver.c"
 #include "runtime.h"
 
-static double A[14400];
-static double u1[120];
-static double u2[120];
-static double v1[120];
-static double v2[120];
-static double w[120];
-static double x[120];
-static double y[120];
-static double z[120];
+static double A[7929856];
+static double u1[2816];
+static double u2[2816];
+static double v1[2816];
+static double v2[2816];
+static double w[2816];
+static double x[2816];
+static double y[2816];
+static double z[2816];
 
 int workload(int argc, char **argv) {
   if (argc != 2)
     return 2;
   int n;
-  if (!argument(argv[1], 1, 120, &n))
+  if (!argument(argv[1], 1, 2816, &n))
     return 2;
   for (int i = 0; i < n; i++) {
     u1[i] = i;

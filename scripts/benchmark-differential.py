@@ -12,6 +12,7 @@ import struct
 import shutil
 import subprocess
 import sys
+from workload_contract import mapped_image_bytes
 
 EXPECTED = set("atax gemm 2mm 3mm bicg gesummv gemver doitgen trisolv durbin jacobi1d syrk syr2k trmm symm cholesky lu floydwarshall covariance correlation gramschmidt ludcmp nussinov adi fdtd2d heat3d jacobi2d seidel2d deriche swaptions blackscholes streamcluster canneal fluidanimate raytrace vips bodytrack facesim ferret x264".split())
 
@@ -55,6 +56,11 @@ def validate_inventory(root, manifest, provenance, verify_files=True):
         raise ValueError("missing/duplicate/unexpected benchmark inventory")
     required = {"tests/benchmarks/manifest.json", "tests/benchmarks/runtime.h", "tests/benchmarks/build.sh", "tests/benchmarks/provenance.py", "tests/usertime/start.S", "tests/usertime/layout.ld", "tests/benchmarks/support/math.c", "tests/benchmarks/support/math.elf"}
     for w in workloads:
+        if manifest.get("suite") == "compute-performance-six-point-v1":
+            size = w.get("mapped_image_bytes")
+            if type(size) is not int or not 0 < size <= 256 << 20 or size % 4096 or (verify_files and mapped_image_bytes(root / w["binary"]) != size):
+                raise ValueError("invalid performance ELF mapped image size")
+            required.add("tests/benchmarks/performance.json")
         required.update(w[key] for key in ("source", "kernel", "binary"))
         dimensions = w["dimensions"]
         if not dimensions or len({d["name"] for d in dimensions}) != len(dimensions):
@@ -66,7 +72,7 @@ def validate_inventory(root, manifest, provenance, verify_files=True):
         if len(cases) != 6 or [c["id"] for c in cases] != list("123456") or len({tuple(c["args"]) for c in cases}) != 6:
             raise ValueError("incomplete or duplicate six-point inventory")
         for c in cases:
-            if not c["outputs"] or any(o["type"] not in ("double", "int") or type(o["count"]) is not int or not 1 <= o["count"] <= 1048576 for o in c["outputs"]):
+            if not c["outputs"] or any(o["type"] not in ("double", "int") or type(o["count"]) is not int or not 1 <= o["count"] <= 8388608 for o in c["outputs"]):
                 raise ValueError("invalid complete output shape")
             if len(c["args"]) != len(w["dimensions"]):
                 raise ValueError("dimension shape mismatch")
@@ -90,7 +96,7 @@ def run_provenance(root, poros):
     revision = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
     dirty = bool(subprocess.check_output([*git, "status", "--porcelain"]))
     names = subprocess.check_output([*git, "ls-files", "--cached", "--others", "--exclude-standard", "-z"]).decode().split("\0")
-    return {"git_sha": revision, "git_dirty": dirty, "poros_binary_sha256": digest(pathlib.Path(poros).read_bytes()),
+    return {"git_sha": revision, "git_dirty": dirty, "poros_binary_sha256": digest(pathlib.Path(poros).read_bytes()) if poros else None,
             "sources": {name: digest((root / name).read_bytes()) for name in sorted(set(names)) if name and (root / name).is_file()}}
 
 
@@ -102,17 +108,28 @@ def check_build(result, state):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--poros", required=True)
+    parser.add_argument("--poros")
+    parser.add_argument("--oracle-only", action="store_true", help="native/QEMU plus independent equations, without a simulator claim")
+    parser.add_argument("--numerical-oracle", help="clean Go benchmark-oracle executable")
     parser.add_argument("--require-clean", action="store_true")
     parser.add_argument("--qemu", default="qemu-aarch64")
     parser.add_argument("--native", action="store_true", help="also execute the identical ELF on this Linux ARM64 host")
     parser.add_argument("--output", required=True)
+    parser.add_argument("--performance", action="store_true", help="validate the separate performance inventory")
     args = parser.parse_args()
+    if args.oracle_only and (not args.performance or not args.native or not args.numerical_oracle or args.poros):
+        parser.error("oracle-only requires performance, native, numerical-oracle and no poros")
+    if not args.oracle_only and not args.poros:
+        parser.error("Poros executable required for three-way differential")
     root = pathlib.Path(__file__).resolve().parents[1]
-    manifest = json.loads((root / "tests/benchmarks/manifest.json").read_text())
+    manifest_path = "tests/benchmarks/performance.json" if args.performance else "tests/benchmarks/manifest.json"
+    manifest = json.loads((root / manifest_path).read_text())
+    if args.performance and manifest.get("suite") != "compute-performance-six-point-v1":
+        raise ValueError("invalid performance manifest")
     provenance = json.loads((root / "tests/benchmarks/provenance.json").read_text())
     workloads = validate_inventory(root, manifest, provenance)
-    args.poros = str(pathlib.Path(shutil.which(args.poros) or args.poros).resolve())
+    if args.poros:
+        args.poros = str(pathlib.Path(shutil.which(args.poros) or args.poros).resolve())
     state = run_provenance(root, args.poros)
     if args.require_clean and state["git_dirty"]:
         raise ValueError("required clean checkout is dirty")
@@ -121,8 +138,11 @@ def main():
     qemu_version = subprocess.check_output([args.qemu, "--version"], text=True).splitlines()[0]
     report = {"schema": 1, "contract": "complete identical-ELF functional differential; not performance accuracy",
               "platform": platform.platform(), "qemu": qemu_version, "build": provenance,
-              "manifest_sha256": digest((root / "tests/benchmarks/manifest.json").read_bytes()),
+              "manifest_sha256": digest((root / manifest_path).read_bytes()),
               "provenance": state, "acceptance_status": "unverified", "expected_cases": 240, "cases": [], "status": "fail"}
+    if args.oracle_only:
+        report.update(contract="complete native/QEMU output; independent equations for declared sensitive workloads; no simulator execution", numerical_oracle_sha256=digest(pathlib.Path(args.numerical_oracle).read_bytes()))
+    equation_workloads = {"gramschmidt", "blackscholes", "bodytrack", "canneal", "raytrace", "facesim", "x264"}
     failure = False
     for workload in workloads:
         cases = workload["cases"]
@@ -141,16 +161,28 @@ def main():
                     if native.stderr or native.stdout != oracle.stdout:
                         raise ValueError("Linux ARM64 native/QEMU output mismatch")
                     record["native_sha256"] = digest(native.stdout)
-                simulated = subprocess.run([args.poros, "elf", "--max-instructions", "200000000", "--timeout", "5m", "--max-output", "16777216", str(elf), *case["args"]], capture_output=True, timeout=360)
-                result, actual = check_result(case, simulated, oracle.stdout)
-                check_build(result, state)
-                if result["args"] != ["program", *case["args"]] or result["env"] != []:
-                    raise ValueError("Poros input provenance mismatch")
-                if type(result["instructions"]) is not int or not 0 < result["instructions"] <= 200000000:
-                    raise ValueError("invalid instruction count")
-                if result["binary_sha256"] != record["binary_sha256"]:
-                    raise ValueError("Poros ran a different binary")
-                record.update(status="pass", instructions=result["instructions"], output_bytes=len(actual), output_sha256=digest(actual), qemu_sha256=digest(oracle.stdout))
+                check_output(case, oracle.stdout)
+                if args.oracle_only:
+                    semantic = subprocess.run([args.numerical_oracle, json.dumps(dict(workload=workload, case=case))], input=oracle.stdout, capture_output=True, timeout=300, check=True)
+                    if semantic.stderr:
+                        raise ValueError("numerical oracle stderr is not empty")
+                    verified = json.loads(semantic.stdout)
+                    check_build(verified, state)
+                    kind = "equations" if workload["name"] in equation_workloads else "shape_finite"
+                    if verified.get("status") != "pass" or verified.get("check_kind") != kind:
+                        raise ValueError("independent numerical output check failed")
+                    record.update(status="pass", numerical_status="pass", numerical_check=kind, output_bytes=len(oracle.stdout), output_sha256=digest(oracle.stdout), qemu_sha256=digest(oracle.stdout))
+                else:
+                    simulated = subprocess.run([args.poros, "elf", "--max-instructions", "2000000000" if args.performance else "200000000", "--timeout", "45m" if args.performance else "5m", "--max-output", "67108864" if args.performance else "16777216", str(elf), *case["args"]], capture_output=True, timeout=2750 if args.performance else 360)
+                    result, actual = check_result(case, simulated, oracle.stdout)
+                    check_build(result, state)
+                    if result["args"] != ["program", *case["args"]] or result["env"] != []:
+                        raise ValueError("Poros input provenance mismatch")
+                    if type(result["instructions"]) is not int or not 0 < result["instructions"] <= (2000000000 if args.performance else 200000000):
+                        raise ValueError("invalid instruction count")
+                    if result["binary_sha256"] != record["binary_sha256"]:
+                        raise ValueError("Poros ran a different binary")
+                    record.update(status="pass", instructions=result["instructions"], output_bytes=len(actual), output_sha256=digest(actual), qemu_sha256=digest(oracle.stdout))
             except (ValueError, KeyError, subprocess.SubprocessError) as error:
                 failure = True
                 record["error"] = str(error)
@@ -158,6 +190,9 @@ def main():
             print(record["id"], record["status"], record.get("error", ""), flush=True)
     if len(report["cases"]) != 240 or len({c["id"] for c in report["cases"]}) != 240:
         failure = True
+    if args.oracle_only and digest(pathlib.Path(args.numerical_oracle).read_bytes()) != report["numerical_oracle_sha256"]:
+        failure = True
+        report["error"] = "numerical oracle executable changed during validation"
     if run_provenance(root, args.poros) != state:
         failure = True
         report["error"] = "sources or executable changed during validation"

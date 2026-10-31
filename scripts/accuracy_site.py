@@ -15,8 +15,9 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-from workload_contract import LEGACY_IDS, case_ids, validate_manifest
+from workload_contract import LEGACY_IDS, case_ids, validate_manifest, manifest_path
 import compute_usertime as compute
+import performance_reference as performance
 
 SCHEMA = 1
 FORMULA = "absolute-difference-over-min-v2"
@@ -48,7 +49,7 @@ REQUIRED = list(LEGACY_IDS)
 
 
 def report_manifest(report):
-    if report.get("schema") == 3:
+    if report.get("schema") in (3, 4):
         return compute.validate_expanded(report["workload_manifest"])
     if report.get("schema") == 2:
         if report["workload_manifest"].get("schema") != 2:
@@ -103,7 +104,7 @@ def safe_name(value):
 
 
 def check_report(report, commit):
-    if report.get("schema") not in (1, 2, 3) or report.get("artifact_status") not in (
+    if report.get("schema") not in (1, 2, 3, 4) or report.get("artifact_status") not in (
         "pass",
         "fail",
     ):
@@ -137,16 +138,33 @@ def check_report(report, commit):
             raise ValueError("invalid composite reference identity")
         if report["reference_sha256"] != compute.reference_identity(refs["original24"], refs["compute240"]):
             raise ValueError("composite reference mismatch")
-        if report["summary"] != compute.summaries(report["cases"]):
+        if report["summary"] != compute.summaries(report["cases"], report["workload_manifest"]["compute"]["suite"] == compute.PROTOCOL):
             raise ValueError("expanded summary mismatch")
-        if report["compute_base_status"] not in ("available", "compute_elf_unavailable"):
+        if report["compute_base_status"] not in ("available", "compute_elf_unavailable", "per_case_resource_limit"):
             raise ValueError("invalid compute baseline availability")
         if report["compute_base_status"] == "compute_elf_unavailable" and report["base_commit"] != "cb965b4d41fc7d52281652c3bce7803cc893cae0":
             raise ValueError("unrecognized unavailable compute base")
         for row in report["cases"][24:]:
+            if report["compute_base_status"] == "per_case_resource_limit":
+                continue
             if ("base" in row) != (report["compute_base_status"] == "available"):
                 raise ValueError("missing required compute baseline")
+    if report["schema"] == 4:
+        for field in ("head_binary_sha256", "base_binary_sha256"):
+            if not re.fullmatch(r"[0-9a-f]{64}", report.get(field, "")):
+                raise ValueError("invalid simulator binary identity")
     inventory = report_manifest(report)
+    performance = report.get("schema") == 4 or inventory.get("suite") == "whole-program-performance-six-point-v1" or (report.get("schema") == 3 and inventory["compute"]["suite"] == compute.PROTOCOL)
+    if performance:
+        capability = compute.validate_base_capability(report["base_capability"])
+        if report.get("schema") == 3 and report["original_report"]["base_capability"] != capability:
+            raise ValueError("base capability differs between cohorts")
+        for row, case in zip(report["cases"], inventory["cases"]):
+            expected_status = compute.case_base_status(case, capability)
+            if row.get("mapped_image_bytes") != case["mapped_image_bytes"] or row.get("base_status") != expected_status or ("base" in row) != (expected_status == "available"):
+                raise ValueError("missing or unjustified per-case base result")
+            if "base" not in row and "error_change_percentage_points" in row:
+                raise ValueError("unpaired error change")
     if tuple(c["id"] for c in report["cases"]) != case_ids(inventory):
         raise ValueError("missing required cases")
     for row, declared in zip(report["cases"], inventory["cases"]):
@@ -161,7 +179,7 @@ def check_report(report, commit):
             )
         ):
             raise ValueError("missing head or invalid reference time")
-        if report["schema"] in (2, 3) and row.get("functional_status") != "pass":
+        if report["schema"] in (2, 3, 4) and row.get("functional_status") != "pass":
             raise ValueError("functional correctness evidence missing")
         expected_split = declared["split"]
         if row.get("split") != expected_split:
@@ -191,13 +209,15 @@ def check_report(report, commit):
             ):
                 raise ValueError("invalid error value")
 
-    for split in (compute.SPLITS if report.get("schema") == 3 else ("calibration", "held_out")):
+    for split in (compute.SPLITS if report.get("schema") in (3, 4) else ("calibration", "held_out")):
         rows = [r for r in report["cases"] if r["split"] == split]
         summary = report.get("summary", {}).get(split, {})
         if summary.get("required") != len(rows) or summary.get("comparable") != sum(
             "error_percent" in r["head"] for r in rows
         ):
             raise ValueError("summary coverage mismatch")
+        if performance and (summary.get("head_comparable") != sum("error_percent" in r["head"] for r in rows) or summary.get("base_comparable") != sum("error_percent" in r.get("base", {}) for r in rows)):
+            raise ValueError("head/base summary coverage mismatch")
         for label in ("head", "base"):
             if label in summary:
                 if not all(
@@ -215,6 +235,8 @@ def bundle(report_path, source, output, commit):
     source, output = Path(source), Path(output)
     report = read(regular(report_path))
     check_report(report, commit)
+    if report.get("schema") == 4:
+        return bundle_compact(report_path, source, output, commit)
     if report.get("schema") == 3:
         return bundle_expanded(report_path, source, output, commit)
     output.mkdir(parents=True, exist_ok=True)
@@ -223,7 +245,7 @@ def bundle(report_path, source, output, commit):
     shutil.copyfile(regular(markdown), output / "report.md")
     files = ["report.json", "report.md"]
     if report["artifact_status"] == "pass":
-        manifest = source / "tests/usertime/manifest.json"
+        manifest = source / (manifest_path(report["workload_manifest"]) if report["schema"] == 2 else "tests/usertime/manifest.json")
         inputs = read(manifest)
         reference = (
             source
@@ -290,6 +312,8 @@ def validate_bundle(path, commit):
     manifest = read(regular(path / "bundle.json"))
     if manifest.get("schema") != SCHEMA or manifest.get("commit") != sha(commit):
         raise ValueError("bundle identity mismatch")
+    if read(regular(path / "report.json")).get("schema") == 4:
+        return validate_compact_bundle(path, commit, manifest)
     if read(regular(path / "report.json")).get("schema") == 3:
         return validate_expanded_bundle(path, commit, manifest)
     files = manifest["files"]
@@ -325,6 +349,8 @@ def validate_bundle(path, commit):
             raise ValueError("reference harness mismatch")
         inputs = read(path / "manifest.json")
         validate_manifest(inputs)
+        if inputs.get("suite") == "whole-program-performance-six-point-v1":
+            compute.native.validate_capture_metadata(reference)
         if case_ids(inputs) != case_ids(reference) or case_ids(inputs) != case_ids(
             report_manifest(report)
         ):
@@ -387,7 +413,8 @@ def check_compute_source_identity(report, root, names):
         if name.startswith("cohorts/compute/source/"):
             original = name[len("cohorts/compute/source/"):]
         elif name.startswith("cohorts/compute/reference/"):
-            original = compute.REFERENCE + "/" + name[len("cohorts/compute/reference/"):]
+            reference_dir = compute.REFERENCE if report["workload_manifest"]["compute"]["suite"] == compute.PROTOCOL else "evaluation/usertime/compute-linuxvm-v1"
+            original = reference_dir + "/" + name[len("cohorts/compute/reference/"): ]
         else:
             continue
         if report["head"]["files"].get(original) != digest(nested_regular(root, name)):
@@ -477,6 +504,71 @@ def validate_expanded_bundle(path, commit, manifest):
         elif "error_change_percentage_points" in row:
             raise ValueError("unqualified compute error change")
     return report, manifest
+
+
+def bundle_compact(report_path, source, output, commit):
+    report = read(report_path)
+    output.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(report_path, output / "report.json")
+    shutil.copyfile(regular(Path(report_path).with_suffix(".md")), output / "report.md")
+    names = {"report.json", "report.md"}
+    if report["artifact_status"] == "pass":
+        shutil.copyfile(source / performance.PATH, output / "reference.json")
+        names.add("reference.json")
+    write(output / "bundle.json", dict(schema=SCHEMA, commit=commit,
+          run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
+          files={name: digest(output / name) for name in names}))
+    validate_bundle(output, commit)
+    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True))
+
+
+def validate_compact_bundle(path, commit, manifest):
+    report = read(regular(path / "report.json"))
+    names = {"report.json", "report.md"} | ({"reference.json"} if report["artifact_status"] == "pass" else set())
+    if set(manifest["files"]) != names:
+        raise ValueError("compact bundle membership mismatch")
+    for name, expected in manifest["files"].items():
+        if digest(regular(path / name)) != expected:
+            raise ValueError("compact bundle hash mismatch")
+    check_report(report, commit)
+    if report["artifact_status"] != "pass":
+        return report, manifest
+    declared = report_manifest(report)
+    measured = performance.validate(read(path / "reference.json"), declared)
+    if digest(path / "reference.json") != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:
+        raise ValueError("compact reference differs from tested source")
+    metadata = {key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")}
+    if report["reference"] != metadata:
+        raise ValueError("displayed compact provenance mismatch")
+    if any(report["head"]["files"].get(name) != sha for name, sha in measured["input_sources"].items()):
+        raise ValueError("compact input differs from tested source/ELF")
+    for row, observed, case in zip(report["cases"], measured["cases"], declared["cases"]):
+        if row["reference_quality"] != observed["quality"] or row["reference_user_seconds"] != observed["median_user_seconds"] or row.get("reference_p10_seconds") != observed["p10_user_seconds"] or row.get("reference_p90_seconds") != observed["p90_user_seconds"]:
+            raise ValueError("compact plotted statistics mismatch")
+        for label in ("head", "base"):
+            if label not in row:
+                continue
+            value = row[label]
+            if type(value["cycles"]) is not int or type(value["instructions"]) is not int or any(value[k] != declared["profile"][k] for k in ("configuration", "cache_config")):
+                raise ValueError("compact report timing profile/count mismatch")
+            seconds, real = value["predicted_user_seconds"], observed["median_user_seconds"]
+            if not math.isclose(seconds, value["cycles"] / case["frequency_hz"], rel_tol=1e-12):
+                raise ValueError("compact timing frequency mismatch")
+            if observed["quality"] == "usable":
+                error = 100 * abs(seconds-real) / min(seconds, real)
+                if not math.isclose(value.get("error_percent", -1), error, rel_tol=1e-12, abs_tol=1e-12) or value.get("direction") != ("slower" if seconds > real else "faster" if seconds < real else "equal"):
+                    raise ValueError("compact error formula/direction mismatch")
+            elif "error_percent" in value or "direction" in value:
+                raise ValueError("unqualified compact reference has accuracy claim")
+        if "base" in row and observed["quality"] == "usable":
+            if not math.isclose(row.get("error_change_percentage_points", float("nan")), row["head"]["error_percent"]-row["base"]["error_percent"], rel_tol=1e-12, abs_tol=1e-12):
+                raise ValueError("compact paired error change mismatch")
+        elif "error_change_percentage_points" in row:
+            raise ValueError("unpaired compact error change")
+    if report["summary"] != compute.summaries(report["cases"], True):
+        raise ValueError("compact summary mismatch")
+    return report, manifest
+
 
 
 def reusable_bundle(path, commit):
@@ -660,7 +752,7 @@ def detail(report, entry, preview=False):
             c.get("functional_status", "not separately recorded"),
             number(c.get("reference_user_seconds", 0) * 1000),
             c["reference_quality"],
-            number(base.get("predicted_user_seconds", 0) * 1000) if base else "—",
+            number(base.get("predicted_user_seconds", 0) * 1000) if base else c.get("base_status", "unavailable"),
             number(head.get("predicted_user_seconds", 0) * 1000) if head else "—",
             number(base.get("error_percent"), "%"),
             number(head.get("error_percent"), "%"),
@@ -669,14 +761,16 @@ def detail(report, entry, preview=False):
         ]
         body += "<tr>" + "".join("<td>" + esc(v) + "</td>" for v in values) + "</tr>"
     body += '</tbody></table></div><h2>Calibration and held-out coverage</h2><div class="cards">'
-    for split in (compute.SPLITS if report.get("schema") == 3 else ("calibration", "held_out")):
+    for split in (compute.SPLITS if report.get("schema") in (3, 4) else ("calibration", "held_out")):
         summary = report.get("summary", {}).get(split, {})
         body += (
             '<div class="card">'
             + esc(split)
             + "<strong>"
             + esc(f'{summary.get("comparable", "—")} / {summary.get("required", "—")}')
-            + "</strong><p>Mean head error: "
+            + "</strong>"
+            + ("<p>Head comparable: " + esc(summary["head_comparable"]) + "; base comparable: " + esc(summary["base_comparable"]) + ". Means use their respective coverage.</p>" if "base_comparable" in summary else "")
+            + "<p>Mean head error: "
             + number(summary.get("head", {}).get("mean_error_percent"), "%")
             + "<br>Maximum: "
             + number(summary.get("head", {}).get("maximum_error_percent"), "%")
@@ -754,7 +848,8 @@ def detail(report, entry, preview=False):
     if report.get("schema") == 1:
         body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
     elif report["artifact_status"] == "pass":
-        body += "<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: 4,194,304 accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
+        accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
+        body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
     usable_rows = [
         c for c in cases if c.get("reference_quality") == "usable" and c.get("head")
     ]
@@ -790,7 +885,11 @@ def detail(report, entry, preview=False):
         + '</p><div class="downloads"><a href="report.json">Report JSON</a><a href="report.md">Markdown report</a><a href="bundle.json">Evidence hashes</a>'
     )
     if report["artifact_status"] == "pass":
-        if report["schema"] == 3:
+        if report["schema"] == 4:
+            body += '<a href="reference.json">Plotting data and native output identities</a>'
+            collection = report["reference"]["collection_commit"]
+            body += '<a href="https://github.com/' + REPO + '/tree/' + collection + '">Exact native collection source</a>'
+        elif report["schema"] == 3:
             body += '<a href="cohorts/original/reference.json">Original24 raw samples</a><a href="cohorts/compute/reference/reference.json">Compute240 raw samples</a><a href="cohorts/compute/reference/oracle.json">Independent output oracle</a><a href="cohorts/compute/reference/validation-report.json">Original validation report</a><a href="cohorts/compute/reference/validation-harness.py">Original validation harness</a><a href="cohorts/compute/source/scripts/compute_usertime.py">Compute measurement protocol</a>'
         else:
             body += '<a href="reference.json">Raw native samples</a><a href="manifest.json">Workloads and hardware profile</a><a href="native_usertime.py">Measurement harness</a>'

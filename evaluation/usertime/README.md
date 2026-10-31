@@ -1,376 +1,129 @@
-# Whole-program user CPU time
+# Whole-program user-time accuracy
 
-The default ELF timing scope is the complete single-threaded user program from
-ELF entry through exit, including its own initialization and output preparation.
-The loader, host syscall processing, copied output buffers, kernel execution,
-page-fault service and off-CPU waiting are excluded. SVC is one serialized user
-instruction with the pipeline's ordinary unit latency, not a guessed kernel
-penalty. Older instructions retire before servicing it; younger instructions
-wait for the boundary to retire. No ROI or extracted kernel is required.
+Poros compares predicted whole-program user time with direct-child
+`wait4.ru_utime` from the **identical AArch64 ELF and arguments** running natively
+in an ARM64 Linux VM on an Apple M2. QEMU is a correctness oracle only. Guest
+initialization, computation, and output all belong to the measured program.
+Simulator-host elapsed time, system CPU time, and native macOS timing are not
+substituted for Linux child user time. VM core identity and instantaneous
+frequency remain unknown; hardware timing accuracy is **unverified**.
 
-`poros elf --mode ooo program.elf args` (or `--mode inorder`) uses the shared
-checked runtime. Default frequency is an explicitly assumed 3.49 GHz; the full
-CPU Spec and cache configuration are reported. Timing CLI frequency must be an
-integer from 1 MHz through 1 THz; fractional or zero CLI values are rejected, so
-reported Hz matches the simulation clock exactly. The Go Options zero value
-selects the documented default. Cache state starts cold; user
-initialization naturally warms it. There is no OS cache/TLB pollution model,
-I-cache timing is not supplied by these existing pipelines, and this is not a
-validated Apple hardware profile. Inorder branch metrics are explicitly unavailable. `--mode functional` remains the default.
+The error is `100 * abs(simulated - reference) / min(simulated, reference)`.
+No offset fitting, batching, or anchor removal is used. The CPU/cache profile,
+3.49 GHz assumption, and calibration/validation split have not changed.
 
-The two timing models use the same process semantics and checked memory as the
-functional path. All 14 required ELF fixtures compare final registers, readable
-memory, outputs, exit/error state, and deterministic instruction/cycle counts.
-Hand-derived tests check a minimal exit timeline. Deadline/cancellation is checked
-at architectural steps; already-issued finite-latency work drains before return.
-The CLI uses fixed bounded latencies (maximum DRAM latency 335 cycles); it does
-not expose arbitrarily long pipeline stalls. Cancelled and timed-out loops are
-tested, including no execution for a pre-cancelled context. All compute workloads
-now execute as complete ELF programs; the legacy whole-kernel golden rows and
-host application hooks have been retired. Isolated pipeline variants, ISA and
-lifecycle checks remain. See the [evaluation contract](../README.md) for required coverage.
+## Independent correctness and performance inventories
 
-## Workload suite and builds
+- `tests/usertime/manifest.json` and `tests/benchmarks/manifest.json` retain every
+  existing small correctness case and its complete output shape. Bounds and
+  source/ELF hashes reflect the enlarged wrappers.
+- `tests/usertime/performance.json` declares six larger timing points for integer,
+  memory, branch, and MVT. Memory uses 32 million accesses at six working-set sizes.
+- `tests/benchmarks/performance.json` declares six actual dimension tuples and
+  complete output shapes for each of the other 40 programs.
 
-`tests/usertime/manifest.json` schema 2 defines four ordered six-point sweeps:
+Both inventories execute the same rebuilt ELF files. There are no alternate
+algorithm implementations or outer repetition loops. PARSEC names still mean
+simplified compute kernels, not full applications. Tiled Facesim extends its
+valid mesh, x264 extends the padded search frame, and bodytrack bounds particle
+states to preserve meaningful likelihoods. All old small-case native outputs
+were checked byte-for-byte against the previous ELFs.
 
-| Workload | Sweep coordinates | Split |
-| --- | --- | --- |
-| integer | 500000, 1000000, 2000000, 4000000, 6000000, 8000000 iterations | calibration |
-| memory | 8192, 65536, 262144, 1048576, 8388608, 33554432 working-set bytes | held_out |
-| branch | 500000, 1000000, 2000000, 4000000, 6000000, 8000000 iterations | held_out |
-| MVT | n=8,63,120,129,400,1536 | calibration |
+Integer/MVT/ATAX/GEMM supply 24 calibration points; memory/branch supply 12
+held-out points. The other 228 points remain `validation-legacy`, because their
+historical use prevents calling them independent holdouts.
 
-Memory performs 4,194,304 read/modify/write accesses per run, plus initialization
-of every element in the declared working set. Larger working sets therefore also
-have larger initialization costs. Its curve is not a pure cache-latency experiment
-or constant-total-work comparison. The largest set gets one full traversal;
-smaller sets get an integer number of traversals. Cache-size boundaries refer to
-the configured model (128 KiB L1, 16 MiB L2), not independently measured capacities.
+## Native evidence and quality
 
-MVT initializes the matrix/vectors inside the guest, computes both matrix-vector
-products and writes all 2*n binary64 output elements. Its active data bytes are
-`8*(n*n+4*n)`. Fixed maximum BSS buffers keep all six dimensions within the
-existing checked address-space limit; indexing uses the runtime dimension.
-Invalid/empty/overflowing arguments, oversized matrices and non-power-of-two
-memory sets are rejected before computation. No simulator address/name hook,
-manual argument register setup or function-byte extraction is used.
+Each formal case executes one warmup and 21 measured processes. A single complete
+264-point final campaign is used regardless of its qualification count. A case
+is excluded from error statistics, but remains visible, when any measured user
+time is nonpositive, the median is below 100 microseconds, or
+`(P90-P10)/median > 0.20` (the unchanged order-statistic definition). No sample is
+selected, retried, replaced by total CPU time, or selected by simulator error.
 
-Builds use GCC 14.2.0 / binutils 2.44 with the recorded build script, including scalar
-`-O1`, disabled vectorization/if-conversion/unrolling and `-ffp-contract=off`.
-The latter is a reproducibility choice, not a hardware FMA claim. Rebuild with:
+Only compact plotting data is committed: `performance-v1.json` contains each
+case's median, P10/P90, extrema, sample/nonpositive counts, quality, and complete
+native output SHA256/length, with exact collection/source/ELF identities. The
+serializer first validates every local raw sample and full output, then derives
+these statistics. Full raw campaigns, diagnostic pilots, and output witnesses
+stay local; they are not Git or Pages assets. CI retains execution records as
+transient workflow artifacts. Superseded active references are removed, while
+previously published historical bundles remain readable.
 
-```sh
-CC_AARCH64=/opt/homebrew/opt/musl-cross/bin/aarch64-linux-musl-gcc tests/usertime/build.sh
-```
+Complete output validation remains byte-exact: every decoded simulator byte
+contributes to the native/QEMU SHA256 comparison, with exact length, normal exit,
+shape/finiteness checks and the existing microprogram analytic checks. A hash
+comparison replaces storage of the native byte sequence, not execution or output
+coverage. The report does not claim raw observations are publicly downloadable.
 
-Sources/build script and each ELF have SHA-256 identities in the manifest.
-`workload_contract.py` validates complete four-group/six-point inventories,
-coordinates, role, arguments and binary/source identities. Removing, reordering
-or duplicating cases fails. Schema 1 is supported only to read previously
-published six-case bundles; active measurements use schema 2.
+The performance oracle runs identical ELFs natively and in QEMU, comparing every
+output byte. A clean, separately built Go checker supplies independent equations
+for QR, Black-Scholes, bodytrack, canneal, raytrace, Facesim, and x264. Other
+programs receive complete shape/finiteness and native/QEMU checks; they are not
+claimed to have a separate mathematical oracle. Every Facesim force and positive
+deformation determinant is checked; energy gradients cover the original fixture,
+all seven deformation classes, and the partial final block. QEMU and semantic
+checks run outside the native timing phase.
 
-## Native records and correctness
+Capture requires clean committed support code, exact source/ELF identities, and
+an exact ARM64 Docker image digest. Heavy simulation, compilation, and tests are
+stopped during native acquisition. Capture output is written outside the clean
+checkout and validated there. Only the derived compact reference is committed.
+The single recorded collection commit is the actual clean commit measured;
+publication verifies collector and input hashes against that exact Git object.
 
-`scripts/usertime.py capture` directly executes these same Linux ARM64 ELFs,
-with one warm-up process followed by 21 retained child processes per case.
-`wait4.ru_utime` is direct-child user CPU time; wall time, system CPU time and
-simulator host cost are not substituted. Each output and exit status is checked.
-Scalar outputs use independent arithmetic oracles. The MVT oracle forms exact
-integer dot-product numerators and converts once, independently of the guest’s
-sequential floating-point accumulation. Every finite element must satisfy
-`abs(got-want) <= max(1e-11, 1e-12*max(abs(got), abs(want)))`; output truncation and NaN/Inf fail.
-Functional and timing executions must have identical output bytes and instruction
-counts in addition to each passing the independent oracle.
+## Parallel CI and base compatibility
 
-`m2-linuxvm-user-v2.json` contains all 24 cases and all 504 samples from the first
-successful capture, plus system time, source/build/binary/input identities,
-measurement harness and imported contract hashes, container image identity and
-hardware description. Active comparisons intentionally bind the exact native collector and
-`workload_contract.py` bytes: any edit to either file, including a validator or
-comment change, requires a fresh capture. This conservative provenance policy
-has no hash bypass; retained historical bundles remain self-contained.
+Evaluation builds head/base once and freezes the full 264-case plan. It then runs
+132 deterministic shards, two cases per shard, with at most 16 concurrent jobs.
+Each case requires head functional and head OoO execution. Base OoO is required
+whenever the exact base can load that ELF and retain its complete output.
 
-It was collected on an Apple M2 Mac14,3 with 24 GiB RAM using
-native ARM64 execution in a Docker Linux VM. No QEMU timing is used. Heavy local
-simulation/testing was paused, but exclusive host isolation, aggregate host load,
-core type and instantaneous frequency were not measured or controlled. VM user
-accounting and unknown scheduling remain limitations, not bare-metal ground truth.
-The old six-case reference, separate Mach-O witness and MVT kernel-ROI data are
-superseded and removed from the active tree; published historical bundles remain
-self-contained and readable. Git preserves rollback history.
+Per-process bounds are 2 billion instructions and 45 minutes. Output is bounded by
+the case's declared complete output size, with a minimum 1 MiB default. Shard jobs
+have a 300-minute ceiling covering two cases and their required executions. These
+are finite safety budgets, not performance targets. Actual shard durations are
+retained in `shard-summary.json`.
 
-Quality rules are unchanged: any nonpositive/nonfinite raw user-time sample
-marks the case invalid_nonpositive; a median below 100 microseconds is below the
-conservative policy floor; P10-P90 spread above 20% of median is noisy. This floor
-is not a measured clock resolution. All 24 cases remain visible. The retained
-capture qualifies only branch 6M/8M: calibration 0/12, held_out 2/12. MVT 400 and 1536
-medians are1.265ms and8.058ms respectively, but are unqualified (zero sample and
-noise respectively). No sample, point or workload was rerolled or removed to
-improve accuracy. Unqualified points have no reported error; empty means display
-an em dash, never0%.
+The loader image ceiling is 256 MiB, while the 16 MiB ELF-file and 128-program-header
+bounds remain. The requested output ceiling is 64 MiB; its default remains 1 MiB.
+The current performance protocol requires a compute-ELF-capable base; ancient
+pre-compute comparisons are rejected. Historical archived reports remain valid.
+Older capable bases have 64 MiB image/16MiB output limits. Capability is extracted only from
+recognized declarations in the exact base Git objects, with full source/digest
+proof retained. Unknown capabilities fail closed. Page-rounded `PT_LOAD` bytes
+are recomputed from the exact ELF. Oversized cases record
+`image_limit_unavailable` or `output_limit_unavailable`; build or execution errors
+never turn into an exemption. The base executable is not patched.
 
-Example acquisition (existing native Linux ARM64 image):
+Reports state separate head/base comparable counts. Error deltas exist only for
+paired cases; means with different coverage are not presented as paired results.
+Publication re-verifies the retained capability against the exact base commit.
 
-```sh
-docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,size=64m \
-  -e PYTHONDONTWRITEBYTECODE=1 -e POROS_REFERENCE_IMAGE=IMAGE_DIGEST \
-  -v "$PWD:/src:ro" -v /private/tmp:/out -w /src poros-elf-reference:local \
-  python3 scripts/usertime.py capture --samples 21 --measurement-id NEW_ID \
-  --environment virtualized --hardware 'exact machine/environment' --output /out/reference.json
-```
+Aggregation requires every expected case/role exactly once, successful upstream
+jobs, complete outputs, positive counters, matching hardware profile, and exact
+plan/source/base/reference/binary identities. Missing, duplicate, extra, stale,
+malformed, or mixed records fail. It never falls back to serial execution or
+fabricates success. Failed shard jobs retain partial records and diagnostics;
+missing prepare/download artifacts produce an explicit failure report.
 
-Raw references
-are frozen by identity; changes to workload bytes, inputs, protocol or environment
-require a new capture. Generic `measure -- PROGRAM ARGS` remains available for
-native executables, but Mach-O measurements do not become same-ELF references.
+A failed-jobs/aggregate-only retry can reuse an earlier prepare/shard artifact
+from the same run and identical plan. The newest attempt for each shard wins,
+including failures; whole-workflow reruns create a new plan. The required final
+job remains **User-time accuracy report**, and the publisher-facing artifact is
+`user-time-accuracy-${run_attempt}`. Shards have read-only repository permissions.
 
-## Compute cohort and 264-case report
+## Publication and historical evidence
 
-`compute-linuxvm-v1/reference.json` adds all 40 migrated compute kernels at their
-six declared input points: 240 cases and 5,040 retained samples, plus one recorded
-warm-up per case. The guest ELF files, dimensions, startup and algorithm sources
-are unchanged. The new collector is `scripts/compute_usertime.py`; the original
-`native_usertime.py`, `workload_contract.py`, 24-case manifest and reference bytes
-remain unchanged. One predetermined 21-sample campaign is retained in full;
-zero-user and noisy observations are never dropped or rerolled.
-
-Each sample retains user time, system time, exit status, stdout/stderr hashes and
-lengths. Each complete stdout witness is retained once under `outputs/SHA.bin`,
-rather than duplicating large arrays across every sample. Offline validation
-checks every sample against the complete witness and its output shape. A compact
-240-case oracle binds each witness to independent same-ELF native/QEMU agreement.
-The original bound validation report and its exact historical validation harness
-are retained alongside it; guest source/build/input identities must still match.
-The existing native-C, independent numerical and full three-mode Go tests remain
-hard gates. Oracle preparation and simulation run outside the native timing campaign.
-
-The native reference describes an Apple M2 Mac14,3 host with 24 GiB RAM running
-Docker's native ARM64 Linux VM, not bare-metal Linux or macOS timing. VM core
-identity, instantaneous frequency and exclusive host isolation remain unknown.
-Sub-millisecond runs can show zero user time with nonzero system time; system time
-is retained for diagnosis but never substituted into the user-time metric. The
-existing 100 microsecond floor, any-zero invalidation and 20% P10–P90 spread rule
-apply unchanged. Every point remains visible, qualified or not.
-
-The first retained compute campaign (`m2-linuxvm-compute-v1-20261031`) ran from
-2026-10-31 01:54:43 to 01:59:08 UTC. All 240 outputs and normal exits passed.
-Of 5,040 retained samples, 1,202 had zero user time. The unchanged quality policy
-classifies 227 cases as `invalid_nonpositive` and 13 as `noisy`: none is qualified
-for a numeric accuracy error. These are measurement limitations, not missing
-workloads or zero model error. The original 24-case cohort still has its two
-qualified branch points. All raw values and model predictions remain visible.
-The retained cohort occupies about 5.18 MB, including 219 distinct complete
-output witnesses totaling 2.52 MB, the raw measurements and validation evidence.
-
-The combined schema-3 inventory has 264 required rows and 44 six-point curves.
-Original integer/MVT and new ATAX/GEMM contribute 24 calibration points; the
-original memory/branch cohorts retain 12 held-out points. The remaining 228
-compute points retain `validation-legacy`: previously used in development,
-held out from future fitting only, not an independent historical holdout.
-Multi-dimensional compute curves use input points 1–6 with actual dimension
-labels on hover; they do not pretend every kernel has one matrix-dimension axis.
-
-```sh
-# After the collector/protocol is committed and correctness evidence is complete:
-docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,size=64m \
-  -e PYTHONDONTWRITEBYTECODE=1 -e POROS_REFERENCE_IMAGE=sha256:IMAGE_ID \
-  -v "$PWD:/work:ro" -v /private/tmp:/out -w /work poros-elf-reference:local \
-  python3 scripts/compute_usertime.py --oracle /out/validated-differential.json \
-  --measurement-id UNIQUE_ID --hardware 'exact host and Linux VM description' \
-  --output /out/new-empty-compute-reference
-```
-
-## Required PR report
-
-`scripts/usertime-ci.sh BASE` builds clean exact head/base binaries and runs all 264
-required cases: head functional mode and head/base OoO timing mode. Every case
-uses the same ELF/arguments and frozen CPU/cache profile across both revisions.
-Missing cases, wrong output, base failure, changed identities or mismatched
-profiles fail artifact acceptance. The comparison has a10minute per-execution
-budget and150million-instruction limit. It runs on every PR/main push; the full
-inventory is never silently reduced to smoke cases. A pre-timing predecessor is
-explicitly unavailable, not assigned a fabricated base score. For the compute
-cohort, only the known pre-support revision `cb965b4d41fc7d52281652c3bce7803cc893cae0`
-may omit all 40 ELF programs; a base with that program inventory must execute
-every new point, even if it predates the measurement reference. Any failure in a
-capable base fails acceptance. The public report cannot become PASS until all
-264 points and both retained references have been validated.
-
-Schema-3 report JSON embeds both cohort contracts and the unchanged original
-24-case comparison. The evidence bundle retains both references, every complete
-output witness, source/ELF files and measurement/validation harnesses. Namespaced
-paths preserve original source directories without basename collisions. The
-publisher verifies their hashes against the exact tested source commit and still
-reads schema-1/2 historical bundles. A composite reference identity includes both
-cohorts, keeping historical and expanded trends separate.
-
-Formula `absolute-difference-over-min-v2` is unchanged:
-`100*abs(predicted-reference)/min(predicted,reference)`. Only finite positive,
-qualified times contribute. Base/head errors, direction and percentage-point
-changes use the same reference. Artifact completeness, functional correctness
-and hardware accuracy remain separate; hardware accuracy stays unverified and
-there is no numeric accuracy cutoff or tuning in this migration.
-
-## Published accuracy dashboard
-
-The dashboard is published at <https://sarchlab.github.io/poros/calibration/>.
-GitHub Pages must be configured as **Deploy from a branch → gh-pages → / (root)**.
-No personal access token or extra service is required. The publishing job uses
-`contents: write` to update that branch and `pages: write` to explicitly request
-a Pages build, then waits for a successful build that contains its publication.
-A default `GITHUB_TOKEN` push alone does not trigger a branch-based Pages build.
-Because the build API initially may return the previous `latest` build, polling
-ignores unrelated older successes/errors until the requested commit or a descendant
-is built, errors, or the bounded timeout expires.
-
-Every PR update produces an HTML preview plus JSON/Markdown and a complete
-evidence bundle in the `user-time-accuracy-ATTEMPT` artifact, retained for 30 days. PR
-reports never enter the public archive. Each main push evaluates its latest
-commit; intermediate commits in one push are not individually measured.
-`Publish accuracy reports` consumes only completed main-push Evaluation runs,
-verifying their workflow, repository, commit and attempt. Artifact names include
-the attempt number. A rerun of failed jobs may reuse the newest earlier artifact
-from the same run and commit, preserving its original evidence-attempt link. Failed/cancelled runs
-are visible, including an explicit missing-report record when no artifact exists.
-Early validation failures retain the original diagnostic JSON unchanged inside a
-bundle bound to the requested target; the page explicitly states that no executed
-source/binary identity was recorded.
-A release/manual accuracy build is not a full Evaluation run; its status is
-reported separately, and manual recovery queries full Evaluation proof for the
-exact commit before qualifying it. Only a complete report with a successful
-Evaluation run can become the latest successful main report. The homepage separately queries current main's public
-GitHub status; if that query is unavailable it labels the displayed snapshot.
-
-The archive retains the **20 newest ordinary main commits**, ordered by main's
-first-parent ancestry rather than completion time. Published releases permanently
-pin the exact tag commit and do not occupy those 20 slots. Releasing a commit
-already in the archive reuses its original successful report bytes, base revision
-and measurements. Only validated passing evidence is reused; missing, failed or
-invalid evidence triggers a read-only build of the exact release commit.
-Automatic release events run the workflow stored in the tagged revision, so they
-apply only to tags that contain this workflow. For older/missed tags or recovery,
-run `Publish accuracy reports` manually **from main** with `release_tag` set to an
-existing published release. The resolver rejects drafts/nonexistent releases,
-records the stable release ID and exact tag SHA (including annotated tags), and
-rechecks both before publication. Automatic release events also bind that SHA to
-the original event's `GITHUB_SHA`. An old target predating this timing protocol
-receives an explicit unsupported/failure report through this manual path. No
-release is created by the workflow. Published prereleases follow the same permanent
-retention policy. Deleting a GitHub release does not automatically delete its evidence.
-
-Each report is self-contained: raw native samples, manifest/hardware profile,
-measurement harness, workload sources and ELF files accompany the original report
-and checksums. This deliberately duplicates a small amount of evidence across
-reports so cleanup has no shared-data dependency: removing an expired ordinary
-report cannot remove data used by another report or release. All cleanup is
-limited to owned `calibration/runs/` directories. Other files on `gh-pages` are
-preserved; an absent root index links to the dashboard and `.nojekyll` makes the
-site static. Normal Git history is retained; pruning the live site is not a
-rewrite of the Pages branch's commit history.
-
-Publishing uses `concurrency.queue: max` to preserve queued events, with bounded
-optimistic Git push retries for concurrent manual changes. Non-PR evaluations
-have unique concurrency groups; PR updates cancel superseded PR evaluations.
-Late reports cannot move the latest pointer backward. A release and main report
-for the same SHA share one directory. Successful report evidence is immutable;
-Evaluation identity is ordered separately from publication-job identity, so a
-release/manual run cannot hide a later Evaluation completion. The newest verified
-Evaluation outcome controls latest-success eligibility: a later failed or pending
-attempt makes that commit ineligible, while an older event or a weaker lookup for
-the same attempt cannot erase completed proof. A failed report can be replaced by
-a successful retry without overwriting earlier successful measurement evidence.
-
-The site renders the report's numeric fields directly. It does not recalculate
-errors, subtract fitted overheads, invent thresholds, or turn noisy observations
-into qualified accuracy points. It includes per-case base/head times and errors,
-coverage by calibration/held-out split, size curves, qualified reference/prediction
-scatter, and history curves separated by reference, formula and full profile.
-The current Linux VM limitations remain prominent on every report.
-
-Validation entry points:
-
-```sh
-python3 scripts/accuracy_site_test.py
-python3 scripts/compute_usertime_test.py
-python3 scripts/accuracy_site.py bundle --report /path/report.json \
-  --source . --output /tmp/accuracy-preview --commit "$(git rev-parse HEAD)"
-python3 -m http.server 8000 --directory /tmp/accuracy-preview
-```
-
-The archive tests exercise retention, permanent pins, failed/successful retries,
-out-of-order arrivals, malformed evidence, escaping, zero-error charts, provenance
-boundaries and a real local bare-Git publish. A Pages workflow becomes active only
-once this change and its whole-program timing dependency are merged into `main`.
-A PR artifact/local preview is not proof that automatic production deployment has
-already run. `workflow_dispatch` on main with empty `release_tag` recovers the main
-report;
-with a tag it backfills an existing published release. Release/manual artifacts
-also carry attempt-specific names, with validated earlier-attempt reuse when only
-failed jobs are rerun. Publication failure is a failed Actions job, not a silent
-green result.
-
-## Parallel accuracy CI
-
-The Evaluation workflow builds the exact base and head binaries once, then runs
-all 264 cases in eight independent jobs. The canonical case order is interleaved
-round-robin: each shard receives 33 cases, spreading each six-point workload
-across several jobs. This is deterministic distribution, not a claim of equal
-runtime. A single slow case is not split or sampled, and each simulator process
-keeps the serial limits of 150 million instructions and ten minutes.
-
-Each case still runs head functional execution, head OoO execution, and base
-OoO execution when the base declares that cohort. The known pre-compute base is
-the only exception for the new 240 cases. No native timing is collected in CI.
-All input sizes, quality rules, raw references, simulator settings and complete
-output checks are unchanged. Eight-way concurrency reduces elapsed waiting;
-it does not reduce the amount of simulated work or billed runner time.
-
-`scripts/accuracy_parallel.py` separates three operations:
-
-- `prepare` builds base/head and records their hashes, clean source identities,
-  both reference hashes, the complete case inventory, workflow run identity and
-  partition in `plan.json`.
-- `shard` validates that plan against its checkout and binaries, executes its
-  cases, and saves complete simulator results plus per-case errors. Other shards
-  continue after a failure (`fail-fast: false`).
-- `aggregate` rejects missing, duplicate, foreign, failed or incomplete shards
-  and checks every execution's inputs, build, complete output and timing fields.
-  It then supplies those records to the same comparison functions used by the
-  serial CLI. It never fills missing cases with fabricated rows or silently
-  re-executes them.
-
-The aggregate job retains the required check name `User-time accuracy report`
-and produces `user-time-accuracy-RUN_ATTEMPT`, so the main/release publisher and
-historical schema-1/2/3 archive readers consume the same final bundle format.
-The aggregate runs even after upstream failure and uploads a failure report;
-success requires both successful upstream jobs and all 264 validated cases.
-Shard artifacts and a successful `accuracy-shard-summary-RUN_ATTEMPT` diagnostic
-retain execution records and per-shard durations for 30 days.
-
-A rerun of failed jobs can reuse the unchanged prepared artifact and successful
-shards from the same workflow run. The latest attempt for each shard wins, so a
-new failure cannot be hidden by an older success. Duplicate same-attempt shards,
-future attempts and different plan/run identities fail. A rerun of all jobs
-creates a new prepared plan; its artifact names isolate it from old results.
-
-The serial `scripts/usertime-ci.sh BASE OUTPUT` entry point remains available for
-local comparisons and historical release backfill. Release publication continues
-to reuse retained evidence when available; its fallback execution path is not
-changed to require parallel support in old source revisions. No Pages settings,
-retention policy, or publication permissions change.
-
-To reproduce the parallel path locally, use a clean committed checkout and keep
-artifacts outside it. For example:
-
-```sh
-python3 scripts/accuracy_parallel.py prepare --base origin/main \
-  --prepared /tmp/accuracy-prepared --run-id local-check --attempt 1 --shards 8
-# Run these eight indices concurrently or sequentially with the same plan:
-python3 scripts/accuracy_parallel.py shard --prepared /tmp/accuracy-prepared \
-  --run-id local-check --attempt 1 --index 0 --output /tmp/accuracy-shards/0/shard.json
-# Repeat index/output directory 1 through 7, then:
-python3 scripts/accuracy_parallel.py aggregate --prepared /tmp/accuracy-prepared \
-  --run-id local-check --attempt 1 --results /tmp/accuracy-shards \
-  --output /tmp/accuracy-report/report.json
-```
+The existing branch-based Pages publisher remains. It archives recent 20 main
+commits and permanently retains release reports. Publication verifies exact Git
+source hashes, references, outputs, and base-capability proof. Historic report
+schema 4 stores only report JSON/Markdown and compact plotting reference. Historic
+report schemas 1/2/3 remain readable; explicit suite/protocol versions choose their exact
+old inventories. A missing new performance manifest cannot silently fall back to
+small cases. The serial comparison CLI remains for targeted reproduction. A shared reusable
+workflow runs modern Evaluation and missing-evidence release/manual backfills
+through the same parallel comparator. Releases reuse validated retained bundles
+when available; historical small-cohort targets retain their historical serial
+protocol. A failed parallel path never falls back to serial.

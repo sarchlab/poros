@@ -74,3 +74,22 @@ func facesimReference(in facesimInput) ([]float64, float64, error) {
 	}
 	return forces, energy, nil
 }
+
+// Extract one independent mesh block for local energy-gradient checks.
+func facesimBlock(total, block int) (facesimInput, error) {
+	n := 32
+	if total-block*32 < n {
+		n = total - block*32
+	}
+	in, err := facesimFixture(n)
+	if err != nil {
+		return in, err
+	}
+	for i := 0; i < 20; i++ {
+		rest := [3]float64{float64(i%3)/2 + float64(block)*2, float64((i/3)%3) / 2, float64(i/9) / 2}
+		for r, mult := range []int{7, 11, 13} {
+			in.positions[i*3+r] = math.FMA(float64(i*mult%5), .01*(1+float64(block%7)*.01), rest[r])
+		}
+	}
+	return in, nil
+}

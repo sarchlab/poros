@@ -1,19 +1,19 @@
 #include "../../polybench/kernels/kernel_deriche.c"
 #include "runtime.h"
 
-static double input[24576];
-static double result[24576];
-static double y1[24576];
-static double y2[24576];
+static double input[1572864];
+static double result[1572864];
+static double y1[1572864];
+static double y2[1572864];
 
 int workload(int argc, char **argv) {
   if (argc != 3)
     return 2;
   int w;
-  if (!argument(argv[1], 1, 192, &w))
+  if (!argument(argv[1], 1, 1536, &w))
     return 2;
   int h;
-  if (!argument(argv[2], 1, 128, &h))
+  if (!argument(argv[2], 1, 1024, &h))
     return 2;
   for (int i = 0; i < w; i++)
     for (int j = 0; j < h; j++)

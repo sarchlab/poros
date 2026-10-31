@@ -1,13 +1,13 @@
 #include "../../polybench/kernels/kernel_floyd_warshall.c"
 #include "runtime.h"
 
-static double path[32400];
+static double path[409600];
 
 int workload(int argc, char **argv) {
   if (argc != 2)
     return 2;
   int n;
-  if (!argument(argv[1], 1, 180, &n))
+  if (!argument(argv[1], 1, 640, &n))
     return 2;
   for (int i = 0; i < n; i++)
     for (int j = 0; j < n; j++)

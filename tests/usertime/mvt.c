@@ -1,5 +1,5 @@
 #include "runtime.h"
-#define MAX_N 1536
+#define MAX_N 4096
 static double a[MAX_N * MAX_N];
 static double x1[MAX_N], x2[MAX_N], y1[MAX_N], y2[MAX_N];
 int guest_main(u64 *sp) {

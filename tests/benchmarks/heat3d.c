@@ -1,8 +1,8 @@
 #include "../../polybench/kernels/kernel_heat_3d.c"
 #include "runtime.h"
 
-static double A[8000];
-static double B[8000];
+static double A[2097152];
+static double B[2097152];
 
 int workload(int argc, char **argv) {
   if (argc != 3)
@@ -11,7 +11,7 @@ int workload(int argc, char **argv) {
   if (!argument(argv[1], 1, 40, &tsteps))
     return 2;
   int n;
-  if (!argument(argv[2], 3, 20, &n))
+  if (!argument(argv[2], 3, 128, &n))
     return 2;
   for (int i = 0; i < n; i++)
     for (int j = 0; j < n; j++)

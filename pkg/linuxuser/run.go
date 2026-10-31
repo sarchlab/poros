@@ -11,7 +11,7 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
-const MaxOutputBytes = 16 << 20
+const MaxOutputBytes = 64 << 20
 
 // RunOptions bounds host work separately from the deterministic instruction
 // budget. Zero values select 1M instructions, 2 seconds and 1 MiB total output.

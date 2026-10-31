@@ -2,6 +2,7 @@
 """Archive retention, provenance, failure visibility and publisher boundary tests."""
 
 import copy
+import accuracy_test_support as fixtures
 import json
 import os
 import shutil
@@ -30,6 +31,19 @@ class AccuracySiteTest(unittest.TestCase):
         self.pages.mkdir()
         (self.pages / "README.md").write_text("unrelated source is preserved")
         self.counter = 0
+        self.fixture_source = self.root / "fixture-source"
+        manifest = site.read(ROOT/"tests/usertime/manifest.json")
+        names = {"tests/usertime/manifest.json", "scripts/native_usertime.py", "scripts/workload_contract.py"} | {"tests/usertime/"+n for n in manifest["sources"]} | {"tests/usertime/"+c["file"] for c in manifest["cases"]}
+        for name in names:
+            destination=self.fixture_source/name
+            destination.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(ROOT/name,destination)
+        reference = fixtures.synthetic_micro_reference(self.fixture_source,manifest)
+        for row in reference["cases"]:
+            if row["workload"] != "branch" or row["point"] < 6000000:
+                for sample,value in zip(row["samples"],[.0005]*10+[.001]+[.002]*10):sample["user_seconds"]=value
+                row["quality"]="noisy"
+        site.write(self.fixture_source/"evaluation/usertime/m2-linuxvm-user-v2.json",reference)
 
     def bundle(self, commit, successful=True, error=10):
         self.counter += 1
@@ -41,8 +55,8 @@ class AccuracySiteTest(unittest.TestCase):
         if not successful:
             site.failure(raw, commit, 'Build failed <script>alert("bad")</script>')
         else:
-            manifest = site.read(ROOT / "tests/usertime/manifest.json")
-            reference = site.read(ROOT / "evaluation/usertime/m2-linuxvm-user-v2.json")
+            manifest = site.read(self.fixture_source / "tests/usertime/manifest.json")
+            reference = site.read(self.fixture_source / "evaluation/usertime/m2-linuxvm-user-v2.json")
             paths = [
                 "scripts/native_usertime.py",
                 "scripts/workload_contract.py",
@@ -104,19 +118,19 @@ class AccuracySiteTest(unittest.TestCase):
                 "head": {
                     "commit": commit,
                     "dirty": False,
-                    "files": {p: site.digest(ROOT / p) for p in paths},
+                    "files": {p: site.digest(self.fixture_source / p) for p in paths},
                 },
                 "base_commit": revision(0),
                 "reference_sha256": site.digest(
-                    ROOT / "evaluation/usertime/m2-linuxvm-user-v2.json"
+                    self.fixture_source / "evaluation/usertime/m2-linuxvm-user-v2.json"
                 ),
-                "reference": reference,
+                "reference": {k:v for k,v in reference.items() if k != "cases"},
                 "cases": cases,
                 "summary": summary,
             }
             site.write(raw / "report.json", report)
             (raw / "report.md").write_text("# Test report\n")
-        site.bundle(raw / "report.json", ROOT, output, commit)
+        site.bundle(raw / "report.json", self.fixture_source, output, commit)
         return output
 
     def metadata(self, commit, kind="main", conclusion="success", run=1, attempt=1):
@@ -463,7 +477,7 @@ class AccuracySiteTest(unittest.TestCase):
         for name in report["head"]["files"]:
             destination = source / name
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / name, destination)
+            shutil.copyfile(self.fixture_source / name, destination)
         subprocess.run(["git", "init", str(source)], check=True, capture_output=True)
         for key, value in (("user.name", "Test"), ("user.email", "test@example.org")):
             subprocess.run(["git", "-C", str(source), "config", key, value], check=True)
@@ -493,10 +507,11 @@ class AccuracySiteTest(unittest.TestCase):
         # GitHub parses the full YAML on push; these lock our security/retention contract.
         evaluation = (ROOT / ".github/workflows/evaluation.yml").read_text()
         publishing = (ROOT / ".github/workflows/accuracy-pages.yml").read_text()
+        parallel = (ROOT / ".github/workflows/accuracy-evaluate.yml").read_text()
         self.assertIn("permissions:\n  contents: read", evaluation)
         self.assertNotIn("contents: write", evaluation)
-        self.assertIn("retention-days: 30", evaluation)
-        self.assertIn("name: user-time-accuracy-${{ github.run_attempt }}", evaluation)
+        self.assertIn("retention-days: 30", parallel)
+        self.assertIn("name: user-time-accuracy-${{ github.run_attempt }}", parallel)
         self.assertIn(
             "github.event_name == 'pull_request' && github.ref || github.run_id",
             evaluation,
@@ -511,8 +526,8 @@ class AccuracySiteTest(unittest.TestCase):
         self.assertIn("ref: ${{ steps.target.outputs.commit }}", publishing)
         self.assertIn("release_tag:", publishing)
         self.assertIn("--resolve-target", publishing)
-        self.assertIn("accuracy_site.py reusable", publishing)
-        self.assertIn("evidence/publication-target.json", publishing)
+        self.assertIn("accuracy_backfill.py route", publishing)
+        self.assertIn("accuracy_backfill.py package", publishing)
         self.assertIn(
             "name: release-accuracy-evidence-${{ github.run_attempt }}", publishing
         )

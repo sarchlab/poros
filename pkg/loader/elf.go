@@ -13,7 +13,7 @@ const (
 	ELFPageSize          uint64 = 4096
 	ELFAddressLimit      uint64 = 1 << 48
 	MaxELFFileBytes             = 16 << 20
-	MaxELFImageBytes     uint64 = 64 << 20
+	MaxELFImageBytes     uint64 = 256 << 20
 	MaxELFProgramHeaders        = 128
 )
 

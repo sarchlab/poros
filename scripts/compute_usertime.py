@@ -11,6 +11,7 @@ import copy
 from datetime import datetime
 import re
 import hashlib
+import gzip
 import importlib.util
 import json
 import math
@@ -26,12 +27,23 @@ import native_usertime as native
 import workload_contract as legacy
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = "evaluation/usertime/compute-linuxvm-v1"
+REFERENCE = "evaluation/usertime/compute-performance-v1"
+LEGACY_PROTOCOL = "compute-child-user-v1"
+PERFORMANCE_MANIFEST = "tests/benchmarks/performance.json"
 SPLITS = ("calibration", "held_out", "validation-legacy")
-PROTOCOL = "compute-child-user-v1"
+PROTOCOL = "compute-performance-user-v1"
 QUALITY_POLICY = {"nonpositive": "reject-any", "precision_floor_seconds": .0001, "relative_p10_p90_limit": .2}
 SUPPORT = ("scripts/compute_usertime.py", "scripts/native_usertime.py",
            "scripts/workload_contract.py", "scripts/benchmark-differential.py")
+NUMERICAL_SUPPORT = ("internal/benchmarks/catalog.go", "internal/benchmarks/numerical.go",
+                     "internal/benchmarks/facesim.go", "internal/benchmarks/x264.go",
+                     "scripts/benchmark-oracle/main.go", "go.mod", "go.sum")
+
+
+def support(protocol):
+    return SUPPORT + NUMERICAL_SUPPORT if protocol == PROTOCOL else SUPPORT
+
+
 spec = importlib.util.spec_from_file_location("benchmark_differential", Path(__file__).with_name("benchmark-differential.py"))
 differential = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(differential)
@@ -57,12 +69,17 @@ def relative(name):
     return path
 
 
-def contract(root=ROOT):
+def contract(root=ROOT, protocol=PROTOCOL):
     root = Path(root)
-    manifest = read(root / "tests/benchmarks/manifest.json")
+    if protocol not in (LEGACY_PROTOCOL, PROTOCOL):
+        raise ValueError("unsupported compute measurement protocol")
+    manifest_path = PERFORMANCE_MANIFEST if protocol == PROTOCOL else "tests/benchmarks/manifest.json"
+    manifest = read(root / manifest_path)
+    if protocol == PROTOCOL and manifest.get("suite") != "compute-performance-six-point-v1":
+        raise ValueError("invalid performance inventory")
     build = read(root / "tests/benchmarks/provenance.json")
     workloads = differential.validate_inventory(root, manifest, build)
-    old = legacy.load_manifest(root)
+    old = legacy.load_manifest(root, performance=protocol == PROTOCOL)
     roles = read(root / "evaluation/workloads.json")
     if roles["split_version"] != "m0-v1":
         raise ValueError("unexpected compute calibration split")
@@ -70,10 +87,17 @@ def contract(root=ROOT):
     for w in workloads:
         if roles[w["name"]] != ("calibration" if w["name"] in ("atax", "gemm") else "validation-legacy"):
             raise ValueError("compute migration must preserve frozen calibration roles")
-    return contract_data(manifest, build, old["profile"])
+    return contract_data(manifest, build, old["profile"], protocol)
 
 
-def contract_data(manifest, build, profile):
+def contract_data(manifest, build, profile, protocol=LEGACY_PROTOCOL):
+    if protocol not in (LEGACY_PROTOCOL, PROTOCOL):
+        raise ValueError("unsupported compute protocol")
+    path = PERFORMANCE_MANIFEST if protocol == PROTOCOL else "tests/benchmarks/manifest.json"
+    if protocol == PROTOCOL and manifest.get("suite") != "compute-performance-six-point-v1":
+        raise ValueError("performance protocol requires explicit performance manifest")
+    if protocol == LEGACY_PROTOCOL and "suite" in manifest:
+        raise ValueError("legacy protocol cannot contain performance inputs")
     workloads = differential.validate_inventory(None, manifest, build, verify_files=False)
     cases, groups = [], []
     for w in workloads:
@@ -87,9 +111,10 @@ def contract_data(manifest, build, profile):
                               dimensions={d["name"]: int(a) for d, a in zip(w["dimensions"], c["args"])},
                               args=["program", *c["args"]], env=[], file=w["binary"],
                               sha256=build["files"][w["binary"]], outputs=copy.deepcopy(c["outputs"]),
-                              model="ooo", frequency_hz=3490000000))
-    return dict(schema=1, suite=PROTOCOL, profile=profile, build=build, program_manifest=manifest,
-                program_manifest_sha256=build["files"]["tests/benchmarks/manifest.json"],
+                              model="ooo", frequency_hz=3490000000,
+                              **(dict(mapped_image_bytes=w["mapped_image_bytes"]) if protocol == PROTOCOL else {})))
+    return dict(schema=1, suite=protocol, profile=profile, build=build, program_manifest=manifest,
+                program_manifest_sha256=build["files"][path],
                 workloads=groups, cases=cases)
 
 
@@ -98,6 +123,8 @@ def validate_oracle(oracle, declared):
         raise ValueError("independent oracle program provenance mismatch")
     if not re.fullmatch(r"[0-9a-f]{40}", oracle.get("validation_commit", "")) or oracle.get("validation_clean") is not True or not legacy.SHA256.fullmatch(oracle.get("validation_report_sha256", "")) or not legacy.SHA256.fullmatch(oracle.get("validation_harness_sha256", "")):
         raise ValueError("incomplete independent oracle validation identity")
+    if declared["suite"] == PROTOCOL and (oracle.get("contract") != "complete native/QEMU output; independent equations for declared sensitive workloads; no simulator execution" or not legacy.SHA256.fullmatch(oracle.get("numerical_oracle_sha256", ""))):
+        raise ValueError("performance oracle requires explicit independent native/QEMU/numerical contract")
     rows = oracle["cases"]
     if [r["id"] for r in rows] != [c["oracle_id"] for c in declared["cases"]]:
         raise ValueError("independent oracle needs all 240 ordered cases")
@@ -106,6 +133,9 @@ def validate_oracle(oracle, declared):
             raise ValueError("independent oracle input/result mismatch")
         if not legacy.SHA256.fullmatch(row["output_sha256"]) or row["native_sha256"] != row["output_sha256"] or row["qemu_sha256"] != row["output_sha256"]:
             raise ValueError("native/QEMU oracle disagreement")
+        kind = "equations" if case["workload"] in {"gramschmidt", "blackscholes", "bodytrack", "canneal", "raytrace", "facesim", "x264"} else "shape_finite"
+        if declared["suite"] == PROTOCOL and (row.get("numerical_status") != "pass" or row.get("numerical_check") != kind):
+            raise ValueError("missing independent numerical verification")
         length = sum(o["count"] * (8 if o["type"] == "double" else 4) for o in case["outputs"])
         if row["output_bytes"] != length:
             raise ValueError("independent oracle output size mismatch")
@@ -120,13 +150,29 @@ def compact_oracle(report, declared):
                   validation_report_sha256=hashlib.sha256((json.dumps(report, indent=2, allow_nan=False) + "\n").encode()).hexdigest(), validation_harness_sha256=report["provenance"]["sources"]["scripts/benchmark-differential.py"],
                   qemu=report["qemu"], platform=report["platform"], build=report["build"],
                   manifest_sha256=report["manifest_sha256"], cases=report["cases"])
+    if declared["suite"] == PROTOCOL:
+        oracle.update(contract=report.get("contract"), numerical_oracle_sha256=report.get("numerical_oracle_sha256"),
+                      numerical_sources={name: report["provenance"]["sources"].get(name) for name in NUMERICAL_SUPPORT})
     validate_oracle(oracle, declared)
     return oracle
 
 
-def witness(folder, case, row):
-    path = Path(folder) / "outputs" / (row["output_sha256"] + ".bin")
-    raw = path.read_bytes()
+def output_name(row, protocol):
+    return "outputs/" + row["output_sha256"] + (".bin.gz" if protocol == PROTOCOL else ".bin")
+
+
+def witness(folder, case, row, protocol=None):
+    if protocol is None:
+        protocol = read(Path(folder) / "reference.json")["protocol"]
+    path = Path(folder) / output_name(row, protocol)
+    if protocol == PROTOCOL:
+        limit = sum(o["count"] * (8 if o["type"] == "double" else 4) for o in case["outputs"])
+        if not 0 < limit <= 67108864:
+            raise ValueError("witness exceeds bounded complete output")
+        with gzip.open(path, "rb") as stream:
+            raw = stream.read(limit + 1)
+    else:
+        raw = path.read_bytes()
     differential.check_output(case, raw)
     if len(raw) != row["output_bytes"] or hashlib.sha256(raw).hexdigest() != row["output_sha256"]:
         raise ValueError("full output witness mismatch")
@@ -135,8 +181,11 @@ def witness(folder, case, row):
 
 def validate_reference(folder, root=ROOT):
     folder, root = Path(folder), Path(root)
-    reference, declared, oracle = read(folder / "reference.json"), contract(root), read(folder / "oracle.json")
+    reference = read(folder / "reference.json")
+    declared, oracle = contract(root, reference.get("protocol")), read(folder / "oracle.json")
     validate_oracle(oracle, declared)
+    if declared["suite"] == PROTOCOL and oracle.get("numerical_sources") != {name: legacy.digest(root / name) for name in NUMERICAL_SUPPORT}:
+        raise ValueError("numerical oracle source identity mismatch")
     if oracle != compact_oracle(read(folder / "validation-report.json"), declared) or legacy.digest(folder / "validation-report.json") != oracle["validation_report_sha256"] or legacy.digest(folder / "validation-harness.py") != oracle["validation_harness_sha256"]:
         raise ValueError("retained independent validation report/harness mismatch")
     try:
@@ -148,11 +197,11 @@ def validate_reference(folder, root=ROOT):
         raise ValueError("measurement protocol/environment identity mismatch")
     if completed < started or reference.get("precision_floor_seconds") != .0001 or reference.get("retained_samples_per_case") != 21 or reference.get("warmup") != "one complete process per case":
         raise ValueError("measurement quality protocol mismatch")
-    if reference.get("schema") != 1 or reference.get("protocol") != PROTOCOL or reference["contract"] != declared:
+    if reference.get("schema") != 1 or reference.get("protocol") != declared["suite"] or reference["contract"] != declared:
         raise ValueError("compute reference contract mismatch")
     if reference["oracle_sha256"] != legacy.digest(folder / "oracle.json"):
         raise ValueError("compute oracle evidence mismatch")
-    if reference["support_sha256"] != {name: legacy.digest(root / name) for name in SUPPORT}:
+    if reference["support_sha256"] != {name: legacy.digest(root / name) for name in support(declared["suite"])}:
         raise ValueError("compute measurement protocol source mismatch")
     if reference["metric"] != "child_user_cpu_seconds" or reference["timer"] != "wait4.ru_utime" or reference["environment"] != "virtualized" or reference["machine"] not in ("aarch64", "arm64"):
         raise ValueError("unexpected measurement scope")
@@ -208,7 +257,7 @@ def capture(args):
                      core_identity="unknown", instantaneous_frequency="unknown", warmup="one complete process per case",
                      retained_samples_per_case=21, precision_floor_seconds=.0001, precision_floor_basis="conservative protocol policy, not measured timer resolution",
                      protocol_notes="21 predetermined samples; no reroll/drop; user/system VM accounting and host isolation unverified",
-                     support_sha256={name: legacy.digest(ROOT / name) for name in SUPPORT},
+                     support_sha256={name: legacy.digest(ROOT / name) for name in support(declared["suite"])},
                      oracle_sha256=legacy.digest(folder / "oracle.json"), contract=declared, cases=[])
     (folder / "outputs").mkdir()
     for case, expected in zip(declared["cases"], oracle["cases"]):
@@ -221,9 +270,9 @@ def capture(args):
             sha = hashlib.sha256(out).hexdigest()
             if sample["exit_status"] != 0 or err or sha != expected["output_sha256"] or len(out) != expected["output_bytes"]:
                 raise ValueError("native correctness failed: " + case["id"])
-            output = folder / "outputs" / (sha + ".bin")
+            output = folder / output_name(dict(output_sha256=sha), PROTOCOL)
             if not output.exists():
-                output.write_bytes(out)
+                output.write_bytes(gzip.compress(out, mtime=0))
             samples.append(dict(user_seconds=sample["user_seconds"], system_seconds=sample["system_seconds"],
                                 exit_status=sample["exit_status"], stdout_sha256=sha, stdout_bytes=len(out),
                                 stderr_sha256=hashlib.sha256(err).hexdigest(), stderr_bytes=len(err)))
@@ -249,10 +298,12 @@ def validate_expanded(manifest):
         raise ValueError("unsupported expanded workload manifest")
     old, compute = manifest["original"], manifest["compute"]
     legacy.validate_manifest(old)
-    if compute != contract_data(compute["program_manifest"], compute["build"], old["profile"]):
+    if (compute["suite"] == PROTOCOL) != (old.get("suite") == legacy.PERFORMANCE_SUITE):
+        raise ValueError("mixed legacy and performance cohorts")
+    if compute != contract_data(compute["program_manifest"], compute["build"], old["profile"], compute["suite"]):
         raise ValueError("expanded compute input/build contract mismatch")
     groups, cases = compute["workloads"], compute["cases"]
-    if compute["suite"] != PROTOCOL or len(groups) != 40 or {g["id"] for g in groups} != differential.EXPECTED:
+    if compute["suite"] not in (LEGACY_PROTOCOL, PROTOCOL) or len(groups) != 40 or {g["id"] for g in groups} != differential.EXPECTED:
         raise ValueError("incomplete compute groups")
     expected = [(g, n) for g in groups for n in range(1, 7)]
     if len(cases) != 240 or compute["profile"] != old["profile"]:
@@ -272,27 +323,27 @@ def reference_identity(old_sha, compute_sha):
     return object_digest(dict(original24=old_sha, compute240=compute_sha))
 
 
-def source_paths(root=ROOT):
-    declared = contract(root)
-    old = legacy.load_manifest(root)
-    return set(declared["build"]["files"]) | set(SUPPORT) | {
-        "tests/benchmarks/provenance.json", "evaluation/workloads.json", "tests/usertime/manifest.json"
+def source_paths(root=ROOT, protocol=PROTOCOL):
+    declared = contract(root, protocol)
+    old = legacy.load_manifest(root, performance=protocol == PROTOCOL)
+    return set(declared["build"]["files"]) | set(support(protocol)) | {
+        "tests/benchmarks/provenance.json", "evaluation/workloads.json", legacy.manifest_path(old)
     } | {"tests/usertime/" + name for name in old["sources"]} | {"tests/usertime/" + c["file"] for c in old["cases"]}
 
 
 def evidence_paths(folder):
     folder = Path(folder)
     reference = validate_reference(folder / "reference", folder / "source")
-    return {"source/" + name for name in source_paths(folder / "source")} | {
+    return {"source/" + name for name in source_paths(folder / "source", reference["protocol"])} | {
         "reference/reference.json", "reference/oracle.json", "reference/validation-report.json", "reference/validation-harness.py"
-    } | {"reference/outputs/" + row["output_sha256"] + ".bin" for row in reference["cases"]}
+    } | {"reference/" + output_name(row, reference["protocol"]) for row in reference["cases"]}
 
 
 def copy_evidence(source, destination):
     source, destination = Path(source), Path(destination)
     reference = validate_reference(source / REFERENCE, source)
     paths = {"source/" + name: source / relative(name) for name in source_paths(source)}
-    for name in {"reference.json", "oracle.json", "validation-report.json", "validation-harness.py"} | {"outputs/" + row["output_sha256"] + ".bin" for row in reference["cases"]}:
+    for name in {"reference.json", "oracle.json", "validation-report.json", "validation-harness.py"} | {output_name(row, reference["protocol"]) for row in reference["cases"]}:
         paths["reference/" + name] = source / REFERENCE / relative(name)
     for name, path in paths.items():
         target = destination / relative(name)
@@ -301,6 +352,47 @@ def copy_evidence(source, destination):
     if set(paths) != evidence_paths(destination):
         raise ValueError("incomplete compute evidence snapshot")
     return paths
+
+
+def validate_base_capability(capability):
+    image_source, output_source = capability["loader_source"], capability["runtime_source"]
+    image = re.findall(r"^\s*MaxELFImageBytes\s+uint64\s*=\s*(64|256)\s*<<\s*20\s*$", image_source, re.M)
+    output = re.findall(r"^const MaxOutputBytes\s*=\s*(16|64)\s*<<\s*20\s*$", output_source, re.M)
+    if len(image) != 1 or len(output) != 1 or capability != dict(
+            loader_source=image_source, loader_source_sha256=hashlib.sha256(image_source.encode()).hexdigest(), image_limit_bytes=int(image[0]) << 20,
+            runtime_source=output_source, runtime_source_sha256=hashlib.sha256(output_source.encode()).hexdigest(), output_limit_bytes=int(output[0]) << 20):
+        raise ValueError("unknown or changed base ELF resource capability")
+    return capability
+
+
+def base_capability(revision, root=ROOT):
+    result = {}
+    for name, path, pattern in (("loader", "pkg/loader/elf.go", r"^\s*MaxELFImageBytes\s+uint64\s*=\s*(64|256)\s*<<\s*20\s*$"),
+                                 ("runtime", "pkg/linuxuser/run.go", r"^const MaxOutputBytes\s*=\s*(16|64)\s*<<\s*20\s*$")):
+        source = subprocess.check_output(["git", "-C", str(root), "show", revision + ":" + path], text=True)
+        matches = re.findall(pattern, source, re.M)
+        if len(matches) != 1:
+            raise ValueError("base ELF resource capability is not recognized")
+        result.update({name + "_source": source, name + "_source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+                       ("image" if name == "loader" else "output") + "_limit_bytes": int(matches[0]) << 20})
+    return validate_base_capability(result)
+
+
+def expected_output_bytes(case):
+    if "outputs" in case:
+        return sum(o["count"] * (8 if o["type"] == "double" else 4) for o in case["outputs"])
+    return 16 * int(case["args"][1]) if case.get("workload") == "mvt" else 8
+
+
+def case_base_status(case, capability):
+    mapped = case["mapped_image_bytes"]
+    if type(mapped) is not int or not 0 < mapped <= 256 << 20 or mapped % 4096:
+        raise ValueError("invalid mapped-image declaration")
+    if mapped > capability["image_limit_bytes"]:
+        return "image_limit_unavailable"
+    if expected_output_bytes(case) > capability["output_limit_bytes"]:
+        return "output_limit_unavailable"
+    return "available"
 
 
 def base_declares_cohort(revision, root=ROOT):
@@ -316,11 +408,14 @@ def base_declares_cohort(revision, root=ROOT):
     return True
 
 
-def summaries(cases):
+def summaries(cases, performance=False):
     result = {}
     for split in SPLITS:
         rows = [r for r in cases if r["split"] == split]
         summary = dict(required=len(rows), comparable=sum("error_percent" in r["head"] for r in rows))
+        if performance:
+            summary.update(head_comparable=sum("error_percent" in r["head"] for r in rows),
+                           base_comparable=sum("error_percent" in r.get("base", {}) for r in rows))
         for label in ("base", "head"):
             values = [r[label]["error_percent"] for r in rows if "error_percent" in r.get(label, {})]
             if values:
@@ -341,17 +436,21 @@ def extend_report(original, args, execute, validate_timing, error_percent, sourc
         report["reference_sha256"] = reference_identity(**dict(old_sha=report["reference_files"]["original24"], compute_sha=report["reference_files"]["compute240"]))
         report["compute_reference"] = {key: reference[key] for key in ("measurement_id", "environment", "hardware", "platform", "core_identity", "instantaneous_frequency", "completed_at_utc")}
         available = base_declares_cohort(args.base_commit)
+        if declared["suite"] == PROTOCOL and not available:
+            raise ValueError("performance protocol requires a compute-ELF-capable base")
         if available and not args.base:
             raise ValueError("declared compute base cannot be unavailable")
-        report["compute_base_status"] = "available" if available else "compute_elf_unavailable"
+        report["compute_base_status"] = "per_case_resource_limit" if declared["suite"] == PROTOCOL else "available" if available else "compute_elf_unavailable"
         for case, measured in zip(declared["cases"], reference["cases"]):
+            base_status = case_base_status(case, report["base_capability"]) if declared["suite"] == PROTOCOL else report["compute_base_status"]
             golden = witness(folder, case, measured)
             functional = execute(args.head, case, mode="functional", expected_output=golden)
             row = dict(id=case["id"], split=case["split"], status="unverified", functional_status="pass",
                        reference_user_seconds=measured["median_user_seconds"], reference_quality=measured["quality"],
-                       base_status=report["compute_base_status"],
+                       base_status=base_status,
+                       **(dict(mapped_image_bytes=case["mapped_image_bytes"]) if declared["suite"] == PROTOCOL else {}),
                        reason="Linux VM user accounting; core/frequency unknown; no accuracy threshold approved; validation-legacy is not an independent historical holdout")
-            for label, binary, revision in (("head", args.head, original["head"]["commit"]), ("base", args.base if available else None, args.base_commit)):
+            for label, binary, revision in (("head", args.head, original["head"]["commit"]), ("base", args.base if available and base_status == "available" else None, args.base_commit)):
                 if not binary:
                     continue
                 result = execute(binary, case, expected_output=golden)
@@ -373,7 +472,7 @@ def extend_report(original, args, execute, validate_timing, error_percent, sourc
                     row["error_change_percentage_points"] = row["head"]["error_percent"] - row["base"]["error_percent"]
             report["cases"].append(row)
             print("accuracy", case["id"], measured["quality"], flush=True)
-        report["summary"] = summaries(report["cases"])
+        report["summary"] = summaries(report["cases"], declared["suite"] == PROTOCOL)
         if source_state() != original["head"] or legacy.digest(args.head) != original["head_binary_sha256"]:
             raise ValueError("sources or simulator changed during expanded comparison")
         if args.base and legacy.digest(args.base) != original["base_binary_sha256"]:

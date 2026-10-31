@@ -162,3 +162,24 @@ func TestNumericalOracle(t *testing.T) {
 		}
 	}
 }
+
+func TestLargerBoundedOutputBudget(t *testing.T) {
+	b, err := os.ReadFile("../../tests/elf/loop.elf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, limit := range []int{17 << 20, MaxOutputBytes} {
+		p, err := Parse(b, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		execution, err := p.NewExecution(context.Background(), RunOptions{MaxOutput: limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if execution.options.MaxOutput != limit {
+			t.Fatal("output bound not retained")
+		}
+		execution.Close()
+	}
+}
