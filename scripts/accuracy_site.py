@@ -382,6 +382,18 @@ def nested_regular(root, name):
     return regular(path)
 
 
+def check_compute_source_identity(report, root, names):
+    for name in names:
+        if name.startswith("cohorts/compute/source/"):
+            original = name[len("cohorts/compute/source/"):]
+        elif name.startswith("cohorts/compute/reference/"):
+            original = compute.REFERENCE + "/" + name[len("cohorts/compute/reference/"):]
+        else:
+            continue
+        if report["head"]["files"].get(original) != digest(nested_regular(root, name)):
+            raise ValueError("compute retained file does not match tested commit: " + original)
+
+
 def bundle_expanded(report_path, source, output, commit):
     report = read(report_path)
     output.mkdir(parents=True, exist_ok=True)
@@ -404,15 +416,7 @@ def bundle_expanded(report_path, source, output, commit):
     names = {"report.json", "report.md", "cohorts/original/bundle.json"}
     names |= {"cohorts/original/" + name for name in old_manifest["files"]}
     names |= {"cohorts/compute/" + name for name in compute.copy_evidence(source, output / "cohorts/compute")}
-    for name in names:
-        if name.startswith("cohorts/compute/source/"):
-            original = name[len("cohorts/compute/source/"):]
-            if report["head"]["files"].get(original) != digest(output / name):
-                raise ValueError("compute source does not match tested commit")
-        elif name.startswith("cohorts/compute/reference/"):
-            original = compute.REFERENCE + "/" + name[len("cohorts/compute/reference/"):]
-            if report["head"]["files"].get(original) != digest(output / name):
-                raise ValueError("compute reference does not match tested commit")
+    check_compute_source_identity(report, output, names)
     write(output / "bundle.json", dict(schema=SCHEMA, commit=commit, run_id=os.environ.get("GITHUB_RUN_ID"),
                                         run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"), files={name: digest(nested_regular(output, name)) for name in sorted(names)}))
     validate_bundle(output, commit)
@@ -445,6 +449,7 @@ def validate_expanded_bundle(path, commit, manifest):
     expected = {"report.json", "report.md", "cohorts/original/bundle.json"} | {"cohorts/original/" + name for name in old_manifest["files"]} | {"cohorts/compute/" + name for name in compute.evidence_paths(folder)}
     if set(files) != expected:
         raise ValueError("incomplete expanded bundle evidence")
+    check_compute_source_identity(report, path, files)
     for row, measured, declared in zip(report["cases"][24:], reference["cases"], reference["contract"]["cases"]):
         if row["reference_quality"] != measured["quality"] or row["reference_user_seconds"] != measured["median_user_seconds"]:
             raise ValueError("compute report/reference mismatch")
@@ -786,7 +791,7 @@ def detail(report, entry, preview=False):
     )
     if report["artifact_status"] == "pass":
         if report["schema"] == 3:
-            body += '<a href="cohorts/original/reference.json">Original24 raw samples</a><a href="cohorts/compute/reference/reference.json">Compute240 raw samples</a><a href="cohorts/compute/reference/oracle.json">Independent output oracle</a><a href="cohorts/compute/source/scripts/compute_usertime.py">Compute measurement protocol</a>'
+            body += '<a href="cohorts/original/reference.json">Original24 raw samples</a><a href="cohorts/compute/reference/reference.json">Compute240 raw samples</a><a href="cohorts/compute/reference/oracle.json">Independent output oracle</a><a href="cohorts/compute/reference/validation-report.json">Original validation report</a><a href="cohorts/compute/reference/validation-harness.py">Original validation harness</a><a href="cohorts/compute/source/scripts/compute_usertime.py">Compute measurement protocol</a>'
         else:
             body += '<a href="reference.json">Raw native samples</a><a href="manifest.json">Workloads and hardware profile</a><a href="native_usertime.py">Measurement harness</a>'
     if entry.get("run_url"):
@@ -819,7 +824,7 @@ def detail(report, entry, preview=False):
         body += (
             '<details><summary>Download workload sources and ELF binaries</summary><p class="downloads">'
             + " ".join(
-                '<a href="' + esc(name) + '">' + esc(name[7:]) + "</a>"
+                '<a href="' + esc(name) + '">' + esc(name[7:] if name.startswith("inputs/") else name) + "</a>"
                 for name in inputs
             )
             + "</p></details>"

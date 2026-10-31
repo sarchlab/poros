@@ -153,6 +153,16 @@ is retained for diagnosis but never substituted into the user-time metric. The
 existing 100 microsecond floor, any-zero invalidation and 20% P10–P90 spread rule
 apply unchanged. Every point remains visible, qualified or not.
 
+The first retained compute campaign (`m2-linuxvm-compute-v1-20261031`) ran from
+2026-10-31 01:54:43 to 01:59:08 UTC. All 240 outputs and normal exits passed.
+Of 5,040 retained samples, 1,202 had zero user time. The unchanged quality policy
+classifies 227 cases as `invalid_nonpositive` and 13 as `noisy`: none is qualified
+for a numeric accuracy error. These are measurement limitations, not missing
+workloads or zero model error. The original 24-case cohort still has its two
+qualified branch points. All raw values and model predictions remain visible.
+The retained cohort occupies about 5.18 MB, including 219 distinct complete
+output witnesses totaling 2.52 MB, the raw measurements and validation evidence.
+
 The combined schema-3 inventory has 264 required rows and 44 six-point curves.
 Original integer/MVT and new ATAX/GEMM contribute 24 calibration points; the
 original memory/branch cohorts retain 12 held-out points. The remaining 228

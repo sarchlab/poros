@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -183,8 +184,28 @@ class ComputeTimeTests(unittest.TestCase):
         self.assertNotEqual(site.series_key(other), site.series_key(self.report))
 
     def test_base_capability_comes_from_programs_not_measurement_file(self):
-        self.assertTrue(compute.base_declares_cohort("cae89ddaf49e7150058098c81de415a22bdab6cc"))
-        self.assertFalse(compute.base_declares_cohort("cb965b4d41fc7d52281652c3bce7803cc893cae0"))
+        repository = self.directory / "history"
+        repository.mkdir()
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(repository), *args], stderr=subprocess.DEVNULL).decode().strip()
+        git("init", "-q")
+        git("config", "user.name", "test")
+        git("config", "user.email", "test@example.invalid")
+        git("commit", "--allow-empty", "-qm", "no compute declaration")
+        absent = git("rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "unrecognized base"):
+            compute.base_declares_cohort(absent, repository)
+        for name in ("tests/benchmarks/manifest.json", "tests/benchmarks/provenance.json"):
+            target = repository / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, target)
+        git("add", "tests")
+        git("commit", "-qm", "declare complete compute programs without timing measurements")
+        self.assertTrue(compute.base_declares_cohort(git("rev-parse", "HEAD"), repository))
+        # Isolate the one explicitly supported old boundary; no real repository
+        # history is needed in shallow CI checkouts.
+        with patch.object(compute.subprocess, "run", side_effect=[SimpleNamespace(returncode=0), SimpleNamespace(returncode=1)]):
+            self.assertFalse(compute.base_declares_cohort("cb965b4d41fc7d52281652c3bce7803cc893cae0", repository))
 
     def test_compute_comparison_checks_all_rows_and_capable_base_failures(self):
         head, base = self.directory / "head", self.directory / "base"
@@ -223,6 +244,10 @@ class ComputeTimeTests(unittest.TestCase):
         report_path.with_suffix(".md").write_text("# Synthetic test report\n")
         bundle = self.directory / "bundle"
         site.bundle(report_path, self.source, bundle, SHA)
+        altered = copy.deepcopy(self.report)
+        altered["head"]["files"]["scripts/compute_usertime.py"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "does not match tested commit"):
+            site.check_compute_source_identity(altered, bundle, ["cohorts/compute/source/scripts/compute_usertime.py"])
         for mutate in (
             lambda r: r.update(base_commit="f" * 40),
             lambda r: r.update(head_binary_sha256="f" * 64),
