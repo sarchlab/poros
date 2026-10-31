@@ -1,30 +1,30 @@
 # Evaluation contract
 
 Poros separates complete-program functional correctness, simulator regression,
-and hardware accuracy. Passing CI does not certify a hardware model. Use Go1.27.0.
+and hardware accuracy. Passing CI does not certify a hardware model. Use Go 1.27.0.
 
 ## Workloads and required coverage
 
-All41 existing compute kernels execute as static AArch64 Linux ELF programs.
-Together with integer, memory and branch, the named CLI exposes44 workloads.
-`evaluation/workloads.json` records the41 compute workloads plus6 planned
+All 41 existing compute kernels execute as static AArch64 Linux ELF programs.
+Together with integer, memory and branch, the named CLI exposes 44 workloads.
+`evaluation/workloads.json` records the 41 compute workloads plus 6 planned
 applications. Planned applications never count as passed. The detailed
 [complete ELF contract](../tests/benchmarks/README.md) and its manifest define
-240 inputs for40 newly migrated kernels. MVT retains its existing six-point
+240 inputs for 40 newly migrated kernels. MVT retains its existing six-point
 contract in `tests/usertime/manifest.json`; its source and data are unchanged.
 
-Full Go regression requires720 new complete executions (40 names ×6 points ×3
-modes),40 invalid-input groups,3 MVT mode cases,3 existing microbenchmark cases,
-3 guest-libm mode cases and1 multicore lifecycle case: **770 required checks**.
-Short regression uses point3 for every new name in all3 modes and the same
+Full Go regression requires 720 new complete executions (40 names × 6 points × 3
+modes), 40 invalid-input groups, 3 MVT mode cases, 3 existing microbenchmark cases,
+3 guest-libm mode cases and 1 multicore lifecycle case: **770 required checks**.
+Short regression uses point 3 for every new name in all 3 modes and the same
 remaining checks: **170 required checks**. All test-bearing packages must pass.
 Loader/ABI faults, isolated ISA/cache/pipeline fixtures, prediction-disabled
 execution and multicore accounting/lifecycle remain covered. The obsolete
-embedded registry, initial-state fingerprints and88 whole-kernel golden rows
+embedded registry, initial-state fingerprints and 88 whole-kernel golden rows
 are removed; they are not maintained as a second execution route.
 
-Every PR also requires all240 new inputs to run against QEMU using the identical
-ELF bytes with normal exit0, empty stderr and byte-identical complete output.
+Every PR also requires all 240 new inputs to run against QEMU using the identical
+ELF bytes with normal exit 0, empty stderr and byte-identical complete output.
 Native separately compiled C provides an additional compiler/platform oracle in
 Go tests. Independent QR, Black-Scholes, Bodytrack, Facesim, Canneal and Raytrace
 checks cover meaningful numerical/integer properties. Guest `log`/`exp`/`sqrt`
@@ -55,7 +55,7 @@ Compiler/linker versions are recorded. Do not refresh provenance without rebuild
 
 ## Accuracy remains a separate contract
 
-The existing four-workload accuracy suite retains24 cases and all raw observations.
+The existing four-workload accuracy suite retains 24 cases and all raw observations.
 Every PR/main push still compares frozen references against head functional and
 base/head OoO execution and publishes the accuracy report. New compute workloads
 have no claimed calibrated timing accuracy and do not change CPU/cache parameters,

@@ -30,7 +30,7 @@ go test ./... -timeout 45m # Run all tests (including long regressions)
 ./poros run atax
 ./poros run swaptions
 
-# Run all benchmarks (full comparison table)
+# Run all 44 workloads (JSON execution results)
 ./poros run --all
 
 # Run a specific suite
@@ -42,21 +42,21 @@ go test ./... -timeout 45m # Run all tests (including long regressions)
 ./poros run --suite parsec --cores 4
 ./poros run --all --cores 2
 
-# Quick evaluation (6 benchmarks, ~2 min)
+# Run all 44 workloads at input point 3
 ./poros eval
 ```
 
 ### Testing
 
 ```bash
-# Legacy comparison table (all 40 kernels, ~10 min)
-go test -v -run TestOoO_ComparisonTable ./pkg/cpu -timeout 20m
+# Complete ELF matrix: 40 new kernels, six inputs, three execution modes
+go test -v -run '^TestBenchmarkELF$' ./pkg/elfsim -timeout 45m
 
-# Quick evaluation (6 benchmarks, ~2 min)
-go test -v -run TestOoO_QuickEval ./pkg/cpu -timeout 10m
+# Short regression: every workload name plus component and runtime checks
+go test -short ./...
 
-# Individual benchmark
-go test -v -run TestOoO_PolyBenchAtax ./pkg/cpu
+# ATAX at all six inputs in all three execution modes
+go test -v -run '^TestBenchmarkELF$/^atax$' ./pkg/elfsim -timeout 10m
 ```
 
 ## Architecture
@@ -65,8 +65,9 @@ go test -v -run TestOoO_PolyBenchAtax ./pkg/cpu
 
 - Interprets 93+ ARM64 instructions (integer, FP, SIMD, branches, loads/stores)
 - In-order functional execution, separate from the timing model
-- Flat memory model for statically linked binaries
-- Function-level emulation (no OS/syscall layer needed)
+- Static AArch64 Linux ELF loading with checked mappings and an initial process stack
+- Bounded Linux user-mode runtime with captured write/exit syscalls; unsupported instructions and syscalls report errors
+- Complete guest startup, input initialization, computation, output and termination
 
 ### Out-of-Order Superscalar Pipeline
 
@@ -98,7 +99,8 @@ go test -v -run TestOoO_PolyBenchAtax ./pkg/cpu
 - `MultiCorePipeline` wraps N independent `ooo.Comp` instances
 - Per-core private L1 caches (128 KB each)
 - Shared L2 cache (16 MB, 16-way) across all cores
-- Configurable core count via `--cores` flag
+- Configurable core count via `--cores` flag, running independent copies of the same ELF process
+- No guest-thread scheduling or validated physical address-space isolation
 - All cores share one Akita `sim.Simulation` using its default serial engine (deterministic simulation)
 
 ## Dependencies
