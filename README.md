@@ -3,9 +3,10 @@
 Poros is an execution-driven AArch64 CPU simulator built on the [Akita](https://github.com/sarchlab/akita) discrete-event simulation framework in Go. It models an Apple M2-inspired in-order and Avalanche-style out-of-order pipeline, with independent multicore process experiments. All 41 existing compute kernels now run as complete Linux ELF programs, alongside integer, memory and branch microbenchmarks: **44 named workloads**. The PARSEC names denote simplified compute kernels, not full applications. Hardware accuracy remains unverified.
 
 The [complete ELF workload contract](tests/benchmarks/README.md) defines inputs,
-outputs, provenance and correctness checks. The existing four-workload,
-24-case [user-time accuracy report](evaluation/usertime/README.md) remains a
-separate measurement contract; the new compute suite makes no timing-accuracy claim.
+outputs, provenance and correctness checks. The [user-time accuracy report](evaluation/usertime/README.md)
+contains all 44 workloads at six points each (264 cases), retaining the original
+24 measurements and adding a separate 240-case native Linux ARM64 cohort.
+Linux VM measurements and model predictions do not establish hardware accuracy.
 
 ## Build and Run
 

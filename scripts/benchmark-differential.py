@@ -7,6 +7,7 @@ import json
 import math
 import pathlib
 import platform
+import re
 import struct
 import shutil
 import subprocess
@@ -48,7 +49,7 @@ def check_result(case, completed, expected):
     return result, actual
 
 
-def validate_inventory(root, manifest, provenance):
+def validate_inventory(root, manifest, provenance, verify_files=True):
     workloads = manifest["workloads"]
     if manifest["schema_version"] != 1 or len(workloads) != 40 or {w["name"] for w in workloads} != EXPECTED:
         raise ValueError("missing/duplicate/unexpected benchmark inventory")
@@ -76,8 +77,10 @@ def validate_inventory(root, manifest, provenance):
         raise ValueError("incomplete ELF build provenance")
     if set(provenance.get("libraries", {})) != {"libc.a", "libgcc.a"}:
         raise ValueError("missing linked archive provenance")
+    if any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in provenance["libraries"].values()):
+        raise ValueError("invalid linked archive identity")
     for name, expected in provenance["files"].items():
-        if pathlib.PurePosixPath(name).is_absolute() or ".." in pathlib.PurePosixPath(name).parts or digest((root / name).read_bytes()) != expected:
+        if pathlib.PurePosixPath(name).is_absolute() or ".." in pathlib.PurePosixPath(name).parts or not re.fullmatch(r"[0-9a-f]{64}", expected) or (verify_files and digest((root / name).read_bytes()) != expected):
             raise ValueError(f"stale ELF provenance: {name}")
     return workloads
 

@@ -55,11 +55,14 @@ Compiler/linker versions are recorded. Do not refresh provenance without rebuild
 
 ## Accuracy remains a separate contract
 
-The existing four-workload accuracy suite retains 24 cases and all raw observations.
-Every PR/main push still compares frozen references against head functional and
-base/head OoO execution and publishes the accuracy report. New compute workloads
-have no claimed calibrated timing accuracy and do not change CPU/cache parameters,
-quality thresholds, measurement ranges or timing formulas.
+The original four-workload cohort retains its 24 cases and all raw observations.
+A separate native Linux ARM64 cohort adds 240 compute points with 21 retained
+user/system CPU samples each and deduplicated complete output witnesses. Every
+PR/main push reports all 264 points, including invalid/noisy references.
+Head functional and head/base OoO executions must validate all required outputs;
+only the known pre-compute base may lack the new cohort. Calibration and
+validation-legacy roles remain frozen; the latter is not an independent historical
+holdout. CPU/cache parameters, quality thresholds and timing formulas are unchanged.
 
 [Whole-program user-time evaluation](usertime/README.md) defines direct-child
 `wait4.ru_utime` measurements on Linux ARM64 in an Apple M2 VM, output validation,

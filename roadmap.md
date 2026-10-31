@@ -64,7 +64,7 @@ complete merely because one related milestone is complete.
 A clean environment can build, run, compare, and produce a machine-readable
 report. Functional correctness, complete outputs, bound provenance and required
 coverage are hard gates; missing assets and skipped required tests fail acceptance.
-Whole-kernel cycle pinning has been retired. The separate 24-case accuracy report
+Whole-kernel cycle pinning has been retired. The separate 264-case accuracy report
 shows base/head timing changes for review; it is not an automatic accuracy gate.
 
 **Regression and rollback**
@@ -313,5 +313,7 @@ wording. All six MVT dimensions and six points each for integer, memory and bran
 are required in the unified accuracy report. MVT first left the embedded registry
 in #48; all 40 remaining kernels have now migrated to complete ELF execution
 under #49. Schema-1 archived reports remain readable while the
-versioned manifest defines the new 24-case suite. No hardware-accuracy promotion
-or parameter fitting is implied.
+versioned manifest defines that original 24-case suite. The #49 migration adds
+a separately measured 240-case compute cohort to the unified 264-case report,
+retaining all original raw measurements and frozen calibration roles. No
+hardware-accuracy promotion or parameter fitting is implied.

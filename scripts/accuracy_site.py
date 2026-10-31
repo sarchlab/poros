@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 from workload_contract import LEGACY_IDS, case_ids, validate_manifest
+import compute_usertime as compute
 
 SCHEMA = 1
 FORMULA = "absolute-difference-over-min-v2"
@@ -47,6 +48,8 @@ REQUIRED = list(LEGACY_IDS)
 
 
 def report_manifest(report):
+    if report.get("schema") == 3:
+        return compute.validate_expanded(report["workload_manifest"])
     if report.get("schema") == 2:
         if report["workload_manifest"].get("schema") != 2:
             raise ValueError("schema-2 report requires the 24-case schema-2 manifest")
@@ -100,7 +103,7 @@ def safe_name(value):
 
 
 def check_report(report, commit):
-    if report.get("schema") not in (1, 2) or report.get("artifact_status") not in (
+    if report.get("schema") not in (1, 2, 3) or report.get("artifact_status") not in (
         "pass",
         "fail",
     ):
@@ -119,6 +122,30 @@ def check_report(report, commit):
         return
     if report.get("formula") != FORMULA or report["head"].get("dirty") is not False:
         raise ValueError("invalid report formula/source state")
+    if report["schema"] == 3:
+        original = report["original_report"]
+        check_report(original, commit)
+        if original["artifact_status"] != "pass" or report["cases"][:24] != original["cases"] or report["head"] != original["head"]:
+            raise ValueError("original24 evidence changed during composition")
+        for key in ("base_commit", "base_binary_sha256", "head_binary_sha256", "base_status", "formula", "reference"):
+            if report.get(key) != original.get(key):
+                raise ValueError("composite metadata differs from original cohort: " + key)
+        if not re.fullmatch(r"[0-9a-f]{64}", report.get("head_binary_sha256", "")):
+            raise ValueError("missing simulator binary identity")
+        refs = report["reference_files"]
+        if set(refs) != {"original24", "compute240"} or refs["original24"] != original["reference_sha256"] or not all(re.fullmatch(r"[0-9a-f]{64}", value) for value in refs.values()):
+            raise ValueError("invalid composite reference identity")
+        if report["reference_sha256"] != compute.reference_identity(refs["original24"], refs["compute240"]):
+            raise ValueError("composite reference mismatch")
+        if report["summary"] != compute.summaries(report["cases"]):
+            raise ValueError("expanded summary mismatch")
+        if report["compute_base_status"] not in ("available", "compute_elf_unavailable"):
+            raise ValueError("invalid compute baseline availability")
+        if report["compute_base_status"] == "compute_elf_unavailable" and report["base_commit"] != "cb965b4d41fc7d52281652c3bce7803cc893cae0":
+            raise ValueError("unrecognized unavailable compute base")
+        for row in report["cases"][24:]:
+            if ("base" in row) != (report["compute_base_status"] == "available"):
+                raise ValueError("missing required compute baseline")
     inventory = report_manifest(report)
     if tuple(c["id"] for c in report["cases"]) != case_ids(inventory):
         raise ValueError("missing required cases")
@@ -134,7 +161,7 @@ def check_report(report, commit):
             )
         ):
             raise ValueError("missing head or invalid reference time")
-        if report["schema"] == 2 and row.get("functional_status") != "pass":
+        if report["schema"] in (2, 3) and row.get("functional_status") != "pass":
             raise ValueError("functional correctness evidence missing")
         expected_split = declared["split"]
         if row.get("split") != expected_split:
@@ -164,7 +191,7 @@ def check_report(report, commit):
             ):
                 raise ValueError("invalid error value")
 
-    for split in ("calibration", "held_out"):
+    for split in (compute.SPLITS if report.get("schema") == 3 else ("calibration", "held_out")):
         rows = [r for r in report["cases"] if r["split"] == split]
         summary = report.get("summary", {}).get(split, {})
         if summary.get("required") != len(rows) or summary.get("comparable") != sum(
@@ -188,6 +215,8 @@ def bundle(report_path, source, output, commit):
     source, output = Path(source), Path(output)
     report = read(regular(report_path))
     check_report(report, commit)
+    if report.get("schema") == 3:
+        return bundle_expanded(report_path, source, output, commit)
     output.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(report_path, output / "report.json")
     markdown = Path(report_path).with_suffix(".md")
@@ -261,6 +290,8 @@ def validate_bundle(path, commit):
     manifest = read(regular(path / "bundle.json"))
     if manifest.get("schema") != SCHEMA or manifest.get("commit") != sha(commit):
         raise ValueError("bundle identity mismatch")
+    if read(regular(path / "report.json")).get("schema") == 3:
+        return validate_expanded_bundle(path, commit, manifest)
     files = manifest["files"]
     allowed = {
         "report.json",
@@ -332,6 +363,114 @@ def validate_bundle(path, commit):
         for case in inputs["cases"]:
             if digest(path / "inputs" / safe_name(case["file"])) != case["sha256"]:
                 raise ValueError("input ELF mismatch")
+    return report, manifest
+
+
+def measurement_completed(report, path):
+    if report.get("schema") == 3:
+        return report["compute_reference"]["completed_at_utc"]
+    return read(path / "reference.json").get("completed_at_utc")
+
+
+def nested_regular(root, name):
+    path = root / compute.relative(name)
+    for parent in [path, *path.parents]:
+        if parent == root.parent:
+            break
+        if parent.is_symlink():
+            raise ValueError("symlink in evidence path")
+    return regular(path)
+
+
+def bundle_expanded(report_path, source, output, commit):
+    report = read(report_path)
+    output.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(report_path, output / "report.json")
+    shutil.copyfile(Path(report_path).with_suffix(".md"), output / "report.md")
+    if report["artifact_status"] != "pass":
+        names = ["report.json", "report.md"]
+        write(output / "bundle.json", dict(schema=SCHEMA, commit=commit, files={name: digest(output / name) for name in names}))
+        validate_bundle(output, commit)
+        (output / "index.html").write_text(detail(report, dict(commit=commit, conclusion="failure", run_url="", releases=[], evidence_files=names), preview=True))
+        return
+    # Reuse the exact schema2 evidence validator/packer for the immutable cohort.
+    import tempfile
+    with tempfile.TemporaryDirectory() as temporary:
+        old = Path(temporary) / "report.json"
+        write(old, report["original_report"])
+        old.with_suffix(".md").write_text("# Original24 cohort\n\nSee report.json for the unchanged original comparison.\n")
+        bundle(old, source, output / "cohorts/original", commit)
+    old_manifest = read(output / "cohorts/original/bundle.json")
+    names = {"report.json", "report.md", "cohorts/original/bundle.json"}
+    names |= {"cohorts/original/" + name for name in old_manifest["files"]}
+    names |= {"cohorts/compute/" + name for name in compute.copy_evidence(source, output / "cohorts/compute")}
+    for name in names:
+        if name.startswith("cohorts/compute/source/"):
+            original = name[len("cohorts/compute/source/"):]
+            if report["head"]["files"].get(original) != digest(output / name):
+                raise ValueError("compute source does not match tested commit")
+        elif name.startswith("cohorts/compute/reference/"):
+            original = compute.REFERENCE + "/" + name[len("cohorts/compute/reference/"):]
+            if report["head"]["files"].get(original) != digest(output / name):
+                raise ValueError("compute reference does not match tested commit")
+    write(output / "bundle.json", dict(schema=SCHEMA, commit=commit, run_id=os.environ.get("GITHUB_RUN_ID"),
+                                        run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"), files={name: digest(nested_regular(output, name)) for name in sorted(names)}))
+    validate_bundle(output, commit)
+    (output / "index.html").write_text(detail(report, dict(commit=commit, conclusion="preview", run_url="", releases=[], evidence_files=sorted(names), measurement_completed_at=measurement_completed(report, output)), preview=True))
+
+
+def validate_expanded_bundle(path, commit, manifest):
+    files = manifest["files"]
+    for name, expected in files.items():
+        if name not in ("report.json", "report.md") and not name.startswith(("cohorts/original/", "cohorts/compute/source/", "cohorts/compute/reference/")):
+            raise ValueError("unexpected expanded bundle path")
+        if digest(nested_regular(path, name)) != expected:
+            raise ValueError("expanded bundle hash mismatch")
+    report = read(nested_regular(path, "report.json"))
+    check_report(report, commit)
+    if report["artifact_status"] != "pass":
+        if set(files) != {"report.json", "report.md"}:
+            raise ValueError("failure bundle contains unvalidated evidence")
+        return report, manifest
+    old, old_manifest = validate_bundle(path / "cohorts/original", commit)
+    if old != report["original_report"]:
+        raise ValueError("retained original report mismatch")
+    folder = path / "cohorts/compute"
+    reference = compute.validate_reference(folder / "reference", folder / "source")
+    if reference["contract"] != report["workload_manifest"]["compute"] or digest(folder / "reference/reference.json") != report["reference_files"]["compute240"]:
+        raise ValueError("retained compute reference/contract mismatch")
+    displayed = {key: reference[key] for key in ("measurement_id", "environment", "hardware", "platform", "core_identity", "instantaneous_frequency", "completed_at_utc")}
+    if report["compute_reference"] != displayed:
+        raise ValueError("displayed compute provenance differs from retained reference")
+    expected = {"report.json", "report.md", "cohorts/original/bundle.json"} | {"cohorts/original/" + name for name in old_manifest["files"]} | {"cohorts/compute/" + name for name in compute.evidence_paths(folder)}
+    if set(files) != expected:
+        raise ValueError("incomplete expanded bundle evidence")
+    for row, measured, declared in zip(report["cases"][24:], reference["cases"], reference["contract"]["cases"]):
+        if row["reference_quality"] != measured["quality"] or row["reference_user_seconds"] != measured["median_user_seconds"]:
+            raise ValueError("compute report/reference mismatch")
+        for label in ("head", "base"):
+            if label not in row:
+                continue
+            for key in ("configuration", "cache_config"):
+                if row[label][key] != reference["contract"]["profile"][key]:
+                    raise ValueError("compute report/profile mismatch")
+            seconds = row[label]["predicted_user_seconds"]
+            if type(row[label]["cycles"]) is not int or type(row[label]["instructions"]) is not int or not math.isclose(seconds, row[label]["cycles"] / declared["frequency_hz"], rel_tol=1e-12):
+                raise ValueError("compute archived timing counts/frequency mismatch")
+            if measured["quality"] == "usable":
+                seconds, real = row[label]["predicted_user_seconds"], measured["median_user_seconds"]
+                expected_error = 100 * abs(seconds-real) / min(seconds, real)
+                if not math.isclose(row[label].get("error_percent", -1), expected_error, rel_tol=1e-12, abs_tol=1e-12):
+                    raise ValueError("compute error formula mismatch")
+                direction = "slower" if seconds > real else "faster" if seconds < real else "equal"
+                if row[label].get("direction") != direction:
+                    raise ValueError("compute error direction mismatch")
+        if "base" in row and measured["quality"] == "usable":
+            delta = row["head"]["error_percent"] - row["base"]["error_percent"]
+            if not math.isclose(row.get("error_change_percentage_points", float("nan")), delta, rel_tol=1e-12, abs_tol=1e-12):
+                raise ValueError("compute error change mismatch")
+        elif "error_change_percentage_points" in row:
+            raise ValueError("unqualified compute error change")
     return report, manifest
 
 
@@ -525,7 +664,7 @@ def detail(report, entry, preview=False):
         ]
         body += "<tr>" + "".join("<td>" + esc(v) + "</td>" for v in values) + "</tr>"
     body += '</tbody></table></div><h2>Calibration and held-out coverage</h2><div class="cards">'
-    for split in ("calibration", "held_out"):
+    for split in (compute.SPLITS if report.get("schema") == 3 else ("calibration", "held_out")):
         summary = report.get("summary", {}).get(split, {})
         body += (
             '<div class="card">'
@@ -554,6 +693,7 @@ def detail(report, entry, preview=False):
             "iterations": (1e6, "Iterations (millions)"),
             "working_set_bytes": (1048576, "Working set (MiB)"),
             "dimension": (1, "Matrix dimension n"),
+            "input_point": (1, "Input point (dimensions shown on hover)"),
         }[axis]
         rows = [c for c in cases if c["id"].startswith(workload + "-")]
         series = []
@@ -594,6 +734,11 @@ def detail(report, entry, preview=False):
                 for n in group["points"]
             ]
             xlabel = "Working set (log₂ spacing)"
+        if axis == "input_point":
+            ticks = [(n, str(n)) for n in group["points"]]
+            for _, in_rows, _ in series:
+                for i, (x, y, label) in enumerate(in_rows):
+                    in_rows[i] = (x, y, label + "; " + group["labels"][int(x)-1])
         body += chart(
             workload.upper() if workload == "mvt" else workload.title(),
             series,
@@ -640,7 +785,10 @@ def detail(report, entry, preview=False):
         + '</p><div class="downloads"><a href="report.json">Report JSON</a><a href="report.md">Markdown report</a><a href="bundle.json">Evidence hashes</a>'
     )
     if report["artifact_status"] == "pass":
-        body += '<a href="reference.json">Raw native samples</a><a href="manifest.json">Workloads and hardware profile</a><a href="native_usertime.py">Measurement harness</a>'
+        if report["schema"] == 3:
+            body += '<a href="cohorts/original/reference.json">Original24 raw samples</a><a href="cohorts/compute/reference/reference.json">Compute240 raw samples</a><a href="cohorts/compute/reference/oracle.json">Independent output oracle</a><a href="cohorts/compute/source/scripts/compute_usertime.py">Compute measurement protocol</a>'
+        else:
+            body += '<a href="reference.json">Raw native samples</a><a href="manifest.json">Workloads and hardware profile</a><a href="native_usertime.py">Measurement harness</a>'
     if entry.get("run_url"):
         body += '<a href="' + esc(entry["run_url"]) + '">GitHub Actions run</a>'
     if entry.get("evaluation_run_url") and entry["evaluation_run_url"] != entry.get(
@@ -665,7 +813,7 @@ def detail(report, entry, preview=False):
         + '">Source commit</a></div>'
     )
     inputs = [
-        name for name in entry.get("evidence_files", []) if name.startswith("inputs/")
+        name for name in entry.get("evidence_files", []) if name.startswith(("inputs/", "cohorts/compute/source/", "cohorts/compute/reference/outputs/"))
     ]
     if inputs:
         body += (
@@ -684,6 +832,8 @@ def detail(report, entry, preview=False):
                     "base_commit": report.get("base_commit"),
                     "formula": report.get("formula"),
                     "reference": report.get("reference"),
+                    "compute_reference": report.get("compute_reference"),
+                    "compute_base_status": report.get("compute_base_status"),
                     "configuration": cases[0].get("head", {}) if cases else None,
                 },
                 indent=2,
@@ -836,7 +986,7 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
             "evidence_run_url": metadata.get("evidence_run_url", metadata["run_url"]),
             "evidence_files": sorted(bundle_manifest["files"]),
             "measurement_completed_at": (
-                read(Path(bundle_path) / "reference.json").get("completed_at_utc")
+                measurement_completed(report, Path(bundle_path))
                 if report["artifact_status"] == "pass"
                 else None
             ),
@@ -939,7 +1089,7 @@ def home(index):
             if latest
             else "None yet"
         )
-        + '</p><h2>Report history</h2><p class="muted">Latest 20 ordinary main commits; release reports are retained permanently outside that limit. Failed and incomplete results stay visible.</p><div class="table"><table><thead><tr><th>Commit</th><th>Full Evaluation</th><th>Report</th><th>Calibration mean</th><th>Held-out mean</th><th>Permanent releases</th></tr></thead><tbody>'
+        + '</p><h2>Report history</h2><p class="muted">Latest 20 ordinary main commits; release reports are retained permanently outside that limit. Failed and incomplete results stay visible.</p><div class="table"><table><thead><tr><th>Commit</th><th>Full Evaluation</th><th>Report</th><th>Calibration mean</th><th>Held-out mean</th><th>Validation-legacy mean</th><th>Permanent releases</th></tr></thead><tbody>'
     )
     for e in index["entries"]:
         body += (
@@ -955,7 +1105,7 @@ def home(index):
             + esc(e["artifact_status"])
             + "</span></td>"
         )
-        for split in ("calibration", "held_out"):
+        for split in compute.SPLITS:
             summary = e["summary"].get(split, {})
             coverage = (
                 f'{summary.get("comparable", "—")}/{summary.get("required", "—")}'
@@ -979,7 +1129,7 @@ def home(index):
             groups.setdefault(e["series"], []).append(e)
     for identity, entries in groups.items():
         series = []
-        for split, color in (("calibration", "#087e8b"), ("held_out", "#b17e26")):
+        for split, color in (("calibration", "#087e8b"), ("held_out", "#b17e26"), ("validation-legacy", "#7657a1")):
             values = [
                 (
                     i + 1,

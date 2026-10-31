@@ -60,7 +60,9 @@ output equality** with Poros, including every tail. On Linux ARM64, `--native`
 adds a third execution of those same bytes. Missing cases, abnormal exits,
 stderr, truncated output, nonfinite values, duplicate inventory and stale build
 provenance fail validation. QEMU/native elapsed times here are not calibration
-measurements. The four-workload accuracy suite and its raw data remain unchanged.
+measurements. The original four-workload raw references remain unchanged; a
+separate 240-point direct-child Linux ARM64 user-time cohort is included in the
+[264-case accuracy report](../../evaluation/usertime/README.md).
 
 ```
 go test -short ./...
