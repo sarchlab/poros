@@ -67,10 +67,14 @@ gate. Missing assets and skipped tests are reported distinctly from passes.
 
 **Regression and rollback**
 
-Keep the 80 remaining legacy one/two-core baseline cases and eight pipeline variants; MVT is covered by the complete ELF suite.
-See [baseline provenance](pkg/cpu/testdata/README.md). These preserve legacy
-behavior; they are not an independent ARM correctness oracle or fresh hardware
-validation. Do not regenerate golden data merely to pass a failing test.
+The legacy whole-kernel golden rows have been replaced by
+[complete ELF coverage](tests/benchmarks/README.md): all 41 compute kernels run
+through guest startup and normal process exit, with full-output references,
+same-ELF differential checks and retained isolated pipeline/ISA tests. The frozen
+M0 calibration split still applies; functional migration does not create an
+independent historical holdout or establish hardware accuracy. Revert this ELF
+migration as a coherent change if needed: restoring old patched instruction
+arrays alone is incompatible with the corrected CNEG semantics.
 
 ## M1 — ELF entry to process exit
 
@@ -303,7 +307,8 @@ unverified for bare-metal hardware accuracy. See evaluation/usertime/README.md.
 
 MVT uses whole-program user time, superseding the issue’s original mandatory ROI
 wording. All six MVT dimensions and six points each for integer, memory and branch
-are required in the unified accuracy report. MVT has left the embedded registry;
-40 kernels remain for #49. Schema-1 archived reports remain readable while the
+are required in the unified accuracy report. MVT first left the embedded registry
+in #48; all 40 remaining kernels have now migrated to complete ELF execution
+under #49. Schema-1 archived reports remain readable while the
 versioned manifest defines the new 24-case suite. No hardware-accuracy promotion
 or parameter fitting is implied.

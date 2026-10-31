@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "split_version": "m0-v1",
-  "split_limitation": "The forty migrated compute workloads validate ELF functionality, not performance accuracy. MVT and three microbenchmarks retain the separate frozen six-point user-time calibration/held-out contract. Planned workloads remain non-executable.",
+  "split_limitation": "Existing compute kernels were previously used in development; validation-legacy is held out from future fitting only, not an independent historical validation set. ELF migration preserves the m0-v1 calibration split and validates functionality, not performance accuracy. MVT and three microbenchmarks retain the separate frozen six-point user-time calibration/held-out contract. Planned workloads remain non-executable.",
   "workloads": [
     {
       "id": "atax",
       "status": "elf",
-      "role": "validation",
+      "role": "calibration",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/atax.c",
       "sizes": [
@@ -138,7 +138,7 @@
     {
       "id": "gemm",
       "status": "elf",
-      "role": "validation",
+      "role": "calibration",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/gemm.c",
       "sizes": [
@@ -213,7 +213,7 @@
     {
       "id": "2mm",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/2mm.c",
       "sizes": [
@@ -294,7 +294,7 @@
     {
       "id": "3mm",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/3mm.c",
       "sizes": [
@@ -381,7 +381,7 @@
     {
       "id": "bicg",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/bicg.c",
       "sizes": [
@@ -450,7 +450,7 @@
     {
       "id": "gesummv",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/gesummv.c",
       "sizes": [
@@ -513,7 +513,7 @@
     {
       "id": "gemver",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/gemver.c",
       "sizes": [
@@ -576,7 +576,7 @@
     {
       "id": "doitgen",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/doitgen.c",
       "sizes": [
@@ -651,7 +651,7 @@
     {
       "id": "trisolv",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/trisolv.c",
       "sizes": [
@@ -714,7 +714,7 @@
     {
       "id": "durbin",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/durbin.c",
       "sizes": [
@@ -777,7 +777,7 @@
     {
       "id": "jacobi1d",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/jacobi1d.c",
       "sizes": [
@@ -846,7 +846,7 @@
     {
       "id": "syrk",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/syrk.c",
       "sizes": [
@@ -915,7 +915,7 @@
     {
       "id": "syr2k",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/syr2k.c",
       "sizes": [
@@ -984,7 +984,7 @@
     {
       "id": "trmm",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/trmm.c",
       "sizes": [
@@ -1053,7 +1053,7 @@
     {
       "id": "symm",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/symm.c",
       "sizes": [
@@ -1122,7 +1122,7 @@
     {
       "id": "cholesky",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/cholesky.c",
       "sizes": [
@@ -1185,7 +1185,7 @@
     {
       "id": "lu",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/lu.c",
       "sizes": [
@@ -1248,7 +1248,7 @@
     {
       "id": "floydwarshall",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/floydwarshall.c",
       "sizes": [
@@ -1311,7 +1311,7 @@
     {
       "id": "covariance",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/covariance.c",
       "sizes": [
@@ -1380,7 +1380,7 @@
     {
       "id": "correlation",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/correlation.c",
       "sizes": [
@@ -1449,7 +1449,7 @@
     {
       "id": "gramschmidt",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/gramschmidt.c",
       "sizes": [
@@ -1518,7 +1518,7 @@
     {
       "id": "ludcmp",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/ludcmp.c",
       "sizes": [
@@ -1581,7 +1581,7 @@
     {
       "id": "nussinov",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/nussinov.c",
       "sizes": [
@@ -1644,7 +1644,7 @@
     {
       "id": "adi",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/adi.c",
       "sizes": [
@@ -1713,7 +1713,7 @@
     {
       "id": "fdtd2d",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/fdtd2d.c",
       "sizes": [
@@ -1788,7 +1788,7 @@
     {
       "id": "heat3d",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/heat3d.c",
       "sizes": [
@@ -1857,7 +1857,7 @@
     {
       "id": "jacobi2d",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/jacobi2d.c",
       "sizes": [
@@ -1926,7 +1926,7 @@
     {
       "id": "seidel2d",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/seidel2d.c",
       "sizes": [
@@ -1995,7 +1995,7 @@
     {
       "id": "deriche",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/deriche.c",
       "sizes": [
@@ -2064,7 +2064,7 @@
     {
       "id": "swaptions",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/swaptions.c",
       "sizes": [
@@ -2127,7 +2127,7 @@
     {
       "id": "blackscholes",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/blackscholes.c",
       "sizes": [
@@ -2190,7 +2190,7 @@
     {
       "id": "streamcluster",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/streamcluster.c",
       "sizes": [
@@ -2259,7 +2259,7 @@
     {
       "id": "canneal",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/canneal.c",
       "sizes": [
@@ -2328,7 +2328,7 @@
     {
       "id": "fluidanimate",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/fluidanimate.c",
       "sizes": [
@@ -2391,7 +2391,7 @@
     {
       "id": "raytrace",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/raytrace.c",
       "sizes": [
@@ -2454,7 +2454,7 @@
     {
       "id": "vips",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/vips.c",
       "sizes": [
@@ -2523,7 +2523,7 @@
     {
       "id": "bodytrack",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/bodytrack.c",
       "sizes": [
@@ -2598,7 +2598,7 @@
     {
       "id": "facesim",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/facesim.c",
       "sizes": [
@@ -2661,7 +2661,7 @@
     {
       "id": "ferret",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/ferret.c",
       "sizes": [
@@ -2742,7 +2742,7 @@
     {
       "id": "x264",
       "status": "elf",
-      "role": "validation",
+      "role": "validation-legacy",
       "execution": "linux-elf-user",
       "source": "tests/benchmarks/x264.c",
       "sizes": [

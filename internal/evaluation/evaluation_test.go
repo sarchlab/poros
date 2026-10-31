@@ -27,6 +27,23 @@ func TestManifest(t *testing.T) {
 	if len(m.Workloads) != 47 {
 		t.Fatal("unexpected inventory")
 	}
+	t.Run("frozen calibration split", func(t *testing.T) {
+		if m.SplitVersion != "m0-v1" {
+			t.Fatal("unexpected calibration split version")
+		}
+		for _, w := range m.Workloads {
+			if w.Status != "elf" {
+				continue
+			}
+			want := "validation-legacy"
+			if w.ID == "atax" || w.ID == "gemm" || w.ID == "mvt" {
+				want = "calibration"
+			}
+			if w.Role != want {
+				t.Fatalf("ELF migration changed %s calibration role: %s, want %s", w.ID, w.Role, want)
+			}
+		}
+	})
 	t.Run("missing workload", func(t *testing.T) {
 		n := m
 		n.Workloads = n.Workloads[1:]
