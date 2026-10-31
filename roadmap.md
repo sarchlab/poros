@@ -62,8 +62,10 @@ complete merely because one related milestone is complete.
 **Acceptance**
 
 A clean environment can build, run, compare, and produce a machine-readable
-report. Deliberately incorrect output or a changed cycle expectation fails the
-gate. Missing assets and skipped tests are reported distinctly from passes.
+report. Functional correctness, complete outputs, bound provenance and required
+coverage are hard gates; missing assets and skipped required tests fail acceptance.
+Whole-kernel cycle pinning has been retired. The separate 24-case accuracy report
+shows base/head timing changes for review; it is not an automatic accuracy gate.
 
 **Regression and rollback**
 
@@ -271,10 +273,11 @@ uses a different denominator and does not validate this contract.
   hardware accuracy, simulation speed, and memory consumption.
 - Functional bugs block promotion. Unvalidated profiles remain experimental.
   Never silently fall back to another profile or fabricate a missing reference.
-- Golden changes require evidence: independent references for functional fixes;
-  old/new comparisons and rationale for intentional timing changes. Preserve
-  historical fixtures and label corrected behavior rather than retaining a bug
-  solely to keep a golden test unchanged.
+- Changes to retained component expectations require evidence: independent
+  references for functional fixes, and old/new comparisons with rationale for
+  intentional timing changes. Retain useful failing regression cases; obsolete
+  whole-kernel snapshots need not remain in the active tree. Do not retain a bug
+  solely to keep an expectation unchanged.
 - Regressions after merge: prefer reverting the narrow responsible change and
   restore the last accepted default configuration. Retain the failing case as a
   permanent test. Avoid irreversible fixture/config migrations in feature PRs.

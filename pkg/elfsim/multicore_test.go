@@ -28,6 +28,9 @@ func TestELFMultiCoreLifecycle(t *testing.T) {
 		if limit == 10000 && err != nil {
 			t.Fatal(err)
 		}
+		if limit == 10 && err == nil {
+			t.Fatal("multicore instruction-limit termination must return an error")
+		}
 		var sum, max uint64
 		for _, c := range r.Cores {
 			sum += c.Instructions
