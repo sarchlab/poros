@@ -9,8 +9,7 @@ substituted for Linux child user time. VM core identity and instantaneous
 frequency remain unknown; hardware timing accuracy is **unverified**.
 
 The error is `100 * abs(simulated - reference) / min(simulated, reference)`.
-No offset fitting, batching, or anchor removal is used. The CPU/cache profile,
-3.49 GHz assumption, and calibration/validation split have not changed.
+No offset fitting, batching, or anchor removal is used. The CPU timing profile assumes 3.49 GHz.
 
 ## Independent correctness and performance inventories
 
@@ -32,9 +31,10 @@ valid mesh, x264 extends the padded search frame, and bodytrack bounds particle
 states to preserve meaningful likelihoods. All old small-case native outputs
 were checked byte-for-byte against the previous ELFs.
 
-Integer/MVT/ATAX/GEMM supply 24 calibration points; memory/branch supply 12
-held-out points. The other 228 points remain `validation-legacy`, because their
-historical use prevents calling them independent holdouts.
+The application summary covers 246 points across 41 programs. Each qualified
+point contributes once to the mean. Integer, memory and branch supply 18 points
+for the separate microbenchmark section. Retained manifests record historical
+split labels for reproducibility. All workloads may guide model tuning.
 
 ## Native evidence and quality
 

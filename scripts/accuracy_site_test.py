@@ -239,8 +239,8 @@ class AccuracySiteTest(unittest.TestCase):
             report["summary"]["calibration"], {"required": 12, "comparable": 0}
         )
         page = site.detail(report, self.metadata(commit))
-        self.assertIn("calibration<strong>0 / 6", page)
-        self.assertIn("Mean head error: —", page)
+        self.assertIn("Usable benchmark references<strong>0 / 6", page)
+        self.assertNotIn("Application timing error across", page)
         self.assertIn("Matrix dimension n", page)
         self.assertIn("Working set (log₂ spacing)", page)
         self.assertIn("8 KiB", page)
@@ -365,8 +365,7 @@ class AccuracySiteTest(unittest.TestCase):
                     self.pages / "calibration/runs" / commit / "index.html"
                 ).read_text()
                 self.assertIn("Usable benchmark references<strong>0 / —", detail)
-                self.assertIn("calibration<strong>— / —", detail)
-                self.assertIn("held_out<strong>— / —", detail)
+                self.assertNotIn("Calibration and held-out coverage", detail)
                 self.assertNotIn("0 / 2", detail)
                 self.assertNotIn("0 / 4", detail)
                 self.assertNotIn("0 / 1", detail)

@@ -408,20 +408,21 @@ def base_declares_cohort(revision, root=ROOT):
     return True
 
 
+def case_summary(rows, performance=False):
+    summary = dict(required=len(rows), comparable=sum("error_percent" in r["head"] for r in rows))
+    if performance:
+        summary.update(head_comparable=sum("error_percent" in r["head"] for r in rows),
+                       base_comparable=sum("error_percent" in r.get("base", {}) for r in rows))
+    for label in ("base", "head"):
+        values = [r[label]["error_percent"] for r in rows if "error_percent" in r.get(label, {})]
+        if values:
+            summary[label] = dict(mean_error_percent=statistics.mean(values), maximum_error_percent=max(values))
+    return summary
+
+
 def summaries(cases, performance=False):
-    result = {}
-    for split in SPLITS:
-        rows = [r for r in cases if r["split"] == split]
-        summary = dict(required=len(rows), comparable=sum("error_percent" in r["head"] for r in rows))
-        if performance:
-            summary.update(head_comparable=sum("error_percent" in r["head"] for r in rows),
-                           base_comparable=sum("error_percent" in r.get("base", {}) for r in rows))
-        for label in ("base", "head"):
-            values = [r[label]["error_percent"] for r in rows if "error_percent" in r.get(label, {})]
-            if values:
-                summary[label] = dict(mean_error_percent=statistics.mean(values), maximum_error_percent=max(values))
-        result[split] = summary
-    return result
+    return {split: case_summary([r for r in cases if r["split"] == split], performance)
+            for split in SPLITS}
 
 
 def extend_report(original, args, execute, validate_timing, error_percent, source_state):

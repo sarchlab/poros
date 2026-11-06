@@ -63,9 +63,9 @@ raw observations and full witnesses remain local. Every PR/main push
 reports all 264 points, including invalid/noisy references. Head functional and
 OoO executions must validate every output; base OoO is required wherever the
 exact base image and output limits support the input. Unsupported base cases
-remain explicit and cannot contribute a paired error change. Calibration and
-validation-legacy roles remain frozen; the latter is not an independent historical
-holdout. CPU/cache parameters, quality thresholds and timing formulas are unchanged.
+remain explicit and cannot contribute a paired error change. The application summary pools all qualified cases across the 41
+compute workloads. Any workload may guide model tuning. Integer, memory and
+branch appear in the separate microbenchmark section.
 
 [Whole-program user-time evaluation](usertime/README.md) defines direct-child
 `wait4.ru_utime` measurements on Linux ARM64 in an Apple M2 VM, output validation,

@@ -922,7 +922,7 @@ def timing_curves(groups, cases):
 
 
 def timing_table(cases, ids):
-    body = '<p class="muted">Error = 100 × |sim − reference| / min(sim, reference). Positive Δ means a larger error. No offset fitting or anchor removal. Times are milliseconds.</p><div class="table"><table><thead><tr><th>Case / split</th><th>Functional</th><th>Reference</th><th>Quality</th><th>Base</th><th>Head</th><th>Base error</th><th>Head error</th><th>Direction</th><th>Δ pp</th></tr></thead><tbody>'
+    body = '<p class="muted">Error = 100 × |sim − reference| / min(sim, reference). Positive Δ means a larger error. No offset fitting or anchor removal. Times are milliseconds.</p><div class="table"><table><thead><tr><th>Case</th><th>Functional</th><th>Reference</th><th>Quality</th><th>Base</th><th>Head</th><th>Base error</th><th>Head error</th><th>Direction</th><th>Δ pp</th></tr></thead><tbody>'
     by_id = {c["id"]: c for c in cases}
     for case in ids:
         c = by_id.get(case)
@@ -935,7 +935,7 @@ def timing_table(cases, ids):
             continue
         base, head = c.get("base", {}), c.get("head", {})
         values = [
-            case + " / " + c["split"],
+            case,
             c.get("functional_status", "not separately recorded"),
             number(c.get("reference_user_seconds", 0) * 1000),
             c["reference_quality"],
@@ -999,24 +999,12 @@ def detail(report, entry, preview=False, frontend=None):
         body += '<p class="notice">' + esc(report["error"]) + "</p>"
     body += '<nav class="downloads"><a href="#overall">Benchmark accuracy</a><a href="#microbenchmarks">Microbenchmarks</a></nav>'
     body += overview_charts(benchmarks)
-    benchmark_stats = benchmark_summary(report)
-    body += '<h2>Calibration and held-out coverage</h2><div class="cards">'
-    for split in (compute.SPLITS if report.get("schema") in (3, 4) else ("calibration", "held_out")):
-        summary = benchmark_stats.get(split, {})
-        body += (
-            '<div class="card">'
-            + esc(split)
-            + "<strong>"
-            + esc(f'{summary.get("comparable", "—")} / {summary.get("required", "—")}')
-            + "</strong>"
-            + ("<p>Head comparable: " + esc(summary["head_comparable"]) + "; base comparable: " + esc(summary["base_comparable"]) + ". Means use their respective coverage.</p>" if "base_comparable" in summary else "")
-            + "<p>Mean head error: "
-            + number(summary.get("head", {}).get("mean_error_percent"), "%")
-            + "<br>Maximum: "
-            + number(summary.get("head", {}).get("maximum_error_percent"), "%")
-            + "</p></div>"
-        )
-    body += '</div><h2>Benchmark timing curves</h2>'
+    summary = benchmark_summary(report)
+    if summary.get("head"):
+        mean = number(summary["head"]["mean_error_percent"], "%")
+        maximum = number(summary["head"]["maximum_error_percent"], "%")
+        body += f"<p>Application timing error across {summary['comparable']} qualified cases: mean {mean}, maximum {maximum}.</p>"
+    body += '<h2>Benchmark timing curves</h2>'
     groups = (
         report_manifest(report).get(
             "workloads",
@@ -1344,7 +1332,7 @@ STATUS_SCRIPT = """<script>
 
 
 def home(index):
-    body = '<header><div class="eyebrow">Poros / Calibration dashboard</div><h1>Accuracy over time</h1><p class="muted">Whole-program user CPU time · Raw predictions against retained hardware observations</p></header><div class="notice"><strong>Hardware accuracy remains unverified.</strong> Report success describes evidence completeness, not an accuracy threshold. Calibration and held-out cases are reported separately.</div>'
+    body = '<header><div class="eyebrow">Poros / Calibration dashboard</div><h1>Accuracy over time</h1><p class="muted">Whole-program user CPU time · Raw predictions against retained hardware observations</p></header><div class="notice"><strong>Hardware accuracy remains unverified.</strong> Report success describes evidence completeness, not an accuracy threshold. Overall accuracy covers application benchmarks. Microbenchmarks have a separate section.</div>'
     body += (
         '<p id="current-main">Published snapshot of main: <code>'
         + esc(index["main_head"] or "unknown")
@@ -1358,7 +1346,7 @@ def home(index):
             if latest
             else "None yet"
         )
-        + '</p><h2>Report history</h2><p class="muted">Latest 20 ordinary main commits; release reports are retained permanently outside that limit. Failed and incomplete results stay visible.</p><div class="table"><table><thead><tr><th>Commit</th><th>Full Evaluation</th><th>Report</th><th>Calibration mean</th><th>Held-out mean</th><th>Validation-legacy mean</th><th>Permanent releases</th></tr></thead><tbody>'
+        + '</p><h2>Report history</h2><p class="muted">Latest 20 ordinary main commits; release reports are retained permanently outside that limit. Failed and incomplete results stay visible.</p><div class="table"><table><thead><tr><th>Commit</th><th>Full Evaluation</th><th>Report</th><th>Mean application error (qualified/total)</th><th>Permanent releases</th></tr></thead><tbody>'
     )
     for e in index["entries"]:
         body += (
@@ -1374,18 +1362,9 @@ def home(index):
             + esc(e["artifact_status"])
             + "</span></td>"
         )
-        for split in compute.SPLITS:
-            summary = e.get("benchmark_summary", {}).get(split, {})
-            coverage = (
-                f'{summary.get("comparable", "—")}/{summary.get("required", "—")}'
-            )
-            body += (
-                "<td>"
-                + number(summary.get("head", {}).get("mean_error_percent"), "%")
-                + " ("
-                + coverage
-                + ")</td>"
-            )
+        summary = e.get("benchmark_summary", {})
+        coverage = f'{summary.get("comparable", "—")}/{summary.get("required", "—")}'
+        body += "<td>" + number(summary.get("head", {}).get("mean_error_percent"), "%") + " (" + coverage + ")</td>"
         body += (
             "<td>"
             + esc(", ".join(r["tag"] for r in e["releases"]) or "—")
@@ -1397,26 +1376,12 @@ def home(index):
         if e.get("series") and e["main"]:
             groups.setdefault(e["series"], []).append(e)
     for identity, entries in groups.items():
-        series = []
-        for split, color in (("calibration", "#087e8b"), ("held_out", "#b17e26"), ("validation-legacy", "#7657a1")):
-            values = [
-                (
-                    i + 1,
-                    e.get("benchmark_summary", {})
-                    .get(split, {})
-                    .get("head", {})
-                    .get("mean_error_percent"),
-                    e["commit"][:12],
-                )
-                for i, e in enumerate(entries)
-            ]
-            series.append(
-                (
-                    split,
-                    [(x, y, f"{label}: {y:.4f}%") for x, y, label in values if y is not None],
-                    color,
-                )
-            )
+        points = []
+        for i, entry in enumerate(entries, 1):
+            mean = entry.get("benchmark_summary", {}).get("head", {}).get("mean_error_percent")
+            if mean is not None:
+                points.append((i, mean, f"{entry['commit'][:12]}: {mean:.4f}%"))
+        series = [("Applications", points, "#087e8b")]
         body += chart(
             "Series " + identity[:12], series, "Main report order", "Mean error (%)"
         )
