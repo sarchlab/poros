@@ -38,14 +38,15 @@ type Result struct {
 // Execution owns one run and is a live resource for either functional or timing
 // driving. Close releases its deadline; it never shares mutable state across runs.
 type Execution struct {
-	process *Process
-	options RunOptions
-	ctx     context.Context
-	cancel  context.CancelFunc
-	result  Result
-	done    bool
-	memory  trackedMemory
-	decode  emu.DecodeCache
+	process   *Process
+	options   RunOptions
+	ctx       context.Context
+	cancel    context.CancelFunc
+	result    Result
+	done      bool
+	memory    trackedMemory
+	decode    emu.DecodeCache
+	workspace emu.StepWorkspace
 }
 
 // NewExecution claims this process exactly once; all execution modes share it.
@@ -122,7 +123,7 @@ func (x *Execution) step() (Result, error) {
 		return finish("time_limit", ctx.Err().Error())
 	default:
 	}
-	step, err := x.decode.StepChecked(&p.Registers, &x.memory)
+	step, err := x.workspace.StepChecked(&p.Registers, &x.memory, &x.decode)
 	if err != nil {
 		var fault *emu.StepError
 		if errors.As(err, &fault) {

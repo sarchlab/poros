@@ -9,6 +9,7 @@ import (
 	"github.com/sarchlab/akita/v5/sim"
 	"github.com/sarchlab/akita/v5/sim/modeling"
 	"github.com/sarchlab/akita/v5/sim/timing"
+	"github.com/sarchlab/poros/pkg/cpu"
 	"github.com/sarchlab/poros/pkg/cpu/inorder"
 	"github.com/sarchlab/poros/pkg/cpu/ooo"
 	"github.com/sarchlab/poros/pkg/linuxuser"
@@ -68,7 +69,7 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 	if o.Model == "ooo" {
 		spec := ooo.DefaultSpec()
 		spec.Freq = timing.Freq(o.FrequencyHz)
-		c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: x, Cache: cache}).Build("CPU")
+		c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: cpu.NewELFTimingExecution(x), Cache: cache}).Build("CPU")
 		if err = s.Initialize(); err != nil {
 			return r, err
 		}

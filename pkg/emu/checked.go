@@ -54,15 +54,24 @@ func (e *StepError) Unwrap() error { return e.Err }
 // transfer their entire instruction span through one atomic Write. No legacy
 // function hooks, synthetic return address, or implicit guest-memory allocation is involved.
 func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
-	return stepChecked(regs, memory, nil)
+	return new(StepWorkspace).StepChecked(regs, memory, nil)
 }
 
 // StepChecked uses this execution's decode cache when executing a checked step.
 func (c *DecodeCache) StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
-	return stepChecked(regs, memory, c)
+	return new(StepWorkspace).StepChecked(regs, memory, c)
 }
 
-func stepChecked(regs *Registers, memory CheckedMemory, cache *DecodeCache) (StepResult, error) {
+// StepWorkspace holds the tentative architectural state and transfer buffer
+// for one execution. Its zero value is ready for use by a single driver.
+type StepWorkspace struct {
+	next Registers
+	ex   executor
+}
+
+// StepChecked executes one checked instruction, committing registers only on
+// success. Pass a DecodeCache to reuse previously decoded instruction words.
+func (w *StepWorkspace) StepChecked(regs *Registers, memory CheckedMemory, cache *DecodeCache) (StepResult, error) {
 	var result StepResult
 	fail := func(kind string, err error) (StepResult, error) { return result, &StepError{regs.PC, kind, err} }
 	if regs.PC%4 != 0 {
@@ -131,9 +140,12 @@ func stepChecked(regs *Registers, memory CheckedMemory, cache *DecodeCache) (Ste
 			return fail("unsupported_instruction", &UnsupportedInstructionError{Instruction: inst})
 		}
 	}
-	next := *regs
-	ex := executor{regs: &next, checked: memory}
-	branched, err := ex.execute(inst)
+	w.next = *regs
+	w.ex.regs = &w.next
+	w.ex.checked = memory
+	branched, err := w.ex.execute(inst)
+	w.ex.checked = nil
+	w.ex.regs = nil
 	if err != nil {
 		var access *memoryAccessError
 		if errors.As(err, &access) {
@@ -146,10 +158,10 @@ func stepChecked(regs *Registers, memory CheckedMemory, cache *DecodeCache) (Ste
 		return fail("execution_fault", err)
 	}
 	if !branched {
-		next.PC += 4
+		w.next.PC += 4
 	}
-	result.Branched = next.PC != regs.PC+4
-	*regs = next
+	result.Branched = w.next.PC != regs.PC+4
+	*regs = w.next
 	return result, nil
 }
 
