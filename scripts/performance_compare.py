@@ -5,6 +5,7 @@ import subprocess
 
 import compute_usertime as compute
 import performance_reference as reference
+import frontend_microbenchmark as frontend
 
 
 MICRO_WORKLOADS = {"integer", "branch", "memory"}
@@ -71,6 +72,8 @@ def compare(args, executor):
             row["functional_status"] = "pass"
             report["cases"].append(row)
             print("accuracy", case["id"], native["quality"], flush=True)
+        if frontend.ELF in state["files"]:
+            report["frontend_simulation"] = frontend.measure(args.head, user.ROOT, state["commit"], declared["profile"])
         report["summary"] = compute.summaries(report["cases"], True)
         if user.source_state() != state or user.digest(args.head) != report["head_binary_sha256"] or user.digest(args.base) != report["base_binary_sha256"]:
             raise ValueError("source or simulator changed during comparison")

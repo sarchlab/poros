@@ -34,6 +34,7 @@ class ParallelAccuracyTests(unittest.TestCase):
         validation.start()
         cls.addClassCleanup(validation.stop)
         cls.state = user.source_state()
+        cls.state["files"] = {k: v for k, v in cls.state["files"].items() if (cls.fixture.source/k).is_file()}
         cls.state.update(commit=HEAD, dirty=False)
         for module in (parallel, user, user.native):
             patcher = patch.object(module, "ROOT", cls.fixture.source)

@@ -18,6 +18,7 @@ import subprocess
 from workload_contract import LEGACY_IDS, case_ids, validate_manifest, manifest_path
 import compute_usertime as compute
 import performance_reference as performance
+import frontend_microbenchmark as probe
 from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
 
 SCHEMA = 1
@@ -563,6 +564,10 @@ def validate_compact_bundle(path, commit, manifest):
     check_report(report, commit)
     if report["artifact_status"] != "pass":
         return report, manifest
+    if probe.ELF in report["head"]["files"]:
+        probe.validate(report.get("frontend_simulation"))
+    elif "frontend_simulation" in report:
+        raise ValueError("frontend probe is absent from the tested source")
     declared = report_manifest(report)
     measured = performance.validate(read(path / "reference.json"), declared)
     if digest(path / "reference.json") != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:
@@ -825,21 +830,29 @@ def overview_charts(cases):
     return '<h2 id="overall">Overall benchmark accuracy</h2><div class="charts">' + s_curve + comparison + "</div>"
 
 
-def frontend_table(reference):
+def frontend_table(reference, simulated=None):
     labels = {"nop": "NOP stream", "add": "Eight independent ADD chains"}
     rows = []
     for loop, label in labels.items():
         seconds = reference["loops"][loop]
         rate = reference["instructions_per_trial"] / seconds
+        model = ""
+        if simulated:
+            counters = simulated[loop]
+            model = f"<td>{counters['instructions']/counters['cycles']:.2f}</td>"
         rows.append(f"<tr><td>{label}</td><td>{seconds*1000:.3f}</td>"
-                    f"<td>{rate/1e9:.2f}</td><td>{rate/reference['assumed_hz']:.2f}</td></tr>")
+                    f"<td>{rate/1e9:.2f}</td><td>{rate/reference['assumed_hz']:.2f}</td>{model}</tr>")
     return (f'<h3>Front-end throughput on {esc(reference["hardware"])}</h3>'
             f'<p>{esc(reference["os"])} · {esc(reference["date"])} · median of {reference["trials"]} trials '
             f'of {reference["instructions_per_trial"]:,} loop instructions. Estimated IPC uses '
             f'{reference["assumed_hz"]/1e9:g} GHz and thread CPU time. Core and operating frequency were unobserved.</p>'
             '<div class="table"><table><thead><tr><th>Native loop</th><th>Thread time (ms)</th>'
-            '<th>Billion instructions/s</th><th>Estimated IPC</th></tr></thead><tbody>'
-            + "".join(rows) + '</tbody></table></div><p><a href="frontend.json">Native reference data</a></p>')
+            '<th>Billion instructions/s</th><th>Estimated native IPC</th>'
+            + ('<th>Simulated IPC</th>' if simulated else '') + '</tr></thead><tbody>'
+            + "".join(rows) + '</tbody></table></div>'
+            + ('<p>Simulated IPC uses the same assembly loops. Subtracting the counts for 4,096 iterations '
+               'from those for 8,192 removes fixed process setup and exit costs.</p>' if simulated else '')
+            + '<p><a href="frontend.json">Native reference data</a></p>')
 
 
 def timing_curves(groups, cases):
@@ -1021,7 +1034,7 @@ def detail(report, entry, preview=False, frontend=None):
         micro_required = len(micro_ids) if report["artifact_status"] == "pass" else "—"
         body += f"<p>Usable microbenchmark references: {micro_usable} / {micro_required}</p>"
     if frontend:
-        body += frontend_table(frontend)
+        body += frontend_table(frontend, report.get("frontend_simulation"))
     body += timing_curves([g for g in groups if g["id"] in MICRO_WORKLOADS], micros)
     if report.get("schema") == 1:
         body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
