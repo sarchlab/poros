@@ -758,7 +758,7 @@ def overview_charts(cases):
                          "2× faster means half the measured time; 2× slower means twice the measured time.</p>")
     n = len(points)
     pearson = "—"
-    correct = total = 0
+    concordant = discordant = measured_unequal = predicted_unequal = 0
     if n >= 2:
         mx, my = (sum(p[k] for p in points)/n for k in (0, 1))
         dx, dy = ([p[k]-mean for p in points] for k, mean in ((0,mx),(1,my)))
@@ -767,13 +767,24 @@ def overview_charts(cases):
             pearson = f"{sum(x*y for x,y in zip(dx,dy))/denom:.4f}"
         for i, (x, y, _) in enumerate(points):
             for xx, yy, _ in points[:i]:
-                if xx != x:
-                    total += 1
-                    correct += (x-xx)*(y-yy) > 0
-    pair = f"{correct/total:.2%} ({correct:,}/{total:,})" if total else "—"
-    note = (f"<p><strong>Pearson r: {pearson}</strong><br><strong>Correct pairwise order: {pair}</strong></p>"
-            f"<p class='muted'>{n} qualified head cases, across benchmarks and sizes. "
-            "Pearson uses times in milliseconds. Measured ties are excluded; predicted ties do not count as correct.</p>")
+                measured_unequal += x != xx
+                predicted_unequal += y != yy
+                if x != xx and y != yy:
+                    if (x < xx) == (y < yy):
+                        concordant += 1
+                    else:
+                        discordant += 1
+    denominator = math.sqrt(measured_unequal * predicted_unequal)
+    tau = f"{(concordant - discordant) / denominator:.4f}" if denominator else "—"
+    pair = (f"{concordant / measured_unequal:.2%} ({concordant:,}/{measured_unequal:,})"
+            if measured_unequal else "—")
+    note = (f"<p><strong>Pearson correlation (r) = {pearson}</strong><br>"
+            f"<strong>Kendall rank correlation (τ-b) = {tau}</strong><br>"
+            f"Pairs ordered correctly: {pair}</p>"
+            f"<p class='muted'>{n} qualified cases across benchmarks and sizes. "
+            "Pearson measures linear association between measured and predicted times. "
+            "Kendall measures agreement in their ordering and adjusts for ties. "
+            "The percentage counts pairs with distinct measured times and gives credit for a matching order.</p>")
     comparison = chart("Qualified reference vs. prediction", [("head", scatter, "#087e8b")],
                        "Reference user time (ms)", "Predicted user time (ms)", scatter=True, ideal=True, note=note)
     return '<h2>Overall accuracy</h2><div class="charts">' + s_curve + comparison + "</div>"

@@ -395,11 +395,13 @@ class AccuracySiteTest(unittest.TestCase):
         html = site.overview_charts([row("A",1,2), row("B",2,1),
                                      row("C",2,2), row("D",3,4), row("E",4,1,"noisy")])
         self.assertIn("60.00% (3/5)", html)
+        self.assertIn("Kendall rank correlation (τ-b) = 0.4000", html)
         self.assertIn("rank 1 · B", html)
         self.assertIn("rank 4 · A", html)
         self.assertNotIn("· E ·", html)
-        self.assertIn("Pearson r: —", site.overview_charts([row("A",1,1), row("B",1,2)]))
-        self.assertIn("Correct pairwise order: —", site.overview_charts([row("A",1,1)]))
+        self.assertIn("Pearson correlation (r) = —", site.overview_charts([row("A",1,1), row("B",1,2)]))
+        self.assertIn("Kendall rank correlation (τ-b) = —", site.overview_charts([row("A",1,1), row("B",2,1)]))
+        self.assertIn("Pairs ordered correctly: —", site.overview_charts([row("A",1,1)]))
 
     def test_bad_bundles_rejected(self):
         commit = revision(1)
