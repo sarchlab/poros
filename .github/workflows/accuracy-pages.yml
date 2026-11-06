@@ -20,10 +20,14 @@ concurrency:
   group: accuracy-pages
   queue: max
 jobs:
-  build:
+  resolve:
     if: github.event_name != 'workflow_run' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 20
+    outputs:
+      target: ${{ steps.target.outputs.commit }}
+      route: ${{ steps.route.outputs.route }}
+      base: ${{ steps.route.outputs.base }}
     steps:
       - name: Trusted publishing tools
         uses: actions/checkout@v4
@@ -43,40 +47,104 @@ jobs:
           path: source
           fetch-depth: 0
           persist-credentials: false
+      - name: Choose validated retained, parallel, or legacy evidence path
+        id: route
+        run: |
+          git clone --depth 1 --branch gh-pages "https://github.com/$GITHUB_REPOSITORY.git" pages
+          python3 tools/scripts/accuracy_backfill.py route --source source --pages pages \
+            --target "$RUNNER_TEMP/accuracy-target.json" --output resolved
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accuracy-backfill-resolved-${{ github.run_attempt }}
+          path: resolved/
+          retention-days: 30
+          if-no-files-found: error
+  parallel:
+    name: Backfill accuracy
+    needs: resolve
+    if: needs.resolve.outputs.route == 'parallel'
+    uses: ./.github/workflows/accuracy-evaluate.yml
+    with:
+      target: ${{ needs.resolve.outputs.target }}
+      base: ${{ needs.resolve.outputs.base }}
+  legacy:
+    needs: resolve
+    if: needs.resolve.outputs.route == 'legacy'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: tools
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.target }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.0'
-      - name: Reuse retained evidence or measure the exact target
-        id: measure
+      - name: Execute the target's historical small-cohort protocol
         env:
-          TARGET_KIND: ${{ steps.target.outputs.kind }}
+          TARGET: ${{ needs.resolve.outputs.target }}
+          BASE: ${{ needs.resolve.outputs.base }}
         run: |
-          target=$(git -C source rev-parse HEAD)
-          echo "TARGET_SHA=$target" >> "$GITHUB_ENV"
-          git clone --depth 1 --branch gh-pages "https://github.com/$GITHUB_REPOSITORY.git" pages
-          if [ "$TARGET_KIND" = release ] && python3 tools/scripts/accuracy_site.py reusable --bundle "pages/calibration/runs/$target" --commit "$target"; then
-            mkdir -p evidence
-            cp -R "pages/calibration/runs/$target/." evidence/
-            exit 0
-          fi
           mkdir -p raw
           if [ -x source/scripts/usertime-ci.sh ]; then
-            (cd source && scripts/usertime-ci.sh HEAD^ "$GITHUB_WORKSPACE/raw")
+            (cd source && scripts/usertime-ci.sh "$BASE" "$GITHUB_WORKSPACE/raw")
           else
-            python3 tools/scripts/accuracy_site.py failure --output raw --commit "$target" --message 'This target predates whole-program accuracy support.'
+            python3 tools/scripts/accuracy_site.py failure --output raw --commit "$TARGET" --message 'This target predates whole-program accuracy support.'
             exit 1
           fi
-      - name: Package exact-source evidence, including failures
+      - name: Package historical evidence, including failures
         if: always()
+        env:
+          TARGET: ${{ needs.resolve.outputs.target }}
         run: |
-          target=$(git -C source rev-parse HEAD)
-          if [ ! -f evidence/bundle.json ]; then
-            if [ ! -f raw/report.json ]; then
-              python3 tools/scripts/accuracy_site.py failure --output raw --commit "$target" --message 'Accuracy build failed before producing a report; inspect the workflow logs.'
-            fi
-            python3 tools/scripts/accuracy_site.py bundle --report raw/report.json --source source --output evidence --commit "$target"
+          if [ ! -f raw/report.json ]; then
+            python3 tools/scripts/accuracy_site.py failure --output raw --commit "$TARGET" --message 'Historical accuracy build failed before producing a report; inspect workflow logs.'
           fi
-          cp "$RUNNER_TEMP/accuracy-target.json" evidence/publication-target.json
+          python3 tools/scripts/accuracy_site.py bundle --report raw/report.json --source source --output evidence --commit "$TARGET"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: accuracy-backfill-legacy-${{ github.run_attempt }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
+  build:
+    name: Package exact-target publication evidence
+    permissions:
+      contents: read
+      actions: read
+    needs: [resolve, parallel, legacy]
+    if: always() && needs.resolve.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: tools
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.target }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Package only the selected route; preserve incomplete diagnostics
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ needs.resolve.outputs.target }}
+          ROUTE_STATUS: ${{ needs.resolve.outputs.route == 'parallel' && needs.parallel.result || needs.resolve.outputs.route == 'legacy' && needs.legacy.result || 'success' }}
+        run: |
+          python3 tools/scripts/accuracy_backfill.py package --source source \
+            --resolved resolved --evidence selected --output evidence --commit "$TARGET" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --route-status "$ROUTE_STATUS"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

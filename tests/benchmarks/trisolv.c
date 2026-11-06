@@ -1,15 +1,15 @@
 #include "../../polybench/kernels/kernel_trisolv.c"
 #include "runtime.h"
 
-static double L[160000];
-static double b[400];
-static double x[400];
+static double L[7929856];
+static double b[2816];
+static double x[2816];
 
 int workload(int argc, char **argv) {
   if (argc != 2)
     return 2;
   int n;
-  if (!argument(argv[1], 1, 400, &n))
+  if (!argument(argv[1], 1, 2816, &n))
     return 2;
   for (int i = 0; i < n; i++) {
     b[i] = i;

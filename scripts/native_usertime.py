@@ -17,11 +17,11 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-from workload_contract import case_ids, check_output, digest, expected, load_manifest
+from workload_contract import case_ids, check_output, digest, expected, load_manifest, manifest_path
 
 
 def inventory():
-    return load_manifest(ROOT)
+    return load_manifest(ROOT, performance=True)
 
 
 def child_usage(executable, argv, env, timeout=10):
@@ -72,6 +72,29 @@ def quality(samples):
     return "usable"
 
 
+def validate_capture_metadata(reference):
+    """Strict metadata for the explicit performance-v1 micro cohort."""
+    import re
+    from datetime import datetime
+    if (reference.get("schema") != 2 or reference.get("metric") != "child_user_cpu_seconds"
+            or reference.get("timer") != "wait4.ru_utime" or reference.get("environment") != "virtualized"
+            or reference.get("machine") not in ("aarch64", "arm64")
+            or reference.get("collection_dirty") is not False
+            or not re.fullmatch(r"[0-9a-f]{40}", reference.get("collection_commit", ""))
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", reference.get("container_image", ""))
+            or reference.get("retained_samples_per_case") != 21
+            or reference.get("precision_floor_seconds") != .0001
+            or reference.get("quality_policy") != {"nonpositive": "reject-any", "precision_floor_seconds": .0001, "relative_p10_p90_limit": .2}):
+        raise ValueError("performance capture metadata mismatch")
+    try:
+        start = datetime.strptime(reference["started_at_utc"], "%Y-%m-%dT%H:%M:%SZ")
+        end = datetime.strptime(reference["completed_at_utc"], "%Y-%m-%dT%H:%M:%SZ")
+        if end < start:
+            raise ValueError("completion predates capture")
+    except (KeyError, ValueError):
+        raise ValueError("invalid capture timestamps") from None
+
+
 def capture(args):
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     m = inventory()
@@ -79,10 +102,23 @@ def capture(args):
         raise ValueError(
             "same-ELF capture requires native Linux ARM64; QEMU is not a timing reference"
         )
-    if args.samples < 5:
-        raise ValueError("at least five raw samples required")
+    if args.samples != 21:
+        raise ValueError("performance capture requires exactly 21 retained samples")
+    git = ["git", "-c", "safe.directory=" + str(ROOT), "-C", str(ROOT)]
+    commit = subprocess.check_output([*git, "rev-parse", "HEAD"], text=True).strip()
+    if subprocess.check_output([*git, "status", "--porcelain"]):
+        raise ValueError("formal capture requires clean committed source")
+    if Path(args.output).exists():
+        raise ValueError("never overwrite formal raw measurements")
+    import re
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", os.environ.get("POROS_REFERENCE_IMAGE", "")):
+        raise ValueError("formal capture requires exact native container image")
     report = dict(
         schema=2,
+        collection_commit=commit,
+        collection_dirty=False,
+        retained_samples_per_case=21,
+        quality_policy={"nonpositive": "reject-any", "precision_floor_seconds": .0001, "relative_p10_p90_limit": .2},
         started_at_utc=started,
         measurement_id=args.measurement_id,
         metric="child_user_cpu_seconds",
@@ -107,9 +143,11 @@ def capture(args):
                 Path(__file__).with_name("workload_contract.py")
             )
         },
-        manifest_sha256=digest(ROOT / "tests/usertime/manifest.json"),
+        manifest_sha256=digest(ROOT / manifest_path(m)),
         cases=[],
     )
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.output).write_text(json.dumps(report, indent=2) + "\n")
     for c in m["cases"]:
         executable = ROOT / "tests/usertime" / c["file"]
         samples = []
@@ -124,9 +162,12 @@ def capture(args):
             check_output(c, base64.b64decode(sample["stdout_base64"]), golden)
             if i:
                 samples.append(sample)
+            else:
+                warmup_sample = sample
         report["cases"].append(
             dict(
                 c,
+                warmup_sample=warmup_sample,
                 samples=samples,
                 median_user_seconds=statistics.median(
                     s["user_seconds"] for s in samples
@@ -134,6 +175,8 @@ def capture(args):
                 quality=quality(samples),
             )
         )
+        Path(args.output).write_text(json.dumps(report, indent=2) + "\n")
+        print(c["id"], report["cases"][-1]["quality"], flush=True)
     report["completed_at_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     Path(args.output).write_text(json.dumps(report, indent=2) + "\n")
 

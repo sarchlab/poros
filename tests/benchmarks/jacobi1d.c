@@ -1,8 +1,8 @@
 #include "../../polybench/kernels/kernel_jacobi_1d.c"
 #include "runtime.h"
 
-static double A[400];
-static double B[400];
+static double A[262144];
+static double B[262144];
 
 int workload(int argc, char **argv) {
   if (argc != 3)
@@ -11,7 +11,7 @@ int workload(int argc, char **argv) {
   if (!argument(argv[1], 1, 100, &tsteps))
     return 2;
   int n;
-  if (!argument(argv[2], 3, 400, &n))
+  if (!argument(argv[2], 3, 262144, &n))
     return 2;
   for (int i = 0; i < n; i++) {
     A[i] = (i + 2.0) / n;

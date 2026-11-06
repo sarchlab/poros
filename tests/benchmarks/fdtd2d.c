@@ -1,9 +1,9 @@
 #include "../../polybench/kernels/kernel_fdtd_2d.c"
 #include "runtime.h"
 
-static double ex[4800];
-static double ey[4800];
-static double hz[4800];
+static double ex[786432];
+static double ey[786432];
+static double hz[786432];
 static double fict[40];
 
 int workload(int argc, char **argv) {
@@ -13,10 +13,10 @@ int workload(int argc, char **argv) {
   if (!argument(argv[1], 1, 40, &tmax))
     return 2;
   int nx;
-  if (!argument(argv[2], 1, 60, &nx))
+  if (!argument(argv[2], 1, 768, &nx))
     return 2;
   int ny;
-  if (!argument(argv[3], 1, 80, &ny))
+  if (!argument(argv[3], 1, 1024, &ny))
     return 2;
   for (int i = 0; i < tmax; i++)
     fict[i] = i;

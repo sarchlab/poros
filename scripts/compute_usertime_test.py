@@ -3,6 +3,8 @@
 import base64
 import copy
 import hashlib
+import gzip
+import accuracy_test_support as fixtures
 import json
 from pathlib import Path
 import shutil
@@ -27,76 +29,16 @@ class ComputeTimeTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
         self.source = self.directory / "source"
-        for name in compute.source_paths(ROOT) | {"evaluation/usertime/m2-linuxvm-user-v2.json"}:
-            target = self.source / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / name, target)
-        self.folder = self.source / compute.REFERENCE
-        self.declared = compute.contract(self.source)
-        self.reference = self.make_reference()
-        self.report = self.make_report()
-
-    def make_reference(self):
-        rows, oracle = [], []
-        for case in self.declared["cases"]:
-            length = sum(x["count"] * (8 if x["type"] == "double" else 4) for x in case["outputs"])
-            data = bytes(length)  # Deliberately synthetic finite test output.
-            sha = hashlib.sha256(data).hexdigest()
-            target = self.folder / "outputs" / (sha + ".bin")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(data)
-            sample = dict(user_seconds=.001, system_seconds=.0001, exit_status=0,
-                          stdout_sha256=sha, stdout_bytes=length, stderr_bytes=0,
-                          stderr_sha256=hashlib.sha256(b"").hexdigest())
-            rows.append(dict(id=case["id"], samples=[copy.deepcopy(sample) for _ in range(21)],
-                             warmup_sample=sample, median_user_seconds=.001, quality="usable",
-                             output_sha256=sha, output_bytes=length))
-            oracle.append(dict(id=case["oracle_id"], args=case["args"][1:], binary_sha256=case["sha256"],
-                               status="pass", output_sha256=sha, output_bytes=length, native_sha256=sha, qemu_sha256=sha))
-        harness = (self.source / "scripts/benchmark-differential.py").read_bytes()
-        validation = dict(schema=1, acceptance_status="pass", status="pass", expected_cases=240, qemu="synthetic unit oracle", platform="synthetic",
-                          provenance=dict(git_dirty=False, git_sha=SHA, sources={**self.declared["build"]["files"], "scripts/benchmark-differential.py": hashlib.sha256(harness).hexdigest()}),
-                          build=self.declared["build"], manifest_sha256=self.declared["program_manifest_sha256"], cases=oracle)
-        compute.write(self.folder / "validation-report.json", validation)
-        (self.folder / "validation-harness.py").write_bytes(harness)
-        compute.write(self.folder / "oracle.json", compute.compact_oracle(validation, self.declared))
-        reference = dict(schema=1, protocol=compute.PROTOCOL, measurement_id="synthetic-unit-only", contract=self.declared,
-                         collection_commit=SHA, collection_dirty=False, quality_policy=compute.QUALITY_POLICY, container_image="sha256:" + "f" * 64,
-                         started_at_utc="2026-01-01T00:00:00Z", completed_at_utc="2026-01-01T00:05:00Z",
-                         precision_floor_seconds=.0001, retained_samples_per_case=21, warmup="one complete process per case",
-                         metric="child_user_cpu_seconds", timer="wait4.ru_utime", environment="virtualized", machine="aarch64",
-                         hardware="synthetic", platform="synthetic", core_identity="unknown", instantaneous_frequency="unknown",
-                         oracle_sha256=compute.legacy.digest(self.folder / "oracle.json"),
-                         support_sha256={name: compute.legacy.digest(self.source / name) for name in compute.SUPPORT}, cases=rows)
-        compute.write(self.folder / "reference.json", reference)
-        return reference
-
-    def make_report(self):
-        old_manifest = compute.legacy.load_manifest(self.source)
-        old_reference = compute.read(self.source / "evaluation/usertime/m2-linuxvm-user-v2.json")
-        old_rows = []
-        for case, reference in zip(old_manifest["cases"], old_reference["cases"]):
-            seconds = max(reference["median_user_seconds"], .001)
-            head = dict(predicted_user_seconds=seconds, instructions=100, cycles=100, **old_manifest["profile"])
-            if reference["quality"] == "usable":
-                head.update(error_percent=gate.error_percent(seconds, reference["median_user_seconds"]), direction="equal" if seconds == reference["median_user_seconds"] else "slower")
-            old_rows.append(dict(id=case["id"], split=case["split"], functional_status="pass", reference_quality=reference["quality"],
-                                 reference_user_seconds=reference["median_user_seconds"], head=head, base=copy.deepcopy(head), error_change_percentage_points=0))
-        old = dict(schema=2, artifact_status="pass", accuracy_status="unverified", formula=gate.FORMULA,
-                   head=dict(commit=SHA, dirty=False, files={str(p.relative_to(self.source)): compute.legacy.digest(p) for p in self.source.rglob("*") if p.is_file()}),
-                   base_commit="cb965b4d41fc7d52281652c3bce7803cc893cae0", base_status="available", head_binary_sha256="d" * 64, base_binary_sha256="e" * 64, workload_manifest=old_manifest, reference_sha256=compute.legacy.digest(self.source / "evaluation/usertime/m2-linuxvm-user-v2.json"),
-                   reference=old_reference, cases=old_rows, summary={k: v for k, v in compute.summaries(old_rows).items() if k != "validation-legacy"})
-        rows = copy.deepcopy(old_rows)
-        for case in self.declared["cases"]:
-            rows.append(dict(id=case["id"], split=case["split"], functional_status="pass", reference_quality="usable", reference_user_seconds=.001,
-                             head=dict(predicted_user_seconds=.002, instructions=100, cycles=6980000, error_percent=100, direction="slower", **old_manifest["profile"])))
-        refs = dict(original24=old["reference_sha256"], compute240=compute.legacy.digest(self.folder / "reference.json"))
-        return dict(schema=3, artifact_status="pass", accuracy_status="unverified", formula=gate.FORMULA,
-                    head=old["head"], base_commit=old["base_commit"], original_report=old, base_status=old["base_status"], head_binary_sha256=old["head_binary_sha256"], base_binary_sha256=old["base_binary_sha256"], reference=old["reference"],
-                    workload_manifest=compute.expanded_manifest(old_manifest, self.declared), cases=rows,
-                    reference_files=refs, reference_sha256=compute.reference_identity(refs["original24"], refs["compute240"]),
-                    compute_base_status="compute_elf_unavailable", compute_reference={key: self.reference[key] for key in ("measurement_id", "environment", "hardware", "platform", "core_identity", "instantaneous_frequency", "completed_at_utc")},
-                    summary=compute.summaries(rows))
+        self.fixture = fixtures.Evidence(ROOT, self.directory)
+        self.source = self.fixture.source
+        self.folder = self.fixture.folder
+        self.declared = self.fixture.declared
+        self.reference = self.fixture.reference
+        self.report = self.fixture.report
+        original_validate = compute.validate_reference
+        validation = patch.object(compute, "validate_reference", side_effect=lambda folder, root=None: original_validate(folder, self.source if root is None else root))
+        validation.start()
+        self.addCleanup(validation.stop)
 
     def test_exact_contract_and_frozen_splits(self):
         compute.validate_reference(self.folder, self.source)
@@ -113,6 +55,17 @@ class ComputeTimeTests(unittest.TestCase):
             mutate(changed)
             with self.assertRaises(ValueError):
                 compute.validate_expanded(changed)
+
+    def test_mapped_bytes_and_gzip_bounds_are_not_trusted_metadata(self):
+        manifest = compute.read(self.source / compute.PERFORMANCE_MANIFEST)
+        manifest["workloads"][0]["mapped_image_bytes"] = 4096
+        with self.assertRaisesRegex(ValueError, "mapped image"):
+            compute.differential.validate_inventory(self.source, manifest, self.declared["build"])
+        case, row = self.declared["cases"][0], self.reference["cases"][0]
+        path = self.folder / compute.output_name(row, compute.PROTOCOL)
+        path.write_bytes(gzip.compress(bytes(1024*1024), mtime=0))
+        with self.assertRaises(ValueError):
+            compute.witness(self.folder, case, row)
 
     def test_raw_evidence_rejects_corruption_and_incomplete_protocol(self):
         for mutate in (
@@ -131,9 +84,9 @@ class ComputeTimeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 compute.validate_reference(self.folder, self.source)
         compute.write(self.folder / "reference.json", self.reference)
-        path = self.folder / "outputs" / (self.reference["cases"][0]["output_sha256"] + ".bin")
+        path = self.folder / compute.output_name(self.reference["cases"][0],compute.PROTOCOL)
         path.write_bytes(path.read_bytes()[:-1])
-        with self.assertRaises(ValueError):
+        with self.assertRaises((ValueError,EOFError,OSError)):
             compute.validate_reference(self.folder, self.source)
 
     def test_zero_user_samples_are_retained_not_errors_or_retried(self):
@@ -153,13 +106,13 @@ class ComputeTimeTests(unittest.TestCase):
         result, manifest = site.validate_bundle(bundle, SHA)
         self.assertEqual(len(result["cases"]), 264)
         html = (bundle / "index.html").read_text()
-        self.assertTrue("242 / 264" in html, "qualified coverage must retain old24 quality")
+        self.assertTrue("264 / 264" in html, "qualified coverage must retain old24 quality")
         self.assertTrue("validation-legacy" in html, "missing third split")
         self.assertTrue("m=1, n=1" in html, "missing actual dimension labels")
-        self.assertEqual(html.count("<figcaption>"), 45)  # 44 workload curves + comparison scatter
+        self.assertEqual(html.count("<figcaption>"), 46)  # 44 workload curves + two overall charts
         self.assertIn("cohorts/compute/source/parsec/kernels/bodytrack.c", manifest["files"])
         self.assertIn("cohorts/compute/source/tests/benchmarks/bodytrack.c", manifest["files"])
-        path = bundle / "cohorts/compute/reference/outputs" / (self.reference["cases"][0]["output_sha256"] + ".bin")
+        path = bundle / "cohorts/compute/reference" / compute.output_name(self.reference["cases"][0],compute.PROTOCOL)
         path.unlink()
         path.symlink_to(self.folder / "outputs" / path.name)
         with self.assertRaises(ValueError):
@@ -215,7 +168,7 @@ class ComputeTimeTests(unittest.TestCase):
         original = copy.deepcopy(self.report["original_report"])
         original.update(head_binary_sha256=compute.legacy.digest(head), base_binary_sha256=compute.legacy.digest(base), base_commit="cae89ddaf49e7150058098c81de415a22bdab6cc")
         args = SimpleNamespace(head=str(head), base=str(base), base_commit=original["base_commit"],
-                               compute_reference=str(self.folder), reference=str(self.source / "evaluation/usertime/m2-linuxvm-user-v2.json"))
+                               compute_reference=str(self.folder), reference=str(self.source / compute.legacy.PERFORMANCE_REFERENCE))
         calls = []
         def execute(binary, case, mode=None, expected_output=None):
             calls.append((binary, case["id"], mode))
@@ -228,8 +181,8 @@ class ComputeTimeTests(unittest.TestCase):
             report = compute.extend_report(original, args, execute, gate.validate_timing, gate.error_percent, lambda: original["head"])
         self.assertEqual(report["artifact_status"], "pass", report.get("error"))
         self.assertEqual(len(report["cases"]), 264)
-        self.assertEqual(len(calls), 720)
-        self.assertEqual(report["cases"][-1]["error_change_percentage_points"], 0)
+        self.assertEqual(len(calls), 480 + sum(compute.case_base_status(c, original["base_capability"]) == "available" for c in self.declared["cases"]))
+        self.assertTrue(all(r["error_change_percentage_points"] == 0 for r in report["cases"][24:] if "base" in r))
         def failed(binary, *a, **kw):
             if binary == str(base):
                 raise ValueError("capable base regressed")
@@ -276,11 +229,21 @@ class ComputeTimeTests(unittest.TestCase):
         git("init", "-q")
         git("config", "user.name", "test")
         git("config", "user.email", "test@example.invalid")
+        for name, field in (("pkg/loader/elf.go", "loader_source"), ("pkg/linuxuser/run.go", "runtime_source")):
+            destination = self.source/name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(self.report["base_capability"][field])
+        git("add", "pkg")
+        git("commit", "-qm", "synthetic legacy base capability")
+        base_commit = git("rev-parse", "HEAD")
+        for name in ("pkg/loader/elf.go", "pkg/linuxuser/run.go"):
+            shutil.copyfile(ROOT/name,self.source/name)
         git("add", ".")
         git("commit", "-qm", "synthetic committed evidence fixture")
         git("branch", "-M", "main")
         commit = git("rev-parse", "HEAD")
         report = copy.deepcopy(self.report)
+        report["base_commit"] = report["original_report"]["base_commit"] = base_commit
         state = dict(commit=commit, dirty=False, files={name: compute.legacy.digest(self.source / name) for name in git("ls-tree", "-r", "--name-only", commit).splitlines()})
         report["head"] = state
         report["original_report"]["head"] = state
@@ -319,6 +282,33 @@ class ComputeTimeTests(unittest.TestCase):
         site.validate_bundle(tampered, commit)
         with self.assertRaisesRegex(ValueError, "source hash differs from commit"):
             publisher.verify_source(self.source, tampered, commit)
+
+        forged = self.directory / "forged-base"
+        shutil.copytree(bundle, forged)
+        changed = copy.deepcopy(report)
+        capability = copy.deepcopy(changed["base_capability"])
+        capability["loader_source"] = capability["loader_source"].replace("= 64 << 20", "= 256 << 20")
+        capability["runtime_source"] = capability["runtime_source"].replace("= 16 << 20", "= 64 << 20")
+        capability.update(image_limit_bytes=256 << 20, output_limit_bytes=64 << 20,
+                          loader_source_sha256=hashlib.sha256(capability["loader_source"].encode()).hexdigest(),
+                          runtime_source_sha256=hashlib.sha256(capability["runtime_source"].encode()).hexdigest())
+        compute.validate_base_capability(capability)
+        for part in (changed, changed["original_report"]):
+            part["base_capability"] = capability
+            for row in part["cases"]:
+                row["base_status"]="available"
+                row["base"]=copy.deepcopy(row["head"])
+                if "error_percent" in row["head"]:row["error_change_percentage_points"]=0
+            part["summary"]={k:v for k,v in compute.summaries(part["cases"],True).items() if part["schema"]==3 or k!="validation-legacy"}
+        compute.write(forged/"report.json",changed)
+        compute.write(forged/"cohorts/original/report.json",changed["original_report"])
+        for folder in (forged/"cohorts/original",forged):
+            metadata=compute.read(folder/"bundle.json")
+            metadata["files"]={name:compute.legacy.digest(folder/name) for name in metadata["files"]}
+            compute.write(folder/"bundle.json",metadata)
+        site.validate_bundle(forged,commit)
+        with self.assertRaisesRegex(ValueError,"base ELF capability differs"):
+            publisher.verify_source(self.source,forged,commit)
 
         remote = self.directory / "remote.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
@@ -363,12 +353,12 @@ class ComputeTimeTests(unittest.TestCase):
     def test_public_destination_never_leaves_partial_pass(self):
         output = self.directory / "partial.json"
         args = SimpleNamespace(output=str(output), compute_reference=str(self.folder))
-        def partial(old_args):
+        def partial(old_args, executor=None):
             compute.write(old_args.output, self.report["original_report"])
             return 0
         with patch.object(gate, "compare24", side_effect=partial), patch.object(compute, "extend_report", side_effect=RuntimeError("interruption")):
             with self.assertRaises(RuntimeError):
-                gate.compare(args)
+                gate.compare_legacy(args)
         self.assertEqual(compute.read(output)["artifact_status"], "fail")
 
 

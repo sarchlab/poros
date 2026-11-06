@@ -1,18 +1,18 @@
 #include "../../polybench/kernels/kernel_gramschmidt.c"
 #include "runtime.h"
 
-static double A[3600];
-static double R[3600];
-static double Q[3600];
+static double A[262144];
+static double R[262144];
+static double Q[262144];
 
 int workload(int argc, char **argv) {
   if (argc != 3)
     return 2;
   int m;
-  if (!argument(argv[1], 2, 60, &m))
+  if (!argument(argv[1], 2, 512, &m))
     return 2;
   int n;
-  if (!argument(argv[2], 1, 60, &n))
+  if (!argument(argv[2], 1, 512, &n))
     return 2;
   if (n > m)
     return 2;

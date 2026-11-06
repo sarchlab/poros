@@ -1,21 +1,21 @@
 #include "../../polybench/kernels/kernel_gemm.c"
 #include "runtime.h"
 
-static double C[4200];
-static double A[4800];
-static double B[5600];
+static double C[268800];
+static double A[307200];
+static double B[358400];
 
 int workload(int argc, char **argv) {
   if (argc != 4)
     return 2;
   int ni;
-  if (!argument(argv[1], 1, 60, &ni))
+  if (!argument(argv[1], 1, 480, &ni))
     return 2;
   int nj;
-  if (!argument(argv[2], 1, 70, &nj))
+  if (!argument(argv[2], 1, 560, &nj))
     return 2;
   int nk;
-  if (!argument(argv[3], 1, 80, &nk))
+  if (!argument(argv[3], 1, 640, &nk))
     return 2;
   for (int i = 0; i < ni; i++)
     for (int j = 0; j < nj; j++)

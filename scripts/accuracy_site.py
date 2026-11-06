@@ -15,8 +15,9 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-from workload_contract import LEGACY_IDS, case_ids, validate_manifest
+from workload_contract import LEGACY_IDS, case_ids, validate_manifest, manifest_path
 import compute_usertime as compute
+import performance_reference as performance
 
 SCHEMA = 1
 FORMULA = "absolute-difference-over-min-v2"
@@ -48,7 +49,7 @@ REQUIRED = list(LEGACY_IDS)
 
 
 def report_manifest(report):
-    if report.get("schema") == 3:
+    if report.get("schema") in (3, 4):
         return compute.validate_expanded(report["workload_manifest"])
     if report.get("schema") == 2:
         if report["workload_manifest"].get("schema") != 2:
@@ -103,7 +104,7 @@ def safe_name(value):
 
 
 def check_report(report, commit):
-    if report.get("schema") not in (1, 2, 3) or report.get("artifact_status") not in (
+    if report.get("schema") not in (1, 2, 3, 4) or report.get("artifact_status") not in (
         "pass",
         "fail",
     ):
@@ -137,16 +138,33 @@ def check_report(report, commit):
             raise ValueError("invalid composite reference identity")
         if report["reference_sha256"] != compute.reference_identity(refs["original24"], refs["compute240"]):
             raise ValueError("composite reference mismatch")
-        if report["summary"] != compute.summaries(report["cases"]):
+        if report["summary"] != compute.summaries(report["cases"], report["workload_manifest"]["compute"]["suite"] == compute.PROTOCOL):
             raise ValueError("expanded summary mismatch")
-        if report["compute_base_status"] not in ("available", "compute_elf_unavailable"):
+        if report["compute_base_status"] not in ("available", "compute_elf_unavailable", "per_case_resource_limit"):
             raise ValueError("invalid compute baseline availability")
         if report["compute_base_status"] == "compute_elf_unavailable" and report["base_commit"] != "cb965b4d41fc7d52281652c3bce7803cc893cae0":
             raise ValueError("unrecognized unavailable compute base")
         for row in report["cases"][24:]:
+            if report["compute_base_status"] == "per_case_resource_limit":
+                continue
             if ("base" in row) != (report["compute_base_status"] == "available"):
                 raise ValueError("missing required compute baseline")
+    if report["schema"] == 4:
+        for field in ("head_binary_sha256", "base_binary_sha256"):
+            if not re.fullmatch(r"[0-9a-f]{64}", report.get(field, "")):
+                raise ValueError("invalid simulator binary identity")
     inventory = report_manifest(report)
+    performance = report.get("schema") == 4 or inventory.get("suite") == "whole-program-performance-six-point-v1" or (report.get("schema") == 3 and inventory["compute"]["suite"] == compute.PROTOCOL)
+    if performance:
+        capability = compute.validate_base_capability(report["base_capability"])
+        if report.get("schema") == 3 and report["original_report"]["base_capability"] != capability:
+            raise ValueError("base capability differs between cohorts")
+        for row, case in zip(report["cases"], inventory["cases"]):
+            expected_status = compute.case_base_status(case, capability)
+            if row.get("mapped_image_bytes") != case["mapped_image_bytes"] or row.get("base_status") != expected_status or ("base" in row) != (expected_status == "available"):
+                raise ValueError("missing or unjustified per-case base result")
+            if "base" not in row and "error_change_percentage_points" in row:
+                raise ValueError("unpaired error change")
     if tuple(c["id"] for c in report["cases"]) != case_ids(inventory):
         raise ValueError("missing required cases")
     for row, declared in zip(report["cases"], inventory["cases"]):
@@ -161,7 +179,7 @@ def check_report(report, commit):
             )
         ):
             raise ValueError("missing head or invalid reference time")
-        if report["schema"] in (2, 3) and row.get("functional_status") != "pass":
+        if report["schema"] in (2, 3, 4) and row.get("functional_status") != "pass":
             raise ValueError("functional correctness evidence missing")
         expected_split = declared["split"]
         if row.get("split") != expected_split:
@@ -191,13 +209,15 @@ def check_report(report, commit):
             ):
                 raise ValueError("invalid error value")
 
-    for split in (compute.SPLITS if report.get("schema") == 3 else ("calibration", "held_out")):
+    for split in (compute.SPLITS if report.get("schema") in (3, 4) else ("calibration", "held_out")):
         rows = [r for r in report["cases"] if r["split"] == split]
         summary = report.get("summary", {}).get(split, {})
         if summary.get("required") != len(rows) or summary.get("comparable") != sum(
             "error_percent" in r["head"] for r in rows
         ):
             raise ValueError("summary coverage mismatch")
+        if performance and (summary.get("head_comparable") != sum("error_percent" in r["head"] for r in rows) or summary.get("base_comparable") != sum("error_percent" in r.get("base", {}) for r in rows)):
+            raise ValueError("head/base summary coverage mismatch")
         for label in ("head", "base"):
             if label in summary:
                 if not all(
@@ -215,6 +235,8 @@ def bundle(report_path, source, output, commit):
     source, output = Path(source), Path(output)
     report = read(regular(report_path))
     check_report(report, commit)
+    if report.get("schema") == 4:
+        return bundle_compact(report_path, source, output, commit)
     if report.get("schema") == 3:
         return bundle_expanded(report_path, source, output, commit)
     output.mkdir(parents=True, exist_ok=True)
@@ -223,7 +245,7 @@ def bundle(report_path, source, output, commit):
     shutil.copyfile(regular(markdown), output / "report.md")
     files = ["report.json", "report.md"]
     if report["artifact_status"] == "pass":
-        manifest = source / "tests/usertime/manifest.json"
+        manifest = source / (manifest_path(report["workload_manifest"]) if report["schema"] == 2 else "tests/usertime/manifest.json")
         inputs = read(manifest)
         reference = (
             source
@@ -290,6 +312,8 @@ def validate_bundle(path, commit):
     manifest = read(regular(path / "bundle.json"))
     if manifest.get("schema") != SCHEMA or manifest.get("commit") != sha(commit):
         raise ValueError("bundle identity mismatch")
+    if read(regular(path / "report.json")).get("schema") == 4:
+        return validate_compact_bundle(path, commit, manifest)
     if read(regular(path / "report.json")).get("schema") == 3:
         return validate_expanded_bundle(path, commit, manifest)
     files = manifest["files"]
@@ -325,6 +349,8 @@ def validate_bundle(path, commit):
             raise ValueError("reference harness mismatch")
         inputs = read(path / "manifest.json")
         validate_manifest(inputs)
+        if inputs.get("suite") == "whole-program-performance-six-point-v1":
+            compute.native.validate_capture_metadata(reference)
         if case_ids(inputs) != case_ids(reference) or case_ids(inputs) != case_ids(
             report_manifest(report)
         ):
@@ -387,11 +413,33 @@ def check_compute_source_identity(report, root, names):
         if name.startswith("cohorts/compute/source/"):
             original = name[len("cohorts/compute/source/"):]
         elif name.startswith("cohorts/compute/reference/"):
-            original = compute.REFERENCE + "/" + name[len("cohorts/compute/reference/"):]
+            reference_dir = compute.REFERENCE if report["workload_manifest"]["compute"]["suite"] == compute.PROTOCOL else "evaluation/usertime/compute-linuxvm-v1"
+            original = reference_dir + "/" + name[len("cohorts/compute/reference/"): ]
         else:
             continue
         if report["head"]["files"].get(original) != digest(nested_regular(root, name)):
             raise ValueError("compute retained file does not match tested commit: " + original)
+
+
+def copy_compute_evidence(source, destination, protocol):
+    """Choose historical evidence only from the report's explicit protocol."""
+    roots = {compute.LEGACY_PROTOCOL: "evaluation/usertime/compute-linuxvm-v1", compute.PROTOCOL: compute.REFERENCE}
+    if protocol not in roots:
+        raise ValueError("unsupported compute evidence protocol")
+    folder = source / roots[protocol]
+    measured = compute.validate_reference(folder, source)
+    if measured["protocol"] != protocol:
+        raise ValueError("report/evidence compute protocol mismatch")
+    paths = {"source/" + name: source / compute.relative(name) for name in compute.source_paths(source, protocol)}
+    for name in {"reference.json", "oracle.json", "validation-report.json", "validation-harness.py"} | {compute.output_name(row, protocol) for row in measured["cases"]}:
+        paths["reference/" + name] = folder / compute.relative(name)
+    for name, path in paths.items():
+        target = destination / compute.relative(name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(regular(path), target)
+    if set(paths) != compute.evidence_paths(destination):
+        raise ValueError("incomplete explicitly selected compute evidence")
+    return paths
 
 
 def bundle_expanded(report_path, source, output, commit):
@@ -415,7 +463,7 @@ def bundle_expanded(report_path, source, output, commit):
     old_manifest = read(output / "cohorts/original/bundle.json")
     names = {"report.json", "report.md", "cohorts/original/bundle.json"}
     names |= {"cohorts/original/" + name for name in old_manifest["files"]}
-    names |= {"cohorts/compute/" + name for name in compute.copy_evidence(source, output / "cohorts/compute")}
+    names |= {"cohorts/compute/" + name for name in copy_compute_evidence(source, output / "cohorts/compute", report["workload_manifest"]["compute"]["suite"])}
     check_compute_source_identity(report, output, names)
     write(output / "bundle.json", dict(schema=SCHEMA, commit=commit, run_id=os.environ.get("GITHUB_RUN_ID"),
                                         run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"), files={name: digest(nested_regular(output, name)) for name in sorted(names)}))
@@ -479,6 +527,71 @@ def validate_expanded_bundle(path, commit, manifest):
     return report, manifest
 
 
+def bundle_compact(report_path, source, output, commit):
+    report = read(report_path)
+    output.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(report_path, output / "report.json")
+    shutil.copyfile(regular(Path(report_path).with_suffix(".md")), output / "report.md")
+    names = {"report.json", "report.md"}
+    if report["artifact_status"] == "pass":
+        shutil.copyfile(source / performance.PATH, output / "reference.json")
+        names.add("reference.json")
+    write(output / "bundle.json", dict(schema=SCHEMA, commit=commit,
+          run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
+          files={name: digest(output / name) for name in names}))
+    validate_bundle(output, commit)
+    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True))
+
+
+def validate_compact_bundle(path, commit, manifest):
+    report = read(regular(path / "report.json"))
+    names = {"report.json", "report.md"} | ({"reference.json"} if report["artifact_status"] == "pass" else set())
+    if set(manifest["files"]) != names:
+        raise ValueError("compact bundle membership mismatch")
+    for name, expected in manifest["files"].items():
+        if digest(regular(path / name)) != expected:
+            raise ValueError("compact bundle hash mismatch")
+    check_report(report, commit)
+    if report["artifact_status"] != "pass":
+        return report, manifest
+    declared = report_manifest(report)
+    measured = performance.validate(read(path / "reference.json"), declared)
+    if digest(path / "reference.json") != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:
+        raise ValueError("compact reference differs from tested source")
+    metadata = {key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")}
+    if report["reference"] != metadata:
+        raise ValueError("displayed compact provenance mismatch")
+    if any(report["head"]["files"].get(name) != sha for name, sha in measured["input_sources"].items()):
+        raise ValueError("compact input differs from tested source/ELF")
+    for row, observed, case in zip(report["cases"], measured["cases"], declared["cases"]):
+        if row["reference_quality"] != observed["quality"] or row["reference_user_seconds"] != observed["median_user_seconds"] or row.get("reference_p10_seconds") != observed["p10_user_seconds"] or row.get("reference_p90_seconds") != observed["p90_user_seconds"]:
+            raise ValueError("compact plotted statistics mismatch")
+        for label in ("head", "base"):
+            if label not in row:
+                continue
+            value = row[label]
+            if type(value["cycles"]) is not int or type(value["instructions"]) is not int or any(value[k] != declared["profile"][k] for k in ("configuration", "cache_config")):
+                raise ValueError("compact report timing profile/count mismatch")
+            seconds, real = value["predicted_user_seconds"], observed["median_user_seconds"]
+            if not math.isclose(seconds, value["cycles"] / case["frequency_hz"], rel_tol=1e-12):
+                raise ValueError("compact timing frequency mismatch")
+            if observed["quality"] == "usable":
+                error = 100 * abs(seconds-real) / min(seconds, real)
+                if not math.isclose(value.get("error_percent", -1), error, rel_tol=1e-12, abs_tol=1e-12) or value.get("direction") != ("slower" if seconds > real else "faster" if seconds < real else "equal"):
+                    raise ValueError("compact error formula/direction mismatch")
+            elif "error_percent" in value or "direction" in value:
+                raise ValueError("unqualified compact reference has accuracy claim")
+        if "base" in row and observed["quality"] == "usable":
+            if not math.isclose(row.get("error_change_percentage_points", float("nan")), row["head"]["error_percent"]-row["base"]["error_percent"], rel_tol=1e-12, abs_tol=1e-12):
+                raise ValueError("compact paired error change mismatch")
+        elif "error_change_percentage_points" in row:
+            raise ValueError("unpaired compact error change")
+    if report["summary"] != compute.summaries(report["cases"], True):
+        raise ValueError("compact summary mismatch")
+    return report, manifest
+
+
+
 def reusable_bundle(path, commit):
     try:
         report, _ = validate_bundle(path, commit)
@@ -517,7 +630,7 @@ def number(value, suffix=""):
 
 
 CSS = """
-:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172b35;background:#f5f7f7;font-size:15px}body{margin:0}main{max-width:1180px;margin:auto;padding:40px 24px 64px}a{color:#006e75;text-underline-offset:3px}header{border-bottom:1px solid #cedbde;padding-bottom:25px;margin-bottom:24px}.eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;color:#49717a}h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.04em;margin:12px 0}h2{font-size:22px;margin:32px 0 14px}p{line-height:1.6}.muted{color:#58707a}.notice{border-left:4px solid #b77a13;background:#fff7df;padding:13px 18px;margin:18px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.card,figure{background:white;border:1px solid #d7e1e4;border-radius:9px;padding:18px;margin:0}.card strong{display:block;font-size:26px;margin-top:6px}.table{overflow:auto;border:1px solid #d7e1e4;border-radius:9px;background:white}table{border-collapse:collapse;width:100%;white-space:nowrap}td,th{padding:12px 14px;text-align:left;border-bottom:1px solid #e5ecee;font-variant-numeric:tabular-nums}th{background:#edf3f3;font-size:12px;text-transform:uppercase;color:#49616b}tr:last-child td{border-bottom:0}.badge{font-size:12px;padding:4px 8px;border-radius:20px;background:#edf1f2}.pass{background:#e1f3e9;color:#15523b}.fail{background:#fbe6df;color:#8f321b}.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}svg{width:100%;height:auto}svg text{font:11px system-ui;fill:#526a75}figcaption{font-weight:650;margin-bottom:10px}details{margin:20px 0}pre{overflow:auto;background:#edf3f3;padding:16px;font-size:12px}.downloads{display:flex;flex-wrap:wrap;gap:16px}footer{margin-top:35px;color:#617780;font-size:12px}code{font-size:12px;overflow-wrap:anywhere}@media(max-width:500px){main{padding:24px 12px}.charts{grid-template-columns:1fr}td,th{padding:10px}.card{padding:13px}}
+:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172b35;background:#f5f7f7;font-size:15px}body{margin:0}main{max-width:1180px;margin:auto;padding:40px 24px 64px}a{color:#006e75;text-underline-offset:3px}header{border-bottom:1px solid #cedbde;padding-bottom:25px;margin-bottom:24px}.eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;color:#49717a}h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.04em;margin:12px 0}h2{font-size:22px;margin:32px 0 14px}p{line-height:1.6}.muted{color:#58707a}.notice{border-left:4px solid #b77a13;background:#fff7df;padding:13px 18px;margin:18px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.card,figure{background:white;border:1px solid #d7e1e4;border-radius:9px;padding:18px;margin:0}.card strong{display:block;font-size:26px;margin-top:6px}.table{overflow:auto;border:1px solid #d7e1e4;border-radius:9px;background:white}table{border-collapse:collapse;width:100%;white-space:nowrap}td,th{padding:12px 14px;text-align:left;border-bottom:1px solid #e5ecee;font-variant-numeric:tabular-nums}th{background:#edf3f3;font-size:12px;text-transform:uppercase;color:#49616b}tr:last-child td{border-bottom:0}.badge{font-size:12px;padding:4px 8px;border-radius:20px;background:#edf1f2}.pass{background:#e1f3e9;color:#15523b}.fail{background:#fbe6df;color:#8f321b}.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}svg{width:100%;height:auto}svg text{font:11px system-ui;fill:#526a75}figcaption{font-weight:650;margin-bottom:10px}.band-key{display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;padding:0;font-size:13px}.band-key li{white-space:nowrap}.band-key span{display:inline-block;width:12px;height:12px;margin-right:5px;border:1px solid #0002;vertical-align:-2px}#point-tip{position:fixed;z-index:10;pointer-events:none;background:#18343e;color:white;border-radius:5px;padding:8px 11px;max-width:min(380px,85vw);font-size:13px;line-height:1.4;white-space:pre-line}circle[data-tip]{cursor:crosshair}circle[data-tip]:focus{outline:none;stroke:#2c5059;stroke-width:2}details{margin:20px 0}pre{overflow:auto;background:#edf3f3;padding:16px;font-size:12px}.downloads{display:flex;flex-wrap:wrap;gap:16px}footer{margin-top:35px;color:#617780;font-size:12px}code{font-size:12px;overflow-wrap:anywhere}@media(max-width:500px){main{padding:24px 12px}.charts{grid-template-columns:1fr}td,th{padding:10px}.card{padding:13px}}
 """
 
 
@@ -535,67 +648,172 @@ def page(title, content, script=""):
     )
 
 
-def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None):
-    """Small accessible SVG; the source values also appear in the report tables."""
-    points = [
-        (x, y) for _, values, _ in series for x, y, _ in values if x >= 0 and y >= 0
-    ]
+POINT_TIPS = """<div id="point-tip" role="tooltip" hidden></div><script>
+(() => {
+  const tip = document.getElementById('point-tip');
+  function show(event) {
+    let point = event.target.closest('[data-tip]');
+    const svg = event.target.closest('svg');
+    if (svg && event.type === 'pointermove') {
+      // Dense plots can overlap. Choose the nearest center, not the last SVG element painted.
+      const cursor = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
+      let best = 7 ** 2;
+      point = null;
+      for (const dot of svg.querySelectorAll('[data-tip]')) {
+        const distance = (cursor.x - dot.cx.baseVal.value)**2 + (cursor.y - dot.cy.baseVal.value)**2;
+        if (distance < best) { best = distance; point = dot; }
+      }
+      if (!point) tip.hidden = true;
+    }
+    if (!point) { tip.hidden = true; return; }
+    tip.textContent = point.dataset.tip;
+    tip.hidden = false;
+    const box = point.getBoundingClientRect();
+    const x = event.clientX ?? box.right, y = event.clientY ?? box.top;
+    tip.style.left = Math.max(4, Math.min(x + 10, innerWidth - tip.offsetWidth - 4)) + 'px';
+    tip.style.top = Math.max(4, Math.min(y + 12, innerHeight - tip.offsetHeight - 4)) + 'px';
+  }
+  for (const name of ['pointermove','focusin','click']) document.addEventListener(name, show);
+  for (const name of ['pointerout','focusout']) document.addEventListener(name, e => {
+    if (e.target.closest('[data-tip]')) tip.hidden = true;
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') tip.hidden = true; });
+  window.addEventListener('scroll', () => { tip.hidden = true; }, true);
+})();
+</script>"""
+
+
+def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=None,
+          ideal=False, note="", y_bands=()):
+    """Plot the data domain; guide lines never contribute observations."""
+    points = [(x, y) for _, values, _ in series for x, y, _ in values]
     if not points:
-        return (
-            "<figure><figcaption>"
-            + esc(title)
-            + "</figcaption><p>No comparable points available.</p></figure>"
-        )
-    xmax, ymax = max(x for x, _ in points) or 1, max(y for _, y in points) or 1
-    body = '<path d="M55 20V235H410" fill="none" stroke="#bacbd0"/>'
-    for i in range(5):
-        y = 235 - i * 215 / 4
-        body += f'<path d="M55 {y}H410" stroke="#edf2f3"/><text x="48" y="{y+4}" text-anchor="end">{ymax*i/4:.2g}</text>'
-    for coordinate, label in (
-        x_ticks
-        if x_ticks is not None
-        else [(xmax * i / 4, f"{xmax*i/4:.2g}") for i in range(5)]
-    ):
-        x = 55 + coordinate / xmax * 355
-        body += f'<text x="{x}" y="253" text-anchor="middle">{esc(label)}</text>'
+        return f"<figure><figcaption>{esc(title)}</figcaption><p>No comparable points available.</p></figure>"
+    xmin, xmax = min(x for x, _ in points), max(x for x, _ in points)
+    ymin, ymax = (y_ticks[0][0], y_ticks[-1][0]) if y_ticks else (0, max(y for _, y in points) or 1)
+
+    def px(x):
+        return 72 + (x - xmin) / (xmax - xmin or 1) * 329
+
+    def py(y):
+        return 235 - (y - ymin) / (ymax - ymin or 1) * 215
+
+    body = ""
+    for lower, upper, color in y_bands:
+        bottom, top = max(lower, ymin), min(upper, ymax)
+        if bottom < top:
+            body += f'<rect x="72" y="{py(top):.3f}" width="329" height="{py(bottom)-py(top):.3f}" fill="{color}"/>'
+    body += '<path d="M72 20V235H401" fill="none" stroke="#bacbd0"/>'
+    if y_ticks is None:
+        y_ticks = [(ymax*i/4, f"{ymax*i/4:.3g}") for i in range(5)]
+    for value, label in y_ticks:
+        y = py(value)
+        body += f'<path d="M72 {y}H401" stroke="#dae4e6"/><text x="66" y="{y+4}" text-anchor="end">{esc(label)}</text>'
+    if x_ticks is None:
+        values = [xmin + (xmax-xmin)*i/4 for i in range(5)] if xmin != xmax else [xmin]
+        x_ticks = [(x, f"{x:.3g}") for x in values]
+    for x, label in x_ticks:
+        body += f'<text x="{px(x)}" y="253" text-anchor="middle">{esc(label)}</text>'
+    if ideal and xmin <= min(xmax, ymax):
+        stop = min(xmax, ymax)
+        body += f'<path d="M{px(xmin)} {py(xmin)} L{px(stop)} {py(stop)}" stroke="#899ea7" stroke-dasharray="4 3"/>'
+    marks = {}
     for name, values, color in series:
-        coordinates = [
-            (55 + x / xmax * 355, 235 - y / ymax * 215, label)
-            for x, y, label in values
-            if x >= 0 and y >= 0
-        ]
-        if not scatter or name == "ideal y = x":
-            body += (
-                '<polyline fill="none" stroke="'
-                + color
-                + '" points="'
-                + " ".join(f"{x:.2f},{y:.2f}" for x, y, _ in coordinates)
-                + '"/>'
-            )
-        for x, y, label in coordinates:
-            body += f'<circle cx="{x:.2f}" cy="{y:.2f}" r="4" fill="{color}"><title>{esc(name + ": " + label)}</title></circle>'
-    body += (
-        '<text x="230" y="279" text-anchor="middle">'
-        + esc(xlabel)
-        + '</text><text x="6" y="12">'
-        + esc(ylabel)
-        + "</text>"
-    )
-    legend = " · ".join(
-        '<span style="color:' + color + '">' + esc(name) + "</span>"
-        for name, _, color in series
-    )
-    return (
-        "<figure><figcaption>"
-        + esc(title)
-        + '</figcaption><svg viewBox="0 0 440 290" role="img" aria-label="'
-        + esc(title)
-        + '">'
-        + body
-        + '</svg><p class="muted">'
-        + legend
-        + "</p></figure>"
-    )
+        if not scatter:
+            coords = " ".join(f"{px(x):.2f},{py(y):.2f}" for x, y, _ in values)
+            body += f'<polyline fill="none" stroke="{color}" points="{coords}"/>'
+        for x, y, label in values:
+            # Identical base/head observations must both be readable on hover.
+            marks.setdefault((x, y), []).append((color, name + ": " + label))
+    for (x, y), entries in marks.items():
+        tip = esc(chr(10).join(label for _, label in entries))
+        body += (f'<circle cx="{px(x):.3f}" cy="{py(y):.3f}" r="3.2" fill="{entries[-1][0]}" '
+                 f'stroke="transparent" stroke-width="4" tabindex="0" aria-label="{tip}" data-tip="{tip}"/>')
+    body += f'<text x="235" y="279" text-anchor="middle">{esc(xlabel)}</text><text x="6" y="12">{esc(ylabel)}</text>'
+    legend = " · ".join(f'<span style="color:{color}">{esc(name)}</span>' for name, _, color in series)
+    if ideal:
+        legend += " · dashed: ideal y = x"
+    return (f'<figure><figcaption>{esc(title)}</figcaption><svg viewBox="0 0 440 290" role="group" '
+            f'aria-label="{esc(title)}">{body}</svg><p class="muted">{legend}</p>{note}</figure>')
+
+
+# Upper ratio bound, legend label, and shared fill for both sides of 1×.
+ERROR_BANDS = (
+    (1.05, "≤5%", "#c4dfce"),
+    (1.20, ">5–20%", "#d9e8ef"),
+    (1.50, ">20–50%", "#f8e8bc"),
+    (2.00, ">50–100%", "#f4cfad"),
+    (math.inf, ">100%", "#efbdc5"),
+)
+
+
+def overview_charts(cases):
+    # Both views and both statistics use exactly the same qualified head cases.
+    points = [(c["reference_user_seconds"] * 1000, c["head"]["predicted_user_seconds"] * 1000, c["id"])
+              for c in cases if c.get("reference_quality") == "usable" and c.get("head")
+              and c["reference_user_seconds"] > 0 and c["head"]["predicted_user_seconds"] > 0]
+    ranks, scatter = [], []
+    band_counts = [0] * len(ERROR_BANDS)
+    for i, (ref, pred, name) in enumerate(sorted(points, key=lambda p: (p[1]/p[0], p[2])), 1):
+        factor = max(pred/ref, ref/pred)
+        band = next(j for j, (upper, _, _) in enumerate(ERROR_BANDS) if factor <= upper)
+        band_counts[band] += 1
+        direction = "slower" if pred > ref else "faster" if pred < ref else "equal"
+        label = f"{name} · measured {ref:.4f} ms · predicted {pred:.4f} ms · {factor:.3f}× {direction}"
+        ranks.append((i, math.log2(pred/ref), f"rank {i} · {label}"))
+        scatter.append((ref, pred, label))
+    exponents = [y for _, y, _ in ranks] + [0]
+    low, high = math.floor(min(exponents)), math.ceil(max(exponents))
+    if low == high:  # Every prediction is exact.
+        low, high = -1, 1
+    ticks = [(e, f"{2**abs(e)}× " + ("faster" if e < 0 else "slower") if e else "1× (equal)")
+             for e in range(low, high+1)]
+    rank_ticks = [(r, str(r)) for r in sorted({1 + round(i*(len(ranks)-1)/4) for i in range(5)})]
+    n = len(points)
+    shading = []
+    legend = []
+    inner = 0
+    for (limit, label, color), count in zip(ERROR_BANDS, band_counts):
+        outer = math.log2(limit)
+        shading.extend([(-outer, -inner, color), (inner, outer, color)])
+        inner = outer
+        share = f"{count/n:.2%}" if n else "—"
+        legend.append(f'<li><span style="background:{color}"></span>{esc(label)}'
+                      f' <strong>{count} ({share})</strong></li>')
+    band_note = (f'<p>Absolute error across {n} qualified cases · |predicted − measured| / '
+                 'min(predicted, measured)</p><ul class="band-key">' + "".join(legend) + "</ul>")
+    s_curve = chart("S-curve: predicted time relative to measured time",
+                    [("head", ranks, "#087e8b")], "Case rank (underestimate → overestimate)",
+                    "Time ratio (log₂ scale)", x_ticks=rank_ticks, y_ticks=ticks,
+                    note=band_note, y_bands=shading)
+    pearson = "—"
+    concordant = discordant = measured_unequal = predicted_unequal = 0
+    if n >= 2:
+        mx, my = (sum(p[k] for p in points)/n for k in (0, 1))
+        dx, dy = ([p[k]-mean for p in points] for k, mean in ((0,mx),(1,my)))
+        denom = math.sqrt(sum(x*x for x in dx) * sum(y*y for y in dy))
+        if denom:
+            pearson = f"{sum(x*y for x,y in zip(dx,dy))/denom:.4f}"
+        for i, (x, y, _) in enumerate(points):
+            for xx, yy, _ in points[:i]:
+                measured_unequal += x != xx
+                predicted_unequal += y != yy
+                if x != xx and y != yy:
+                    if (x < xx) == (y < yy):
+                        concordant += 1
+                    else:
+                        discordant += 1
+    denominator = math.sqrt(measured_unequal * predicted_unequal)
+    tau = f"{(concordant - discordant) / denominator:.4f}" if denominator else "—"
+    pair = (f"{concordant / measured_unequal:.2%} ({concordant:,}/{measured_unequal:,})"
+            if measured_unequal else "—")
+    note = (f"<p><strong>Kendall’s τ-b = {tau}</strong><br>"
+            f"<strong>Pairs ordered correctly: {pair}</strong><br>"
+            f"Pearson correlation (r) = {pearson}</p>"
+            f"<p class='muted'>{n} qualified cases. The percentage compares pairs with distinct measured times.</p>")
+    comparison = chart("Qualified reference vs. prediction", [("head", scatter, "#087e8b")],
+                       "Reference user time (ms)", "Predicted user time (ms)", scatter=True, ideal=True, note=note)
+    return '<h2 id="overall">Overall accuracy</h2><div class="charts">' + s_curve + comparison + "</div>"
 
 
 def detail(report, entry, preview=False):
@@ -639,44 +857,18 @@ def detail(report, entry, preview=False):
         body += '<p class="notice">This failure occurred before source identity was recorded. The bundle identifies the requested target; it does not certify an executed binary or measured source.</p>'
     if report.get("error"):
         body += '<p class="notice">' + esc(report["error"]) + "</p>"
-    body += '<h2>Measured and predicted time</h2><p class="muted">Error = 100 × |sim − reference| / min(sim, reference). Positive Δ means a larger error. No offset fitting or anchor removal. Times are milliseconds.</p><div class="table"><table><thead><tr><th>Case / split</th><th>Functional</th><th>Reference</th><th>Quality</th><th>Base</th><th>Head</th><th>Base error</th><th>Head error</th><th>Direction</th><th>Δ pp</th></tr></thead><tbody>'
-    by_id = {c["id"]: c for c in cases}
-    for case in (
-        (c["id"] for c in report_manifest(report)["cases"])
-        if report["artifact_status"] == "pass"
-        else (c["id"] for c in cases)
-    ):
-        c = by_id.get(case)
-        if not c:
-            body += (
-                "<tr><td>"
-                + esc(case)
-                + '</td><td colspan="8">Missing — report incomplete</td></tr>'
-            )
-            continue
-        base, head = c.get("base", {}), c.get("head", {})
-        values = [
-            case + " / " + c["split"],
-            c.get("functional_status", "not separately recorded"),
-            number(c.get("reference_user_seconds", 0) * 1000),
-            c["reference_quality"],
-            number(base.get("predicted_user_seconds", 0) * 1000) if base else "—",
-            number(head.get("predicted_user_seconds", 0) * 1000) if head else "—",
-            number(base.get("error_percent"), "%"),
-            number(head.get("error_percent"), "%"),
-            head.get("direction", "—"),
-            number(c.get("error_change_percentage_points")),
-        ]
-        body += "<tr>" + "".join("<td>" + esc(v) + "</td>" for v in values) + "</tr>"
-    body += '</tbody></table></div><h2>Calibration and held-out coverage</h2><div class="cards">'
-    for split in (compute.SPLITS if report.get("schema") == 3 else ("calibration", "held_out")):
+    body += overview_charts(cases)
+    body += '<h2>Calibration and held-out coverage</h2><div class="cards">'
+    for split in (compute.SPLITS if report.get("schema") in (3, 4) else ("calibration", "held_out")):
         summary = report.get("summary", {}).get(split, {})
         body += (
             '<div class="card">'
             + esc(split)
             + "<strong>"
             + esc(f'{summary.get("comparable", "—")} / {summary.get("required", "—")}')
-            + "</strong><p>Mean head error: "
+            + "</strong>"
+            + ("<p>Head comparable: " + esc(summary["head_comparable"]) + "; base comparable: " + esc(summary["base_comparable"]) + ". Means use their respective coverage.</p>" if "base_comparable" in summary else "")
+            + "<p>Mean head error: "
             + number(summary.get("head", {}).get("mean_error_percent"), "%")
             + "<br>Maximum: "
             + number(summary.get("head", {}).get("maximum_error_percent"), "%")
@@ -751,46 +943,53 @@ def detail(report, entry, preview=False):
             "User time (ms)",
             x_ticks=ticks,
         )
+    body += "</div>"
     if report.get("schema") == 1:
         body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
     elif report["artifact_status"] == "pass":
-        body += "<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: 4,194,304 accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
-    usable_rows = [
-        c for c in cases if c.get("reference_quality") == "usable" and c.get("head")
-    ]
-    scatter = [
-        (
-            c["reference_user_seconds"] * 1000,
-            c["head"]["predicted_user_seconds"] * 1000,
-            c["id"],
-        )
-        for c in usable_rows
-    ]
-    limit = max([max(x, y) for x, y, _ in scatter] or [1])
-    body += (
-        chart(
-            "Qualified reference vs. prediction",
-            [
-                (
-                    "ideal y = x",
-                    [(0.000001, 0.000001, "ideal"), (limit, limit, "ideal")],
-                    "#a4b5bc",
-                ),
-                ("head", scatter, "#087e8b"),
-            ],
-            "Reference user time (ms)",
-            "Predicted user time (ms)",
-            scatter=True,
-        )
-        + "</div>"
-    )
+        accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
+        body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
+    body += '<h2>Measured and predicted time</h2><p class="muted">Error = 100 × |sim − reference| / min(sim, reference). Positive Δ means a larger error. No offset fitting or anchor removal. Times are milliseconds.</p><div class="table"><table><thead><tr><th>Case / split</th><th>Functional</th><th>Reference</th><th>Quality</th><th>Base</th><th>Head</th><th>Base error</th><th>Head error</th><th>Direction</th><th>Δ pp</th></tr></thead><tbody>'
+    by_id = {c["id"]: c for c in cases}
+    for case in (
+        (c["id"] for c in report_manifest(report)["cases"])
+        if report["artifact_status"] == "pass"
+        else (c["id"] for c in cases)
+    ):
+        c = by_id.get(case)
+        if not c:
+            body += (
+                "<tr><td>"
+                + esc(case)
+                + '</td><td colspan="8">Missing — report incomplete</td></tr>'
+            )
+            continue
+        base, head = c.get("base", {}), c.get("head", {})
+        values = [
+            case + " / " + c["split"],
+            c.get("functional_status", "not separately recorded"),
+            number(c.get("reference_user_seconds", 0) * 1000),
+            c["reference_quality"],
+            number(base.get("predicted_user_seconds", 0) * 1000) if base else c.get("base_status", "unavailable"),
+            number(head.get("predicted_user_seconds", 0) * 1000) if head else "—",
+            number(base.get("error_percent"), "%"),
+            number(head.get("error_percent"), "%"),
+            head.get("direction", "—"),
+            number(c.get("error_change_percentage_points")),
+        ]
+        body += "<tr>" + "".join("<td>" + esc(v) + "</td>" for v in values) + "</tr>"
+    body += '</tbody></table></div>'
     body += (
         "<h2>Evidence and provenance</h2><p>Measurement completed (UTC): "
         + esc(entry.get("measurement_completed_at") or "unavailable")
         + '</p><div class="downloads"><a href="report.json">Report JSON</a><a href="report.md">Markdown report</a><a href="bundle.json">Evidence hashes</a>'
     )
     if report["artifact_status"] == "pass":
-        if report["schema"] == 3:
+        if report["schema"] == 4:
+            body += '<a href="reference.json">Plotting data and native output identities</a>'
+            collection = report["reference"]["collection_commit"]
+            body += '<a href="https://github.com/' + REPO + '/tree/' + collection + '">Exact native collection source</a>'
+        elif report["schema"] == 3:
             body += '<a href="cohorts/original/reference.json">Original24 raw samples</a><a href="cohorts/compute/reference/reference.json">Compute240 raw samples</a><a href="cohorts/compute/reference/oracle.json">Independent output oracle</a><a href="cohorts/compute/reference/validation-report.json">Original validation report</a><a href="cohorts/compute/reference/validation-harness.py">Original validation harness</a><a href="cohorts/compute/source/scripts/compute_usertime.py">Compute measurement protocol</a>'
         else:
             body += '<a href="reference.json">Raw native samples</a><a href="manifest.json">Workloads and hardware profile</a><a href="native_usertime.py">Measurement harness</a>'
@@ -846,7 +1045,7 @@ def detail(report, entry, preview=False):
         )
         + "</pre></details>"
     )
-    return page("Poros accuracy · " + commit[:12], body)
+    return page("Poros accuracy · " + commit[:12], body, POINT_TIPS)
 
 
 def series_key(report):
@@ -1149,7 +1348,7 @@ def home(index):
             series.append(
                 (
                     split,
-                    [(x, y, label) for x, y, label in values if y is not None],
+                    [(x, y, f"{label}: {y:.4f}%") for x, y, label in values if y is not None],
                     color,
                 )
             )
@@ -1161,7 +1360,7 @@ def home(index):
         + REPO
         + '/actions/workflows/evaluation.yml">All evaluation runs</a></p>'
     )
-    return page("Poros calibration dashboard", body, STATUS_SCRIPT)
+    return page("Poros calibration dashboard", body, POINT_TIPS + STATUS_SCRIPT)
 
 
 def main():

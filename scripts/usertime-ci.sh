@@ -36,4 +36,4 @@ else
 fi
 python3 scripts/usertime_test.py
 python3 scripts/compute_usertime_test.py
-python3 scripts/usertime.py compare --head "$head_binary" "${base_args[@]}" --base-commit "$base" --reference evaluation/usertime/m2-linuxvm-user-v2.json --compute-reference evaluation/usertime/compute-linuxvm-v1 --output "$output/report.json"
+python3 scripts/usertime.py compare --head "$head_binary" "${base_args[@]}" --base-commit "$base" --reference evaluation/usertime/performance-v1.json --output "$output/report.json"

@@ -1,23 +1,23 @@
 #include "../../parsec/kernels/fluidanimate.c"
 #include "runtime.h"
 
-static double px[16];
-static double py[16];
-static double pz[16];
-static double vx[16];
-static double vy[16];
-static double vz[16];
-static double density[16];
-static double pressure[16];
-static double fx[16];
-static double fy[16];
-static double fz[16];
+static double px[4096];
+static double py[4096];
+static double pz[4096];
+static double vx[4096];
+static double vy[4096];
+static double vz[4096];
+static double density[4096];
+static double pressure[4096];
+static double fx[4096];
+static double fy[4096];
+static double fz[4096];
 
 int workload(int argc, char **argv) {
   if (argc != 2)
     return 2;
   int n;
-  if (!argument(argv[1], 1, 16, &n))
+  if (!argument(argv[1], 1, 4096, &n))
     return 2;
   for (int i = 0; i < n; i++) {
     px[i] = (i % 4) * 0.3;

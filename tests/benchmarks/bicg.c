@@ -1,20 +1,20 @@
 #include "../../polybench/kernels/kernel_bicg.c"
 #include "runtime.h"
 
-static double A[14384];
-static double s[124];
-static double q[116];
-static double p[124];
-static double r[116];
+static double A[7929856];
+static double s[2816];
+static double q[2816];
+static double p[2816];
+static double r[2816];
 
 int workload(int argc, char **argv) {
   if (argc != 3)
     return 2;
   int m;
-  if (!argument(argv[1], 1, 116, &m))
+  if (!argument(argv[1], 1, 2816, &m))
     return 2;
   int n;
-  if (!argument(argv[2], 1, 124, &n))
+  if (!argument(argv[2], 1, 2816, &n))
     return 2;
   for (int i = 0; i < m; i++) {
     r[i] = (double)(i % m) / m;

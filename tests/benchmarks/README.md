@@ -36,8 +36,8 @@ compiler/linker identities, linked libc/libgcc archive hashes, and exact hashes
 of the build script, manifest, wrappers, original included kernels, runtime,
 startup, linker layout and ELF bytes. Source changes require rebuilding before
 validation; the catalog rejects stale bindings. Rebuilding with the recorded
-toolchain should leave the binaries unchanged. No generated oracle output is
-committed. Native references compile the same sources with the host C compiler
+toolchain should leave the binaries unchanged. Compact same-ELF performance plotting data and complete output hashes are
+committed under `evaluation/usertime/performance-v1.json`. Small correctness native references compile the same sources with the host C compiler
 and math library using `NATIVE_REFERENCE`; only argv/stdout transport differs.
 
 ## Correctness contract
@@ -60,9 +60,12 @@ output equality** with Poros, including every tail. On Linux ARM64, `--native`
 adds a third execution of those same bytes. Missing cases, abnormal exits,
 stderr, truncated output, nonfinite values, duplicate inventory and stale build
 provenance fail validation. QEMU/native elapsed times here are not calibration
-measurements. The original four-workload raw references remain unchanged; a
-separate 240-point direct-child Linux ARM64 user-time cohort is included in the
-[264-case accuracy report](../../evaluation/usertime/README.md).
+measurements. `performance.json` separately declares six larger inputs for each
+workload. Together with the four microprograms, these supply the
+[264-case accuracy report](../../evaluation/usertime/README.md). The performance
+oracle compares complete native/QEMU outputs and applies independent equations
+for declared sensitive kernels; it does not claim a simulator execution. CI
+separately requires all head functional/OoO runs and every supported base run.
 
 ```
 go test -short ./...
@@ -139,3 +142,10 @@ and varies ray count (including hits, misses and oblique rays). X264 retains its
 128×128 frame/16×16 block and varies search radius. All other defaults retain the
 original dimensions and input formulas; explicitly fused input expressions use
 C fma to preserve intended rounding.
+
+Larger performance inputs preserve these small cases. Facesim tiles the valid
+32-tetrahedron mesh with bounded varied deformation; Bodytrack repeats bounded
+particle states; X264 pads the frame for larger searches. These extend input
+generation without changing the compute kernels. Local performance captures validate all samples and full outputs. Committed
+plotting data includes points that fail measurement quality, without storing raw
+samples or numerical output arrays.

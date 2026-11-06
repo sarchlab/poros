@@ -78,7 +78,7 @@ class UserTimeTests(unittest.TestCase):
         def altered(path, *a, **kw):
             return (
                 json.dumps(manifest)
-                if path.name == "manifest.json"
+                if path.name == "performance.json"
                 else original(path, *a, **kw)
             )
 
@@ -90,7 +90,11 @@ class UserTimeTests(unittest.TestCase):
         manifest = gate.inventory()
         golden = b"golden"
         reference = dict(
-            measurement_id="unit",
+            schema=2, measurement_id="unit", collection_commit="a"*40, collection_dirty=False,
+            container_image="sha256:"+"f"*64, retained_samples_per_case=21, precision_floor_seconds=.0001,
+            quality_policy={"nonpositive":"reject-any","precision_floor_seconds":.0001,"relative_p10_p90_limit":.2},
+            metric="child_user_cpu_seconds",timer="wait4.ru_utime",machine="aarch64",
+            started_at_utc="2026-01-01T00:00:00Z",completed_at_utc="2026-01-01T00:05:00Z",
             environment="virtualized",
             hardware="unit",
             platform="unit",
@@ -102,7 +106,7 @@ class UserTimeTests(unittest.TestCase):
                     gate.ROOT / "scripts/workload_contract.py"
                 )
             },
-            manifest_sha256=gate.digest(gate.ROOT / "tests/usertime/manifest.json"),
+            manifest_sha256=gate.digest(gate.ROOT / "tests/usertime/performance.json"),
             cases=[],
         )
         for c in manifest["cases"]:
@@ -111,13 +115,14 @@ class UserTimeTests(unittest.TestCase):
                     c,
                     samples=[
                         dict(
-                            user_seconds=0.001,
+                            user_seconds=0.001, system_seconds=0,
                             exit_status=0,
                             stdout_base64=base64.b64encode(golden).decode(),
                             stderr_base64="",
                         )
-                        for _ in range(5)
+                        for _ in range(21)
                     ],
+                    warmup_sample=dict(user_seconds=.001, system_seconds=0, exit_status=0, stdout_base64=base64.b64encode(golden).decode(), stderr_base64=""),
                     quality="usable",
                     median_user_seconds=0.001,
                 )
@@ -130,9 +135,9 @@ class UserTimeTests(unittest.TestCase):
             output = root / "report.json"
             args = SimpleNamespace(
                 head=str(head),
-                base=None,
-                base_unavailable=True,
-                base_commit="38031146ec743887070532f237b715fac6847512",
+                base=str(head),
+                base_unavailable=False,
+                base_commit="ec5df8efdd80fd02a0db7bd80e9ae413c509852b",
                 reference=str(ref),
                 output=str(output),
             )
@@ -155,9 +160,14 @@ class UserTimeTests(unittest.TestCase):
                     ),
                 )
 
+            def capability(revision):
+                if revision == "arbitrary-missing-feature":
+                    raise ValueError("unrecognized unavailable base")
+                return {"image_limit_bytes": 256 << 20 if revision == "base" else 0, "output_limit_bytes":64 << 20}
+
             def run(data, runner=execution):
                 ref.write_text(json.dumps(data))
-                with patch.object(gate, "check_output"), patch.object(
+                with patch("compute_usertime.base_capability", side_effect=capability), patch.object(gate, "check_output"), patch.object(
                     gate, "expected", return_value=golden
                 ), patch.object(
                     gate,
@@ -196,8 +206,8 @@ class UserTimeTests(unittest.TestCase):
             # Noisy references must still reject malformed simulator metrics.
             noisy = copy.deepcopy(reference)
             for row in noisy["cases"]:
-                row["samples"][0]["user_seconds"] = 0.003
-                row["samples"][1]["user_seconds"] = 0.004
+                for sample in row["samples"][:8]:
+                    sample["user_seconds"] = .004
                 row["quality"] = gate.quality(row["samples"])
                 self.assertEqual(row["quality"], "noisy")
                 row["median_user_seconds"] = statistics.median(

@@ -1,14 +1,14 @@
 #include "../../polybench/kernels/kernel_cholesky.c"
 #include "runtime.h"
 
-static double A0[14400];
-static double A[14400];
+static double A0[262144];
+static double A[262144];
 
 int workload(int argc, char **argv) {
   if (argc != 2)
     return 2;
   int n;
-  if (!argument(argv[1], 1, 120, &n))
+  if (!argument(argv[1], 1, 512, &n))
     return 2;
   for (int i = 0; i < n; i++) {
     for (int j = 0; j <= i; j++)

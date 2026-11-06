@@ -55,12 +55,15 @@ Compiler/linker versions are recorded. Do not refresh provenance without rebuild
 
 ## Accuracy remains a separate contract
 
-The original four-workload cohort retains its 24 cases and all raw observations.
-A separate native Linux ARM64 cohort adds 240 compute points with 21 retained
-user/system CPU samples each and deduplicated complete output witnesses. Every
-PR/main push reports all 264 points, including invalid/noisy references.
-Head functional and head/base OoO executions must validate all required outputs;
-only the known pre-compute base may lack the new cohort. Calibration and
+Separate performance manifests define six larger inputs for each of all 44
+workloads, while correctness manifests keep the original small cases. Native
+Linux ARM64 captures use one warmup and 21 user/system CPU samples per point.
+Only derived plotting statistics and exact input/output identities are committed;
+raw observations and full witnesses remain local. Each push to `main`
+reports all 264 points, including invalid/noisy references. Head functional and
+OoO executions must validate every output; base OoO is required wherever the
+exact base image and output limits support the input. Unsupported base cases
+remain explicit and cannot contribute a paired error change. Calibration and
 validation-legacy roles remain frozen; the latter is not an independent historical
 holdout. CPU/cache parameters, quality thresholds and timing formulas are unchanged.
 

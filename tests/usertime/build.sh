@@ -8,3 +8,4 @@ for pair in '1 integer' '2 memory' '3 branch'; do
  "$cc" -DCASE="$1" $flags start.S program.c -o "$2.elf"
 done
 "$cc" $flags start.S mvt.c -o mvt.elf
+python3 provenance.py "$cc"

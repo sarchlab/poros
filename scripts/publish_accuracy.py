@@ -29,6 +29,8 @@ def verify_source(source, bundle, commit):
     report, manifest = site.validate_bundle(bundle, commit)
     if report["artifact_status"] != "pass":
         return
+    if "base_capability" in report and report["base_capability"] != site.compute.base_capability(report["base_commit"], source):
+        raise ValueError("base ELF capability differs from exact recorded base commit")
     paths = site.git(source, "ls-tree", "-r", "--name-only", commit).splitlines()
     if set(report["head"]["files"]) != set(paths):
         raise ValueError("report source inventory differs from the recorded commit")
@@ -38,12 +40,30 @@ def verify_source(source, bundle, commit):
         )
         if hashlib.sha256(data).hexdigest() != report["head"]["files"][path]:
             raise ValueError("report source hash differs from commit: " + path)
+    if report["schema"] == 4:
+        reference = site.read(Path(bundle) / "reference.json")
+        site.performance.require_collection_ancestor(source, reference["collection_commit"], commit)
+        def committed_json(path):
+            return json.loads(subprocess.check_output(["git", "-C", str(source), "show", commit + ":" + path]))
+        micro = committed_json("tests/usertime/performance.json")
+        program = committed_json("tests/benchmarks/performance.json")
+        build = committed_json("tests/benchmarks/provenance.json")
+        declared = site.compute.expanded_manifest(micro, site.compute.contract_data(program, build, micro["profile"], site.compute.PROTOCOL))
+        if declared != report["workload_manifest"]:
+            raise ValueError("compact workload inventory differs from exact source commit")
+        if site.digest(Path(bundle) / "reference.json") != report["head"]["files"].get(site.performance.PATH):
+            raise ValueError("compact reference differs from source commit")
+        for path, expected in {**reference["collector_sources"], **reference["input_sources"]}.items():
+            data = subprocess.check_output(["git", "-C", str(source), "show", reference["collection_commit"] + ":" + path])
+            if hashlib.sha256(data).hexdigest() != expected:
+                raise ValueError("compact measurement source differs from exact collection commit")
+        return
     original = "cohorts/original/" if report["schema"] == 3 else ""
     inputs = site.read(Path(bundle) / (original + "manifest.json"))
     bindings = {
         original + "reference.json": "evaluation/usertime/"
         + site.safe_name(inputs.get("reference_file", "m2-linuxvm-user-v1.json")),
-        original + "manifest.json": "tests/usertime/manifest.json",
+        original + "manifest.json": site.manifest_path(inputs),
         original + "native_usertime.py": "scripts/native_usertime.py",
     }
     if inputs["schema"] == 2:
@@ -55,7 +75,8 @@ def verify_source(source, bundle, commit):
         elif report["schema"] == 3 and name.startswith("cohorts/compute/source/"):
             bindings[name] = name[len("cohorts/compute/source/"):]
         elif report["schema"] == 3 and name.startswith("cohorts/compute/reference/"):
-            bindings[name] = site.compute.REFERENCE + "/" + name[len("cohorts/compute/reference/"):]
+            reference_dir = site.compute.REFERENCE if report["workload_manifest"]["compute"]["suite"] == site.compute.PROTOCOL else "evaluation/usertime/compute-linuxvm-v1"
+            bindings[name] = reference_dir + "/" + name[len("cohorts/compute/reference/"):]
     for artifact, path in bindings.items():
         if site.digest(Path(bundle) / artifact) != report["head"]["files"][path]:
             raise ValueError("bundled evidence differs from source commit")
@@ -172,7 +193,7 @@ def choose_artifact(artifacts, attempt, prefix="user-time-accuracy"):
     return max(candidates, key=lambda item: item[0], default=(None, None))
 
 
-def download_attempt_bundle(run_id, attempt, prefix, destination):
+def download_attempt_bundle(run_id, attempt, prefix, destination, required="bundle.json"):
     artifacts = []
     page = 1
     while True:
@@ -198,7 +219,7 @@ def download_attempt_bundle(run_id, attempt, prefix, destination):
             str(destination),
             check=False,
         )
-        if downloaded.returncode == 0 and (destination / "bundle.json").is_file():
+        if downloaded.returncode == 0 and (destination / required).is_file():
             return evidence_attempt
     return None
 

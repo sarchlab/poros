@@ -1,18 +1,18 @@
 #include "../../parsec/kernels/canneal.c"
 #include "runtime.h"
 
-static int netlist[16384];
-static int locations[1024];
+static int netlist[16777216];
+static int locations[16384];
 static int cost[1];
 
 int workload(int argc, char **argv) {
   if (argc != 3)
     return 2;
   int n;
-  if (!argument(argv[1], 1, 8192, &n))
+  if (!argument(argv[1], 1, 8388608, &n))
     return 2;
   int m;
-  if (!argument(argv[2], 2, 512, &m))
+  if (!argument(argv[2], 2, 8192, &m))
     return 2;
   for (int i = 0; i < n * 2; i++)
     netlist[i] = i % m;

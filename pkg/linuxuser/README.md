@@ -29,7 +29,7 @@ ELF execution does not yet drive the timing model (#47).
 - Missing `PT_GNU_STACK` means a non-executable RW stack. An explicit stack
   header must request RW only. No automatic heap, guard-page mapping or vDSO.
 
-Resource bounds are explicit: 16 MiB file, 128 program headers, 64 MiB total
+Resource bounds are explicit: 16 MiB file, 128 program headers, 256 MiB total
 page-rounded ELF image, guest addresses from 4 KiB through `2^48-1`. The stack
 ends at `0x0000fffffffff000`, defaults to 1 MiB and permits page-aligned sizes
 from 4 KiB through 8 MiB. ELF/stack overlap fails. Unmapped accesses are errors; there is no implicit stack growth. These are initial simulator limits, not
@@ -150,3 +150,8 @@ includes atomic fault/writeback tests and independent numerical checks. Existing
 - [Linux create_elf_tables](https://github.com/torvalds/linux/blob/master/fs/binfmt_elf.c)
 - [Linux execve argument normalization](https://github.com/torvalds/linux/blob/master/fs/exec.c)
 - [Linux AArch64 ELF definitions](https://github.com/torvalds/linux/blob/master/arch/arm64/include/asm/elf.h)
+
+The maximum requested output budget is 64 MiB; the default remains 1 MiB.
+Performance cases request only their complete declared output size (at least the
+default), and reports explicitly identify older bases whose image or output
+limits cannot accommodate that exact ELF/input.

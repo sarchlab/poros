@@ -1,26 +1,26 @@
 #include "../../polybench/kernels/kernel_2mm.c"
 #include "runtime.h"
 
-static double tmp[2000];
-static double A[2800];
-static double B[3500];
-static double C[4000];
-static double D[3200];
+static double tmp[128000];
+static double A[179200];
+static double B[224000];
+static double C[256000];
+static double D[204800];
 
 int workload(int argc, char **argv) {
   if (argc != 5)
     return 2;
   int ni;
-  if (!argument(argv[1], 1, 40, &ni))
+  if (!argument(argv[1], 1, 320, &ni))
     return 2;
   int nj;
-  if (!argument(argv[2], 1, 50, &nj))
+  if (!argument(argv[2], 1, 400, &nj))
     return 2;
   int nk;
-  if (!argument(argv[3], 1, 70, &nk))
+  if (!argument(argv[3], 1, 560, &nk))
     return 2;
   int nl;
-  if (!argument(argv[4], 1, 80, &nl))
+  if (!argument(argv[4], 1, 640, &nl))
     return 2;
   for (int i = 0; i < ni; i++)
     for (int j = 0; j < nk; j++)

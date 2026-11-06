@@ -1,15 +1,15 @@
 #include "../../parsec/kernels/streamcluster.c"
 #include "runtime.h"
 
-static double p1[16384];
-static double p2[16384];
-static double result[512];
+static double p1[16000000];
+static double p2[16000000];
+static double result[500000];
 
 int workload(int argc, char **argv) {
   if (argc != 3)
     return 2;
   int n;
-  if (!argument(argv[1], 1, 512, &n))
+  if (!argument(argv[1], 1, 500000, &n))
     return 2;
   int dim;
   if (!argument(argv[2], 1, 32, &dim))

@@ -1,31 +1,31 @@
 #include "../../polybench/kernels/kernel_3mm.c"
 #include "runtime.h"
 
-static double A[2400];
-static double B[3000];
-static double C[4000];
-static double D[5600];
-static double E[2000];
-static double F[3500];
-static double G[2800];
+static double A[153600];
+static double B[192000];
+static double C[256000];
+static double D[358400];
+static double E[128000];
+static double F[224000];
+static double G[179200];
 
 int workload(int argc, char **argv) {
   if (argc != 6)
     return 2;
   int ni;
-  if (!argument(argv[1], 1, 40, &ni))
+  if (!argument(argv[1], 1, 320, &ni))
     return 2;
   int nj;
-  if (!argument(argv[2], 1, 50, &nj))
+  if (!argument(argv[2], 1, 400, &nj))
     return 2;
   int nk;
-  if (!argument(argv[3], 1, 60, &nk))
+  if (!argument(argv[3], 1, 480, &nk))
     return 2;
   int nl;
-  if (!argument(argv[4], 1, 70, &nl))
+  if (!argument(argv[4], 1, 560, &nl))
     return 2;
   int nm;
-  if (!argument(argv[5], 1, 80, &nm))
+  if (!argument(argv[5], 1, 640, &nm))
     return 2;
   for (int i = 0; i < ni; i++)
     for (int j = 0; j < nk; j++)

@@ -1,7 +1,7 @@
 #include "../../parsec/kernels/raytrace.c"
 #include "runtime.h"
 
-static double result[32];
+static double result[1048576];
 static double triangles[36] = {-2, -2, 0, 0,  -2, 0, 0, 0, 0, -2, -2, 0,
                                0,  0,  0, -2, 0,  0, 0, 0, 0, 2,  0,  0,
                                2,  2,  0, 0,  0,  0, 2, 2, 0, 0,  2,  0};
@@ -16,7 +16,7 @@ int workload(int argc, char **argv) {
   if (argc != 2)
     return 2;
   int nrays;
-  if (!argument(argv[1], 1, 32, &nrays))
+  if (!argument(argv[1], 1, 1048576, &nrays))
     return 2;
   for (int i = 0; i < nrays; i++) {
     double ray[6] = {-1, -1, 5, 0, 0, -1};

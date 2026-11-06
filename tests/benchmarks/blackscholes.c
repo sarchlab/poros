@@ -1,19 +1,19 @@
 #include "../../parsec/kernels/blackscholes.c"
 #include "runtime.h"
 
-static double prices[1024];
-static double S[1024];
-static double X[1024];
-static double r[1024];
-static double v[1024];
-static double T[1024];
-static int otype[1024];
+static double prices[1048576];
+static double S[1048576];
+static double X[1048576];
+static double r[1048576];
+static double v[1048576];
+static double T[1048576];
+static int otype[1048576];
 
 int workload(int argc, char **argv) {
   if (argc != 2)
     return 2;
   int n;
-  if (!argument(argv[1], 1, 1024, &n))
+  if (!argument(argv[1], 1, 1048576, &n))
     return 2;
   for (int i = 0; i < n; i++) {
     S[i] = fma(i % 80, 1.25, 30);
