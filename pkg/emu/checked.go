@@ -54,6 +54,15 @@ func (e *StepError) Unwrap() error { return e.Err }
 // transfer their entire instruction span through one atomic Write. No legacy
 // function hooks, synthetic return address, or implicit guest-memory allocation is involved.
 func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
+	return stepChecked(regs, memory, nil)
+}
+
+// StepChecked uses this execution's decode cache when executing a checked step.
+func (c *DecodeCache) StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
+	return stepChecked(regs, memory, c)
+}
+
+func stepChecked(regs *Registers, memory CheckedMemory, cache *DecodeCache) (StepResult, error) {
 	var result StepResult
 	fail := func(kind string, err error) (StepResult, error) { return result, &StepError{regs.PC, kind, err} }
 	if regs.PC%4 != 0 {
@@ -63,7 +72,13 @@ func StepChecked(regs *Registers, memory CheckedMemory) (StepResult, error) {
 	if err := memory.Fetch(regs.PC, bytes[:]); err != nil {
 		return fail("memory_fault", err)
 	}
-	inst, err := arm64asm.Decode(bytes[:])
+	var inst arm64asm.Inst
+	var err error
+	if cache == nil {
+		inst, err = arm64asm.Decode(bytes[:])
+	} else {
+		inst, err = cache.Decode(bytes)
+	}
 	if err != nil {
 		return fail("unsupported_instruction", err)
 	}
