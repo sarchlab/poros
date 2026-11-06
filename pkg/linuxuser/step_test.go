@@ -2,6 +2,7 @@ package linuxuser
 
 import (
 	"bytes"
+	"context"
 	"debug/elf"
 	"encoding/binary"
 	"errors"
@@ -152,5 +153,39 @@ func TestCheckedBranchEvent(t *testing.T) {
 				t.Fatalf("PC=%#x branch=%v err=%v", regs.PC, step.Branched, err)
 			}
 		})
+	}
+}
+
+func TestExecutionDecodesCurrentExecutableBytes(t *testing.T) {
+	const mov1 = 0xd2800020   // mov x0, #1
+	const mov324 = 0xd2802880 // mov x0, #324; aliases mov1 in the decode cache
+	m := instructionMemory(mov1)
+	p := &Process{Memory: m}
+	x, err := p.NewExecution(context.Background(), RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+
+	for _, tc := range []struct{ opcode, want uint32 }{{mov1, 1}, {mov324, 324}, {mov1, 1}} {
+		p.Registers.PC = 0x1000
+		binary.LittleEndian.PutUint32(m.regions[0].data, tc.opcode)
+		peek, err := x.Peek(p.Registers.PC)
+		if err != nil || peek.Enc != tc.opcode {
+			t.Fatalf("peek returned %v, %v", peek, err)
+		}
+		inst, _, err := x.StepDetailed()
+		if err != nil || inst != peek || p.Registers.GPR[0] != uint64(tc.want) {
+			t.Fatalf("step returned %v, %v, X0=%d", inst, err, p.Registers.GPR[0])
+		}
+	}
+
+	p.Registers.PC = 0x1000
+	m.regions[0].Flags = elf.PF_R
+	if _, err := x.Peek(p.Registers.PC); err == nil {
+		t.Fatal("peek succeeded after execute permission was removed")
+	}
+	if _, _, err := x.StepDetailed(); err == nil || x.Result().Termination != "memory_fault" || x.Result().Instructions != 3 {
+		t.Fatalf("expected a fetch fault before another instruction retired: %+v", x.Result())
 	}
 }
