@@ -109,7 +109,7 @@ class ComputeTimeTests(unittest.TestCase):
         self.assertTrue("264 / 264" in html, "qualified coverage must retain old24 quality")
         self.assertTrue("validation-legacy" in html, "missing third split")
         self.assertTrue("m=1, n=1" in html, "missing actual dimension labels")
-        self.assertEqual(html.count("<figcaption>"), 45)  # 44 workload curves + comparison scatter
+        self.assertEqual(html.count("<figcaption>"), 46)  # 44 workload curves + two overall charts
         self.assertIn("cohorts/compute/source/parsec/kernels/bodytrack.c", manifest["files"])
         self.assertIn("cohorts/compute/source/tests/benchmarks/bodytrack.c", manifest["files"])
         path = bundle / "cohorts/compute/reference" / compute.output_name(self.reference["cases"][0],compute.PROTOCOL)

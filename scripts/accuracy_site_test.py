@@ -388,6 +388,19 @@ class AccuracySiteTest(unittest.TestCase):
         )
         self.assertNotIn("polyline", scatter)
 
+    def test_overview_ties_quality_and_rank_direction(self):
+        def row(name, x, y, quality="usable"):
+            return dict(id=name, reference_quality=quality, reference_user_seconds=x,
+                        head=dict(predicted_user_seconds=y))
+        html = site.overview_charts([row("A",1,2), row("B",2,1),
+                                     row("C",2,2), row("D",3,4), row("E",4,1,"noisy")])
+        self.assertIn("60.00% (3/5)", html)
+        self.assertIn("rank 1 · B", html)
+        self.assertIn("rank 4 · A", html)
+        self.assertNotIn("· E ·", html)
+        self.assertIn("Pearson r: —", site.overview_charts([row("A",1,1), row("B",1,2)]))
+        self.assertIn("Correct pairwise order: —", site.overview_charts([row("A",1,1)]))
+
     def test_bad_bundles_rejected(self):
         commit = revision(1)
         for mutation in ("commit", "hash", "traversal", "missing", "symlink"):
