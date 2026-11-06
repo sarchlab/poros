@@ -7,6 +7,20 @@ import compute_usertime as compute
 import performance_reference as reference
 
 
+MICRO_WORKLOADS = {"integer", "branch", "memory"}
+
+
+def is_micro_case(case):
+    return case["id"].partition("-")[0] in MICRO_WORKLOADS
+
+
+def benchmark_summary(report):
+    if report["artifact_status"] != "pass":
+        return {}
+    return compute.summaries([c for c in report["cases"] if not is_micro_case(c)],
+                             performance=report.get("schema") == 4)
+
+
 def compare(args, executor):
     import usertime as user
     output = Path(args.output)
@@ -66,11 +80,16 @@ def compare(args, executor):
     except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
         report["error"] = str(error)
     compute.write(output, report)
-    lines = ["# Whole-program user-time accuracy report", "", f"Artifact: **{report['artifact_status']}**; hardware accuracy: **unverified**", f"Formula: `{user.FORMULA}`. All 264 required performance points.", "", "| Case / split | Reference (s) | Quality | Base (s) | Head (s) | Head error % |", "|---|---:|---|---:|---:|---:|"]
-    for row in report["cases"]:
-        lines.append(f"| {row['id']} / {row['split']} | {row['reference_user_seconds']:.9g} | {row['reference_quality']} | {row.get('base', {}).get('predicted_user_seconds', 'unavailable')} | {row['head']['predicted_user_seconds']:.9g} | {row['head'].get('error_percent', 'unverified')} |")
-    for split, summary in report.get("summary", {}).items():
-        lines.append(f"{split}: `{json.dumps(summary, sort_keys=True)}`")
+    lines = ["# Whole-program user-time accuracy report", "", f"Artifact: **{report['artifact_status']}**; hardware accuracy: **unverified**", f"Formula: `{user.FORMULA}`. All 264 required performance points."]
+    for section, micro in [("Benchmarks", False), ("Microbenchmarks", True)]:
+        lines.extend(["", "## " + section, "", "| Case / split | Reference (s) | Quality | Base (s) | Head (s) | Head error % |", "|---|---:|---|---:|---:|---:|"])
+        for row in report["cases"]:
+            if is_micro_case(row) != micro:
+                continue
+            lines.append(f"| {row['id']} / {row['split']} | {row['reference_user_seconds']:.9g} | {row['reference_quality']} | {row.get('base', {}).get('predicted_user_seconds', 'unavailable')} | {row['head']['predicted_user_seconds']:.9g} | {row['head'].get('error_percent', 'unverified')} |")
+        if not micro:
+            for split, summary in benchmark_summary(report).items():
+                lines.append(f"{split}: `{json.dumps(summary, sort_keys=True)}`")
     if "error" in report:
         lines.append("Failure: " + report["error"])
     output.with_suffix(".md").write_text("\n".join(lines) + "\n")

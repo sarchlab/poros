@@ -239,7 +239,7 @@ class AccuracySiteTest(unittest.TestCase):
             report["summary"]["calibration"], {"required": 12, "comparable": 0}
         )
         page = site.detail(report, self.metadata(commit))
-        self.assertIn("0 / 12", page)
+        self.assertIn("calibration<strong>0 / 6", page)
         self.assertIn("Mean head error: —", page)
         self.assertIn("Matrix dimension n", page)
         self.assertIn("Working set (log₂ spacing)", page)
@@ -324,7 +324,8 @@ class AccuracySiteTest(unittest.TestCase):
         self.assertIsNone(index["latest_success"])
         report, _ = site.validate_bundle(self.bundle(revision(2)), revision(2))
         detail = site.detail(report, self.metadata(revision(2)))
-        self.assertIn("2 / 24", detail)
+        self.assertIn("Usable benchmark references<strong>0 / 6", detail)
+        self.assertIn("Usable microbenchmark references: 2 / 18", detail)
         self.assertIn("noisy", detail)
         self.assertIn("Hardware accuracy: unverified", detail)
         index = site.archive(
@@ -333,7 +334,8 @@ class AccuracySiteTest(unittest.TestCase):
             self.metadata(revision(2), run=2),
             [revision(2), revision(1)],
         )
-        self.assertIn("10.0000% (2/12)", site.home(index))
+        self.assertNotIn("10.0000% (2/12)", site.home(index))
+        self.assertIn("— (0/6)", site.home(index))
 
     def test_failure_coverage_never_invents_legacy_or_partial_totals(self):
         for partial in (False, True):
@@ -362,7 +364,7 @@ class AccuracySiteTest(unittest.TestCase):
                 detail = (
                     self.pages / "calibration/runs" / commit / "index.html"
                 ).read_text()
-                self.assertIn("Usable references<strong>0 / —", detail)
+                self.assertIn("Usable benchmark references<strong>0 / —", detail)
                 self.assertIn("calibration<strong>— / —", detail)
                 self.assertIn("held_out<strong>— / —", detail)
                 self.assertNotIn("0 / 2", detail)

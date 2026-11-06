@@ -18,6 +18,7 @@ import subprocess
 from workload_contract import LEGACY_IDS, case_ids, validate_manifest, manifest_path
 import compute_usertime as compute
 import performance_reference as performance
+from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
 
 SCHEMA = 1
 FORMULA = "absolute-difference-over-min-v2"
@@ -44,6 +45,7 @@ TERMINAL = {
     "neutral",
 }
 REPO = "sarchlab/poros"
+FRONTEND_REFERENCE = "evaluation/microbenchmarks/m2-frontend.json"
 # Compatibility inventory is confined to schema-1 reports.
 REQUIRED = list(LEGACY_IDS)
 
@@ -536,16 +538,23 @@ def bundle_compact(report_path, source, output, commit):
     if report["artifact_status"] == "pass":
         shutil.copyfile(source / performance.PATH, output / "reference.json")
         names.add("reference.json")
+        if FRONTEND_REFERENCE in report["head"]["files"]:
+            shutil.copyfile(source / FRONTEND_REFERENCE, output / "frontend.json")
+            names.add("frontend.json")
     write(output / "bundle.json", dict(schema=SCHEMA, commit=commit,
           run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
           files={name: digest(output / name) for name in names}))
     validate_bundle(output, commit)
-    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True))
+    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None))
 
 
 def validate_compact_bundle(path, commit, manifest):
     report = read(regular(path / "report.json"))
     names = {"report.json", "report.md"} | ({"reference.json"} if report["artifact_status"] == "pass" else set())
+    if report["artifact_status"] == "pass" and FRONTEND_REFERENCE in report["head"]["files"]:
+        if digest(regular(path / "frontend.json")) != report["head"]["files"][FRONTEND_REFERENCE]:
+            raise ValueError("frontend diagnostic differs from tested source")
+        names.add("frontend.json")
     if set(manifest["files"]) != names:
         raise ValueError("compact bundle membership mismatch")
     for name, expected in manifest["files"].items():
@@ -813,76 +822,28 @@ def overview_charts(cases):
             f"<p class='muted'>{n} qualified cases. The percentage compares pairs with distinct measured times.</p>")
     comparison = chart("Qualified reference vs. prediction", [("head", scatter, "#087e8b")],
                        "Reference user time (ms)", "Predicted user time (ms)", scatter=True, ideal=True, note=note)
-    return '<h2 id="overall">Overall accuracy</h2><div class="charts">' + s_curve + comparison + "</div>"
+    return '<h2 id="overall">Overall benchmark accuracy</h2><div class="charts">' + s_curve + comparison + "</div>"
 
 
-def detail(report, entry, preview=False):
-    commit = entry["commit"]
-    body = (
-        '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
-        + esc(commit)
-        + "</code></p>"
-    )
-    body += (
-        "<p>PR / local preview · Not a published main result</p>"
-        if preview
-        else '<p><a href="../../index.html">← Report history</a></p>'
-    ) + "</header>"
-    body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> Current reference is an Apple M2 host running a Linux ARM64 VM; core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
-    cases = report.get("cases", [])
-    usable = sum(c.get("reference_quality") == "usable" for c in cases)
-    body += (
-        '<div class="cards">'
-        + "".join(
-            '<div class="card">'
-            + esc(label)
-            + "<strong>"
-            + esc(value)
-            + "</strong></div>"
-            for label, value in [
-                ("Report artifact", report["artifact_status"]),
-                ("Full Evaluation", entry.get("evaluation_conclusion", "not checked")),
-                (
-                    "Usable references",
-                    f"{usable} / {len(report_manifest(report)['cases']) if report.get('artifact_status') == 'pass' else '—'}",
-                ),
-                ("Hardware accuracy", report["accuracy_status"]),
-            ]
-        )
-        + "</div>"
-    )
-    if report["artifact_status"] == "fail" and not report.get("head", {}).get(
-        "commit", report.get("head_commit")
-    ):
-        body += '<p class="notice">This failure occurred before source identity was recorded. The bundle identifies the requested target; it does not certify an executed binary or measured source.</p>'
-    if report.get("error"):
-        body += '<p class="notice">' + esc(report["error"]) + "</p>"
-    body += overview_charts(cases)
-    body += '<h2>Calibration and held-out coverage</h2><div class="cards">'
-    for split in (compute.SPLITS if report.get("schema") in (3, 4) else ("calibration", "held_out")):
-        summary = report.get("summary", {}).get(split, {})
-        body += (
-            '<div class="card">'
-            + esc(split)
-            + "<strong>"
-            + esc(f'{summary.get("comparable", "—")} / {summary.get("required", "—")}')
-            + "</strong>"
-            + ("<p>Head comparable: " + esc(summary["head_comparable"]) + "; base comparable: " + esc(summary["base_comparable"]) + ". Means use their respective coverage.</p>" if "base_comparable" in summary else "")
-            + "<p>Mean head error: "
-            + number(summary.get("head", {}).get("mean_error_percent"), "%")
-            + "<br>Maximum: "
-            + number(summary.get("head", {}).get("maximum_error_percent"), "%")
-            + "</p></div>"
-        )
-    body += '</div><h2>Raw timing curves</h2><p class="muted">Each chart labels its sweep coordinate. All times include guest initialization, computation and output. Noisy references remain visible but do not enter error summaries. Hover points for values.</p><div class="charts">'
-    groups = (
-        report_manifest(report).get(
-            "workloads",
-            [dict(id=w, axis="iterations") for w in ("integer", "memory", "branch")],
-        )
-        if report["artifact_status"] == "pass"
-        else []
-    )
+def frontend_table(reference):
+    labels = {"nop": "NOP stream", "add": "Eight independent ADD chains"}
+    rows = []
+    for loop, label in labels.items():
+        seconds = reference["loops"][loop]
+        rate = reference["instructions_per_trial"] / seconds
+        rows.append(f"<tr><td>{label}</td><td>{seconds*1000:.3f}</td>"
+                    f"<td>{rate/1e9:.2f}</td><td>{rate/reference['assumed_hz']:.2f}</td></tr>")
+    return (f'<h3>Front-end throughput on {esc(reference["hardware"])}</h3>'
+            f'<p>{esc(reference["os"])} · {esc(reference["date"])} · median of {reference["trials"]} trials '
+            f'of {reference["instructions_per_trial"]:,} loop instructions. Estimated IPC uses '
+            f'{reference["assumed_hz"]/1e9:g} GHz and thread CPU time. Core and operating frequency were unobserved.</p>'
+            '<div class="table"><table><thead><tr><th>Native loop</th><th>Thread time (ms)</th>'
+            '<th>Billion instructions/s</th><th>Estimated IPC</th></tr></thead><tbody>'
+            + "".join(rows) + '</tbody></table></div><p><a href="frontend.json">Native reference data</a></p>')
+
+
+def timing_curves(groups, cases):
+    body = '<div class="charts">'
     for group in groups:
         workload = group["id"]
         axis = group["axis"]
@@ -944,18 +905,13 @@ def detail(report, entry, preview=False):
             x_ticks=ticks,
         )
     body += "</div>"
-    if report.get("schema") == 1:
-        body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
-    elif report["artifact_status"] == "pass":
-        accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
-        body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
-    body += '<h2>Measured and predicted time</h2><p class="muted">Error = 100 × |sim − reference| / min(sim, reference). Positive Δ means a larger error. No offset fitting or anchor removal. Times are milliseconds.</p><div class="table"><table><thead><tr><th>Case / split</th><th>Functional</th><th>Reference</th><th>Quality</th><th>Base</th><th>Head</th><th>Base error</th><th>Head error</th><th>Direction</th><th>Δ pp</th></tr></thead><tbody>'
+    return body
+
+
+def timing_table(cases, ids):
+    body = '<p class="muted">Error = 100 × |sim − reference| / min(sim, reference). Positive Δ means a larger error. No offset fitting or anchor removal. Times are milliseconds.</p><div class="table"><table><thead><tr><th>Case / split</th><th>Functional</th><th>Reference</th><th>Quality</th><th>Base</th><th>Head</th><th>Base error</th><th>Head error</th><th>Direction</th><th>Δ pp</th></tr></thead><tbody>'
     by_id = {c["id"]: c for c in cases}
-    for case in (
-        (c["id"] for c in report_manifest(report)["cases"])
-        if report["artifact_status"] == "pass"
-        else (c["id"] for c in cases)
-    ):
+    for case in ids:
         c = by_id.get(case)
         if not c:
             body += (
@@ -979,6 +935,100 @@ def detail(report, entry, preview=False):
         ]
         body += "<tr>" + "".join("<td>" + esc(v) + "</td>" for v in values) + "</tr>"
     body += '</tbody></table></div>'
+    return body
+
+
+def detail(report, entry, preview=False, frontend=None):
+    commit = entry["commit"]
+    body = (
+        '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
+        + esc(commit)
+        + "</code></p>"
+    )
+    body += (
+        "<p>PR / local preview · Not a published main result</p>"
+        if preview
+        else '<p><a href="../../index.html">← Report history</a></p>'
+    ) + "</header>"
+    body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> Current reference is an Apple M2 host running a Linux ARM64 VM; core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
+    cases = report.get("cases", [])
+    benchmarks = [c for c in cases if not is_micro_case(c)]
+    micros = [c for c in cases if is_micro_case(c)]
+    declared = report_manifest(report)["cases"] if report["artifact_status"] == "pass" else cases
+    benchmark_ids = [c["id"] for c in declared if not is_micro_case(c)]
+    micro_ids = [c["id"] for c in declared if is_micro_case(c)]
+    usable = sum(c.get("reference_quality") == "usable" for c in benchmarks)
+    body += (
+        '<div class="cards">'
+        + "".join(
+            '<div class="card">'
+            + esc(label)
+            + "<strong>"
+            + esc(value)
+            + "</strong></div>"
+            for label, value in [
+                ("Report artifact", report["artifact_status"]),
+                ("Full Evaluation", entry.get("evaluation_conclusion", "not checked")),
+                (
+                    "Usable benchmark references",
+                    f"{usable} / {len(benchmark_ids) if report.get('artifact_status') == 'pass' else '—'}",
+                ),
+                ("Hardware accuracy", report["accuracy_status"]),
+            ]
+        )
+        + "</div>"
+    )
+    if report["artifact_status"] == "fail" and not report.get("head", {}).get(
+        "commit", report.get("head_commit")
+    ):
+        body += '<p class="notice">This failure occurred before source identity was recorded. The bundle identifies the requested target; it does not certify an executed binary or measured source.</p>'
+    if report.get("error"):
+        body += '<p class="notice">' + esc(report["error"]) + "</p>"
+    body += '<nav class="downloads"><a href="#overall">Benchmark accuracy</a><a href="#microbenchmarks">Microbenchmarks</a></nav>'
+    body += overview_charts(benchmarks)
+    benchmark_stats = benchmark_summary(report)
+    body += '<h2>Calibration and held-out coverage</h2><div class="cards">'
+    for split in (compute.SPLITS if report.get("schema") in (3, 4) else ("calibration", "held_out")):
+        summary = benchmark_stats.get(split, {})
+        body += (
+            '<div class="card">'
+            + esc(split)
+            + "<strong>"
+            + esc(f'{summary.get("comparable", "—")} / {summary.get("required", "—")}')
+            + "</strong>"
+            + ("<p>Head comparable: " + esc(summary["head_comparable"]) + "; base comparable: " + esc(summary["base_comparable"]) + ". Means use their respective coverage.</p>" if "base_comparable" in summary else "")
+            + "<p>Mean head error: "
+            + number(summary.get("head", {}).get("mean_error_percent"), "%")
+            + "<br>Maximum: "
+            + number(summary.get("head", {}).get("maximum_error_percent"), "%")
+            + "</p></div>"
+        )
+    body += '</div><h2>Benchmark timing curves</h2>'
+    groups = (
+        report_manifest(report).get(
+            "workloads",
+            [dict(id=w, axis="iterations") for w in ("integer", "memory", "branch")],
+        )
+        if report["artifact_status"] == "pass"
+        else []
+    )
+    body += timing_curves([g for g in groups if g["id"] not in MICRO_WORKLOADS], benchmarks)
+    body += '<h2>Benchmark timing table</h2>' + timing_table(benchmarks, benchmark_ids)
+    body += '<section id="microbenchmarks"><h2>Microbenchmarks</h2>'
+    body += '<p>Hardware diagnostics are reported separately from benchmark accuracy.</p>'
+    if micro_ids:
+        micro_usable = sum(c.get("reference_quality") == "usable" for c in micros)
+        micro_required = len(micro_ids) if report["artifact_status"] == "pass" else "—"
+        body += f"<p>Usable microbenchmark references: {micro_usable} / {micro_required}</p>"
+    if frontend:
+        body += frontend_table(frontend)
+    body += timing_curves([g for g in groups if g["id"] in MICRO_WORKLOADS], micros)
+    if report.get("schema") == 1:
+        body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
+    elif report["artifact_status"] == "pass":
+        accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
+        body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
+    body += timing_table(micros, micro_ids) + '</section>'
     body += (
         "<h2>Evidence and provenance</h2><p>Measurement completed (UTC): "
         + esc(entry.get("measurement_completed_at") or "unavailable")
@@ -1251,12 +1301,14 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
         "latest_success": success[0]["commit"] if success else None,
         "entries": ordered,
     }
-    write(index_path, index)
     for e in ordered:
         p = root / "runs" / e["commit"]
+        retained_report, retained_manifest = validate_bundle(p, e["commit"])
+        e["benchmark_summary"] = benchmark_summary(retained_report)
         write(p / "metadata.json", e)
-        retained_report, _ = validate_bundle(p, e["commit"])
-        (p / "index.html").write_text(detail(retained_report, e))
+        frontend = read(p / "frontend.json") if "frontend.json" in retained_manifest["files"] else None
+        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend))
+    write(index_path, index)
     (root / "index.html").write_text(home(index))
     (site / ".nojekyll").touch()
     if not (site / "index.html").exists():
@@ -1310,7 +1362,7 @@ def home(index):
             + "</span></td>"
         )
         for split in compute.SPLITS:
-            summary = e["summary"].get(split, {})
+            summary = e.get("benchmark_summary", {}).get(split, {})
             coverage = (
                 f'{summary.get("comparable", "—")}/{summary.get("required", "—")}'
             )
@@ -1326,7 +1378,7 @@ def home(index):
             + esc(", ".join(r["tag"] for r in e["releases"]) or "—")
             + "</td></tr>"
         )
-    body += '</tbody></table></div><h2>Comparable accuracy trends</h2><p class="muted">Each chart uses one reference, formula and hardware profile. Points are ordered by main ancestry, oldest first; gaps and coverage must be read alongside the reports.</p><div class="charts">'
+    body += '</tbody></table></div><h2>Benchmark accuracy trends</h2><p class="muted">Each chart uses one reference, formula and hardware profile. Points are ordered by main ancestry, oldest first; gaps and coverage must be read alongside the reports.</p><div class="charts">'
     groups = {}
     for e in reversed(index["entries"]):
         if e.get("series") and e["main"]:
@@ -1337,7 +1389,7 @@ def home(index):
             values = [
                 (
                     i + 1,
-                    e["summary"]
+                    e.get("benchmark_summary", {})
                     .get(split, {})
                     .get("head", {})
                     .get("mean_error_percent"),

@@ -106,7 +106,7 @@ class ComputeTimeTests(unittest.TestCase):
         result, manifest = site.validate_bundle(bundle, SHA)
         self.assertEqual(len(result["cases"]), 264)
         html = (bundle / "index.html").read_text()
-        self.assertTrue("264 / 264" in html, "qualified coverage must retain old24 quality")
+        self.assertTrue("246 / 246" in html and "18 / 18" in html, "qualified coverage must retain old24 quality")
         self.assertTrue("validation-legacy" in html, "missing third split")
         self.assertTrue("m=1, n=1" in html, "missing actual dimension labels")
         self.assertEqual(html.count("<figcaption>"), 46)  # 44 workload curves + two overall charts
