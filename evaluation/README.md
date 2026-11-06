@@ -59,7 +59,7 @@ Separate performance manifests define six larger inputs for each of all 44
 workloads, while correctness manifests keep the original small cases. Native
 Linux ARM64 captures use one warmup and 21 user/system CPU samples per point.
 Only derived plotting statistics and exact input/output identities are committed;
-raw observations and full witnesses remain local. Every PR/main push
+raw observations and full witnesses remain local. Each push to `main`
 reports all 264 points, including invalid/noisy references. Head functional and
 OoO executions must validate every output; base OoO is required wherever the
 exact base image and output limits support the input. Unsupported base cases

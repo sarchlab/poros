@@ -300,7 +300,8 @@ implement those decisions.
 
 The next stage measures complete-program user CPU time, not mandatory kernel ROIs.
 Functional and timing modes share process/ISA semantics; native child-user-time
-records are retained and every PR emits a source-bound base/head accuracy report.
+records are retained. Each push to `main` emits a source-bound accuracy report
+comparing the previous and new main commits. PRs run functional and regression checks.
 The formula is versioned diff/min (absolute difference divided by the smaller
 positive time). Earlier percentage targets require a fresh decision under this
 formula and are not enabled gates. VM samples and unknown-core measurements stay
