@@ -96,10 +96,11 @@ jobs:
           path: evaluation-results/
   accuracy:
     name: Accuracy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/accuracy-evaluate.yml
     with:
-      target: ${{ github.event.pull_request.head.sha || github.sha }}
-      base: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
+      target: ${{ github.sha }}
+      base: ${{ github.event.before }}
   diagnostics:
     name: Extended CLI diagnostics
     if: github.event_name == 'workflow_dispatch'
