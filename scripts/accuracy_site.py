@@ -630,7 +630,7 @@ def number(value, suffix=""):
 
 
 CSS = """
-:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172b35;background:#f5f7f7;font-size:15px}body{margin:0}main{max-width:1180px;margin:auto;padding:40px 24px 64px}a{color:#006e75;text-underline-offset:3px}header{border-bottom:1px solid #cedbde;padding-bottom:25px;margin-bottom:24px}.eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;color:#49717a}h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.04em;margin:12px 0}h2{font-size:22px;margin:32px 0 14px}p{line-height:1.6}.muted{color:#58707a}.notice{border-left:4px solid #b77a13;background:#fff7df;padding:13px 18px;margin:18px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.card,figure{background:white;border:1px solid #d7e1e4;border-radius:9px;padding:18px;margin:0}.card strong{display:block;font-size:26px;margin-top:6px}.table{overflow:auto;border:1px solid #d7e1e4;border-radius:9px;background:white}table{border-collapse:collapse;width:100%;white-space:nowrap}td,th{padding:12px 14px;text-align:left;border-bottom:1px solid #e5ecee;font-variant-numeric:tabular-nums}th{background:#edf3f3;font-size:12px;text-transform:uppercase;color:#49616b}tr:last-child td{border-bottom:0}.badge{font-size:12px;padding:4px 8px;border-radius:20px;background:#edf1f2}.pass{background:#e1f3e9;color:#15523b}.fail{background:#fbe6df;color:#8f321b}.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}svg{width:100%;height:auto}svg text{font:11px system-ui;fill:#526a75}figcaption{font-weight:650;margin-bottom:10px}#point-tip{position:fixed;z-index:10;pointer-events:none;background:#18343e;color:white;border-radius:5px;padding:8px 11px;max-width:min(380px,85vw);font-size:13px;line-height:1.4;white-space:pre-line}circle[data-tip]{cursor:crosshair}circle[data-tip]:focus{outline:none;stroke:#2c5059;stroke-width:2}details{margin:20px 0}pre{overflow:auto;background:#edf3f3;padding:16px;font-size:12px}.downloads{display:flex;flex-wrap:wrap;gap:16px}footer{margin-top:35px;color:#617780;font-size:12px}code{font-size:12px;overflow-wrap:anywhere}@media(max-width:500px){main{padding:24px 12px}.charts{grid-template-columns:1fr}td,th{padding:10px}.card{padding:13px}}
+:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172b35;background:#f5f7f7;font-size:15px}body{margin:0}main{max-width:1180px;margin:auto;padding:40px 24px 64px}a{color:#006e75;text-underline-offset:3px}header{border-bottom:1px solid #cedbde;padding-bottom:25px;margin-bottom:24px}.eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;color:#49717a}h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.04em;margin:12px 0}h2{font-size:22px;margin:32px 0 14px}p{line-height:1.6}.muted{color:#58707a}.notice{border-left:4px solid #b77a13;background:#fff7df;padding:13px 18px;margin:18px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.card,figure{background:white;border:1px solid #d7e1e4;border-radius:9px;padding:18px;margin:0}.card strong{display:block;font-size:26px;margin-top:6px}.table{overflow:auto;border:1px solid #d7e1e4;border-radius:9px;background:white}table{border-collapse:collapse;width:100%;white-space:nowrap}td,th{padding:12px 14px;text-align:left;border-bottom:1px solid #e5ecee;font-variant-numeric:tabular-nums}th{background:#edf3f3;font-size:12px;text-transform:uppercase;color:#49616b}tr:last-child td{border-bottom:0}.badge{font-size:12px;padding:4px 8px;border-radius:20px;background:#edf1f2}.pass{background:#e1f3e9;color:#15523b}.fail{background:#fbe6df;color:#8f321b}.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}svg{width:100%;height:auto}svg text{font:11px system-ui;fill:#526a75}figcaption{font-weight:650;margin-bottom:10px}.band-key{display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;padding:0;font-size:13px}.band-key li{white-space:nowrap}.band-key span{display:inline-block;width:12px;height:12px;margin-right:5px;border:1px solid #0002;vertical-align:-2px}#point-tip{position:fixed;z-index:10;pointer-events:none;background:#18343e;color:white;border-radius:5px;padding:8px 11px;max-width:min(380px,85vw);font-size:13px;line-height:1.4;white-space:pre-line}circle[data-tip]{cursor:crosshair}circle[data-tip]:focus{outline:none;stroke:#2c5059;stroke-width:2}details{margin:20px 0}pre{overflow:auto;background:#edf3f3;padding:16px;font-size:12px}.downloads{display:flex;flex-wrap:wrap;gap:16px}footer{margin-top:35px;color:#617780;font-size:12px}code{font-size:12px;overflow-wrap:anywhere}@media(max-width:500px){main{padding:24px 12px}.charts{grid-template-columns:1fr}td,th{padding:10px}.card{padding:13px}}
 """
 
 
@@ -684,7 +684,7 @@ POINT_TIPS = """<div id="point-tip" role="tooltip" hidden></div><script>
 
 
 def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=None,
-          ideal=False, note=""):
+          ideal=False, note="", y_bands=()):
     """Plot the data domain; guide lines never contribute observations."""
     points = [(x, y) for _, values, _ in series for x, y, _ in values]
     if not points:
@@ -698,7 +698,12 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
     def py(y):
         return 235 - (y - ymin) / (ymax - ymin or 1) * 215
 
-    body = '<path d="M72 20V235H401" fill="none" stroke="#bacbd0"/>'
+    body = ""
+    for lower, upper, color in y_bands:
+        bottom, top = max(lower, ymin), min(upper, ymax)
+        if bottom < top:
+            body += f'<rect x="72" y="{py(top):.3f}" width="329" height="{py(bottom)-py(top):.3f}" fill="{color}"/>'
+    body += '<path d="M72 20V235H401" fill="none" stroke="#bacbd0"/>'
     if y_ticks is None:
         y_ticks = [(ymax*i/4, f"{ymax*i/4:.3g}") for i in range(5)]
     for value, label in y_ticks:
@@ -732,14 +737,27 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
             f'aria-label="{esc(title)}">{body}</svg><p class="muted">{legend}</p>{note}</figure>')
 
 
+# Upper ratio bound, legend label, and shared fill for both sides of 1×.
+ERROR_BANDS = (
+    (1.05, "≤5%", "#c4dfce"),
+    (1.20, ">5–20%", "#d9e8ef"),
+    (1.50, ">20–50%", "#f8e8bc"),
+    (2.00, ">50–100%", "#f4cfad"),
+    (math.inf, ">100%", "#efbdc5"),
+)
+
+
 def overview_charts(cases):
     # Both views and both statistics use exactly the same qualified head cases.
     points = [(c["reference_user_seconds"] * 1000, c["head"]["predicted_user_seconds"] * 1000, c["id"])
               for c in cases if c.get("reference_quality") == "usable" and c.get("head")
               and c["reference_user_seconds"] > 0 and c["head"]["predicted_user_seconds"] > 0]
     ranks, scatter = [], []
+    band_counts = [0] * len(ERROR_BANDS)
     for i, (ref, pred, name) in enumerate(sorted(points, key=lambda p: (p[1]/p[0], p[2])), 1):
         factor = max(pred/ref, ref/pred)
+        band = next(j for j, (upper, _, _) in enumerate(ERROR_BANDS) if factor <= upper)
+        band_counts[band] += 1
         direction = "slower" if pred > ref else "faster" if pred < ref else "equal"
         label = f"{name} · measured {ref:.4f} ms · predicted {pred:.4f} ms · {factor:.3f}× {direction}"
         ranks.append((i, math.log2(pred/ref), f"rank {i} · {label}"))
@@ -751,12 +769,23 @@ def overview_charts(cases):
     ticks = [(e, f"{2**abs(e)}× " + ("faster" if e < 0 else "slower") if e else "1× (equal)")
              for e in range(low, high+1)]
     rank_ticks = [(r, str(r)) for r in sorted({1 + round(i*(len(ranks)-1)/4) for i in range(5)})]
+    n = len(points)
+    shading = []
+    legend = []
+    inner = 0
+    for (limit, label, color), count in zip(ERROR_BANDS, band_counts):
+        outer = math.log2(limit)
+        shading.extend([(-outer, -inner, color), (inner, outer, color)])
+        inner = outer
+        share = f"{count/n:.2%}" if n else "—"
+        legend.append(f'<li><span style="background:{color}"></span>{esc(label)}'
+                      f' <strong>{count} ({share})</strong></li>')
+    band_note = (f'<p>Absolute error across {n} qualified cases · |predicted − measured| / '
+                 'min(predicted, measured)</p><ul class="band-key">' + "".join(legend) + "</ul>")
     s_curve = chart("S-curve: predicted time relative to measured time",
                     [("head", ranks, "#087e8b")], "Case rank (underestimate → overestimate)",
                     "Time ratio (log₂ scale)", x_ticks=rank_ticks, y_ticks=ticks,
-                    note="<p class='muted'>One point per qualified case, sorted by predicted / measured time. "
-                         "2× faster means half the measured time; 2× slower means twice the measured time.</p>")
-    n = len(points)
+                    note=band_note, y_bands=shading)
     pearson = "—"
     concordant = discordant = measured_unequal = predicted_unequal = 0
     if n >= 2:
@@ -778,16 +807,13 @@ def overview_charts(cases):
     tau = f"{(concordant - discordant) / denominator:.4f}" if denominator else "—"
     pair = (f"{concordant / measured_unequal:.2%} ({concordant:,}/{measured_unequal:,})"
             if measured_unequal else "—")
-    note = (f"<p><strong>Pearson correlation (r) = {pearson}</strong><br>"
-            f"<strong>Kendall rank correlation (τ-b) = {tau}</strong><br>"
-            f"Pairs ordered correctly: {pair}</p>"
-            f"<p class='muted'>{n} qualified cases across benchmarks and sizes. "
-            "Pearson measures linear association between measured and predicted times. "
-            "Kendall measures agreement in their ordering and adjusts for ties. "
-            "The percentage counts pairs with distinct measured times and gives credit for a matching order.</p>")
+    note = (f"<p><strong>Kendall’s τ-b = {tau}</strong><br>"
+            f"<strong>Pairs ordered correctly: {pair}</strong><br>"
+            f"Pearson correlation (r) = {pearson}</p>"
+            f"<p class='muted'>{n} qualified cases. The percentage compares pairs with distinct measured times.</p>")
     comparison = chart("Qualified reference vs. prediction", [("head", scatter, "#087e8b")],
                        "Reference user time (ms)", "Predicted user time (ms)", scatter=True, ideal=True, note=note)
-    return '<h2>Overall accuracy</h2><div class="charts">' + s_curve + comparison + "</div>"
+    return '<h2 id="overall">Overall accuracy</h2><div class="charts">' + s_curve + comparison + "</div>"
 
 
 def detail(report, entry, preview=False):

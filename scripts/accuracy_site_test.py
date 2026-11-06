@@ -395,13 +395,21 @@ class AccuracySiteTest(unittest.TestCase):
         html = site.overview_charts([row("A",1,2), row("B",2,1),
                                      row("C",2,2), row("D",3,4), row("E",4,1,"noisy")])
         self.assertIn("60.00% (3/5)", html)
-        self.assertIn("Kendall rank correlation (τ-b) = 0.4000", html)
+        self.assertIn("Kendall’s τ-b = 0.4000", html)
         self.assertIn("rank 1 · B", html)
         self.assertIn("rank 4 · A", html)
         self.assertNotIn("· E ·", html)
         self.assertIn("Pearson correlation (r) = —", site.overview_charts([row("A",1,1), row("B",1,2)]))
-        self.assertIn("Kendall rank correlation (τ-b) = —", site.overview_charts([row("A",1,1), row("B",2,1)]))
+        self.assertIn("Kendall’s τ-b = —", site.overview_charts([row("A",1,1), row("B",2,1)]))
         self.assertIn("Pairs ordered correctly: —", site.overview_charts([row("A",1,1)]))
+
+    def test_s_curve_inclusive_symmetric_error_bands(self):
+        rows = [dict(id=str(i), reference_quality="usable", reference_user_seconds=x,
+                     head=dict(predicted_user_seconds=y))
+                for i, (x, y) in enumerate([(100,105),(120,100),(100,150),(200,100),(100,201)])]
+        html = site.overview_charts(rows)
+        for _, label, _ in site.ERROR_BANDS:
+            self.assertIn(f"{site.esc(label)} <strong>1 (20.00%)</strong>", html)
 
     def test_bad_bundles_rejected(self):
         commit = revision(1)
