@@ -94,9 +94,26 @@ jobs:
         with:
           name: elf-functional-differential
           path: evaluation-results/
+  merged-main-pr:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      merged: ${{ steps.pr.outputs.merged }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/merged_main_pr.py "$GITHUB_REPOSITORY" "$GITHUB_SHA"
   accuracy:
     name: Accuracy
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: merged-main-pr
+    if: needs.merged-main-pr.outputs.merged == 'true'
     uses: ./.github/workflows/accuracy-evaluate.yml
     with:
       target: ${{ github.sha }}
