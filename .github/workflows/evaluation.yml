@@ -31,6 +31,8 @@ jobs:
       - run: python3 scripts/accuracy_site_test.py
       - run: python3 scripts/compute_usertime_test.py
       - run: python3 scripts/accuracy_parallel_test.py
+      - run: python3 scripts/frontend_microbenchmark_test.py
+      - run: python3 scripts/merged_main_pr_test.py
       - run: scripts/evaluation-ci.sh static
         env:
           FORMAT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}

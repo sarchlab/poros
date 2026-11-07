@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -533,6 +534,9 @@ class AccuracySiteTest(unittest.TestCase):
         publishing = (ROOT / ".github/workflows/accuracy-pages.yml").read_text()
         parallel = (ROOT / ".github/workflows/accuracy-evaluate.yml").read_text()
         self.assertIn("permissions:\n  contents: read", evaluation)
+        self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", evaluation)
+        self.assertIn("if: needs.merged-main-pr.outputs.merged == 'true'", evaluation)
+        self.assertIn("if: github.event_name != 'workflow_run' || steps.pr.outputs.merged == 'true'", publishing)
         self.assertNotIn("contents: write", evaluation)
         self.assertIn("retention-days: 30", parallel)
         self.assertIn("name: user-time-accuracy-${{ github.run_attempt }}", parallel)
@@ -560,6 +564,20 @@ class AccuracySiteTest(unittest.TestCase):
             "github.event.workflow_run.head_repository.full_name == github.repository",
             publishing,
         )
+
+    def test_aggregate_workflow_restores_downloaded_probe_permissions(self):
+        workflow = (ROOT / ".github/workflows/accuracy-evaluate.yml").read_text()
+        step = workflow.split("- name: Validate complete shard coverage and build the report", 1)[1]
+        preparation = textwrap.dedent(step.split("run: |\n", 1)[1].split("          python3 scripts/accuracy_parallel.py aggregate", 1)[0])
+        head = self.root / "prepared/head"
+        head.parent.mkdir()
+        head.write_text("#!/bin/sh\nexit 0\n")
+        head.chmod(0o644)  # download-artifact does not preserve executable bits.
+        subprocess.run(["/bin/sh", "-eu", "-c", preparation], env={**os.environ, "RUNNER_TEMP": str(self.root)}, check=True)
+        subprocess.run([str(head)], check=True)
+        head.unlink()
+        # Missing downloads still reach the aggregator's failure-artifact path.
+        subprocess.run(["/bin/sh", "-eu", "-c", preparation], env={**os.environ, "RUNNER_TEMP": str(self.root)}, check=True)
 
     def test_attempt_scoped_artifacts_and_failed_job_rerun(self):
         artifacts = [

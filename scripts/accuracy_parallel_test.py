@@ -16,6 +16,7 @@ import accuracy_parallel as parallel
 import accuracy_site as site
 import usertime as user
 import accuracy_test_support as fixtures
+import frontend_microbenchmark as probe
 
 HEAD = "a" * 40
 BASE = "ec5df8efdd80fd02a0db7bd80e9ae413c509852b"
@@ -234,6 +235,32 @@ class ParallelAccuracyTests(unittest.TestCase):
         site.bundle(output, parallel.ROOT, self.root / "bundle", HEAD)
         result, _ = site.validate_bundle(self.root / "bundle", HEAD)
         self.assertEqual(result["artifact_status"], "fail")
+
+    def test_aggregation_requires_frontend_probe_when_source_declares_it(self):
+        state = copy.deepcopy(self.state)
+        state["files"][probe.ELF] = "f" * 64
+        plan = copy.deepcopy(self.plan)
+        plan["head"] = state
+        parallel.write(self.prepared / "plan.json", plan)
+        shards = self.shards()
+        for shard in shards:
+            shard["plan_id"] = parallel.identity(plan)
+        results = self.write_shards(shards)
+        rows = {loop: dict(instructions=probe.LOOP_INSTRUCTIONS, cycles=352256) for loop in ("nop", "add")}
+        output = self.root / "frontend/report.json"
+        for error in (None, PermissionError("downloaded head is not executable")):
+            with patch.object(user, "source_state", return_value=state), \
+                 patch.object(probe, "measure", return_value=rows, side_effect=error) as measure, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                status = parallel.aggregate(self.prepared, results, "123", 1, output)
+            measure.assert_called_once()
+            report = parallel.read(output)
+            self.assertEqual(status, int(error is not None))
+            if error:
+                self.assertEqual(report["artifact_status"], "fail")
+                self.assertIn("not executable", report["error"])
+            else:
+                self.assertEqual(report["frontend_simulation"], rows)
 
     def test_shard_failure_retains_partial_records_and_continues_other_cases(self):
         ids = self.plan["shards"][0]
