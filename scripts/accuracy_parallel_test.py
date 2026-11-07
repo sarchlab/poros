@@ -17,6 +17,7 @@ import accuracy_site as site
 import usertime as user
 import accuracy_test_support as fixtures
 import frontend_microbenchmark as probe
+import throughput_microbenchmark as throughput
 
 HEAD = "a" * 40
 BASE = "ec5df8efdd80fd02a0db7bd80e9ae413c509852b"
@@ -261,6 +262,33 @@ class ParallelAccuracyTests(unittest.TestCase):
                 self.assertIn("not executable", report["error"])
             else:
                 self.assertEqual(report["frontend_simulation"], rows)
+
+    def test_aggregation_requires_throughput_suite_when_source_declares_it(self):
+        state = copy.deepcopy(self.state)
+        state["files"][throughput.ELF] = "f" * 64
+        plan = copy.deepcopy(self.plan)
+        plan["head"] = state
+        parallel.write(self.prepared / "plan.json", plan)
+        shards = self.shards()
+        for shard in shards:
+            shard["plan_id"] = parallel.identity(plan)
+        results = self.write_shards(shards)
+        rows = [dict(id=c["id"], instructions=c["instructions_per_iteration"]*1024, cycles=100000) for c in throughput.cases()]
+        output = self.root / "throughput/report.json"
+        for error in (None, PermissionError("downloaded head is not executable")):
+            with patch.object(user, "source_state", return_value=state), \
+                 patch.object(throughput, "load_reference", return_value={}), \
+                 patch.object(throughput, "measure", return_value=rows, side_effect=error) as measure, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                status = parallel.aggregate(self.prepared, results, "123", 1, output)
+            measure.assert_called_once()
+            report = parallel.read(output)
+            self.assertEqual(status, int(error is not None))
+            if error:
+                self.assertEqual(report["artifact_status"], "fail")
+                self.assertIn("not executable", report["error"])
+            else:
+                self.assertEqual(report["throughput_simulation"], rows)
 
     def test_shard_failure_retains_partial_records_and_continues_other_cases(self):
         ids = self.plan["shards"][0]

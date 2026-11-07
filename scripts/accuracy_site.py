@@ -19,6 +19,7 @@ from workload_contract import LEGACY_IDS, case_ids, validate_manifest, manifest_
 import compute_usertime as compute
 import performance_reference as performance
 import frontend_microbenchmark as probe
+import throughput_microbenchmark as throughput
 from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
 
 SCHEMA = 1
@@ -542,11 +543,14 @@ def bundle_compact(report_path, source, output, commit):
         if FRONTEND_REFERENCE in report["head"]["files"]:
             shutil.copyfile(source / FRONTEND_REFERENCE, output / "frontend.json")
             names.add("frontend.json")
+        if throughput.ELF in report["head"]["files"]:
+            shutil.copyfile(source / throughput.REFERENCE, output / "throughput.json")
+            names.add("throughput.json")
     write(output / "bundle.json", dict(schema=SCHEMA, commit=commit,
           run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
           files={name: digest(output / name) for name in names}))
     validate_bundle(output, commit)
-    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None))
+    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None))
 
 
 def validate_compact_bundle(path, commit, manifest):
@@ -556,6 +560,10 @@ def validate_compact_bundle(path, commit, manifest):
         if digest(regular(path / "frontend.json")) != report["head"]["files"][FRONTEND_REFERENCE]:
             raise ValueError("frontend diagnostic differs from tested source")
         names.add("frontend.json")
+    if report["artifact_status"] == "pass" and throughput.ELF in report["head"]["files"]:
+        if digest(regular(path / "throughput.json")) != report["head"]["files"].get(throughput.REFERENCE):
+            raise ValueError("throughput reference differs from tested source")
+        names.add("throughput.json")
     if set(manifest["files"]) != names:
         raise ValueError("compact bundle membership mismatch")
     for name, expected in manifest["files"].items():
@@ -568,6 +576,11 @@ def validate_compact_bundle(path, commit, manifest):
         probe.validate(report.get("frontend_simulation"))
     elif "frontend_simulation" in report:
         raise ValueError("frontend probe is absent from the tested source")
+    if throughput.ELF in report["head"]["files"]:
+        native_throughput = throughput.validate_reference(read(path / "throughput.json"), report["head"]["files"])
+        throughput.validate_simulation(report.get("throughput_simulation"), native_throughput["cases"])
+    elif "throughput_simulation" in report:
+        raise ValueError("throughput suite absent from tested source")
     declared = report_manifest(report)
     measured = performance.validate(read(path / "reference.json"), declared)
     if digest(path / "reference.json") != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:
@@ -855,6 +868,33 @@ def frontend_table(reference, simulated=None):
             + '<p><a href="frontend.json">Native reference data</a></p>')
 
 
+def throughput_table(reference, simulated=None):
+    throughput.validate_reference(reference)
+    if simulated is not None:
+        throughput.validate_simulation(simulated, reference["cases"])
+    rows = []
+    for index, case in enumerate(reference["cases"]):
+        instructions = case["iterations"] * case["instructions_per_iteration"]
+        ns = case["median_seconds"] * 1e9 / instructions
+        spread = (case["p90_seconds"] - case["p10_seconds"]) / case["median_seconds"]
+        model = f"<td>{simulated[index]['instructions'] / simulated[index]['cycles']:.2f}</td>" if simulated else ""
+        rows.append(f"<tr><td>{esc(case['id'])}</td><td>{ns:.3f}</td>"
+                    f"<td>{case['p10_seconds']*1e9/instructions:.3f}–{case['p90_seconds']*1e9/instructions:.3f}</td>"
+                    f"<td>{100*spread:.1f}%</td><td>{1e9/ns/reference['assumed_hz']:.2f}</td>{model}</tr>")
+    return ('<h3>Instruction throughput suite</h3>'
+            f"<p>{esc(reference['hardware'])} · {esc(reference['collected_at_utc'])} · native macOS thread CPU time. "
+            "Nine paired long-minus-short measurements remove fixed harness overhead; each difference covers approximately 500 million instructions. "
+            "P10/P90 use nearest lower sample ranks. Core and operating frequency were unobserved. "
+            "Estimated IPC assumes 3.49 GHz; it does not establish hardware issue width. "
+            "Memory probes reuse a warmed 64-byte working set intended to fit L1.</p>"
+            '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/instruction</th><th>P10–P90 ns/instruction</th>'
+            '<th>Spread / median</th><th>Estimated native IPC</th>'
+            + ('<th>Simulated IPC</th>' if simulated else '') + '</tr></thead><tbody>' + ''.join(rows)
+            + '</tbody></table></div><p>Simulation uses the same assembly loops, differencing 1,024 and 2,048 iterations. '
+            'All checksums are checked analytically. '
+            'These cases are excluded from application accuracy statistics. <a href="throughput.json">Reference data</a></p>')
+
+
 def timing_curves(groups, cases):
     body = '<div class="charts">'
     for group in groups:
@@ -951,7 +991,7 @@ def timing_table(cases, ids):
     return body
 
 
-def detail(report, entry, preview=False, frontend=None):
+def detail(report, entry, preview=False, frontend=None, throughput_reference=None):
     commit = entry["commit"]
     body = (
         '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
@@ -1021,7 +1061,9 @@ def detail(report, entry, preview=False, frontend=None):
         micro_usable = sum(c.get("reference_quality") == "usable" for c in micros)
         micro_required = len(micro_ids) if report["artifact_status"] == "pass" else "—"
         body += f"<p>Usable microbenchmark references: {micro_usable} / {micro_required}</p>"
-    if frontend:
+    if throughput_reference:
+        body += throughput_table(throughput_reference, report.get("throughput_simulation"))
+    elif frontend:
         body += frontend_table(frontend, report.get("frontend_simulation"))
     body += timing_curves([g for g in groups if g["id"] in MICRO_WORKLOADS], micros)
     if report.get("schema") == 1:
@@ -1308,7 +1350,8 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
         e["benchmark_summary"] = benchmark_summary(retained_report)
         write(p / "metadata.json", e)
         frontend = read(p / "frontend.json") if "frontend.json" in retained_manifest["files"] else None
-        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend))
+        throughput_reference = read(p / "throughput.json") if "throughput.json" in retained_manifest["files"] else None
+        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference))
     write(index_path, index)
     (root / "index.html").write_text(home(index))
     (site / ".nojekyll").touch()
