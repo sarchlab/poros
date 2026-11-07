@@ -6,6 +6,7 @@ import compute_usertime as compute
 import performance_reference as reference
 import frontend_microbenchmark as frontend
 import throughput_microbenchmark as throughput
+import model_profiles
 
 
 MICRO_WORKLOADS = {"integer", "branch", "memory"}
@@ -42,6 +43,10 @@ def compare(args, executor):
                       base_capability=compute.base_capability(args.base_commit), base_status="per_case_resource_limit",
                       reference_sha256=user.digest(Path(user.ROOT) / reference.PATH),
                       reference={key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")})
+        declarations = model_profiles.resolve(user.ROOT, state, args.base_commit)
+        if declarations is not None:
+            report["model_profiles"] = declarations
+        profiles = model_profiles.validate(report)
         for case, native in zip(declared["cases"], measured["cases"]):
             expected = user.OutputIdentity(native["output_bytes"], native["output_sha256"])
             row = dict(id=case["id"], split=case["split"], status="unverified", mapped_image_bytes=case["mapped_image_bytes"],
@@ -53,7 +58,9 @@ def compare(args, executor):
             for label, binary, revision in (("head", args.head, state["commit"]), ("base", args.base, args.base_commit)):
                 if label == "base" and row["base_status"] != "available":
                     continue
-                result = executor(binary, case, expected_identity=expected)
+                options = {"expected_profile": profiles[label]} if declarations is not None else {}
+                result = executor(binary, case, expected_identity=expected, **options)
+                user.validate_execution(result, case, expected_identity=expected, expected_profile=profiles[label])
                 user.validate_timing(result, case)
                 if result["build"].get("vcs.revision") != revision or result["build"].get("vcs.modified") != "false":
                     raise ValueError(label + " binary provenance mismatch")
@@ -65,8 +72,6 @@ def compare(args, executor):
                     seconds, real = timing["predicted_user_seconds"], native["median_user_seconds"]
                     row[label].update(error_percent=user.error_percent(seconds, real), direction="slower" if seconds > real else "faster" if seconds < real else "equal")
             if "base" in row:
-                if any(row["base"][key] != row["head"][key] for key in ("configuration", "cache_config")):
-                    raise ValueError("base/head hardware profile differs")
                 if native["quality"] == "usable":
                     row["error_change_percentage_points"] = row["head"]["error_percent"] - row["base"]["error_percent"]
             row["functional_status"] = "pass"
@@ -74,9 +79,9 @@ def compare(args, executor):
             print("accuracy", case["id"], native["quality"], flush=True)
         if throughput.ELF in state["files"]:
             throughput.load_reference(user.ROOT)
-            report["throughput_simulation"] = throughput.measure(args.head, user.ROOT, state["commit"], declared["profile"])
+            report["throughput_simulation"] = throughput.measure(args.head, user.ROOT, state["commit"], profiles["head"])
         elif frontend.ELF in state["files"]:
-            report["frontend_simulation"] = frontend.measure(args.head, user.ROOT, state["commit"], declared["profile"])
+            report["frontend_simulation"] = frontend.measure(args.head, user.ROOT, state["commit"], profiles["head"])
         report["summary"] = compute.summaries(report["cases"], True)
         if user.source_state() != state or user.digest(args.head) != report["head_binary_sha256"] or user.digest(args.base) != report["base_binary_sha256"]:
             raise ValueError("source or simulator changed during comparison")

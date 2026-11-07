@@ -18,6 +18,8 @@ import usertime as user
 import accuracy_test_support as fixtures
 import frontend_microbenchmark as probe
 import throughput_microbenchmark as throughput
+import model_profiles as models
+import hashlib
 
 HEAD = "a" * 40
 BASE = "ec5df8efdd80fd02a0db7bd80e9ae413c509852b"
@@ -293,6 +295,42 @@ class ParallelAccuracyTests(unittest.TestCase):
             else:
                 self.assertEqual(report["throughput_simulation"], rows)
                 self.assertNotIn("frontend_simulation", report)
+
+    def test_distinct_revision_profiles_survive_all_264_replayed_cases(self):
+        state = copy.deepcopy(self.state)
+        head_profile = copy.deepcopy(self.profile)
+        head_profile["configuration"]["fetch_width"] = 8
+        head_hash = hashlib.sha256(models.encode(head_profile)).hexdigest()
+        state["files"][models.PATH] = head_hash
+        declarations = {"head": dict(commit=HEAD, path=models.PATH, sha256=head_hash, profile=head_profile),
+                        "base": models.revision(Path(__file__).resolve().parents[1], BASE)}
+        self.plan["head"] = state
+        self.plan["model_profiles"] = declarations
+        parallel.write(self.prepared / "plan.json", self.plan)
+        shards = self.shards()
+        for shard in shards:
+            for record in shard["records"]:
+                record["executions"]["head"]["timing"].update(copy.deepcopy(head_profile))
+        results = self.write_shards(shards)
+        output = self.root / "models/report.json"
+        with patch.object(user, "source_state", return_value=state), \
+             patch.object(models, "resolve", return_value=declarations), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output), 0)
+            report = parallel.read(output)
+            self.assertEqual(len(report["cases"]), 264)
+            self.assertEqual(report["model_profiles"], declarations)
+            for row in report["cases"]:
+                self.assertEqual(row["head"]["configuration"], head_profile["configuration"])
+                if "base" in row:
+                    self.assertEqual(row["base"]["configuration"], self.profile["configuration"])
+            for role in ("head", "base"):
+                altered = copy.deepcopy(shards)
+                record = next(record for shard in altered for record in shard["records"] if role in record["executions"])
+                record["executions"][role]["timing"]["configuration"]["fetch_width"] = 16
+                self.write_shards(altered)
+                self.assertNotEqual(parallel.aggregate(self.prepared, results, "123", 1, output), 0)
+                self.assertIn("declared model profile", parallel.read(output)["error"])
 
     def test_shard_failure_retains_partial_records_and_continues_other_cases(self):
         ids = self.plan["shards"][0]

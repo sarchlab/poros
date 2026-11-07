@@ -39,7 +39,7 @@ type Spec struct {
 
 func DefaultSpec() Spec {
 	return Spec{
-		Freq: 3490 * timing.MHz, FetchWidth: 3, RetireWidth: 8, ROBCapacity: 256,
+		Freq: 3490 * timing.MHz, FetchWidth: 8, RetireWidth: 8, ROBCapacity: 256,
 		NumINT: 6, NumFP: 4, NumLDST: 4, BranchPenalty: 17, LoadLatency: 5,
 		FpPhysLimit: 72, StoreBufferSize: 56, NumMSHREntries: 12, BranchPrediction: true,
 		Predictor: PredictorSpec{BimodalSize: 4096, TaggedTableSize: 2048, BTBSize: 2048, BTBWays: 4, RASSize: 32, TaggedHistLen: 32},
@@ -247,8 +247,13 @@ func (p *middleware) fetchAndProcess() {
 			issueCycle = srcReady
 		}
 
-		bestUnit, bestCycle := p.findUnit(ut, issueCycle)
-		issueCycle = bestCycle
+		// NOP is eliminated before execution, while retaining frontend, ROB
+		// and retirement accounting. Other HINT instructions are not assumed
+		// to have the same resource behavior.
+		bestUnit := -1
+		if inst.Op != arm64asm.NOP {
+			bestUnit, issueCycle = p.findUnit(ut, issueCycle)
+		}
 
 		// 4. Execute functionally (in program order).
 		_, branched, execErr := p.comp.Resources.backend().StepDetailed()
@@ -374,7 +379,9 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		// 9. Mark execution unit busy.
-		p.markUnitBusy(ut, bestUnit, issueCycle, inst.Op)
+		if bestUnit >= 0 {
+			p.markUnitBusy(ut, bestUnit, issueCycle, inst.Op)
+		}
 
 		// 10. Add to ROB and track FP register usage.
 		p.comp.State.Rob[p.comp.State.RobTail] = completeCycle

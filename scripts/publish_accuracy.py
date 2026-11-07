@@ -41,6 +41,7 @@ def verify_source(source, bundle, commit):
         if hashlib.sha256(data).hexdigest() != report["head"]["files"][path]:
             raise ValueError("report source hash differs from commit: " + path)
     if report["schema"] == 4:
+        site.model_profiles.verify_source(source, report)
         reference = site.read(Path(bundle) / "reference.json")
         site.performance.require_collection_ancestor(source, reference["collection_commit"], commit)
         def committed_json(path):

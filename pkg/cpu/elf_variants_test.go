@@ -168,3 +168,32 @@ func TestELFTimingExecutionKeepsCollidingSourcesDistinct(t *testing.T) {
 		t.Fatal("instruction fetch from non-executable stack succeeded")
 	}
 }
+
+func TestELFTimingExecutionCachesImmediateRegisterSources(t *testing.T) {
+	image, err := os.ReadFile("../../tests/elf/hello.elf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := elf.NewFile(bytes.NewReader(image))
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := file.Section(".text")
+	binary.LittleEndian.PutUint32(image[section.Offset:], 0x91000442) // ADD X2,X2,#1
+	p, err := linuxuser.Parse(image, linuxuser.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := p.NewExecution(context.Background(), linuxuser.RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	resource := NewELFTimingExecution(x).(*elfTimingExecution)
+	for i := 0; i < 3; i++ {
+		_, gprs, fps, err := resource.PeekSources(section.Addr)
+		if err != nil || !slices.Equal(gprs, []int{2}) || len(fps) != 0 {
+			t.Fatalf("cached immediate sources: GPR=%v FP=%v err=%v", gprs, fps, err)
+		}
+	}
+}

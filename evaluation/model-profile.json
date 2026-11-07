@@ -1,0 +1,37 @@
+{
+  "cache_config": {
+    "DRAMLatency": 335,
+    "L1Latency": 5,
+    "L1LineSize": 64,
+    "L1Size": 131072,
+    "L1Ways": 8,
+    "L2Latency": 14,
+    "L2LineSize": 128,
+    "L2Size": 16777216,
+    "L2Ways": 16
+  },
+  "configuration": {
+    "branch_penalty": 17,
+    "branch_prediction": true,
+    "fetch_width": 8,
+    "fp_phys_limit": 72,
+    "freq": 3490000000,
+    "func_hook_cycles": null,
+    "load_latency": 5,
+    "num_fp": 4,
+    "num_int": 6,
+    "num_ldst": 4,
+    "num_mshr_entries": 12,
+    "predictor": {
+      "bimodal_size": 4096,
+      "btb_size": 2048,
+      "btb_ways": 4,
+      "ras_size": 32,
+      "tagged_hist_len": 32,
+      "tagged_table_size": 2048
+    },
+    "retire_width": 8,
+    "rob_capacity": 256,
+    "store_buffer_size": 56
+  }
+}

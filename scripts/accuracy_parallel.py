@@ -19,6 +19,7 @@ import accuracy_site as site
 import performance_reference as reference
 import compute_usertime as compute
 import usertime as user
+import model_profiles
 
 ROOT = user.ROOT
 REFERENCE = reference.PATH
@@ -94,6 +95,9 @@ def prepare(base, directory, run_id, attempt, shards):
                 binaries={"head": user.digest(head_binary), "base": user.digest(base_binary)},
                 references={"performance264": user.digest(ROOT / REFERENCE)},
                 cases=cases, shards=partition(cases, shards))
+    declarations = model_profiles.resolve(ROOT, state, base)
+    if declarations is not None:
+        plan["model_profiles"] = declarations
     if not plan["run_id"]:
         raise ValueError("run identity is required")
     write(directory / "plan.json", plan)
@@ -111,6 +115,8 @@ def load_plan(directory, run_id, attempt):
     if state["dirty"] or plan["head"] != state:
         raise ValueError("plan source mismatch")
     site.sha(plan["base_commit"])
+    if plan.get("model_profiles") != model_profiles.resolve(ROOT, state, plan["base_commit"]):
+        raise ValueError("plan model declarations differ from source")
     cases, witnesses = inputs()
     if plan["cases"] != cases or plan["shards"] != partition(cases, len(plan["shards"])):
         raise ValueError("plan coverage/partition mismatch")
@@ -138,7 +144,8 @@ def roles(plan, case, witnesses):
 
 def validate_result(result, plan, case, role, golden):
     mode = "functional" if role == "functional" else None
-    user.validate_execution(result, case, mode, expected_identity=golden)
+    profile = plan.get("model_profiles", {}).get("base" if role == "base" else "head", {}).get("profile")
+    user.validate_execution(result, case, mode, expected_identity=golden, expected_profile=profile)
     revision = plan["base_commit"] if role == "base" else plan["head"]["commit"]
     if result["build"].get("vcs.revision") != revision or result["build"].get("vcs.modified") != "false":
         raise ValueError("execution build provenance mismatch")
@@ -163,9 +170,10 @@ def run_shard(directory, run_id, attempt, index, output):
             golden = load_witness(witnesses, ident)
             for role in roles(plan, case, witnesses):
                 label = "base" if role == "base" else "head"
+                options = {"expected_profile": plan["model_profiles"][label]["profile"]} if "model_profiles" in plan else {}
                 result = user.execute(Path(directory) / label, case,
                                       mode="functional" if role == "functional" else None,
-                                      expected_identity=golden)
+                                      expected_identity=golden, **options)
                 validate_result(result, plan, case, role, golden)
                 record["executions"][role] = result
             print("accuracy shard", index, ident, "pass", flush=True)
@@ -227,7 +235,7 @@ def recorded_executor(plan, selected, witnesses, directory):
                 records[(case["id"], role)] = result
     remaining = set(records)
 
-    def execute(binary, case, mode=None, expected_output=None, expected_identity=None):
+    def execute(binary, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None):
         label = "head" if Path(binary) == Path(directory) / "head" else "base" if Path(binary) == Path(directory) / "base" else None
         role = "functional" if mode == "functional" and label == "head" else label
         key = (case["id"], role)
@@ -235,6 +243,8 @@ def recorded_executor(plan, selected, witnesses, directory):
         output_matches = expected_output is None and expected_identity == witness
         if label is None or case != cases[case["id"]] or not output_matches:
             raise ValueError("recorded execution request mismatch")
+        if expected_profile != plan.get("model_profiles", {}).get(label, {}).get("profile") and mode != "functional":
+            raise ValueError("recorded model profile request mismatch")
         if key not in remaining:
             raise ValueError("missing or reused execution")
         remaining.remove(key)

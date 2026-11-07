@@ -47,7 +47,7 @@ class OutputIdentity:
             raise ValueError("complete output identity mismatch")
 
 
-def execute(poros, case, mode=None, expected_output=None, expected_identity=None):
+def execute(poros, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None):
     argv = [
         str(poros),
         "elf",
@@ -76,10 +76,10 @@ def execute(poros, case, mode=None, expected_output=None, expected_identity=None
             + p.stderr.decode(errors="replace")
         )
     r = json.loads(p.stdout)
-    return validate_execution(r, case, mode, expected_output, expected_identity)
+    return validate_execution(r, case, mode, expected_output, expected_identity, expected_profile)
 
 
-def validate_execution(r, case, mode=None, expected_output=None, expected_identity=None):
+def validate_execution(r, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None):
     """Apply identical checks to live and recorded simulator executions."""
     if (
         r["binary_sha256"] != case["sha256"]
@@ -110,11 +110,12 @@ def validate_execution(r, case, mode=None, expected_output=None, expected_identi
             raise ValueError("functional execution unexpectedly contains timing")
         return r
     t = r["timing"]
+    profile = inventory()["profile"] if expected_profile is None else expected_profile
     if (
-        t["configuration"] != inventory()["profile"]["configuration"]
-        or t["cache_config"] != inventory()["profile"]["cache_config"]
+        t["configuration"] != profile["configuration"]
+        or t["cache_config"] != profile["cache_config"]
     ):
-        raise ValueError("frozen hardware profile mismatch")
+        raise ValueError("declared model profile mismatch")
     if (
         t["model"] != case["model"]
         or t["assumed_hz"] != case["frequency_hz"]
