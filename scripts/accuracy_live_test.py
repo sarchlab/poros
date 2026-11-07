@@ -150,6 +150,7 @@ class LiveReportTests(unittest.TestCase):
         view = self.view(value)
         page, assets = view.load()
         self.assertIn(b'Live snapshot', page)
+        self.assertIn(('Measurement completed (UTC): ' + value['report']['reference']['completed_at_utc']).encode(), page)
         self.assertNotIn(b'href="report.json"', page)
         self.assertNotIn(b'href="report.md"', page)
         self.assertNotIn(b'href="bundle.json"', page)

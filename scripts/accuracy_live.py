@@ -96,7 +96,7 @@ class SnapshotView:
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(live["updated_at"])).total_seconds()
         if age > 45 and live["state"] in ("running", "waiting"):
             live.update(state="waiting", errors=[*live["errors"], "Snapshot producer has not updated for more than 45 seconds; displayed progress may be stale."])
-        entry = dict(commit=report["head"]["commit"], measurement_completed_at=report.get("reference", {}).get("measurement_completed_at"))
+        entry = dict(commit=report["head"]["commit"], measurement_completed_at=report.get("reference", {}).get("completed_at_utc"))
         assets = {"snapshot.json": json.dumps(value, indent=2).encode()}
         throughput = value.get("throughput_reference")
         frontend = None
@@ -124,7 +124,6 @@ class SnapshotView:
                 throughput, frontend = completed_throughput, completed_frontend
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
                 live.update(state="failed", errors=["Final bundle validation failed: " + str(error)])
-        live["downloads"] = sorted(assets)
         return site.detail(report, entry, preview=True, frontend=frontend, throughput_reference=throughput, live=live).encode(), assets
 
 
