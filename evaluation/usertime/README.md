@@ -15,7 +15,7 @@ unknown; hardware timing accuracy is **unverified**. Linux VM measurements are
 historical evidence only and cannot feed new active accuracy comparisons.
 
 The error is `100 * abs(simulated - reference) / min(simulated, reference)`.
-No offset fitting, batching, or anchor removal is used. The CPU timing profile assumes 3.49 GHz.
+No offset fitting, repeated-kernel timing, or anchor removal is used. The CPU timing profile assumes 3.49 GHz.
 
 ## Independent correctness and performance inventories
 

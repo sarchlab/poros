@@ -1108,8 +1108,12 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         else '<p><a href="../../index.html">← Report history</a></p>'
     ) + "</header>"
     native_reference = report.get("reference", {}).get("protocol") == performance.NATIVE_PROTOCOL
-    environment = ("Current reference is native macOS on Apple M2, using Mach-O executables with audited ELF-matched computation. Startup and runtime adapters are included; complete executable instruction streams and address layouts differ."
-                   if native_reference else "Current reference is an Apple M2 host running a Linux ARM64 VM.")
+    if native_reference:
+        environment = "Current reference is native macOS on Apple M2, using Mach-O executables with audited ELF-matched computation. Startup and runtime adapters are included; complete executable instruction streams and address layouts differ."
+    elif report.get("reference", {}).get("environment") == "virtualized":
+        environment = "Current reference is an Apple M2 host running a Linux ARM64 VM."
+    else:
+        environment = "Reference environment is unavailable for this report; no hardware environment is inferred."
     body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> ' + environment + ' Core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
     if live is not None:
         body += '<div class="notice"><strong>' + esc(live["state"].title()) + '</strong> · '

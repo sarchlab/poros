@@ -64,6 +64,13 @@ class NativeReferenceTests(unittest.TestCase):
             site.bundle(raw,old.source,Path(directory)/'bundle',fixtures.SHA)
             self.assertIn('Linux ARM64 VM',(Path(directory)/'bundle/index.html').read_text())
 
+    def test_failed_report_without_reference_does_not_claim_vm_or_native(self):
+        report=dict(schema=1,artifact_status="fail",accuracy_status="unverified",head_commit=fixtures.SHA,cases=[],error="Prepare failed")
+        page=site.detail(report,dict(commit=fixtures.SHA),preview=True)
+        self.assertIn("Reference environment is unavailable",page)
+        self.assertNotIn("Linux ARM64 VM",page)
+        self.assertNotIn("native macOS on Apple M2",page)
+
     def test_published_native_sources_do_not_invent_a_committed_collector(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);source=root/'source';shutil.copytree(self.fixture.source,source)
