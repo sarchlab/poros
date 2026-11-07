@@ -138,7 +138,7 @@ class LiveReportTests(unittest.TestCase):
                           dict(kind=live.KIND, report={"head": None}, progress={})):
             site.write(view.snapshot, malformed)
             self.assertIn(b'last validated snapshot', view.load()[0])
-        value = self.snapshot(); value['progress']['updated_at'] = '2000-01-01T00:00:00+00:00' 
+        value = self.snapshot(); value['progress']['updated_at'] = '2000-01-01T00:00:00+00:00'
         site.write(view.snapshot, value)
         self.assertIn(b'progress may be stale', view.load()[0])
         value['progress'].update(state='failed', errors=['Runner stopped'])
