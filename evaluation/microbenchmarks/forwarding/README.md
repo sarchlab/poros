@@ -46,6 +46,8 @@ The distribution endpoints are variability summaries, not confidence intervals.
 protocol. Existing application references and the separate instruction
 throughput reference are retained unchanged. Only compact plotting summaries
 are committed; transient stdout and test logs remain outside the repository.
+Collection-time collector-source hashes may differ from later committed tooling;
+retain the recorded hashes rather than rewriting historical provenance.
 
 Build the ELF with `bash evaluation/microbenchmarks/forwarding/build.sh`.
 Run functional/simulator smoke checks with
