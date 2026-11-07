@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import statistics
 import subprocess
 from workload_contract import LEGACY_IDS, case_ids, validate_manifest, manifest_path
 import compute_usertime as compute
@@ -780,6 +781,48 @@ ERROR_BANDS = (
 )
 
 
+def correlation_statistics(points):
+    n = len(points)
+    pearson = "—"
+    concordant = discordant = measured_unequal = predicted_unequal = 0
+    if n >= 2:
+        mx, my = (sum(p[k] for p in points)/n for k in (0, 1))
+        dx, dy = ([p[k]-mean for p in points] for k, mean in ((0,mx),(1,my)))
+        denom = math.sqrt(sum(x*x for x in dx) * sum(y*y for y in dy))
+        if denom:
+            pearson = f"{sum(x*y for x,y in zip(dx,dy))/denom:.4f}"
+        for i, (x, y, _) in enumerate(points):
+            for xx, yy, _ in points[:i]:
+                measured_unequal += x != xx
+                predicted_unequal += y != yy
+                if x != xx and y != yy:
+                    if (x < xx) == (y < yy):
+                        concordant += 1
+                    else:
+                        discordant += 1
+    denominator = math.sqrt(measured_unequal * predicted_unequal)
+    tau = f"{(concordant - discordant) / denominator:.4f}" if denominator else "—"
+    pair = (f"{concordant / measured_unequal:.2%} ({concordant:,}/{measured_unequal:,})"
+            if measured_unequal else "—")
+    return dict(count=n, pearson=pearson, tau=tau, pair=pair)
+
+
+def comparison_table(cases):
+    shared = [c for c in cases if c.get("reference_quality") == "usable"
+              and all("error_percent" in c.get(role, {}) for role in ("base", "head"))]
+    body = (f'<h3>Base and head comparison</h3><p>Both rows use the same {len(shared)} qualified application cases '
+            'with base and head predictions. The overview charts use all qualified head cases.</p>'
+            '<div class="table"><table><thead><tr><th>Model</th><th>Mean error</th><th>Median error</th>'
+            '<th>Pearson r</th><th>Kendall τ-b</th><th>Pairs ordered correctly</th></tr></thead><tbody>')
+    for role in ("base", "head"):
+        metrics = correlation_statistics([(c["reference_user_seconds"] * 1000, c[role]["predicted_user_seconds"] * 1000, c["id"]) for c in shared])
+        errors = [c[role]["error_percent"] for c in shared]
+        values = [role, number(statistics.mean(errors), "%") if errors else "—",
+                  number(statistics.median(errors), "%") if errors else "—", metrics["pearson"], metrics["tau"], metrics["pair"]]
+        body += '<tr>' + ''.join('<td>' + esc(v) + '</td>' for v in values) + '</tr>'
+    return body + '</tbody></table></div>'
+
+
 def overview_charts(cases):
     # Both views and both statistics use exactly the same qualified head cases.
     points = [(c["reference_user_seconds"] * 1000, c["head"]["predicted_user_seconds"] * 1000, c["id"])
@@ -819,27 +862,8 @@ def overview_charts(cases):
                     [("head", ranks, "#087e8b")], "Case rank (underestimate → overestimate)",
                     "Time ratio (log₂ scale)", x_ticks=rank_ticks, y_ticks=ticks,
                     note=band_note, y_bands=shading)
-    pearson = "—"
-    concordant = discordant = measured_unequal = predicted_unequal = 0
-    if n >= 2:
-        mx, my = (sum(p[k] for p in points)/n for k in (0, 1))
-        dx, dy = ([p[k]-mean for p in points] for k, mean in ((0,mx),(1,my)))
-        denom = math.sqrt(sum(x*x for x in dx) * sum(y*y for y in dy))
-        if denom:
-            pearson = f"{sum(x*y for x,y in zip(dx,dy))/denom:.4f}"
-        for i, (x, y, _) in enumerate(points):
-            for xx, yy, _ in points[:i]:
-                measured_unequal += x != xx
-                predicted_unequal += y != yy
-                if x != xx and y != yy:
-                    if (x < xx) == (y < yy):
-                        concordant += 1
-                    else:
-                        discordant += 1
-    denominator = math.sqrt(measured_unequal * predicted_unequal)
-    tau = f"{(concordant - discordant) / denominator:.4f}" if denominator else "—"
-    pair = (f"{concordant / measured_unequal:.2%} ({concordant:,}/{measured_unequal:,})"
-            if measured_unequal else "—")
+    metrics = correlation_statistics(points)
+    pearson, tau, pair = (metrics[k] for k in ("pearson", "tau", "pair"))
     note = (f"<p><strong>Kendall’s τ-b = {tau}</strong><br>"
             f"<strong>Pairs ordered correctly: {pair}</strong><br>"
             f"Pearson correlation (r) = {pearson}</p>"
@@ -997,7 +1021,7 @@ def timing_table(cases, ids):
     return body
 
 
-def detail(report, entry, preview=False, frontend=None, throughput_reference=None):
+def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None):
     commit = entry["commit"]
     body = (
         '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
@@ -1010,10 +1034,19 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         else '<p><a href="../../index.html">← Report history</a></p>'
     ) + "</header>"
     body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> Current reference is an Apple M2 host running a Linux ARM64 VM; core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
+    if live is not None:
+        body += '<div class="notice"><strong>' + esc(live["state"].title()) + '</strong> · '
+        body += f'{live["completed_cases"]} / {live["required_cases"]} cases · {live["completed_shards"]} / {live["required_shards"]} shards. '
+        body += ('Complete validated bundle.' if live.get("validated_bundle") else
+                 'Live snapshot — not a publishable report. Partial results are not a final accuracy conclusion; the subset changes as work finishes.')
+        body += ' Updated ' + esc(live["updated_at"]) + '.</div>'
+        body += '<p>Active cases: ' + esc(', '.join(live["active_cases"]) or 'none') + '</p>'
+        if live["errors"]:
+            body += '<p class="notice">' + esc('; '.join(live["errors"])) + '</p>'
     cases = report.get("cases", [])
     benchmarks = [c for c in cases if not is_micro_case(c)]
     micros = [c for c in cases if is_micro_case(c)]
-    declared = report_manifest(report)["cases"] if report["artifact_status"] == "pass" else cases
+    declared = report_manifest(report)["cases"] if report["artifact_status"] == "pass" or live is not None else cases
     benchmark_ids = [c["id"] for c in declared if not is_micro_case(c)]
     micro_ids = [c["id"] for c in declared if is_micro_case(c)]
     usable = sum(c.get("reference_quality") == "usable" for c in benchmarks)
@@ -1030,7 +1063,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
                 ("Full Evaluation", entry.get("evaluation_conclusion", "not checked")),
                 (
                     "Usable benchmark references",
-                    f"{usable} / {len(benchmark_ids) if report.get('artifact_status') == 'pass' else '—'}",
+                    f"{usable} / {len(benchmark_ids) if report.get('artifact_status') == 'pass' or live is not None else '—'}",
                 ),
                 ("Hardware accuracy", report["accuracy_status"]),
             ]
@@ -1045,7 +1078,8 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         body += '<p class="notice">' + esc(report["error"]) + "</p>"
     body += '<nav class="downloads"><a href="#overall">Benchmark accuracy</a><a href="#microbenchmarks">Microbenchmarks</a></nav>'
     body += overview_charts(benchmarks)
-    summary = benchmark_summary(report)
+    body += comparison_table(benchmarks)
+    summary = compute.case_summary([c for c in benchmarks if c.get("head")], performance=report.get("schema") == 4)
     if summary.get("head"):
         mean = number(summary["head"]["mean_error_percent"], "%")
         maximum = number(summary["head"]["maximum_error_percent"], "%")
@@ -1056,7 +1090,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
             "workloads",
             [dict(id=w, axis="iterations") for w in ("integer", "memory", "branch")],
         )
-        if report["artifact_status"] == "pass"
+        if report["artifact_status"] == "pass" or live is not None
         else []
     )
     body += timing_curves([g for g in groups if g["id"] not in MICRO_WORKLOADS], benchmarks)
@@ -1065,7 +1099,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     body += '<p>Hardware diagnostics are reported separately from benchmark accuracy.</p>'
     if micro_ids:
         micro_usable = sum(c.get("reference_quality") == "usable" for c in micros)
-        micro_required = len(micro_ids) if report["artifact_status"] == "pass" else "—"
+        micro_required = len(micro_ids) if report["artifact_status"] == "pass" or live is not None else "—"
         body += f"<p>Usable microbenchmark references: {micro_usable} / {micro_required}</p>"
     if throughput_reference:
         body += throughput_table(throughput_reference, report.get("throughput_simulation"))
@@ -1074,14 +1108,15 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     body += timing_curves([g for g in groups if g["id"] in MICRO_WORKLOADS], micros)
     if report.get("schema") == 1:
         body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
-    elif report["artifact_status"] == "pass":
+    elif report["artifact_status"] == "pass" or live is not None:
         accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
         body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
     body += timing_table(micros, micro_ids) + '</section>'
     body += (
         "<h2>Evidence and provenance</h2><p>Measurement completed (UTC): "
         + esc(entry.get("measurement_completed_at") or "unavailable")
-        + '</p><div class="downloads"><a href="report.json">Report JSON</a><a href="report.md">Markdown report</a><a href="bundle.json">Evidence hashes</a>'
+        + '</p><div class="downloads">'
+        + ('<a href="report.json">Report JSON</a><a href="report.md">Markdown report</a><a href="bundle.json">Evidence hashes</a>' if live is None or live.get("validated_bundle") else "")
     )
     if report["artifact_status"] == "pass":
         if report["schema"] == 4:
@@ -1145,7 +1180,10 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         )
         + "</pre></details>"
     )
-    return page("Poros accuracy · " + commit[:12], body, POINT_TIPS)
+    if live is not None:
+        body += '<p><a href="snapshot.json">Live snapshot JSON</a></p>'
+    refresh = '<script>setTimeout(()=>location.reload(),15000)</script>' if live is not None and not live.get("validated_bundle") else ""
+    return page("Poros accuracy · " + commit[:12], body, POINT_TIPS + refresh)
 
 
 def series_key(report):
@@ -1458,7 +1496,15 @@ def main():
     reuse = sub.add_parser("reusable")
     reuse.add_argument("--bundle", required=True)
     reuse.add_argument("--commit", required=True)
+    serve = sub.add_parser("serve", help="Serve a live snapshot with the canonical report renderer")
+    serve.add_argument("--snapshot", required=True)
+    serve.add_argument("--bundle", help="Optional complete validated bundle to transition to")
+    serve.add_argument("--port", type=int, default=18763)
     a = p.parse_args()
+    if a.command == "serve":
+        import accuracy_live
+        accuracy_live.serve(a.snapshot, a.bundle, a.port)
+        return
     if a.command == "reusable":
         raise SystemExit(0 if reusable_bundle(a.bundle, a.commit) else 1)
     if a.command == "bundle":
