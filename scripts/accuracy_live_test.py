@@ -85,6 +85,28 @@ class LiveReportTests(unittest.TestCase):
         self.assertLess(page.index('Benchmark timing curves'), page.index('Benchmark timing table'))
         self.assertLess(page.index('Benchmark timing table'), page.index('<section id="microbenchmarks">'))
 
+    def test_failed_ci_hides_summary_while_live_partial_shows_it(self):
+        value = self.snapshot()
+        failed = copy.deepcopy(value["report"])
+        failed["artifact_status"] = "fail"
+        rendered = site.detail(failed, dict(commit=failed["head"]["commit"]))
+        self.assertNotIn("Application timing error across", rendered)
+        partial, _ = self.view(value).load()
+        self.assertIn(b"Application timing error across", partial)
+        self.assertIn(b"maximum", partial)
+
+    def test_completed_assets_drop_snapshot_only_downloads(self):
+        manifest = site.read(self.bundle / "bundle.json")
+        manifest["files"].pop("throughput.json")
+        # Exercise the transport boundary with a validator-approved asset list
+        # that lacks the optional throughput attachment.
+        with patch.object(site, "validate_bundle", return_value=(self.report, manifest)):
+            rendered, assets = self.view(self.snapshot(True), self.bundle).load()
+        self.assertIn(b"Complete validated bundle", rendered)
+        self.assertEqual(set(assets), {"snapshot.json", "bundle.json", *manifest["files"]})
+        self.assertNotIn("throughput.json", assets)
+        self.assertNotIn(b'href="throughput.json"', rendered)
+
     def test_partial_never_publishable_and_no_missing_downloads(self):
         value = self.snapshot()
         view = self.view(value)

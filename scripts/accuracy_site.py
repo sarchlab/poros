@@ -1023,6 +1023,7 @@ def timing_table(cases, ids):
 
 def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None):
     commit = entry["commit"]
+    full_inventory = report["artifact_status"] == "pass" or live is not None
     body = (
         '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
         + esc(commit)
@@ -1046,7 +1047,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     cases = report.get("cases", [])
     benchmarks = [c for c in cases if not is_micro_case(c)]
     micros = [c for c in cases if is_micro_case(c)]
-    declared = report_manifest(report)["cases"] if report["artifact_status"] == "pass" or live is not None else cases
+    declared = report_manifest(report)["cases"] if full_inventory else cases
     benchmark_ids = [c["id"] for c in declared if not is_micro_case(c)]
     micro_ids = [c["id"] for c in declared if is_micro_case(c)]
     usable = sum(c.get("reference_quality") == "usable" for c in benchmarks)
@@ -1063,7 +1064,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
                 ("Full Evaluation", entry.get("evaluation_conclusion", "not checked")),
                 (
                     "Usable benchmark references",
-                    f"{usable} / {len(benchmark_ids) if report.get('artifact_status') == 'pass' or live is not None else '—'}",
+                    f"{usable} / {len(benchmark_ids) if full_inventory else '—'}",
                 ),
                 ("Hardware accuracy", report["accuracy_status"]),
             ]
@@ -1079,7 +1080,8 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     body += '<nav class="downloads"><a href="#overall">Benchmark accuracy</a><a href="#microbenchmarks">Microbenchmarks</a></nav>'
     body += overview_charts(benchmarks)
     body += comparison_table(benchmarks)
-    summary = compute.case_summary([c for c in benchmarks if c.get("head")], performance=report.get("schema") == 4)
+    summary = (compute.case_summary([c for c in benchmarks if c.get("head")], performance=report.get("schema") == 4)
+               if full_inventory else {})
     if summary.get("head"):
         mean = number(summary["head"]["mean_error_percent"], "%")
         maximum = number(summary["head"]["maximum_error_percent"], "%")
@@ -1090,7 +1092,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
             "workloads",
             [dict(id=w, axis="iterations") for w in ("integer", "memory", "branch")],
         )
-        if report["artifact_status"] == "pass" or live is not None
+        if full_inventory
         else []
     )
     body += timing_curves([g for g in groups if g["id"] not in MICRO_WORKLOADS], benchmarks)
@@ -1099,7 +1101,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     body += '<p>Hardware diagnostics are reported separately from benchmark accuracy.</p>'
     if micro_ids:
         micro_usable = sum(c.get("reference_quality") == "usable" for c in micros)
-        micro_required = len(micro_ids) if report["artifact_status"] == "pass" or live is not None else "—"
+        micro_required = len(micro_ids) if full_inventory else "—"
         body += f"<p>Usable microbenchmark references: {micro_usable} / {micro_required}</p>"
     if throughput_reference:
         body += throughput_table(throughput_reference, report.get("throughput_simulation"))
@@ -1108,7 +1110,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     body += timing_curves([g for g in groups if g["id"] in MICRO_WORKLOADS], micros)
     if report.get("schema") == 1:
         body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
-    elif report["artifact_status"] == "pass" or live is not None:
+    elif full_inventory:
         accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
         body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
     body += timing_table(micros, micro_ids) + '</section>'

@@ -120,7 +120,7 @@ class SnapshotView:
                 report = completed
                 live["validated_bundle"] = True
                 entry.update(evidence_files=sorted(manifest["files"]), measurement_completed_at=measurement_completed)
-                assets.update(completed_assets)
+                assets = {"snapshot.json": assets["snapshot.json"], **completed_assets}
                 throughput, frontend = completed_throughput, completed_frontend
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
                 live.update(state="failed", errors=["Final bundle validation failed: " + str(error)])
