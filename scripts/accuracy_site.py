@@ -1096,24 +1096,28 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         else []
     )
     body += timing_curves([g for g in groups if g["id"] not in MICRO_WORKLOADS], benchmarks)
-    body += '<h2>Benchmark timing table</h2>' + timing_table(benchmarks, benchmark_ids)
+    body += (f'<details id="benchmark-table"><summary>Benchmark timing table · {len(benchmark_ids)} cases</summary>'
+             + timing_table(benchmarks, benchmark_ids) + '</details>')
     body += '<section id="microbenchmarks"><h2>Microbenchmarks</h2>'
     body += '<p>Hardware diagnostics are reported separately from benchmark accuracy.</p>'
     if micro_ids:
         micro_usable = sum(c.get("reference_quality") == "usable" for c in micros)
         micro_required = len(micro_ids) if full_inventory else "—"
         body += f"<p>Usable microbenchmark references: {micro_usable} / {micro_required}</p>"
-    if throughput_reference:
-        body += throughput_table(throughput_reference, report.get("throughput_simulation"))
-    elif frontend:
-        body += frontend_table(frontend, report.get("frontend_simulation"))
     body += timing_curves([g for g in groups if g["id"] in MICRO_WORKLOADS], micros)
     if report.get("schema") == 1:
         body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
     elif full_inventory:
         accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
         body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
-    body += timing_table(micros, micro_ids) + '</section>'
+    if throughput_reference:
+        body += (f'<details id="throughput-table"><summary>Instruction throughput table · {len(throughput_reference["cases"])} probes</summary>'
+                 + throughput_table(throughput_reference, report.get("throughput_simulation")) + '</details>')
+    elif frontend:
+        body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
+                 + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
+    body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
+             + timing_table(micros, micro_ids) + '</details></section>')
     body += (
         "<h2>Evidence and provenance</h2><p>Measurement completed (UTC): "
         + esc(entry.get("measurement_completed_at") or "unavailable")
@@ -1184,7 +1188,21 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     )
     if live is not None:
         body += '<p><a href="snapshot.json">Live snapshot JSON</a></p>'
-    refresh = '<script>setTimeout(()=>location.reload(),15000)</script>' if live is not None and not live.get("validated_bundle") else ""
+    refresh = ""
+    if live is not None:
+        # Consume the state only on the next automatic reload. A fresh visit
+        # defaults to closed; the final bundle transition restores it too.
+        refresh = """<script>(()=>{
+const key="poros-report-open:"+location.pathname;
+try{const saved=sessionStorage.getItem(key);sessionStorage.removeItem(key);
+for(const id of JSON.parse(saved||"[]")){const node=document.getElementById(id);if(node&&node.tagName==="DETAILS")node.open=true;}}catch(e){}
+"""
+        if not live.get("validated_bundle"):
+            refresh += """setTimeout(()=>{
+try{sessionStorage.setItem(key,JSON.stringify([...document.querySelectorAll("details[id][open]")].map(node=>node.id)));}catch(e){}
+location.reload();},15000);
+"""
+        refresh += "})();</script>"
     return page("Poros accuracy · " + commit[:12], body, POINT_TIPS + refresh)
 
 

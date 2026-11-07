@@ -10,6 +10,7 @@ import tempfile
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
+from html.parser import HTMLParser
 from urllib.request import urlopen
 from urllib.error import HTTPError
 from unittest.mock import patch
@@ -79,11 +80,48 @@ class LiveReportTests(unittest.TestCase):
             return text[text.index('<h2 id="overall">'):text.index('<h2>Evidence and provenance')]
         self.assertEqual(content(page), content(static))
         self.assertIn('Base and head comparison', page)
+        self.assertNotIn('sessionStorage', static)
         for case in self.reference['cases']:
             self.assertIn('<td>' + case['id'] + '</td>', page)
         self.assertLess(page.index('Overall benchmark accuracy'), page.index('Benchmark timing curves'))
         self.assertLess(page.index('Benchmark timing curves'), page.index('Benchmark timing table'))
         self.assertLess(page.index('Benchmark timing table'), page.index('<section id="microbenchmarks">'))
+        class TableDisclosureParser(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.stack, self.disclosures, self.table_owners = [], {}, []
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == "details":
+                    ident = attrs.get("id")
+                    self.stack.append(ident)
+                    if ident:
+                        self.disclosures[ident] = attrs
+                elif tag == "table":
+                    self.table_owners.append(tuple(self.stack))
+            def handle_endtag(self, tag):
+                if tag == "details":
+                    self.stack.pop()
+        for rendered in (page, static):
+            parsed = TableDisclosureParser()
+            parsed.feed(rendered)
+            for ident in ("benchmark-table", "throughput-table", "microbenchmark-table"):
+                self.assertIn(ident, parsed.disclosures)
+                self.assertNotIn("open", parsed.disclosures[ident])
+                self.assertIn((ident,), parsed.table_owners)
+            self.assertIn((), parsed.table_owners)  # Compact base/head summary stays visible.
+            micro = rendered[rendered.index('<section id="microbenchmarks">'):]
+            self.assertLess(micro.index('<svg'), micro.index('<details'))
+            self.assertIn('Instruction throughput table · 17 probes', micro)
+            self.assertIn('Whole-program microbenchmark timing table · 18 cases', micro)
+
+    def test_historical_frontend_table_remains_renderable_and_collapsed(self):
+        reference = site.read(ROOT / site.FRONTEND_REFERENCE)
+        rendered = site.detail(self.report, dict(commit=self.report["head"]["commit"]), frontend=reference)
+        self.assertIn('<details id="frontend-table"><summary>Frontend throughput table · 2 probes</summary>', rendered)
+        self.assertIn('href="frontend.json"', rendered)
+        micro = rendered[rendered.index('<section id="microbenchmarks">'):]
+        self.assertLess(micro.index('<svg'), micro.index('<details id="frontend-table">'))
 
     def test_failed_ci_hides_summary_while_live_partial_shows_it(self):
         value = self.snapshot()
@@ -127,11 +165,15 @@ class LiveReportTests(unittest.TestCase):
         view = self.view(self.snapshot(), self.bundle)
         partial, _ = view.load()
         self.assertIn(b'setTimeout', partial)
+        self.assertIn(b'sessionStorage.setItem', partial)
+        self.assertIn(b'details[id][open]', partial)
         site.write(view.snapshot, self.snapshot(True))
         completed, assets = view.load()
         self.assertIn(b'Complete validated bundle', completed)
         self.assertIn(b'href="bundle.json"', completed)
         self.assertNotIn(b'setTimeout', completed)
+        self.assertIn(b'sessionStorage.getItem', completed)
+        self.assertIn(b'sessionStorage.removeItem', completed)
         self.assertIn('report.json', assets)
         waiting, _ = self.view(self.snapshot(True)).load()
         self.assertIn(b'setTimeout', waiting)
