@@ -29,6 +29,7 @@ jobs:
       - run: python3 scripts/performance_reference_test.py
       - run: python3 scripts/accuracy_backfill_test.py
       - run: python3 scripts/accuracy_site_test.py
+      - run: python3 scripts/accuracy_live_test.py
       - run: python3 scripts/compute_usertime_test.py
       - run: python3 scripts/accuracy_parallel_test.py
       - run: python3 scripts/frontend_microbenchmark_test.py
