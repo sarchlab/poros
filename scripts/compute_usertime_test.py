@@ -144,6 +144,10 @@ class ComputeTimeTests(unittest.TestCase):
         def git(*args):
             return subprocess.check_output(["git", "-C", str(repository), *args], stderr=subprocess.DEVNULL).decode().strip()
         git("init", "-q")
+        # Fixture cleanup owns this repository's lifetime. Do not leave a
+        # detached Git maintenance process writing objects during rmtree.
+        git("config", "gc.auto", "0")
+        git("config", "maintenance.auto", "false")
         git("config", "user.name", "test")
         git("config", "user.email", "test@example.invalid")
         git("commit", "--allow-empty", "-qm", "no compute declaration")
@@ -228,6 +232,10 @@ class ComputeTimeTests(unittest.TestCase):
         def git(*args):
             return subprocess.check_output(["git", "-C", str(self.source), *args], stderr=subprocess.DEVNULL).decode().strip()
         git("init", "-q")
+        # Fixture cleanup owns this repository's lifetime. Do not leave a
+        # detached Git maintenance process writing objects during rmtree.
+        git("config", "gc.auto", "0")
+        git("config", "maintenance.auto", "false")
         git("config", "user.name", "test")
         git("config", "user.email", "test@example.invalid")
         for name, field in (("pkg/loader/elf.go", "loader_source"), ("pkg/linuxuser/run.go", "runtime_source")):
@@ -313,6 +321,9 @@ class ComputeTimeTests(unittest.TestCase):
 
         remote = self.directory / "remote.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        # receive-pack can trigger maintenance in the bare fixture as well.
+        for key, value in (("gc.auto", "0"), ("maintenance.auto", "false")):
+            subprocess.run(["git", "--git-dir", str(remote), "config", key, value], check=True)
         git("remote", "add", "origin", str(remote))
         git("push", "origin", "main:main", "main:gh-pages")
         publication = publisher.publish(self.source, bundle, self.metadata(commit), str(remote), build=False)

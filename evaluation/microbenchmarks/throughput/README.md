@@ -22,9 +22,10 @@ integer precision loss or overflow. Only caller-saved registers are used.
 The NOP results constrain frontend throughput, not backend issue capacity.
 Steady-state mixed throughput also cannot establish peak/burst issue width.
 Actual core cycles, core identity and operating frequency are not observed;
-3.49 GHz is only an explicit assumption for estimated native IPC. Poros currently
-routes NOP through integer resources, so its NOP result is not a pure frontend
-measurement. This suite does not change that model or any width parameter.
+3.49 GHz is only an explicit assumption for estimated native IPC. Poros eliminates
+NOPs before execution while retaining frontend, ROB and retirement occupancy;
+NOPs do not consume integer execution slots. The current default frontend admits
+eight instructions per cycle; this is not a claim about peak backend issue width.
 
 ## Run and rebuild
 

@@ -73,7 +73,7 @@ go test -v -run '^TestBenchmarkELF$/^atax$' ./pkg/elfsim -timeout 10m
 
 ### Out-of-Order Superscalar Pipeline
 
-- 3-wide fetch, 8-wide retire, 256-entry ROB
+- 8-wide fetch, 8-wide retire, 256-entry ROB
 - 6 INT + 4 FP/SIMD + 4 LD/ST execution units
 - Register readiness tracking (GPR + FP)
 - Physical register file pressure modeling (72 FP physical registers)
