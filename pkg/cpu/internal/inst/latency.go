@@ -88,7 +88,8 @@ func SetsFlags(op arm64asm.Op) bool {
 	switch op {
 	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST,
 		arm64asm.CCMP, arm64asm.CCMN,
-		arm64asm.ADDS, arm64asm.SUBS, arm64asm.NEGS, arm64asm.ANDS,
+		arm64asm.ADDS, arm64asm.SUBS, arm64asm.NEGS, arm64asm.ANDS, arm64asm.BICS,
+		arm64asm.ADCS, arm64asm.SBCS, arm64asm.NGCS,
 		arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCCMP, arm64asm.FCCMPE:
 		return true
 	}
@@ -97,9 +98,13 @@ func SetsFlags(op arm64asm.Op) bool {
 
 // UsesFlags returns true if the instruction reads NZCV condition flags.
 // Branch instructions are excluded — they are predicted, not data-dependent.
+// The decoder reports the conditional-select aliases (CINC, CINV, CSET, CSETM,
+// CNEG) and the carry-consuming arithmetic forms as distinct operations.
 func UsesFlags(op arm64asm.Op) bool {
 	switch op {
-	case arm64asm.CSEL, arm64asm.CSINC, arm64asm.CSINV, arm64asm.CSNEG, arm64asm.CNEG,
+	case arm64asm.CSEL, arm64asm.CSINC, arm64asm.CSINV, arm64asm.CSNEG,
+		arm64asm.CINC, arm64asm.CINV, arm64asm.CNEG, arm64asm.CSET, arm64asm.CSETM,
+		arm64asm.ADC, arm64asm.ADCS, arm64asm.SBC, arm64asm.SBCS, arm64asm.NGC, arm64asm.NGCS,
 		arm64asm.CCMP, arm64asm.CCMN,
 		arm64asm.FCSEL, arm64asm.FCCMP, arm64asm.FCCMPE:
 		return true

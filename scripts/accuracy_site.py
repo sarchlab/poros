@@ -21,6 +21,7 @@ import compute_usertime as compute
 import performance_reference as performance
 import frontend_microbenchmark as probe
 import throughput_microbenchmark as throughput
+import forwarding_microbenchmark as forwarding
 import model_profiles
 from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
 
@@ -542,6 +543,9 @@ def bundle_compact(report_path, source, output, commit):
     if report["artifact_status"] == "pass":
         shutil.copyfile(source / performance.PATH, output / "reference.json")
         names.add("reference.json")
+        if forwarding.declared(report["head"]["files"]):
+            shutil.copyfile(source / forwarding.REFERENCE, output / "forwarding.json")
+            names.add("forwarding.json")
         if throughput.ELF in report["head"]["files"]:
             shutil.copyfile(source / throughput.REFERENCE, output / "throughput.json")
             names.add("throughput.json")
@@ -552,13 +556,17 @@ def bundle_compact(report_path, source, output, commit):
           run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
           files={name: digest(output / name) for name in names}))
     validate_bundle(output, commit)
-    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None))
+    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None, forwarding_reference=read(output / "forwarding.json") if "forwarding.json" in names else None))
 
 
 def validate_compact_bundle(path, commit, manifest):
     report = read(regular(path / "report.json"))
     names = {"report.json", "report.md"} | ({"reference.json"} if report["artifact_status"] == "pass" else set())
     if report["artifact_status"] == "pass":
+        if forwarding.declared(report["head"]["files"]):
+            if digest(regular(path / "forwarding.json")) != report["head"]["files"].get(forwarding.REFERENCE):
+                raise ValueError("forwarding reference differs from tested source")
+            names.add("forwarding.json")
         if throughput.ELF in report["head"]["files"]:
             if digest(regular(path / "throughput.json")) != report["head"]["files"].get(throughput.REFERENCE):
                 raise ValueError("throughput reference differs from tested source")
@@ -575,6 +583,11 @@ def validate_compact_bundle(path, commit, manifest):
     check_report(report, commit)
     if report["artifact_status"] != "pass":
         return report, manifest
+    if forwarding.declared(report["head"]["files"]):
+        native_forwarding = forwarding.validate_reference(read(path / "forwarding.json"), report["head"]["files"])
+        forwarding.validate_comparison(report.get("forwarding_simulation"), native_forwarding["cases"])
+    elif "forwarding_simulation" in report:
+        raise ValueError("forwarding suite absent from tested source")
     if throughput.ELF in report["head"]["files"]:
         native_throughput = throughput.validate_reference(read(path / "throughput.json"), report["head"]["files"])
         throughput.validate_simulation(report.get("throughput_simulation"), native_throughput["cases"])
@@ -925,6 +938,66 @@ def throughput_table(reference, simulated=None):
             'These cases are excluded from application accuracy statistics. <a href="throughput.json">Reference data</a></p>')
 
 
+def forwarding_panels(reference, simulations, profiles):
+    """Render dependency probes only in the microbenchmark section."""
+    forwarding.validate_reference(reference)
+    forwarding.validate_comparison(simulations, reference["cases"])
+    frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
+    if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
+        raise ValueError("invalid forwarding model frequency")
+    rows = {}
+    for index, case in enumerate(reference["cases"]):
+        updates = case["iterations"] * forwarding.UPDATES_PER_ITERATION
+        native = {key: case[key + "_seconds"] * 1e9 / updates for key in ("p10", "median", "p90")}
+        model = {role: simulations[role][index]["cycles"] * 1e9 / simulations[role][index]["updates"] / frequencies[role]
+                 for role in ("base", "head")}
+        spread = 100 * (native["p90"] - native["p10"]) / native["median"]
+        tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.4f}/{native["median"]:.4f}/{native["p90"]:.4f} ns/update; '
+                   f'spread {spread:.2f}%; base {model["base"]:.4f}, head {model["head"]:.4f} ns/update')
+        rows[case["id"]] = dict(native=native, model=model, spread=spread, tooltip=tooltip)
+    groups = (
+        ("64-bit GPR dependencies", ("gpr64_register", "gpr64_same", "gpr64_disjoint", "gpr64_indexed", "gpr64_indexed_load", "gpr64_indexed_store"),
+         ("reg", "direct", "apart", "idx", "idx ld", "idx st")),
+        ("32-bit GPR dependencies", ("gpr32_register", "gpr32_same"), ("reg", "direct")),
+        ("Compare/select dependencies", ("select_register", "select_same"), ("reg", "direct")),
+        ("FP dependencies", ("fp_register", "fp_same", "fp_disjoint"), ("reg", "direct", "apart")),
+    )
+    graphs = '<h3>Store/load dependency probes</h3><p>Value-varying assembly updates; native macOS thread CPU time. '
+    graphs += (f'{esc(reference["hardware"])} · {esc(reference["collected_at_utc"])}. '
+               'Nine alternating long-minus-short pairs; 64 updates per loop iteration. '
+               'Hover a point for P10/median/P90, spread and both simulator predictions. '
+               'Core and instantaneous frequency were unobserved. '
+               + 'Simulation converts cycles using the declared model frequency: '
+               + ', '.join(f'{role} {hz/1e9:g} GHz' for role, hz in frequencies.items())
+               + '. These probes are excluded from application accuracy statistics.</p><div class="charts">')
+    for title, names, labels in groups:
+        series = []
+        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
+            values = [(i+1, rows[name]["native"]["median"] if role == "native" else rows[name]["model"][role], rows[name]["tooltip"])
+                      for i, name in enumerate(names)]
+            series.append((role, values, color))
+        graphs += chart(title, series, "Probe form", "ns/update", scatter=True,
+                        x_ticks=[(i+1, label) for i, label in enumerate(labels)])
+    graphs += ('</div><p>Reg is the same-class register chain; direct uses immediate-offset load/store; apart is a '
+               'nonoverlap throughput control, not a latency baseline. Idx uses register offsets on both sides, '
+               'idx ld/st on one side. Compare/select increments and wraps modulo 65,536. '
+               'Matched memory-minus-register differences estimate effective dependency cost including instruction/address overhead, '
+               'not physical bypass latency. P10/P90 are variability summaries, not confidence intervals.</p>')
+    table = (f'<details id="forwarding-table"><summary>Store/load dependency table · {len(rows)} probes</summary>'
+             '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/update</th><th>P10–P90 ns/update</th>'
+             '<th>Spread / median</th><th>Base ns/update</th><th>Head ns/update</th><th>Native memory − register (ns/update)</th>'
+             '</tr></thead><tbody>')
+    for name, row in rows.items():
+        baseline = next(names[0] for _, names, _ in groups if name in names)
+        difference = '—' if name == baseline or name.endswith('_disjoint') else f'{row["native"]["median"] - rows[baseline]["native"]["median"]:.4f}'
+        n = row["native"]
+        table += (f'<tr><td>{esc(name)}</td><td>{n["median"]:.4f}</td><td>{n["p10"]:.4f}–{n["p90"]:.4f}</td>'
+                  f'<td>{row["spread"]:.2f}%</td><td>{row["model"]["base"]:.4f}</td><td>{row["model"]["head"]:.4f}</td><td>{difference}</td></tr>')
+    table += ('</tbody></table></div><p>Simulation differences use the same assembly at 1,024 and 2,048 iterations, '
+              'with exact instruction counts and analytic checksums. <a href="forwarding.json">Native reference data</a></p></details>')
+    return graphs, table
+
+
 def timing_curves(groups, cases):
     body = '<div class="charts">'
     for group in groups:
@@ -1021,7 +1094,7 @@ def timing_table(cases, ids):
     return body
 
 
-def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None):
+def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None):
     commit = entry["commit"]
     full_inventory = report["artifact_status"] == "pass" or live is not None
     body = (
@@ -1110,12 +1183,18 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     elif full_inventory:
         accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
         body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
+    forwarding_table = ""
+    if forwarding_reference:
+        forwarding_charts, forwarding_table = forwarding_panels(
+            forwarding_reference, report.get("forwarding_simulation"), model_profiles.validate(report))
+        body += forwarding_charts
     if throughput_reference:
         body += (f'<details id="throughput-table"><summary>Instruction throughput table · {len(throughput_reference["cases"])} probes</summary>'
                  + throughput_table(throughput_reference, report.get("throughput_simulation")) + '</details>')
     elif frontend:
         body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
                  + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
+    body += forwarding_table
     body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
              + timing_table(micros, micro_ids) + '</details></section>')
     body += (
@@ -1416,7 +1495,8 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
         write(p / "metadata.json", e)
         frontend = read(p / "frontend.json") if "frontend.json" in retained_manifest["files"] else None
         throughput_reference = read(p / "throughput.json") if "throughput.json" in retained_manifest["files"] else None
-        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference))
+        forwarding_reference = read(p / "forwarding.json") if "forwarding.json" in retained_manifest["files"] else None
+        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference))
     write(index_path, index)
     (root / "index.html").write_text(home(index))
     (site / ".nojekyll").touch()

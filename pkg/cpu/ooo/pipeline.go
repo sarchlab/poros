@@ -81,6 +81,11 @@ type storeBufferEntry struct {
 	Addr          uint64
 	Size          int
 	CompleteCycle uint64
+	// ReadyCycle conservatively records when store address and data can issue.
+	// Missing fields in an older serialized state leave FastForwardEligible false, which
+	// preserves the conventional forwarding path for those entries.
+	ReadyCycle          uint64
+	FastForwardEligible bool
 }
 type unitType int
 
@@ -267,38 +272,16 @@ func (p *middleware) fetchAndProcess() {
 
 		// 5. Address-based load-store disambiguation (after StepDetailed
 		//    so actual addresses are available in p.comp.Resources.backend().MemoryAccesses()).
-		forwarded := false
+		forwarding := loadForwarding{issueCycle: issueCycle}
 		if instinfo.IsLoad(inst.Op) {
-			accesses := p.comp.Resources.backend().MemoryAccesses()
-			allForwarded := len(accesses) > 0
-			for _, acc := range accesses {
-				covered := false
-				for _, sb := range p.comp.State.StoreBuffer {
-					if acc.Addr < sb.Addr+uint64(sb.Size) &&
-						sb.Addr < acc.Addr+uint64(acc.Size) {
-						// Address overlap: load must wait for this store.
-						if sb.CompleteCycle > issueCycle {
-							issueCycle = sb.CompleteCycle
-						}
-						// Check if the store fully covers this load access.
-						if sb.Addr <= acc.Addr &&
-							acc.Addr+uint64(acc.Size) <= sb.Addr+uint64(sb.Size) {
-							covered = true
-						}
-					}
-				}
-				if !covered {
-					allForwarded = false
-				}
-			}
-			forwarded = allForwarded
+			forwarding = p.forwardLoad(p.comp.Resources.backend().MemoryAccesses(), issueCycle, directGPRTransfer(inst))
+			issueCycle = forwarding.issueCycle
 		}
 
 		// 6. Compute execution latency.
 		var latency uint64
-		if forwarded {
-			// Store-to-load forwarding: ~5-cycle forwarding latency (M2 estimate).
-			latency = 5
+		if forwarding.forwarded {
+			latency = forwarding.latency
 		} else {
 			var miss bool
 			latency, miss = p.instrLatencyWithPC(inst, pc)
@@ -310,6 +293,9 @@ func (p *middleware) fetchAndProcess() {
 			}
 		}
 		completeCycle := issueCycle + latency
+		if forwarding.forwarded && forwarding.dataReady+latency > completeCycle {
+			completeCycle = forwarding.dataReady + latency
+		}
 
 		// 7. Update destination register readiness.
 		gpr, fp := instinfo.DestRegs(inst)
@@ -359,11 +345,14 @@ func (p *middleware) fetchAndProcess() {
 
 		// 8. For stores: add to store buffer.
 		if instinfo.IsStore(inst.Op) {
+			eligible := directGPRTransfer(inst)
 			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
 				entry := storeBufferEntry{
-					Addr:          acc.Addr,
-					Size:          acc.Size,
-					CompleteCycle: completeCycle,
+					Addr:                acc.Addr,
+					Size:                acc.Size,
+					CompleteCycle:       completeCycle,
+					ReadyCycle:          issueCycle,
+					FastForwardEligible: eligible,
 				}
 				if len(p.comp.State.StoreBuffer) >= p.comp.Spec.StoreBufferSize {
 					// Store buffer full — stall frontend until oldest

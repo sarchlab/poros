@@ -71,6 +71,59 @@ class LiveReportTests(unittest.TestCase):
         site.write(path, value)
         return live.SnapshotView(path, bundle)
 
+    def test_forwarding_snapshot_requires_both_revision_provenance_and_one_renderer(self):
+        value=self.snapshot()
+        report=value['report']
+        suite=site.forwarding
+        reference=suite.load_reference(ROOT)
+        for name in [*suite.MEASUREMENT_INPUTS,suite.ELF,suite.REFERENCE]:
+            report['head']['files'][name]=suite.digest(ROOT/name)
+        rows=[dict(id=c['id'],instructions=c['instructions_per_iteration']*1024,cycles=100000,updates=65536)
+              for c in reference['cases']]
+        report['forwarding_simulation']=dict(base=copy.deepcopy(rows),head=copy.deepcopy(rows))
+        value['forwarding_reference_text']=(ROOT/suite.REFERENCE).read_text()
+        provenance={key:report[key] for key in ('base_commit','head_binary_sha256','base_binary_sha256','model_profiles')}
+        provenance['head_commit']=report['head']['commit']
+        value['forwarding_provenance']=copy.deepcopy(provenance)
+        live.validate_snapshot(value)
+        rendered,assets=self.view(value).load()
+        self.assertIn('forwarding.json',assets)
+        self.assertEqual(hashlib.sha256(assets['forwarding.json']).hexdigest(), report['head']['files'][suite.REFERENCE])
+        def tamper_native(v):
+            changed=json.loads(v['forwarding_reference_text'])
+            for key in ('p10_seconds','median_seconds','p90_seconds'):
+                changed['cases'][0][key] *= 2
+            v['forwarding_reference_text']=json.dumps(changed)
+        page=rendered.decode();micro=page.split('<section id="microbenchmarks">')[1]
+        self.assertLess(micro.index('64-bit GPR dependencies'),micro.index('<details id="throughput-table">'))
+        self.assertIn('<details id="forwarding-table">',micro)
+        for mutate in (tamper_native, lambda v:v.pop('forwarding_reference_text'),
+                       lambda v:v['report']['forwarding_simulation'].pop('base'),
+                       lambda v:v['forwarding_provenance'].update(base_binary_sha256='0'*64),
+                       lambda v:v['forwarding_provenance'].update(head_commit='0'*40),
+                       lambda v:v['report']['head']['files'].pop(suite.ELF),
+                       lambda v:v['report']['head']['files'].pop(suite.REFERENCE),
+                       lambda v:v.update(forwarding_reference_text=v['forwarding_reference_text'].replace('median_seconds', 'altered_seconds'))):
+            bad=copy.deepcopy(value);mutate(bad)
+            with self.assertRaises((ValueError,KeyError)):
+                live.validate_snapshot(bad)
+
+        # The completed CI bundle must retain the same renderer and exact asset.
+        complete=copy.deepcopy(value)
+        complete['report']['cases']=copy.deepcopy(self.report['cases'])
+        complete['progress'].update(state='complete',completed_cases=264,completed_shards=132,active_cases=[])
+        for name in [*suite.INPUTS,suite.REFERENCE]:
+            target=self.source/name;target.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(ROOT/name,target)
+        final=copy.deepcopy(complete['report']);final['artifact_status']='pass'
+        folder=self.folder/'forwarding-complete';folder.mkdir()
+        raw=folder/'report.json';site.write(raw,final);raw.with_suffix('.md').write_text('Synthetic complete fixture')
+        bundle=folder/'bundle';site.bundle(raw,self.source,bundle,final['head']['commit'])
+        rendered,assets=self.view(complete,bundle).load()
+        self.assertIn(b'Complete validated bundle.',rendered)
+        self.assertEqual(assets['forwarding.json'],(ROOT/suite.REFERENCE).read_bytes())
+        self.assertIn(b'<details id="forwarding-table">',rendered)
+
     def test_shared_complete_layout_metrics_and_seventeen_probes(self):
         value = self.snapshot(True)
         page, _ = self.view(value).load()

@@ -18,6 +18,7 @@ import usertime as user
 import accuracy_test_support as fixtures
 import frontend_microbenchmark as probe
 import throughput_microbenchmark as throughput
+import forwarding_microbenchmark as forwarding
 import model_profiles as models
 import hashlib
 
@@ -295,6 +296,34 @@ class ParallelAccuracyTests(unittest.TestCase):
             else:
                 self.assertEqual(report["throughput_simulation"], rows)
                 self.assertNotIn("frontend_simulation", report)
+
+    def test_aggregation_runs_forwarding_on_both_revision_binaries(self):
+        state=copy.deepcopy(self.state)
+        state['files'][forwarding.ELF]='f'*64
+        plan=copy.deepcopy(self.plan);plan['head']=state
+        parallel.write(self.prepared/'plan.json',plan)
+        shards=self.shards()
+        for shard in shards:shard['plan_id']=parallel.identity(plan)
+        results=self.write_shards(shards)
+        rows=[dict(id=c['id'],instructions=c['instructions_per_iteration']*1024,cycles=100000,updates=65536)
+              for c in forwarding.cases()]
+        output=self.root/'forwarding/report.json'
+        for error in (None,PermissionError('base forwarding execution unavailable')):
+            with patch.object(user,'source_state',return_value=state), \
+                 patch.object(forwarding,'load_reference',return_value={}), \
+                 patch.object(forwarding,'measure',side_effect=[rows,error if error else rows]) as measure, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                status=parallel.aggregate(self.prepared,results,'123',1,output)
+            self.assertEqual(measure.call_count,2)
+            calls=measure.call_args_list
+            self.assertEqual(calls[0].args[2],state['commit'])
+            self.assertEqual(calls[1].args[2],plan['base_commit'])
+            self.assertEqual(calls[0].args[3],self.profile)
+            self.assertEqual(calls[1].args[3],self.profile)
+            report=parallel.read(output)
+            self.assertEqual(status,int(error is not None))
+            if error:self.assertIn('unavailable',report['error'])
+            else:self.assertEqual(report['forwarding_simulation'],dict(base=rows,head=rows))
 
     def test_distinct_revision_profiles_survive_all_264_replayed_cases(self):
         state = copy.deepcopy(self.state)

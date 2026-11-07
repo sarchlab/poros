@@ -569,15 +569,28 @@ class AccuracySiteTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/accuracy-evaluate.yml").read_text()
         step = workflow.split("- name: Validate complete shard coverage and build the report", 1)[1]
         preparation = textwrap.dedent(step.split("run: |\n", 1)[1].split("          python3 scripts/accuracy_parallel.py aggregate", 1)[0])
-        head = self.root / "prepared/head"
-        head.parent.mkdir()
-        head.write_text("#!/bin/sh\nexit 0\n")
-        head.chmod(0o644)  # download-artifact does not preserve executable bits.
-        subprocess.run(["/bin/sh", "-eu", "-c", preparation], env={**os.environ, "RUNNER_TEMP": str(self.root)}, check=True)
-        subprocess.run([str(head)], check=True)
-        head.unlink()
-        # Missing downloads still reach the aggregator's failure-artifact path.
-        subprocess.run(["/bin/sh", "-eu", "-c", preparation], env={**os.environ, "RUNNER_TEMP": str(self.root)}, check=True)
+        prepared = self.root / "prepared"
+        prepared.mkdir()
+        reached = self.root / "aggregate-reached"
+        for available in (("head", "base"), ("head",), ("base",), ()):
+            with self.subTest(available=available):
+                for name in ("head", "base"):
+                    (prepared / name).unlink(missing_ok=True)
+                reached.unlink(missing_ok=True)
+                for name in available:
+                    binary = prepared / name
+                    binary.write_text("#!/bin/sh\nexit 0\n")
+                    binary.chmod(0o644)  # download-artifact strips executable bits.
+                    with self.assertRaises(PermissionError):
+                        subprocess.run([str(binary)], check=True)
+                # A missing download must not stop the always-run aggregate step
+                # before it can produce its normal failure artifact.
+                command = preparation + '\ntouch "$RUNNER_TEMP/aggregate-reached"\n'
+                subprocess.run(["/bin/sh", "-eu", "-c", command],
+                               env={**os.environ, "RUNNER_TEMP": str(self.root)}, check=True)
+                self.assertTrue(reached.is_file())
+                for name in available:
+                    subprocess.run([str(prepared / name)], check=True)
 
     def test_attempt_scoped_artifacts_and_failed_job_rerun(self):
         artifacts = [
