@@ -25,3 +25,31 @@ ROB and retirement capacity, but no integer execution slot. Ordinary registers
 represented by `arm64asm.RegSP` participate in the scoreboard; actual SP and zero
 register tracking retain their existing behavior. Load/store sharing and branch
 redirect behavior are separate calibration work.
+
+## Store-to-load timing hypothesis
+
+The default OoO model has a one-cycle effective forwarding path for a GPR load
+whose accesses each exactly match the youngest overlapping, still-in-flight
+GPR store in address and width. The load result waits for both the load's own
+address/unit readiness and the supplying store's recorded address/data issue
+cycle. Store completion and buffer-capacity accounting remain unchanged. A
+partial overlap, a width mismatch, an FP/SIMD access, a completed store, or an
+ineligible member of a pair keeps the conventional path: wait for overlapping
+stores to complete, then apply the existing five-cycle forwarding or normal
+cache-access latency.
+
+The fast path is a candidate model, not evidence of physical M2 memory renaming.
+Earlier bounded experiments implicated the previous store-completion-plus-load
+latency chain in Nussinov overprediction. They did not establish a universal
+one-cycle latency or the GPR/FP distinction; apparent accuracy in FP controls
+could include compensating errors. Matched native dependency probes and the
+paired application campaign must assess these assumptions. No hardware
+measurements, benchmark inputs, frequency, or cache defaults change here.
+
+This change adds no configurable default, so `model-profile.json` is unchanged.
+Hardcoded timing/dependency behavior is identified by the exact source revision
+and binary hashes already bound into each plan and report; equal configuration
+JSON does not imply equal simulator behavior. The source revision must therefore
+be retained when comparing or reusing results. Old serialized store-buffer
+entries without the new readiness/classification fields retain the conventional
+path; newly produced states round-trip those fields.
