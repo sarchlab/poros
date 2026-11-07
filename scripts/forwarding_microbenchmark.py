@@ -122,6 +122,17 @@ def validate_simulation(rows, declared):
             raise ValueError("invalid forwarding counters")
 
 
+def declared(files):
+    return any(name in files for name in [*MEASUREMENT_INPUTS, ELF, REFERENCE])
+
+
+def validate_comparison(simulations, declared_cases):
+    if not isinstance(simulations, dict) or set(simulations) != {"base", "head"}:
+        raise ValueError("forwarding requires both base and head simulation")
+    for rows in simulations.values():
+        validate_simulation(rows, declared_cases)
+
+
 def validate_reference(reference, files=None):
     if (reference.get("protocol") != PROTOCOL or reference.get("timer") != "CLOCK_THREAD_CPUTIME_ID"
             or reference.get("core_identity") != "unknown" or reference.get("instantaneous_frequency") != "unknown"
@@ -143,6 +154,8 @@ def validate_reference(reference, files=None):
         raise ValueError("incomplete forwarding provenance")
     if files is not None and any(files.get(name) != sources[name] for name in MEASUREMENT_INPUTS):
         raise ValueError("forwarding reference differs from source")
+    if files is not None and not re.fullmatch(r"[0-9a-f]{64}", files.get(ELF, "")):
+        raise ValueError("forwarding ELF absent from tested source")
     definition = reference.get("definition", "")
     if hashlib.sha256(definition.encode()).hexdigest() != sources[DIRECTORY + "cases.def"]:
         raise ValueError("forwarding case definition digest mismatch")
@@ -165,7 +178,7 @@ def validate_reference(reference, files=None):
 def load_reference(root):
     root = Path(root)
     reference = json.loads((root / REFERENCE).read_text())
-    validate_reference(reference, {name: digest(root / name) for name in MEASUREMENT_INPUTS})
+    validate_reference(reference, {name: digest(root / name) for name in [*MEASUREMENT_INPUTS, ELF]})
     if [{k: row[k] for k in ("id", "instructions_per_iteration", "kind")} for row in reference["cases"]] != cases(root):
         raise ValueError("forwarding manifest differs from reference")
     return reference

@@ -6,6 +6,7 @@ import compute_usertime as compute
 import performance_reference as reference
 import frontend_microbenchmark as frontend
 import throughput_microbenchmark as throughput
+import forwarding_microbenchmark as forwarding
 import model_profiles
 
 
@@ -82,6 +83,13 @@ def compare(args, executor):
             report["throughput_simulation"] = throughput.measure(args.head, user.ROOT, state["commit"], profiles["head"])
         elif frontend.ELF in state["files"]:
             report["frontend_simulation"] = frontend.measure(args.head, user.ROOT, state["commit"], profiles["head"])
+        if forwarding.declared(state["files"]):
+            forwarding.load_reference(user.ROOT)
+            report["forwarding_simulation"] = {
+                label: forwarding.measure(binary, user.ROOT, revision, profiles[label])
+                for label, binary, revision in (("head", args.head, state["commit"]),
+                                                ("base", args.base, args.base_commit))
+            }
         report["summary"] = compute.summaries(report["cases"], True)
         if user.source_state() != state or user.digest(args.head) != report["head_binary_sha256"] or user.digest(args.base) != report["base_binary_sha256"]:
             raise ValueError("source or simulator changed during comparison")
