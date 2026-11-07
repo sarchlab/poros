@@ -266,6 +266,7 @@ class ParallelAccuracyTests(unittest.TestCase):
     def test_aggregation_requires_throughput_suite_when_source_declares_it(self):
         state = copy.deepcopy(self.state)
         state["files"][throughput.ELF] = "f" * 64
+        state["files"][probe.ELF] = "e" * 64
         plan = copy.deepcopy(self.plan)
         plan["head"] = state
         parallel.write(self.prepared / "plan.json", plan)
@@ -277,11 +278,13 @@ class ParallelAccuracyTests(unittest.TestCase):
         output = self.root / "throughput/report.json"
         for error in (None, PermissionError("downloaded head is not executable")):
             with patch.object(user, "source_state", return_value=state), \
+                 patch.object(probe, "measure", side_effect=AssertionError("superseded probe ran")) as old_measure, \
                  patch.object(throughput, "load_reference", return_value={}), \
                  patch.object(throughput, "measure", return_value=rows, side_effect=error) as measure, \
                  contextlib.redirect_stdout(io.StringIO()):
                 status = parallel.aggregate(self.prepared, results, "123", 1, output)
             measure.assert_called_once()
+            old_measure.assert_not_called()
             report = parallel.read(output)
             self.assertEqual(status, int(error is not None))
             if error:
@@ -289,6 +292,7 @@ class ParallelAccuracyTests(unittest.TestCase):
                 self.assertIn("not executable", report["error"])
             else:
                 self.assertEqual(report["throughput_simulation"], rows)
+                self.assertNotIn("frontend_simulation", report)
 
     def test_shard_failure_retains_partial_records_and_continues_other_cases(self):
         ids = self.plan["shards"][0]

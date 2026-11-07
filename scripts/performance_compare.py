@@ -72,11 +72,11 @@ def compare(args, executor):
             row["functional_status"] = "pass"
             report["cases"].append(row)
             print("accuracy", case["id"], native["quality"], flush=True)
-        if frontend.ELF in state["files"]:
-            report["frontend_simulation"] = frontend.measure(args.head, user.ROOT, state["commit"], declared["profile"])
         if throughput.ELF in state["files"]:
             throughput.load_reference(user.ROOT)
             report["throughput_simulation"] = throughput.measure(args.head, user.ROOT, state["commit"], declared["profile"])
+        elif frontend.ELF in state["files"]:
+            report["frontend_simulation"] = frontend.measure(args.head, user.ROOT, state["commit"], declared["profile"])
         report["summary"] = compute.summaries(report["cases"], True)
         if user.source_state() != state or user.digest(args.head) != report["head_binary_sha256"] or user.digest(args.base) != report["base_binary_sha256"]:
             raise ValueError("source or simulator changed during comparison")

@@ -18,8 +18,11 @@ ROOT = Path(__file__).resolve().parents[1]
 DIRECTORY = "evaluation/microbenchmarks/throughput/"
 ELF = DIRECTORY + "throughput.elf"
 REFERENCE = DIRECTORY + "m2.json"
-INPUTS = [DIRECTORY + name for name in ("cases.def", "loops.S", "driver.h", "linux.c", "entry.S", "native.c", "build.sh", "throughput.elf")]
-INPUTS += ["scripts/throughput_microbenchmark.py", "tests/usertime/layout.ld"]
+MEASUREMENT_INPUTS = [DIRECTORY + name for name in ("cases.def", "loops.S", "driver.h", "native.c")]
+# Recorded collection provenance, not prerequisites for reusing native measurements.
+COLLECTOR_SOURCES = [DIRECTORY + name for name in ("linux.c", "entry.S", "build.sh", "throughput.elf")]
+COLLECTOR_SOURCES += ["scripts/throughput_microbenchmark.py", "tests/usertime/layout.ld"]
+INPUTS = MEASUREMENT_INPUTS + COLLECTOR_SOURCES
 PROTOCOL = "assembly-throughput-v1"
 ITERATIONS = (1024, 2048)
 
@@ -127,7 +130,7 @@ def validate_reference(reference, files=None):
     sources = reference.get("sources", {})
     if set(sources) != set(INPUTS) or any(not re.fullmatch(r"[0-9a-f]{64}", sha) for sha in sources.values()):
         raise ValueError("incomplete throughput provenance")
-    if files is not None and any(files.get(name) != sha for name, sha in sources.items()):
+    if files is not None and any(files.get(name) != sources[name] for name in MEASUREMENT_INPUTS):
         raise ValueError("throughput reference differs from source")
     definition = reference.get("definition", "")
     if hashlib.sha256(definition.encode()).hexdigest() != sources[DIRECTORY + "cases.def"]:
@@ -151,7 +154,7 @@ def validate_reference(reference, files=None):
 def load_reference(root):
     root = Path(root)
     reference = json.loads((root / REFERENCE).read_text())
-    validate_reference(reference, {name: digest(root / name) for name in INPUTS})
+    validate_reference(reference, {name: digest(root / name) for name in MEASUREMENT_INPUTS})
     if [{k: row[k] for k in ("id", "instructions_per_iteration", "kind")} for row in reference["cases"]] != cases(root):
         raise ValueError("throughput manifest differs from reference")
     return reference
@@ -190,7 +193,9 @@ def collect(output):
             row = dict(case, iterations=iterations, p10_seconds=differences[0], median_seconds=statistics.median(differences), p90_seconds=differences[7])
             reference["cases"].append(row)
             print(case["id"], row["median_seconds"], flush=True)
-    validate_reference(reference, {name: digest(ROOT / name) for name in INPUTS})
+    validate_reference(reference)
+    if reference["sources"] != {name: digest(ROOT / name) for name in INPUTS}:
+        raise ValueError("throughput collection source changed during measurement")
     Path(output).write_text(json.dumps(reference, indent=2) + "\n")
 
 

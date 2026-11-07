@@ -53,6 +53,11 @@ accuracy job additionally measures each probe at 1,024 and 2,048 iterations and
 checks the expected instruction-count difference. Results appear only in the
 microbenchmark section, excluded from the application S-curve/correlation.
 Hardware collection is explicit and never silently replaces the reference in CI.
+Native measurement inputs (`cases.def`, `loops.S`, `driver.h`, `native.c`) must
+match the reference before reuse. Collector scripts and ELF-only wrappers/build
+artifacts retain their historical hashes as provenance; changing those files
+alone does not invalidate native timing. Every simulated execution separately
+checks the current ELF digest, checksum, counts and simulator build identity.
 
 The earlier two-loop frontend probe and its archived data remain readable for
-historical reports; new reports display this suite in their place.
+historical reports; new reports measure and publish this suite in their place.

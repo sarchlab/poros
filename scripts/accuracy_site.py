@@ -540,12 +540,12 @@ def bundle_compact(report_path, source, output, commit):
     if report["artifact_status"] == "pass":
         shutil.copyfile(source / performance.PATH, output / "reference.json")
         names.add("reference.json")
-        if FRONTEND_REFERENCE in report["head"]["files"]:
-            shutil.copyfile(source / FRONTEND_REFERENCE, output / "frontend.json")
-            names.add("frontend.json")
         if throughput.ELF in report["head"]["files"]:
             shutil.copyfile(source / throughput.REFERENCE, output / "throughput.json")
             names.add("throughput.json")
+        elif FRONTEND_REFERENCE in report["head"]["files"]:
+            shutil.copyfile(source / FRONTEND_REFERENCE, output / "frontend.json")
+            names.add("frontend.json")
     write(output / "bundle.json", dict(schema=SCHEMA, commit=commit,
           run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
           files={name: digest(output / name) for name in names}))
@@ -556,14 +556,15 @@ def bundle_compact(report_path, source, output, commit):
 def validate_compact_bundle(path, commit, manifest):
     report = read(regular(path / "report.json"))
     names = {"report.json", "report.md"} | ({"reference.json"} if report["artifact_status"] == "pass" else set())
-    if report["artifact_status"] == "pass" and FRONTEND_REFERENCE in report["head"]["files"]:
-        if digest(regular(path / "frontend.json")) != report["head"]["files"][FRONTEND_REFERENCE]:
-            raise ValueError("frontend diagnostic differs from tested source")
-        names.add("frontend.json")
-    if report["artifact_status"] == "pass" and throughput.ELF in report["head"]["files"]:
-        if digest(regular(path / "throughput.json")) != report["head"]["files"].get(throughput.REFERENCE):
-            raise ValueError("throughput reference differs from tested source")
-        names.add("throughput.json")
+    if report["artifact_status"] == "pass":
+        if throughput.ELF in report["head"]["files"]:
+            if digest(regular(path / "throughput.json")) != report["head"]["files"].get(throughput.REFERENCE):
+                raise ValueError("throughput reference differs from tested source")
+            names.add("throughput.json")
+        elif FRONTEND_REFERENCE in report["head"]["files"]:
+            if digest(regular(path / "frontend.json")) != report["head"]["files"][FRONTEND_REFERENCE]:
+                raise ValueError("frontend diagnostic differs from tested source")
+            names.add("frontend.json")
     if set(manifest["files"]) != names:
         raise ValueError("compact bundle membership mismatch")
     for name, expected in manifest["files"].items():
@@ -572,15 +573,18 @@ def validate_compact_bundle(path, commit, manifest):
     check_report(report, commit)
     if report["artifact_status"] != "pass":
         return report, manifest
-    if probe.ELF in report["head"]["files"]:
-        probe.validate(report.get("frontend_simulation"))
-    elif "frontend_simulation" in report:
-        raise ValueError("frontend probe is absent from the tested source")
     if throughput.ELF in report["head"]["files"]:
         native_throughput = throughput.validate_reference(read(path / "throughput.json"), report["head"]["files"])
         throughput.validate_simulation(report.get("throughput_simulation"), native_throughput["cases"])
-    elif "throughput_simulation" in report:
-        raise ValueError("throughput suite absent from tested source")
+        if "frontend_simulation" in report:
+            raise ValueError("superseded frontend simulation in throughput report")
+    else:
+        if "throughput_simulation" in report:
+            raise ValueError("throughput suite absent from tested source")
+        if probe.ELF in report["head"]["files"]:
+            probe.validate(report.get("frontend_simulation"))
+        elif "frontend_simulation" in report:
+            raise ValueError("frontend probe is absent from the tested source")
     declared = report_manifest(report)
     measured = performance.validate(read(path / "reference.json"), declared)
     if digest(path / "reference.json") != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:

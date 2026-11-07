@@ -15,6 +15,7 @@ import throughput_microbenchmark as suite
 import accuracy_site as site
 import accuracy_test_support as fixtures
 import compute_usertime as compute
+import frontend_microbenchmark as frontend
 
 
 class ThroughputTests(unittest.TestCase):
@@ -37,6 +38,26 @@ class ThroughputTests(unittest.TestCase):
                 suite.validate_reference(bad)
         with self.assertRaises(ValueError):
             suite.validate_reference(self.reference, {})
+
+    def test_native_inputs_are_live_bound_but_collector_provenance_is_historical(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in [*suite.INPUTS, suite.REFERENCE]:
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(suite.ROOT / name, target)
+            for name in suite.COLLECTOR_SOURCES:
+                (root / name).write_bytes(b"a changed collector or rebuilt ELF")
+            self.assertEqual(suite.load_reference(root), self.reference)
+            suite.validate_reference(self.reference, {name: suite.digest(root / name) for name in suite.INPUTS})
+            for name in suite.MEASUREMENT_INPUTS:
+                original = (root / name).read_bytes()
+                (root / name).write_bytes(original + b"\n")
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    suite.load_reference(root)
+                (root / name).write_bytes(original)
+            # The saved collector/ELF digests are never rewritten to today's files.
+            self.assertEqual(json.loads((root / suite.REFERENCE).read_text()), self.reference)
 
     def test_simulation_requires_exact_case_order_and_instruction_differences(self):
         suite.validate_simulation(self.rows, self.cases)
@@ -84,7 +105,7 @@ class ThroughputTests(unittest.TestCase):
             fixture = fixtures.Evidence(suite.ROOT, root / "fixture")
             report = fixtures.compact_report(fixture)
             before = site.benchmark_summary(report)
-            for name in [*suite.INPUTS, suite.REFERENCE]:
+            for name in [*suite.INPUTS, suite.REFERENCE, frontend.ELF, site.FRONTEND_REFERENCE]:
                 target = fixture.source / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(suite.ROOT / name, target)
@@ -102,9 +123,12 @@ class ThroughputTests(unittest.TestCase):
             self.assertNotIn("Instruction throughput suite", overall)
             self.assertIn("Instruction throughput suite", micro)
             self.assertIn("throughput.json", manifest["files"])
+            self.assertNotIn("frontend.json", manifest["files"])
+            self.assertNotIn("Front-end throughput on", micro)
             for mutate in (lambda r: r.pop("throughput_simulation"),
                            lambda r: r["throughput_simulation"].pop(),
-                           lambda r: r["head"]["files"].update({suite.ELF: "0"*64})):
+                           lambda r: r["head"]["files"].update({suite.DIRECTORY + "loops.S": "0"*64}),
+                           lambda r: r.update(frontend_simulation={})):
                 bad = copy.deepcopy(report)
                 mutate(bad)
                 compute.write(bundle / "report.json", bad)
@@ -112,6 +136,38 @@ class ThroughputTests(unittest.TestCase):
                 compute.write(bundle / "bundle.json", manifest)
                 with self.assertRaises(ValueError):
                     site.validate_bundle(bundle, fixtures.SHA)
+
+    def test_historical_frontend_only_bundle_renders_and_archives(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            fixture = fixtures.Evidence(suite.ROOT, root / "fixture")
+            report = fixtures.compact_report(fixture)
+            for name in (frontend.ELF, site.FRONTEND_REFERENCE):
+                target = fixture.source / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(suite.ROOT / name, target)
+                report["head"]["files"][name] = suite.digest(target)
+            report["frontend_simulation"] = {name: dict(instructions=frontend.LOOP_INSTRUCTIONS, cycles=352256)
+                                             for name in ("nop", "add")}
+            raw = root / "report.json"
+            compute.write(raw, report)
+            raw.with_suffix(".md").write_text("Synthetic historical application unit data")
+            bundle = root / "bundle"
+            site.bundle(raw, fixture.source, bundle, fixtures.SHA)
+            valid, manifest = site.validate_bundle(bundle, fixtures.SHA)
+            self.assertEqual(valid, report)
+            self.assertEqual(set(manifest["files"]), {"report.json", "report.md", "reference.json", "frontend.json"})
+            url = "https://github.com/sarchlab/poros/actions/runs/1/attempts/1"
+            metadata = dict(commit=fixtures.SHA, kind="main", conclusion="success", run_id=1, run_attempt=1,
+                            run_url=url, evaluation_conclusion="success", evaluation_run_id=1,
+                            evaluation_run_attempt=1, evaluation_run_url=url)
+            pages = root / "pages"
+            site.archive(pages, bundle, metadata, [fixtures.SHA])
+            for page in (bundle / "index.html", pages / "calibration/runs" / fixtures.SHA / "index.html"):
+                text = page.read_text()
+                self.assertIn("Front-end throughput on Apple M2", text)
+                self.assertIn("Simulated IPC", text)
+                self.assertNotIn("Instruction throughput suite", text)
 
 
 if __name__ == "__main__":
