@@ -59,13 +59,13 @@ Separate performance manifests define six larger inputs for each of all 44
 workloads, while correctness manifests keep the original small cases. Native
 Linux ARM64 captures use one warmup and 21 user/system CPU samples per point.
 Only derived plotting statistics and exact input/output identities are committed;
-raw observations and full witnesses remain local. Each push to `main`
+raw observations and full witnesses remain local. Each PR merge into `main`
 reports all 264 points, including invalid/noisy references. Head functional and
 OoO executions must validate every output; base OoO is required wherever the
 exact base image and output limits support the input. Unsupported base cases
-remain explicit and cannot contribute a paired error change. Calibration and
-validation-legacy roles remain frozen; the latter is not an independent historical
-holdout. CPU/cache parameters, quality thresholds and timing formulas are unchanged.
+remain explicit and cannot contribute a paired error change. The application summary pools all qualified cases across the 41
+compute workloads. Any workload may guide model tuning. Integer, memory and
+branch appear in the separate microbenchmark section.
 
 [Whole-program user-time evaluation](usertime/README.md) defines direct-child
 `wait4.ru_utime` measurements on Linux ARM64 in an Apple M2 VM, output validation,

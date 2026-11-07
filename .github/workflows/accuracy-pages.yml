@@ -161,13 +161,21 @@ jobs:
       contents: write
       actions: read
       pages: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+      - id: pr
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ github.event.workflow_run.head_sha }}
+        run: python3 scripts/merged_main_pr.py "$GITHUB_REPOSITORY" "$TARGET"
       - name: Publish branch and request Pages build
+        if: github.event_name != 'workflow_run' || steps.pr.outputs.merged == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD_CONCLUSION: ${{ needs.build.result }}

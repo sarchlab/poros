@@ -5,6 +5,7 @@ import (
 	"errors"
 	"golang.org/x/arch/arm64/arm64asm"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/sarchlab/akita/v5/sim"
@@ -162,6 +163,25 @@ func TestExecutionErrorDrainsWithoutBackendStop(t *testing.T) {
 		}
 		if !c.State.Done || c.State.Err == "" || c.State.InstDone != 1 || x.attempts != 2 || x.Regs.ReadX(0) != 42 {
 			t.Fatalf("fault retry or lost older retirement: attempts=%d state=%+v", x.attempts, c.State)
+		}
+	}
+}
+
+type syntheticPeek struct {
+	emu.Execution
+	inst arm64asm.Inst
+}
+
+func (x *syntheticPeek) Peek(uint64) (arm64asm.Inst, error) { return x.inst, nil }
+
+func TestSyntheticPeekCanChangeOperandsAtSamePC(t *testing.T) {
+	x := &syntheticPeek{inst: arm64asm.Inst{Op: arm64asm.ADD}}
+	r := Resources{Execution: x}
+	for _, reg := range []arm64asm.Reg{arm64asm.X1, arm64asm.X2, arm64asm.X8} {
+		x.inst.Args = arm64asm.Args{arm64asm.X0, reg, arm64asm.X3}
+		_, gprs, fps, err := r.peekSources(0x1000)
+		if err != nil || !slices.Equal(gprs, []int{int(reg - arm64asm.X0), 3}) || len(fps) != 0 {
+			t.Fatalf("wrong dependencies for %v: GPR %v, FP %v, err %v", x.inst, gprs, fps, err)
 		}
 	}
 }

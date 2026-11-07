@@ -106,6 +106,10 @@ jobs:
         env:
           SHARD_STATUS: ${{ needs.accuracy-shards.result }}
         run: |
+          # Downloaded artifacts lose executable permissions; aggregation runs the frontend probe.
+          if [ -f "$RUNNER_TEMP/prepared/head" ]; then
+            chmod +x "$RUNNER_TEMP/prepared/head"
+          fi
           python3 scripts/accuracy_parallel.py aggregate --prepared "$RUNNER_TEMP/prepared" \
             --results "$RUNNER_TEMP/shards" --shard-status "$SHARD_STATUS" \
             --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \

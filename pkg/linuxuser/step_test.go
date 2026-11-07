@@ -2,6 +2,7 @@ package linuxuser
 
 import (
 	"bytes"
+	"context"
 	"debug/elf"
 	"encoding/binary"
 	"errors"
@@ -152,5 +153,69 @@ func TestCheckedBranchEvent(t *testing.T) {
 				t.Fatalf("PC=%#x branch=%v err=%v", regs.PC, step.Branched, err)
 			}
 		})
+	}
+}
+
+func TestExecutionDecodesCurrentExecutableBytes(t *testing.T) {
+	const mov1 = 0xd2800020   // mov x0, #1
+	const mov324 = 0xd2802880 // mov x0, #324; aliases mov1 in the decode cache
+	m := instructionMemory(mov1)
+	p := &Process{Memory: m}
+	x, err := p.NewExecution(context.Background(), RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+
+	for _, tc := range []struct{ opcode, want uint32 }{{mov1, 1}, {mov324, 324}, {mov1, 1}} {
+		p.Registers.PC = 0x1000
+		binary.LittleEndian.PutUint32(m.regions[0].data, tc.opcode)
+		peek, err := x.Peek(p.Registers.PC)
+		if err != nil || peek.Enc != tc.opcode {
+			t.Fatalf("peek returned %v, %v", peek, err)
+		}
+		inst, _, err := x.StepDetailed()
+		if err != nil || inst != peek || p.Registers.GPR[0] != uint64(tc.want) {
+			t.Fatalf("step returned %v, %v, X0=%d", inst, err, p.Registers.GPR[0])
+		}
+	}
+
+	p.Registers.PC = 0x1000
+	m.regions[0].Flags = elf.PF_R
+	if _, err := x.Peek(p.Registers.PC); err == nil {
+		t.Fatal("peek succeeded after execute permission was removed")
+	}
+	if _, _, err := x.StepDetailed(); err == nil || x.Result().Termination != "memory_fault" || x.Result().Instructions != 3 {
+		t.Fatalf("expected a fetch fault before another instruction retired: %+v", x.Result())
+	}
+}
+
+func TestStepWorkspaceCanResumeAfterFault(t *testing.T) {
+	// A post-index store pair spans two words. Only its first word is mapped.
+	m := instructionMemory(0xa8810440)
+	data := bytes.Repeat([]byte{0x55}, 8)
+	m.regions = append(m.regions, mappedRegion{Mapping{0x2000, 0x2008, elf.PF_R | elf.PF_W}, data})
+	regs := emu.Registers{PC: 0x1000}
+	regs.GPR[2] = 0x2000
+	before := regs
+	var workspace emu.StepWorkspace
+	var decoder emu.DecodeCache
+	_, err := workspace.StepChecked(&regs, m, &decoder)
+	var fault *emu.StepError
+	if !errors.As(err, &fault) || fault.Kind != "memory_fault" || regs != before || !bytes.Equal(data, bytes.Repeat([]byte{0x55}, 8)) {
+		t.Fatalf("partial store or writeback after fault: %+v, %x, %v", regs, data, err)
+	}
+
+	// The next step must commit from the caller's current state, including
+	// unrelated FP registers and flags that changed between calls.
+	binary.LittleEndian.PutUint32(m.regions[0].data, 0x91000400) // add x0, x0, #1
+	regs.GPR[0] = 41
+	regs.C = true
+	regs.WriteQ(3, 123, 456)
+	want := regs
+	want.GPR[0]++
+	want.PC += 4
+	if _, err := workspace.StepChecked(&regs, m, &decoder); err != nil || regs != want {
+		t.Fatalf("step after fault: got %+v, want %+v, err %v", regs, want, err)
 	}
 }

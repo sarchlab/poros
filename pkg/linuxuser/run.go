@@ -38,13 +38,15 @@ type Result struct {
 // Execution owns one run and is a live resource for either functional or timing
 // driving. Close releases its deadline; it never shares mutable state across runs.
 type Execution struct {
-	process *Process
-	options RunOptions
-	ctx     context.Context
-	cancel  context.CancelFunc
-	result  Result
-	done    bool
-	memory  trackedMemory
+	process   *Process
+	options   RunOptions
+	ctx       context.Context
+	cancel    context.CancelFunc
+	result    Result
+	done      bool
+	memory    trackedMemory
+	decode    emu.DecodeCache
+	workspace emu.StepWorkspace
 }
 
 // NewExecution claims this process exactly once; all execution modes share it.
@@ -82,7 +84,7 @@ func (x *Execution) Peek(pc uint64) (arm64asm.Inst, error) {
 	if err := x.process.Memory.Fetch(pc, b[:]); err != nil {
 		return arm64asm.Inst{}, err
 	}
-	return arm64asm.Decode(b[:])
+	return x.decode.Decode(b)
 }
 func (x *Execution) StepDetailed() (arm64asm.Inst, bool, error) {
 	pc := x.process.Registers.PC
@@ -121,7 +123,7 @@ func (x *Execution) step() (Result, error) {
 		return finish("time_limit", ctx.Err().Error())
 	default:
 	}
-	step, err := emu.StepChecked(&p.Registers, &x.memory)
+	step, err := x.workspace.StepChecked(&p.Registers, &x.memory, &x.decode)
 	if err != nil {
 		var fault *emu.StepError
 		if errors.As(err, &fault) {

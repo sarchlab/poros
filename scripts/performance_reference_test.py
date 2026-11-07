@@ -125,6 +125,9 @@ class CompactReferenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);source=root/"source"
             shutil.copytree(self.fixture.source,source)
+            target = source / site.FRONTEND_REFERENCE
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / site.FRONTEND_REFERENCE, target)
             capability=self.fixture.report["base_capability"]
             for name,content in (("pkg/loader/elf.go",capability["loader_source"]),("pkg/linuxuser/run.go",capability["runtime_source"])):
                 path=source/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content)
@@ -153,6 +156,14 @@ class CompactReferenceTests(unittest.TestCase):
                         publisher.verify_source(source,bundle,commit)
                 else:
                     publisher.verify_source(source,bundle,commit)
+                    page = (bundle / "index.html").read_text()
+                    overall, micro = page.split('<section id="microbenchmarks">')
+                    self.assertIn("Front-end throughput on Apple M2", micro)
+                    self.assertNotIn("<figcaption>Integer</figcaption>", overall)
+                    self.assertIn("<figcaption>MVT</figcaption>", overall)
+                    (bundle / "frontend.json").write_text("{}")
+                    with self.assertRaisesRegex(ValueError, "frontend diagnostic"):
+                        site.validate_bundle(bundle, commit)
 
     def test_historical_compute_packaging_selects_original_reference_directory(self):
         with tempfile.TemporaryDirectory() as directory:

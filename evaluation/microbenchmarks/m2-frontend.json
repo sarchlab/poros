@@ -1,0 +1,14 @@
+{
+  "hardware": "Apple M2",
+  "os": "macOS 27.2",
+  "date": "2026-11-06",
+  "compiler": "Apple clang version 21.0.0 (clang-2100.4.1.1)",
+  "clock": "CLOCK_THREAD_CPUTIME_ID",
+  "assumed_hz": 3490000000,
+  "instructions_per_trial": 516000000,
+  "trials": 9,
+  "loops": {
+    "nop": 0.020233917,
+    "add": 0.033507584
+  }
+}

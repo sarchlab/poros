@@ -1,10 +1,24 @@
 """The active 264-point comparison; serial and sharded runs use this same loop."""
-import json
 from pathlib import Path
 import subprocess
 
 import compute_usertime as compute
 import performance_reference as reference
+import frontend_microbenchmark as frontend
+
+
+MICRO_WORKLOADS = {"integer", "branch", "memory"}
+
+
+def is_micro_case(case):
+    return case["id"].partition("-")[0] in MICRO_WORKLOADS
+
+
+def benchmark_summary(report):
+    if report["artifact_status"] != "pass":
+        return {}
+    return compute.case_summary([c for c in report["cases"] if not is_micro_case(c)],
+                             performance=report.get("schema") == 4)
 
 
 def compare(args, executor):
@@ -57,6 +71,8 @@ def compare(args, executor):
             row["functional_status"] = "pass"
             report["cases"].append(row)
             print("accuracy", case["id"], native["quality"], flush=True)
+        if frontend.ELF in state["files"]:
+            report["frontend_simulation"] = frontend.measure(args.head, user.ROOT, state["commit"], declared["profile"])
         report["summary"] = compute.summaries(report["cases"], True)
         if user.source_state() != state or user.digest(args.head) != report["head_binary_sha256"] or user.digest(args.base) != report["base_binary_sha256"]:
             raise ValueError("source or simulator changed during comparison")
@@ -66,11 +82,16 @@ def compare(args, executor):
     except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
         report["error"] = str(error)
     compute.write(output, report)
-    lines = ["# Whole-program user-time accuracy report", "", f"Artifact: **{report['artifact_status']}**; hardware accuracy: **unverified**", f"Formula: `{user.FORMULA}`. All 264 required performance points.", "", "| Case / split | Reference (s) | Quality | Base (s) | Head (s) | Head error % |", "|---|---:|---|---:|---:|---:|"]
-    for row in report["cases"]:
-        lines.append(f"| {row['id']} / {row['split']} | {row['reference_user_seconds']:.9g} | {row['reference_quality']} | {row.get('base', {}).get('predicted_user_seconds', 'unavailable')} | {row['head']['predicted_user_seconds']:.9g} | {row['head'].get('error_percent', 'unverified')} |")
-    for split, summary in report.get("summary", {}).items():
-        lines.append(f"{split}: `{json.dumps(summary, sort_keys=True)}`")
+    lines = ["# Whole-program user-time accuracy report", "", f"Artifact: **{report['artifact_status']}**; hardware accuracy: **unverified**", f"Formula: `{user.FORMULA}`. All 264 required performance points."]
+    for section, micro in [("Benchmarks", False), ("Microbenchmarks", True)]:
+        lines.extend(["", "## " + section, "", "| Case | Reference (s) | Quality | Base (s) | Head (s) | Head error % |", "|---|---:|---|---:|---:|---:|"])
+        for row in report["cases"]:
+            if is_micro_case(row) != micro:
+                continue
+            lines.append(f"| {row['id']} | {row['reference_user_seconds']:.9g} | {row['reference_quality']} | {row.get('base', {}).get('predicted_user_seconds', 'unavailable')} | {row['head']['predicted_user_seconds']:.9g} | {row['head'].get('error_percent', 'unverified')} |")
+        if not micro and report["artifact_status"] == "pass":
+            summary = benchmark_summary(report)
+            lines.append(f"\nComparable application cases: {summary['comparable']} / {summary['required']}.")
     if "error" in report:
         lines.append("Failure: " + report["error"])
     output.with_suffix(".md").write_text("\n".join(lines) + "\n")

@@ -3,8 +3,11 @@ package cpu
 import (
 	"bytes"
 	"context"
+	"debug/elf"
+	"encoding/binary"
 	"fmt"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -123,4 +126,45 @@ func TestMultiCoreRejectsInvalidResources(t *testing.T) {
 type executionView struct {
 	emu.Execution
 	marker []byte
+}
+
+func TestELFTimingExecutionKeepsCollidingSourcesDistinct(t *testing.T) {
+	image, err := os.ReadFile("../../tests/elf/hello.elf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := elf.NewFile(bytes.NewReader(image))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := file.Section(".text")
+	if text == nil || text.Size < 8 {
+		t.Fatal("missing executable fixture section")
+	}
+	// These encodings alias in the source cache but have different dependencies.
+	binary.LittleEndian.PutUint32(image[text.Offset:], 0x8b020020)   // add x0, x1, x2
+	binary.LittleEndian.PutUint32(image[text.Offset+4:], 0x1e602863) // fadd d3, d3, d0
+	process, err := linuxuser.Parse(image, linuxuser.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	x, err := process.NewExecution(context.Background(), linuxuser.RunOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	resource := NewELFTimingExecution(x).(*elfTimingExecution)
+	for _, offset := range []uint64{0, 0, 4, 4, 0} {
+		_, gprs, fps, err := resource.PeekSources(text.Addr + offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if offset == 0 && (!slices.Equal(gprs, []int{1, 2}) || len(fps) != 0) ||
+			offset == 4 && (!slices.Equal(fps, []int{3, 0}) || len(gprs) != 0) {
+			t.Fatalf("at text+%d: wrong sources GPR=%v FP=%v", offset, gprs, fps)
+		}
+	}
+	if _, _, _, err := resource.PeekSources(process.Registers.SP); err == nil {
+		t.Fatal("instruction fetch from non-executable stack succeeded")
+	}
 }
