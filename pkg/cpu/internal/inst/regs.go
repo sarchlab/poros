@@ -92,7 +92,7 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 	// Compare/test instructions only set flags.
 	switch op {
 	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST,
-		arm64asm.CCMP, arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCCMP, arm64asm.FCCMPE:
+		arm64asm.CCMP, arm64asm.CCMN, arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCCMP, arm64asm.FCCMPE:
 		return
 	}
 
@@ -255,8 +255,14 @@ func SourceGPRs(inst arm64asm.Inst) []int {
 		return srcs
 	}
 
-	// General case: Args[1..] are sources.
-	for i := 1; i < len(inst.Args); i++ {
+	// General case: Args[1..] are sources. Compare instructions have no
+	// destination register, so their first operand is a source as well.
+	start := 1
+	switch op {
+	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST, arm64asm.CCMP, arm64asm.CCMN:
+		start = 0
+	}
+	for i := start; i < len(inst.Args); i++ {
 		if inst.Args[i] == nil {
 			break
 		}
