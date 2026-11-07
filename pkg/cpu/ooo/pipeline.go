@@ -126,7 +126,7 @@ func (m *Middlewares) Initialize(c *Comp) {
 	m.Pipeline = p
 }
 
-// hookCycles is an immutable lookup derived from Spec. All runtime data is in State.
+// hookCycles is an immutable lookup derived from Spec.
 type middleware struct {
 	comp       *Comp
 	hookCycles map[uint64]int
@@ -202,7 +202,7 @@ func (p *middleware) fetchAndProcess() {
 		p.comp.State.FpInFlight < p.comp.Spec.FpPhysLimit && !p.comp.Resources.backend().Stopped() {
 		// 1. Peek at instruction at emulator's current PC.
 		pc := p.comp.Resources.backend().CPURegisters().PC
-		inst, err := p.comp.Resources.backend().Peek(pc)
+		inst, gprs, fps, err := p.comp.Resources.peekSources(pc)
 		if err != nil {
 			if p.comp.Resources.processMode() {
 				// Resolve a checked fetch fault only after older work retires.
@@ -223,12 +223,12 @@ func (p *middleware) fetchAndProcess() {
 
 		// 2. Compute source operand readiness.
 		var srcReady uint64
-		for _, gpr := range instinfo.SourceGPRs(inst) {
+		for _, gpr := range gprs {
 			if p.comp.State.GprReady[gpr] > srcReady {
 				srcReady = p.comp.State.GprReady[gpr]
 			}
 		}
-		for _, fp := range instinfo.SourceFPs(inst) {
+		for _, fp := range fps {
 			if p.comp.State.FpReady[fp] > srcReady {
 				srcReady = p.comp.State.FpReady[fp]
 			}
@@ -576,6 +576,25 @@ func (p *middleware) acquireMSHR(issueCycle uint64) (int, uint64) {
 		return bestIdx, bestTime
 	}
 	return bestIdx, issueCycle
+}
+
+// An execution resource may return the static register dependencies alongside
+// the instruction it fetched. Other resources can construct synthetic Inst
+// values, so extract their operands directly rather than relying on Enc.
+type sourcePeeker interface {
+	PeekSources(pc uint64) (arm64asm.Inst, []int, []int, error)
+}
+
+func (r Resources) peekSources(pc uint64) (arm64asm.Inst, []int, []int, error) {
+	backend := r.backend()
+	if p, ok := backend.(sourcePeeker); ok {
+		return p.PeekSources(pc)
+	}
+	inst, err := backend.Peek(pc)
+	if err != nil {
+		return inst, nil, nil, err
+	}
+	return inst, instinfo.SourceGPRs(inst), instinfo.SourceFPs(inst), nil
 }
 
 func (r Resources) backend() emu.Execution {

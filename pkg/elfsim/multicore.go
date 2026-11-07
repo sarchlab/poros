@@ -58,7 +58,7 @@ func RunMultiCore(ctx context.Context, processes []*linuxuser.Process, o Options
 			return result, e
 		}
 		executions[i] = x
-		configs[i] = cpu.CoreConfig{Execution: x}
+		configs[i] = cpu.CoreConfig{Execution: cpu.NewELFTimingExecution(x)}
 	}
 	simulation := sim.MakeBuilder().Build()
 	defer func() {
