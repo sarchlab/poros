@@ -27,6 +27,7 @@ jobs:
       - run: python3 scripts/workload_contract_test.py
       - run: python3 scripts/usertime_test.py
       - run: python3 scripts/performance_reference_test.py
+      - run: python3 scripts/macho_reference_test.py
       - run: python3 scripts/accuracy_backfill_test.py
       - run: python3 scripts/accuracy_site_test.py
       - run: python3 scripts/accuracy_live_test.py

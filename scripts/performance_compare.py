@@ -33,7 +33,7 @@ def compare(args, executor):
     try:
         if Path(args.reference).resolve() != (Path(user.ROOT) / reference.PATH).resolve():
             raise ValueError("active comparison requires the committed compact reference")
-        declared, measured = reference.load(user.ROOT)
+        declared, measured = reference.load(user.ROOT, require_native=True)
         state = user.source_state()
         if state["dirty"]:
             raise ValueError("accuracy comparison requires clean committed source")
@@ -54,7 +54,7 @@ def compare(args, executor):
                        base_status=compute.case_base_status(case, report["base_capability"]),
                        reference_user_seconds=native["median_user_seconds"], reference_quality=native["quality"],
                        reference_p10_seconds=native["p10_user_seconds"], reference_p90_seconds=native["p90_user_seconds"],
-                       reason="Linux VM user accounting; core/frequency unknown; no accuracy threshold approved")
+                       reason="Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved")
             functional = executor(args.head, case, mode="functional", expected_identity=expected)
             for label, binary, revision in (("head", args.head, state["commit"]), ("base", args.base, args.base_commit)):
                 if label == "base" and row["base_status"] != "available":

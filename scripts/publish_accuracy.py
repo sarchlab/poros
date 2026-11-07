@@ -54,7 +54,12 @@ def verify_source(source, bundle, commit):
             raise ValueError("compact workload inventory differs from exact source commit")
         if site.digest(Path(bundle) / "reference.json") != report["head"]["files"].get(site.performance.PATH):
             raise ValueError("compact reference differs from source commit")
-        for path, expected in {**reference["collector_sources"], **reference["input_sources"]}.items():
+        # Native capture tools were local, uncommitted experiment files. Their
+        # hashes describe retained local evidence, not files at collection_commit.
+        sources = dict(reference["input_sources"])
+        if reference["protocol"] == site.performance.PROTOCOL:
+            sources.update(reference["collector_sources"])
+        for path, expected in sources.items():
             data = subprocess.check_output(["git", "-C", str(source), "show", reference["collection_commit"] + ":" + path])
             if hashlib.sha256(data).hexdigest() != expected:
                 raise ValueError("compact measurement source differs from exact collection commit")

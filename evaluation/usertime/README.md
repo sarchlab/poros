@@ -1,12 +1,18 @@
 # Whole-program user-time accuracy
 
-Poros compares predicted whole-program user time with direct-child
-`wait4.ru_utime` from the **identical AArch64 ELF and arguments** running natively
-in an ARM64 Linux VM on an Apple M2. QEMU is a correctness oracle only. Guest
-initialization, computation, and output all belong to the measured program.
-Simulator-host elapsed time, system CPU time, and native macOS timing are not
-substituted for Linux child user time. VM core identity and instantaneous
-frequency remain unknown; hardware timing accuracy is **unverified**.
+Poros compares simulated AArch64 ELF whole-program user time with native macOS
+**Mach-O** measurements on Apple M2. Both use the same GCC computation assembly
+and linked musl math, checked by a 175-function instruction audit and exact
+complete-output comparisons for all 264 input points. macOS reserves x18, so
+14 workloads have documented register renaming; startup, argument/output
+adapters, addresses and page placement differ. The entire executable instruction
+stream is therefore not claimed to be identical.
+
+The reference measures direct-child `wait4.ru_utime`, including native startup,
+initialization, computation and output. Simulator-host elapsed time and system
+CPU time are not substituted. Core identity and instantaneous frequency remain
+unknown; hardware timing accuracy is **unverified**. Linux VM measurements are
+historical evidence only and cannot feed new active accuracy comparisons.
 
 The error is `100 * abs(simulated - reference) / min(simulated, reference)`.
 No offset fitting, batching, or anchor removal is used. The CPU timing profile assumes 3.49 GHz.
@@ -45,8 +51,9 @@ time is nonpositive, the median is below 100 microseconds, or
 `(P90-P10)/median > 0.20` (the unchanged order-statistic definition). No sample is
 selected, retried, replaced by total CPU time, or selected by simulator error.
 
-The recorded final campaign has **247 qualified points and 17 noisy points**
-across all 44 workloads, with no nonpositive references. These are measurement
+The recorded final campaign has **260 qualified points and 4 noisy points**
+across all 44 workloads, with no nonpositive references. Application coverage is
+242/246; Streamcluster points 2, 4, 5 and 6 remain noisy. These are measurement
 quality results, not a claim of improved simulator accuracy.
 
 Only compact plotting data is committed: `performance-v1.json` contains each
@@ -73,12 +80,37 @@ deformation determinant is checked; energy gradients cover the original fixture,
 all seven deformation classes, and the partial final block. QEMU and semantic
 checks run outside the native timing phase.
 
-Capture requires clean committed support code, exact source/ELF identities, and
-an exact ARM64 Docker image digest. Heavy simulation, compilation, and tests are
-stopped during native acquisition. Capture output is written outside the clean
-checkout and validated there. Only the derived compact reference is committed.
-The single recorded collection commit is the actual clean commit measured;
-publication verifies collector and input hashes against that exact Git object.
+The frozen ELF/input source is commit `65a8fb82832720fc5f9f72303828da82c515a126`.
+Native capture used local experiment scripts, not a committed collector at that
+revision. The compact `performance-macho-summary-v1` protocol records this
+explicitly: collector, capture, build, smoke and instruction-audit hashes identify
+retained local evidence; publication verifies the ELF/input hashes against the
+real collection commit and current source. Native binary and assembly identities
+and register adaptations are recorded per workload. No container identity is
+invented for this native macOS campaign.
+
+The completed capture has 21 retained processes per point in three chronological
+batches of seven randomized full-suite passes. Batch medians and spread remain
+visible in the downloadable reference. The existing noise rule is unchanged.
+Hardware captures are reused; CI runs the simulator on Linux and does not need a
+Mac or recollect hardware measurements.
+
+To import an existing, locally retained capture without measuring again:
+
+```sh
+python3 scripts/macho_reference.py --evidence /path/to/capture-directory \
+  --output /path/to/new-compact-reference.json
+```
+
+The evidence directory contains `capture.json`, `evidence/{build,instruction-audit,smoke}.json`,
+the original collector scripts, `assembly/`, and measured `bin/` files. Import
+checks 5,544 trial records, 264 warmups, output identities, trial/batch membership,
+timestamps, frozen input hashes, measured executable/assembly hashes and 175
+unique successful audit records with matching instruction counts. It validates
+stored disassembly-audit evidence; it does not rerun the external disassembler.
+Original audit scripts and their external tools remain part of the retained
+local experiment. Import never overwrites an existing output. Commit only the
+compact plotting reference, not captures, executables or witnesses.
 
 ## Parallel CI and base compatibility
 
@@ -125,8 +157,8 @@ caller as **Accuracy / User-time accuracy report**. The publisher-facing artifac
 ## Publication and historical evidence
 
 PRs introducing a new measurement campaign must preserve the actual clean
-collection commit in the target branch's history. **Merge PR #57 with a merge
-commit (`gh pr merge 57 --merge`), not squash or rebase.** Deleting its feature
+collection commit in the target branch's history. Use a history-preserving merge
+commit, not squash or rebase. Deleting its feature
 branch is then safe: full-history checkouts still contain the measured commit.
 Prepare and publication reject a missing or non-ancestor collection commit with
 an explicit diagnostic; a tag or separately retained branch is not required.

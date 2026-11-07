@@ -49,7 +49,7 @@ def git(*args):
 
 
 def inputs():
-    declared, measured = reference.load(ROOT)
+    declared, measured = reference.load(ROOT, require_native=True)
     cases = declared["cases"]
     identities = {r["id"]: user.OutputIdentity(r["output_bytes"], r["output_sha256"]) for r in measured["cases"]}
     return cases, identities

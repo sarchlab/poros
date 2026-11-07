@@ -65,7 +65,7 @@ SHA = "a" * 40
 
 class Evidence:
     """Complete small synthetic schema3 evidence, shared by protocol tests."""
-    def __init__(self, root, directory):
+    def __init__(self, root, directory, *, native=True):
         self.source = directory / "source"
         small_source(root, self.source)
         self.folder = self.source / compute.REFERENCE
@@ -73,6 +73,9 @@ class Evidence:
         self.reference = self.make_reference()
         import performance_reference as performance
         performance.export(self.source, self.source / contract.PERFORMANCE_REFERENCE, self.folder, self.source / performance.PATH)
+        if native:
+            measured = synthetic_native(compute.read(self.source / performance.PATH), performance.inventory(self.source))
+            compute.write(self.source / performance.PATH, measured)
         self.report = self.make_report()
 
     def make_reference(self):
@@ -164,3 +167,24 @@ def compact_report(evidence):
                 row[label].update(predicted_user_seconds=.002, cycles=6980000, error_percent=100, direction="slower")
     report["summary"] = compute.summaries(report["cases"], True)
     return report
+
+
+def synthetic_native(reference, declared):
+    """Explicitly synthetic transport fixture; never a hardware reference."""
+    import macho_reference as macho
+    import performance_reference as performance
+    result = copy.deepcopy(reference)
+    result.pop("container_image", None)
+    result.update(protocol=performance.NATIVE_PROTOCOL, environment="native", executable_format="Mach-O", machine="arm64",
+                  page_size=16384, hardware="Apple M2", platform="macOS-synthetic-unit-only", reference_scope=macho.SCOPE,
+                  startup_included=True, collector_origin="local-uncommitted-experiment",
+                  collector_sources={name:"1"*64 for name in macho.COLLECTORS},
+                  capture_evidence={**{name:"2"*64 for name in ("capture_sha256","build_sha256","audit_sha256","smoke_sha256","oracle_reference_sha256")},
+                                    "samples":5544,"warmups":264,"audited_functions":175})
+    names = sorted({c["workload"] for c in declared["cases"]})
+    result["native_programs"] = {name:dict(source=macho.source_name(name),source_sha256=result["input_sources"][macho.source_name(name)],
+        binary_sha256="3"*64,matched_assembly_sha256="4"*64,linux_assembly_sha256="5"*64,audit_sha256="6"*64,
+        reserved_register_rename=None,audited_functions=3 if i==0 else 4) for i,name in enumerate(names)}
+    for row in result["cases"]:
+        row.update(batch_median_user_seconds=[row["median_user_seconds"]]*3,batch_median_spread=0)
+    return performance.validate(result, declared)

@@ -5,8 +5,9 @@ Poros is an execution-driven AArch64 CPU simulator built on the [Akita](https://
 The [complete ELF workload contract](tests/benchmarks/README.md) defines inputs,
 outputs, provenance and correctness checks. The [user-time accuracy report](evaluation/usertime/README.md)
 contains all 44 workloads at six larger timing points each (264 cases), with
-separate preserved small correctness inputs and fresh native Linux ARM64 evidence.
-Linux VM measurements and model predictions do not establish hardware accuracy.
+separate preserved small correctness inputs and native macOS Mach-O hardware
+references with audited ELF-matched computation. Measurement coverage and model
+predictions do not establish hardware accuracy.
 
 ## Build and Run
 

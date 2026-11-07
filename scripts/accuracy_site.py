@@ -1107,7 +1107,10 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         if preview
         else '<p><a href="../../index.html">← Report history</a></p>'
     ) + "</header>"
-    body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> Current reference is an Apple M2 host running a Linux ARM64 VM; core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
+    native_reference = report.get("reference", {}).get("protocol") == performance.NATIVE_PROTOCOL
+    environment = ("Current reference is native macOS on Apple M2, using Mach-O executables with audited ELF-matched computation. Startup and runtime adapters are included; complete executable instruction streams and address layouts differ."
+                   if native_reference else "Current reference is an Apple M2 host running a Linux ARM64 VM.")
+    body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> ' + environment + ' Core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
     if live is not None:
         body += '<div class="notice"><strong>' + esc(live["state"].title()) + '</strong> · '
         body += f'{live["completed_cases"]} / {live["required_cases"]} cases · {live["completed_shards"]} / {live["required_shards"]} shards. '
@@ -1207,7 +1210,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         if report["schema"] == 4:
             body += '<a href="reference.json">Plotting data and native output identities</a>'
             collection = report["reference"]["collection_commit"]
-            body += '<a href="https://github.com/' + REPO + '/tree/' + collection + '">Exact native collection source</a>'
+            body += '<a href="https://github.com/' + REPO + '/tree/' + collection + '">' + ('Frozen ELF/computation source' if native_reference else 'Exact native collection source') + '</a>'
         elif report["schema"] == 3:
             body += '<a href="cohorts/original/reference.json">Original24 raw samples</a><a href="cohorts/compute/reference/reference.json">Compute240 raw samples</a><a href="cohorts/compute/reference/oracle.json">Independent output oracle</a><a href="cohorts/compute/reference/validation-report.json">Original validation report</a><a href="cohorts/compute/reference/validation-harness.py">Original validation harness</a><a href="cohorts/compute/source/scripts/compute_usertime.py">Compute measurement protocol</a>'
         else:
