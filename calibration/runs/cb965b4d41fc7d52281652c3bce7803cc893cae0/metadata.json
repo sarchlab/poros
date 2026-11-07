@@ -51,5 +51,9 @@
   "evaluation_run_id": 41049952766,
   "evaluation_run_attempt": 1,
   "evaluation_conclusion": "success",
-  "evaluation_run_url": "https://github.com/sarchlab/poros/actions/runs/41049952766/attempts/1"
+  "evaluation_run_url": "https://github.com/sarchlab/poros/actions/runs/41049952766/attempts/1",
+  "benchmark_summary": {
+    "required": 6,
+    "comparable": 0
+  }
 }
