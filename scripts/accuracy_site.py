@@ -20,6 +20,7 @@ import compute_usertime as compute
 import performance_reference as performance
 import frontend_microbenchmark as probe
 import throughput_microbenchmark as throughput
+import model_profiles
 from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
 
 SCHEMA = 1
@@ -594,6 +595,7 @@ def validate_compact_bundle(path, commit, manifest):
         raise ValueError("displayed compact provenance mismatch")
     if any(report["head"]["files"].get(name) != sha for name, sha in measured["input_sources"].items()):
         raise ValueError("compact input differs from tested source/ELF")
+    profiles = model_profiles.validate(report)
     for row, observed, case in zip(report["cases"], measured["cases"], declared["cases"]):
         if row["reference_quality"] != observed["quality"] or row["reference_user_seconds"] != observed["median_user_seconds"] or row.get("reference_p10_seconds") != observed["p10_user_seconds"] or row.get("reference_p90_seconds") != observed["p90_user_seconds"]:
             raise ValueError("compact plotted statistics mismatch")
@@ -601,7 +603,7 @@ def validate_compact_bundle(path, commit, manifest):
             if label not in row:
                 continue
             value = row[label]
-            if type(value["cycles"]) is not int or type(value["instructions"]) is not int or any(value[k] != declared["profile"][k] for k in ("configuration", "cache_config")):
+            if type(value["cycles"]) is not int or type(value["instructions"]) is not int or any(value[k] != profiles[label][k] for k in ("configuration", "cache_config")):
                 raise ValueError("compact report timing profile/count mismatch")
             seconds, real = value["predicted_user_seconds"], observed["median_user_seconds"]
             if not math.isclose(seconds, value["cycles"] / case["frequency_hz"], rel_tol=1e-12):
@@ -1136,6 +1138,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
                     "compute_reference": report.get("compute_reference"),
                     "compute_base_status": report.get("compute_base_status"),
                     "configuration": cases[0].get("head", {}) if cases else None,
+                    "model_profiles": report.get("model_profiles"),
                 },
                 indent=2,
             )

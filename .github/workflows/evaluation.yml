@@ -33,6 +33,7 @@ jobs:
       - run: python3 scripts/accuracy_parallel_test.py
       - run: python3 scripts/frontend_microbenchmark_test.py
       - run: python3 scripts/throughput_microbenchmark_test.py
+      - run: python3 scripts/model_profiles_test.py
       - run: python3 scripts/merged_main_pr_test.py
       - run: scripts/evaluation-ci.sh static
         env:
