@@ -142,3 +142,29 @@ func TestStoreBufferPressureKeepsExactMatch(t *testing.T) {
 		t.Fatalf("store buffer holds %d entries, capacity %d", len(pressure.State.StoreBuffer), ooo.DefaultSpec().StoreBufferSize)
 	}
 }
+
+// Addressing and transfer form are part of fast-path eligibility on both sides.
+// X7 is zero, so indexed accesses reach the identical address as direct ones.
+func TestUnmeasuredOrIndexedTransferFormsKeepConventionalTiming(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		load, store uint32
+	}{
+		{"indexed load", 0xb8676883, encStrW5X4},  // LDR W3,[X4,X7]
+		{"indexed store", encLdrW3X4, 0xb8276885}, // STR W5,[X4,X7]
+		{"both indexed", 0xb8676883, 0xb8276885},
+		{"pair load", 0x29401c83, encStrW5X4},  // LDP W3,W7,[X4]
+		{"pair store", encLdrW3X4, 0x29001c85}, // STP W5,W7,[X4]
+		{"both pairs", 0x29401c83, 0x29001c85},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			core := runForwardProbe(t, []uint32{tc.load, encAddW5W3Im3, tc.store})
+			if got := perIteration(core); got < 8.5 || got > 10 {
+				t.Fatalf("%s chain costs %.2f, want conventional ~9 cycles/update", tc.name, got)
+			}
+			if got := core.Resources.Emu.Regs.ReadX(5); got != 3*forwardProbeIterations {
+				t.Fatalf("chain value %d, want %d", got, 3*forwardProbeIterations)
+			}
+		})
+	}
+}

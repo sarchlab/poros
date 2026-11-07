@@ -82,10 +82,10 @@ type storeBufferEntry struct {
 	Size          int
 	CompleteCycle uint64
 	// ReadyCycle conservatively records when store address and data can issue.
-	// Missing fields in an older serialized state leave GPRData false, which
+	// Missing fields in an older serialized state leave FastForwardEligible false, which
 	// preserves the conventional forwarding path for those entries.
-	ReadyCycle uint64
-	GPRData    bool
+	ReadyCycle          uint64
+	FastForwardEligible bool
 }
 type unitType int
 
@@ -274,10 +274,7 @@ func (p *middleware) fetchAndProcess() {
 		//    so actual addresses are available in p.comp.Resources.backend().MemoryAccesses()).
 		forwarding := loadForwarding{issueCycle: issueCycle}
 		if instinfo.IsLoad(inst.Op) {
-			gpr, fp := instinfo.DestRegs(inst)
-			gpr2, fp2 := instinfo.DestRegs2(inst)
-			gprLoad := fp < 0 && fp2 < 0 && (gpr >= 0 || gpr2 >= 0)
-			forwarding = p.forwardLoad(p.comp.Resources.backend().MemoryAccesses(), issueCycle, gprLoad)
+			forwarding = p.forwardLoad(p.comp.Resources.backend().MemoryAccesses(), issueCycle, directGPRTransfer(inst))
 			issueCycle = forwarding.issueCycle
 		}
 
@@ -348,17 +345,14 @@ func (p *middleware) fetchAndProcess() {
 
 		// 8. For stores: add to store buffer.
 		if instinfo.IsStore(inst.Op) {
-			gprData := instinfo.ArgGPR(inst.Args[0]) >= 0
-			if inst.Op == arm64asm.STP {
-				gprData = gprData && instinfo.ArgGPR(inst.Args[1]) >= 0
-			}
+			eligible := directGPRTransfer(inst)
 			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
 				entry := storeBufferEntry{
-					Addr:          acc.Addr,
-					Size:          acc.Size,
-					CompleteCycle: completeCycle,
-					ReadyCycle:    issueCycle,
-					GPRData:       gprData,
+					Addr:                acc.Addr,
+					Size:                acc.Size,
+					CompleteCycle:       completeCycle,
+					ReadyCycle:          issueCycle,
+					FastForwardEligible: eligible,
 				}
 				if len(p.comp.State.StoreBuffer) >= p.comp.Spec.StoreBufferSize {
 					// Store buffer full — stall frontend until oldest

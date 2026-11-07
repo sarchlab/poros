@@ -1,6 +1,9 @@
 package ooo
 
-import "github.com/sarchlab/poros/pkg/emu"
+import (
+	"github.com/sarchlab/poros/pkg/emu"
+	"golang.org/x/arch/arm64/arm64asm"
+)
 
 const (
 	conventionalForwardLatency = 5
@@ -19,9 +22,9 @@ type loadForwarding struct {
 // forwardLoad preserves conventional overlap ordering unless every access can
 // take the exact GPR path. A younger overlapping store always shadows an older
 // match, including when its width makes it ineligible for the fast path.
-func (p *middleware) forwardLoad(accesses []emu.MemAccess, issueCycle uint64, gprLoad bool) loadForwarding {
+func (p *middleware) forwardLoad(accesses []emu.MemAccess, issueCycle uint64, eligibleLoad bool) loadForwarding {
 	result := loadForwarding{issueCycle: issueCycle, latency: conventionalForwardLatency, forwarded: len(accesses) > 0}
-	allExact := result.forwarded && gprLoad
+	allExact := len(accesses) == 1 && eligibleLoad
 	var dataReady uint64
 	for _, acc := range accesses {
 		covered := false
@@ -39,8 +42,8 @@ func (p *middleware) forwardLoad(accesses []emu.MemAccess, issueCycle uint64, gp
 			}
 		}
 		result.forwarded = result.forwarded && covered
-		if youngest == nil || !youngest.GPRData || youngest.Addr != acc.Addr ||
-			youngest.Size != acc.Size || youngest.CompleteCycle <= issueCycle {
+		if youngest == nil || !youngest.FastForwardEligible || youngest.Addr != acc.Addr ||
+			youngest.Size != acc.Size || (acc.Size != 4 && acc.Size != 8) || youngest.CompleteCycle <= issueCycle {
 			allExact = false
 		} else if youngest.ReadyCycle > dataReady {
 			dataReady = youngest.ReadyCycle
@@ -54,4 +57,20 @@ func (p *middleware) forwardLoad(accesses []emu.MemAccess, issueCycle uint64, gp
 		result.latency = exactGPRForwardLatency
 	}
 	return result
+}
+
+// directGPRTransfer restricts the fast hypothesis to the measured instruction
+// class. Both producer and consumer must use scalar 32/64-bit immediate-offset
+// LDR/STR without writeback. Register-offset, pair and unscaled forms retain
+// conventional timing; see evaluation/microbenchmarks/forwarding/README.md.
+func directGPRTransfer(inst arm64asm.Inst) bool {
+	if inst.Op != arm64asm.LDR && inst.Op != arm64asm.STR {
+		return false
+	}
+	reg, ok := inst.Args[0].(arm64asm.Reg)
+	if !ok || !((reg >= arm64asm.W0 && reg <= arm64asm.W30) || (reg >= arm64asm.X0 && reg <= arm64asm.X30)) {
+		return false
+	}
+	address, ok := inst.Args[1].(arm64asm.MemImmediate)
+	return ok && address.Mode == arm64asm.AddrOffset
 }
