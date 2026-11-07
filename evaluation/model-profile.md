@@ -26,6 +26,11 @@ represented by `arm64asm.RegSP` participate in the scoreboard; actual SP and zer
 register tracking retain their existing behavior. Load/store sharing and branch
 redirect behavior are separate calibration work.
 
+The comparison operand dependency correction also affects the shared in-order
+scoreboard and cached decode metadata, not only the OoO pipeline. Validation of
+these shared helpers must cover both pipelines; the ordinary full regression
+includes the in-order ELF workload cases.
+
 ## Store-to-load timing hypothesis
 
 The default OoO model has a one-cycle effective forwarding path for scalar
@@ -41,10 +46,13 @@ overlap, mismatched widths and completed stores retain conventional timing.
 The [native dependency probes](microbenchmarks/forwarding/README.md) measure
 value-varying loops. Immediate 32/64-bit GPR chains add about 0.21–0.23 ns/update
 over matched register chains, while register-offset producer or consumer forms
-and FP chains have substantially larger incremental cost. Accordingly the fast
-path is restricted to the measured scalar direct-addressing class. One cycle
-is an approximate model cost, not a measured physical bypass latency or evidence
-of M2 memory renaming. Core/frequency were unobserved; the same instruction class
+and FP chains have substantially larger incremental cost. The native dependency
+chains measured zero displacement with a general-register base. The model also
+allows nonzero scaled immediate offsets and SP bases as an unmeasured extension
+of the same immediate-offset instruction class; these individual forms were not
+established by the probes. One cycle is an approximate model cost, not a measured
+physical bypass latency or evidence of M2 memory renaming. Core/frequency were
+unobserved; the same instruction class
 can behave differently in longer application dependency graphs. The unchanged
 FP path can still contain compensating errors. Full application accuracy remains
 a separate check. Existing application and instruction-throughput hardware

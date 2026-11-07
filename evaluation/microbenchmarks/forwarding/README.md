@@ -16,6 +16,12 @@ assembly bodies; only their process startup and output harnesses differ.
 | `fp_disjoint` | Fixed double load plus changing independent double counter, stored elsewhere; throughput control |
 
 All memory addresses fit within one aligned 64-byte line, warmed before timing.
+The native dependency chains use zero displacement with a general-register base;
+register-offset controls likewise use a zero-valued index. Nonzero scaled
+immediate offsets and SP bases are allowed by the model as an unmeasured
+extension of the same immediate-offset instruction class. These probes do not
+establish those individual forms. The disjoint throughput controls use a separate
+store address and are not dependency-latency evidence for nonzero displacement.
 The same-address stores contain changing values. The select pair exercises both
 select outcomes in long runs. It resembles the load/compare/select/store shape
 in Nussinov but uses an explicit increment and wrap recurrence; it is not the
