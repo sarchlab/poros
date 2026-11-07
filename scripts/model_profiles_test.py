@@ -89,6 +89,15 @@ class ModelProfileTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 models.validate(bad)
 
+    def test_non_object_role_declarations_fail_validation(self):
+        for role in ("head", "base"):
+            for value in (None, [], "invalid", 8, False):
+                with self.subTest(role=role, value=value):
+                    bad = copy.deepcopy(self.report)
+                    bad["model_profiles"][role] = value
+                    with self.assertRaisesRegex(ValueError, role + " model declaration must be an object"):
+                        models.validate(bad)
+
     def test_legacy_base_uses_its_revision_manifest(self):
         report = copy.deepcopy(self.report)
         report["base_commit"] = self.legacy

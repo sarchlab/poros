@@ -62,6 +62,8 @@ def validate(report):
     result = {}
     for role, commit in (("head", report["head"]["commit"]), ("base", report["base_commit"])):
         entry = declarations[role]
+        if not isinstance(entry, dict):
+            raise ValueError(role + " model declaration must be an object")
         if (entry.get("commit") != commit or entry.get("path") not in (PATH, *LEGACY_PATHS)
                 or not re.fullmatch(r"[0-9a-f]{64}", entry.get("sha256", ""))):
             raise ValueError("model profile source identity mismatch")
