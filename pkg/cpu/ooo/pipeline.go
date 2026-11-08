@@ -39,7 +39,7 @@ type Spec struct {
 
 func DefaultSpec() Spec {
 	return Spec{
-		Freq: 3490 * timing.MHz, FetchWidth: 3, RetireWidth: 8, ROBCapacity: 256,
+		Freq: 3490 * timing.MHz, FetchWidth: 8, RetireWidth: 8, ROBCapacity: 256,
 		NumINT: 6, NumFP: 4, NumLDST: 4, BranchPenalty: 17, LoadLatency: 5,
 		FpPhysLimit: 72, StoreBufferSize: 56, NumMSHREntries: 12, BranchPrediction: true,
 		Predictor: PredictorSpec{BimodalSize: 4096, TaggedTableSize: 2048, BTBSize: 2048, BTBWays: 4, RASSize: 32, TaggedHistLen: 32},
@@ -64,7 +64,7 @@ type State struct {
 	Serializing                  bool
 	GprReady, FpReady            [32]uint64
 	FlagsReady                   uint64
-	IntUnits, FpUnits, LdstUnits []uint64
+	IntUnits, FpUnits, LdstUnits [][]UnitReservation
 	Rob                          []uint64
 	RobFPDests                   []int
 	RobHead, RobTail, RobCount   int
@@ -81,6 +81,11 @@ type storeBufferEntry struct {
 	Addr          uint64
 	Size          int
 	CompleteCycle uint64
+	// ReadyCycle conservatively records when store address and data can issue.
+	// Missing fields in an older serialized state leave FastForwardEligible false, which
+	// preserves the conventional forwarding path for those entries.
+	ReadyCycle          uint64
+	FastForwardEligible bool
 }
 type unitType int
 
@@ -101,9 +106,9 @@ func (s *State) Initialize(c *Comp) {
 	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumLDST < 1 || v.LoadLatency < 1 || v.FpPhysLimit < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
 	}
-	s.IntUnits = make([]uint64, v.NumINT)
-	s.FpUnits = make([]uint64, v.NumFP)
-	s.LdstUnits = make([]uint64, v.NumLDST)
+	s.IntUnits = make([][]UnitReservation, v.NumINT)
+	s.FpUnits = make([][]UnitReservation, v.NumFP)
+	s.LdstUnits = make([][]UnitReservation, v.NumLDST)
 	s.Rob = make([]uint64, v.ROBCapacity)
 	s.RobFPDests = make([]int, v.ROBCapacity)
 	s.StoreBuffer = make([]storeBufferEntry, 0, v.StoreBufferSize)
@@ -150,6 +155,7 @@ func (p *middleware) Handle(_ timing.Event) bool {
 		return false
 	}
 	p.comp.State.Cycles++
+	p.pruneUnitReservations()
 
 	// Phase 1: Retire completed instructions from ROB head.
 	p.retire()
@@ -247,8 +253,15 @@ func (p *middleware) fetchAndProcess() {
 			issueCycle = srcReady
 		}
 
-		bestUnit, bestCycle := p.findUnit(ut, issueCycle)
-		issueCycle = bestCycle
+		// NOP is eliminated before execution, while retaining frontend, ROB
+		// and retirement accounting. Other HINT instructions are not assumed
+		// to have the same resource behavior.
+		usesUnit := inst.Op != arm64asm.NOP
+		if instinfo.IsLoad(inst.Op) {
+			// Forwarding eligibility depends on when a load could issue.
+			// Other instructions need only the final resource selection below.
+			_, issueCycle = p.findUnit(ut, issueCycle, unitOccupancy(inst.Op))
+		}
 
 		// 4. Execute functionally (in program order).
 		_, branched, execErr := p.comp.Resources.backend().StepDetailed()
@@ -262,49 +275,29 @@ func (p *middleware) fetchAndProcess() {
 
 		// 5. Address-based load-store disambiguation (after StepDetailed
 		//    so actual addresses are available in p.comp.Resources.backend().MemoryAccesses()).
-		forwarded := false
+		forwarding := loadForwarding{issueCycle: issueCycle}
 		if instinfo.IsLoad(inst.Op) {
-			accesses := p.comp.Resources.backend().MemoryAccesses()
-			allForwarded := len(accesses) > 0
-			for _, acc := range accesses {
-				covered := false
-				for _, sb := range p.comp.State.StoreBuffer {
-					if acc.Addr < sb.Addr+uint64(sb.Size) &&
-						sb.Addr < acc.Addr+uint64(acc.Size) {
-						// Address overlap: load must wait for this store.
-						if sb.CompleteCycle > issueCycle {
-							issueCycle = sb.CompleteCycle
-						}
-						// Check if the store fully covers this load access.
-						if sb.Addr <= acc.Addr &&
-							acc.Addr+uint64(acc.Size) <= sb.Addr+uint64(sb.Size) {
-							covered = true
-						}
-					}
-				}
-				if !covered {
-					allForwarded = false
-				}
-			}
-			forwarded = allForwarded
+			forwarding = p.forwardLoad(p.comp.Resources.backend().MemoryAccesses(), issueCycle, directGPRTransfer(inst))
+			issueCycle = forwarding.issueCycle
 		}
 
-		// 6. Compute execution latency.
+		// 6. Compute latency, then select a common execution-unit/MSHR time.
+		// Forwarding and MSHR waits may have invalidated the earlier unit
+		// candidate. Do not reserve either resource until both are available.
 		var latency uint64
-		if forwarded {
-			// Store-to-load forwarding: ~5-cycle forwarding latency (M2 estimate).
-			latency = 5
+		var miss bool
+		if forwarding.forwarded {
+			latency = forwarding.latency
 		} else {
-			var miss bool
 			latency, miss = p.instrLatencyWithPC(inst, pc)
-			// MSHR: if load missed L1, acquire an MSHR slot (may stall).
-			if miss {
-				mshrIdx, mshrCycle := p.acquireMSHR(issueCycle)
-				issueCycle = mshrCycle
-				p.comp.State.MshrBusyUntil[mshrIdx] = issueCycle + latency
-			}
+		}
+		if usesUnit {
+			issueCycle = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss, latency)
 		}
 		completeCycle := issueCycle + latency
+		if forwarding.forwarded && forwarding.dataReady+latency > completeCycle {
+			completeCycle = forwarding.dataReady + latency
+		}
 
 		// 7. Update destination register readiness.
 		gpr, fp := instinfo.DestRegs(inst)
@@ -354,11 +347,14 @@ func (p *middleware) fetchAndProcess() {
 
 		// 8. For stores: add to store buffer.
 		if instinfo.IsStore(inst.Op) {
+			eligible := directGPRTransfer(inst)
 			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
 				entry := storeBufferEntry{
-					Addr:          acc.Addr,
-					Size:          acc.Size,
-					CompleteCycle: completeCycle,
+					Addr:                acc.Addr,
+					Size:                acc.Size,
+					CompleteCycle:       completeCycle,
+					ReadyCycle:          issueCycle,
+					FastForwardEligible: eligible,
 				}
 				if len(p.comp.State.StoreBuffer) >= p.comp.Spec.StoreBufferSize {
 					// Store buffer full — stall frontend until oldest
@@ -372,9 +368,6 @@ func (p *middleware) fetchAndProcess() {
 				p.comp.State.StoreBuffer = append(p.comp.State.StoreBuffer, entry)
 			}
 		}
-
-		// 9. Mark execution unit busy.
-		p.markUnitBusy(ut, bestUnit, issueCycle, inst.Op)
 
 		// 10. Add to ROB and track FP register usage.
 		p.comp.State.Rob[p.comp.State.RobTail] = completeCycle
@@ -450,60 +443,6 @@ func classifyUnit(instruction arm64asm.Inst) unitType {
 		return unitFP
 	default:
 		return unitINT
-	}
-}
-
-// findUnit scans all units of the matching type and returns the one that
-// becomes free earliest (>= earliest). Returns (unitIndex, actualIssueCycle).
-func (p *middleware) findUnit(ut unitType, earliest uint64) (int, uint64) {
-	var units []uint64
-	switch ut {
-	case unitINT:
-		units = p.comp.State.IntUnits
-	case unitFP:
-		units = p.comp.State.FpUnits
-	case unitLDST:
-		units = p.comp.State.LdstUnits
-	}
-
-	bestIdx := 0
-	bestTime := units[0]
-	if earliest > bestTime {
-		bestTime = earliest
-	}
-	for i := 1; i < len(units); i++ {
-		t := units[i]
-		if earliest > t {
-			t = earliest
-		}
-		if t < bestTime {
-			bestIdx = i
-			bestTime = t
-		}
-	}
-	return bestIdx, bestTime
-}
-
-// markUnitBusy marks an execution unit as occupied.
-// Most units are pipelined (1-cycle throughput). DIV/SQRT are partially
-// pipelined: the unit is busy for throughput cycles (< latency).
-func (p *middleware) markUnitBusy(ut unitType, idx int, issueCycle uint64, op arm64asm.Op) {
-	busyUntil := issueCycle + 1 // pipelined: 1-cycle throughput
-	switch op {
-	case arm64asm.SDIV, arm64asm.UDIV:
-		busyUntil = issueCycle + uint64(instinfo.ExecuteLatency(op)) // non-pipelined
-	case arm64asm.FDIV:
-		busyUntil = issueCycle + 10 // partially pipelined: 10cy throughput, 22cy latency
-	case arm64asm.FSQRT:
-		busyUntil = issueCycle + 6 // partially pipelined: 6cy throughput, 12cy latency
-	}
-	switch ut {
-	case unitINT:
-		p.comp.State.IntUnits[idx] = busyUntil
-	case unitFP:
-		p.comp.State.FpUnits[idx] = busyUntil
-	case unitLDST:
-		p.comp.State.LdstUnits[idx] = busyUntil
 	}
 }
 

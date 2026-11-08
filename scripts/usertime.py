@@ -13,7 +13,7 @@ import math
 import statistics
 import subprocess
 import native_usertime as native
-from workload_contract import case_ids, check_output
+from workload_contract import case_ids, check_output, instruction_budget, execution_timeout_seconds
 from native_usertime import (
     ROOT,
     digest,
@@ -47,7 +47,8 @@ class OutputIdentity:
             raise ValueError("complete output identity mismatch")
 
 
-def execute(poros, case, mode=None, expected_output=None, expected_identity=None):
+def execute(poros, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None):
+    timeout_seconds = execution_timeout_seconds(case)
     argv = [
         str(poros),
         "elf",
@@ -56,9 +57,9 @@ def execute(poros, case, mode=None, expected_output=None, expected_identity=None
         "--frequency-hz",
         str(case["frequency_hz"]),
         "--timeout",
-        "45m",
+        f"{timeout_seconds // 60}m",
         "--max-instructions",
-        "2000000000",
+        str(instruction_budget(case)),
         "--max-output",
         str(max(1 << 20, expected_identity.length if expected_identity is not None else len(expected_output) if expected_output is not None else 16 * int(case["args"][1]) if case.get("workload") == "mvt" else 8)),
         "--argv0",
@@ -67,7 +68,7 @@ def execute(poros, case, mode=None, expected_output=None, expected_identity=None
     for entry in case["env"]:
         argv += ["--env", entry]
     argv += [str(ROOT / case["file"] if "outputs" in case else ROOT / "tests/usertime" / case["file"])] + case["args"][1:]
-    p = subprocess.run(argv, capture_output=True, timeout=2750)
+    p = subprocess.run(argv, capture_output=True, timeout=timeout_seconds + 50)
     if p.returncode != 0 or p.stderr:
         raise ValueError(
             "timing execution failed: "
@@ -76,10 +77,10 @@ def execute(poros, case, mode=None, expected_output=None, expected_identity=None
             + p.stderr.decode(errors="replace")
         )
     r = json.loads(p.stdout)
-    return validate_execution(r, case, mode, expected_output, expected_identity)
+    return validate_execution(r, case, mode, expected_output, expected_identity, expected_profile)
 
 
-def validate_execution(r, case, mode=None, expected_output=None, expected_identity=None):
+def validate_execution(r, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None):
     """Apply identical checks to live and recorded simulator executions."""
     if (
         r["binary_sha256"] != case["sha256"]
@@ -89,7 +90,7 @@ def validate_execution(r, case, mode=None, expected_output=None, expected_identi
         raise ValueError("executed input provenance mismatch")
     if r["termination"] != "exit" or r["exit_status"] != 0 or r["stderr_base64"]:
         raise ValueError("timing correctness failed: " + case["id"])
-    if type(r["instructions"]) is not int or not 0 < r["instructions"] <= 2000000000:
+    if type(r["instructions"]) is not int or not 0 < r["instructions"] <= instruction_budget(case):
         raise ValueError("instruction count must be a positive integer")
     actual = base64.b64decode(r["stdout_base64"], validate=True)
     if expected_output is not None and expected_identity is not None:
@@ -110,11 +111,12 @@ def validate_execution(r, case, mode=None, expected_output=None, expected_identi
             raise ValueError("functional execution unexpectedly contains timing")
         return r
     t = r["timing"]
+    profile = inventory()["profile"] if expected_profile is None else expected_profile
     if (
-        t["configuration"] != inventory()["profile"]["configuration"]
-        or t["cache_config"] != inventory()["profile"]["cache_config"]
+        t["configuration"] != profile["configuration"]
+        or t["cache_config"] != profile["cache_config"]
     ):
-        raise ValueError("frozen hardware profile mismatch")
+        raise ValueError("declared model profile mismatch")
     if (
         t["model"] != case["model"]
         or t["assumed_hz"] != case["frequency_hz"]

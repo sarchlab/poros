@@ -131,3 +131,76 @@ func TestBenchmarkELF(t *testing.T) {
 		})
 	}
 }
+
+// The performance-only wrapper is exercised even in short/ordinary CI. Keep
+// these tiny coordinates separate from both six-point benchmark inventories.
+func TestStreamclusterRepeatELF(t *testing.T) {
+	const root = "../../tests/benchmarks/"
+	limits := linuxuser.RunOptions{MaxInstructions: 100_000, Timeout: 10 * time.Second, MaxOutput: 1024}
+	run := func(name, mode string, args ...string) linuxuser.Result {
+		t.Helper()
+		info, err := os.Stat(root + name + ".elf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0111 == 0 {
+			t.Fatalf("%s ELF is packaged without executable permission required by QEMU", name)
+		}
+		image, err := os.ReadFile(root + name + ".elf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := linuxuser.Parse(image, linuxuser.Options{Args: append([]string{"program"}, args...)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result linuxuser.Result
+		if mode == "functional" {
+			result, err = p.Run(context.Background(), limits)
+		} else {
+			var timed Result
+			timed, err = Run(context.Background(), p, Options{Model: mode, Limits: limits})
+			result = timed.Result
+		}
+		if err != nil || result.Termination != "exit" || result.ExitStatus == nil || *result.ExitStatus != 0 || len(result.Stderr) != 0 {
+			t.Fatalf("%s %s incomplete: %v %+v", name, mode, err, result)
+		}
+		return result
+	}
+	original := run("streamcluster", "functional", "7", "3")
+	if len(original.Stdout) != 7*8 {
+		t.Fatal("original output length differs")
+	}
+	expected := bytes.Repeat(original.Stdout, 2)
+	functional := run("streamcluster-repeat", "functional", "7", "3", "2")
+	if !bytes.Equal(functional.Stdout, expected) {
+		t.Fatal("repeat wrapper did not emit exactly two complete original outputs")
+	}
+	timed := run("streamcluster-repeat", "ooo", "7", "3", "2")
+	if !reflect.DeepEqual(functional, timed) {
+		t.Fatal("repeat wrapper functional/OoO architectural results differ")
+	}
+	t.Run("qemu", func(t *testing.T) {
+		qemu, err := exec.LookPath("qemu-aarch64")
+		if err != nil {
+			t.Skip("QEMU is checked in the Linux ELF differential CI job")
+		}
+		for _, name := range []string{"streamcluster", "streamcluster-repeat"} {
+			args := []string{root + name + ".elf", "7", "3"}
+			want := original.Stdout
+			if name == "streamcluster-repeat" {
+				args = append(args, "2")
+				want = expected
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			cmd := exec.CommandContext(ctx, qemu, args...)
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			actual, err := cmd.Output()
+			cancel()
+			if err != nil || stderr.Len() != 0 || !bytes.Equal(actual, want) {
+				t.Fatalf("%s QEMU complete-output mismatch: %v %s", name, err, stderr.String())
+			}
+		}
+	})
+}

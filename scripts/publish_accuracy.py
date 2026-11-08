@@ -25,6 +25,23 @@ def api(path, method="GET"):
     return json.loads(run("gh", "api", "--method", method, path).stdout)
 
 
+def verify_replacement_source(source, reference, commit):
+    replacement = reference["streamcluster_replacement"]
+    site.performance.require_collection_ancestor(source, replacement["base_commit"], commit)
+    original_bytes = subprocess.check_output(["git", "-C", str(source), "show",
+        replacement["base_commit"]+":"+site.performance.PATH])
+    original = json.loads(original_bytes)
+    replaced = set(replacement["case_ids"])
+    current_keys = {"cases", "input_sources", "inventory_sha256", "micro_manifest_sha256", "build_manifest_sha256"}
+    if any(reference.get(k) != v for k,v in original.items() if k not in current_keys):
+        raise ValueError("replacement altered original acquisition metadata")
+    if (hashlib.sha256(original_bytes).hexdigest() != replacement["original_reference_sha256"]
+            or reference["historical_input_sources"] != original["input_sources"]
+            or [r for r in reference["cases"] if r["id"] not in replaced]
+            != [r for r in original["cases"] if r["id"] not in replaced]):
+        raise ValueError("replacement differs from historical acquisition evidence")
+
+
 def verify_source(source, bundle, commit):
     report, manifest = site.validate_bundle(bundle, commit)
     if report["artifact_status"] != "pass":
@@ -41,6 +58,7 @@ def verify_source(source, bundle, commit):
         if hashlib.sha256(data).hexdigest() != report["head"]["files"][path]:
             raise ValueError("report source hash differs from commit: " + path)
     if report["schema"] == 4:
+        site.model_profiles.verify_source(source, report)
         reference = site.read(Path(bundle) / "reference.json")
         site.performance.require_collection_ancestor(source, reference["collection_commit"], commit)
         def committed_json(path):
@@ -53,7 +71,14 @@ def verify_source(source, bundle, commit):
             raise ValueError("compact workload inventory differs from exact source commit")
         if site.digest(Path(bundle) / "reference.json") != report["head"]["files"].get(site.performance.PATH):
             raise ValueError("compact reference differs from source commit")
-        for path, expected in {**reference["collector_sources"], **reference["input_sources"]}.items():
+        # Native capture tools were local, uncommitted experiment files. Their
+        # hashes describe retained local evidence, not files at collection_commit.
+        sources = dict(reference["historical_input_sources"] if "streamcluster_replacement" in reference else reference["input_sources"])
+        if "streamcluster_replacement" in reference:
+            verify_replacement_source(source, reference, commit)
+        if reference["protocol"] == site.performance.PROTOCOL:
+            sources.update(reference["collector_sources"])
+        for path, expected in sources.items():
             data = subprocess.check_output(["git", "-C", str(source), "show", reference["collection_commit"] + ":" + path])
             if hashlib.sha256(data).hexdigest() != expected:
                 raise ValueError("compact measurement source differs from exact collection commit")

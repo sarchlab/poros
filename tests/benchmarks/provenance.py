@@ -20,7 +20,8 @@ files = {"tests/benchmarks/manifest.json", "tests/benchmarks/performance.json", 
          "tests/benchmarks/build.sh", "tests/benchmarks/provenance.py",
          "tests/usertime/start.S", "tests/usertime/layout.ld"}
 files.update(str(p.relative_to(root)) for p in (root / "tests/benchmarks/support").iterdir() if p.suffix in (".c", ".elf"))
-for workload in manifest["workloads"]:
+files.update(str(p.relative_to(root)) for p in (root / "tests/benchmarks/streamcluster-repeat").iterdir() if p.suffix in (".c", ".S"))
+for workload in manifest["workloads"] + performance["workloads"]:
     files.update(workload[key] for key in ("source", "kernel", "binary"))
 compiler = subprocess.check_output([cc, "--version"], text=True).splitlines()[0]
 linker = subprocess.check_output([cc, "-Wl,--version"], text=True).splitlines()[0]

@@ -14,11 +14,16 @@ import os
 from pathlib import Path
 import re
 import shutil
+import statistics
 import subprocess
 from workload_contract import LEGACY_IDS, case_ids, validate_manifest, manifest_path
 import compute_usertime as compute
 import performance_reference as performance
 import frontend_microbenchmark as probe
+import throughput_microbenchmark as throughput
+import forwarding_microbenchmark as forwarding
+import scheduling_microbenchmark as scheduling
+import model_profiles
 from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
 
 SCHEMA = 1
@@ -398,7 +403,8 @@ def validate_bundle(path, commit):
 def measurement_completed(report, path):
     if report.get("schema") == 3:
         return report["compute_reference"]["completed_at_utc"]
-    return read(path / "reference.json").get("completed_at_utc")
+    reference = read(path / "reference.json")
+    return reference.get("streamcluster_replacement", {}).get("completed_at_utc", reference.get("completed_at_utc"))
 
 
 def nested_regular(root, name):
@@ -539,23 +545,45 @@ def bundle_compact(report_path, source, output, commit):
     if report["artifact_status"] == "pass":
         shutil.copyfile(source / performance.PATH, output / "reference.json")
         names.add("reference.json")
-        if FRONTEND_REFERENCE in report["head"]["files"]:
+        if scheduling.declared(report["head"]["files"]):
+            shutil.copyfile(source / scheduling.REFERENCE, output / "scheduling.json")
+            names.add("scheduling.json")
+        if forwarding.declared(report["head"]["files"]):
+            shutil.copyfile(source / forwarding.REFERENCE, output / "forwarding.json")
+            names.add("forwarding.json")
+        if throughput.ELF in report["head"]["files"]:
+            shutil.copyfile(source / throughput.REFERENCE, output / "throughput.json")
+            names.add("throughput.json")
+        elif FRONTEND_REFERENCE in report["head"]["files"]:
             shutil.copyfile(source / FRONTEND_REFERENCE, output / "frontend.json")
             names.add("frontend.json")
     write(output / "bundle.json", dict(schema=SCHEMA, commit=commit,
           run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
           files={name: digest(output / name) for name in names}))
     validate_bundle(output, commit)
-    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None))
+    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None, forwarding_reference=read(output / "forwarding.json") if "forwarding.json" in names else None, scheduling_reference=read(output / "scheduling.json") if "scheduling.json" in names else None))
 
 
 def validate_compact_bundle(path, commit, manifest):
     report = read(regular(path / "report.json"))
     names = {"report.json", "report.md"} | ({"reference.json"} if report["artifact_status"] == "pass" else set())
-    if report["artifact_status"] == "pass" and FRONTEND_REFERENCE in report["head"]["files"]:
-        if digest(regular(path / "frontend.json")) != report["head"]["files"][FRONTEND_REFERENCE]:
-            raise ValueError("frontend diagnostic differs from tested source")
-        names.add("frontend.json")
+    if report["artifact_status"] == "pass":
+        if scheduling.declared(report["head"]["files"]):
+            if digest(regular(path / "scheduling.json")) != report["head"]["files"].get(scheduling.REFERENCE):
+                raise ValueError("scheduling reference differs from tested source")
+            names.add("scheduling.json")
+        if forwarding.declared(report["head"]["files"]):
+            if digest(regular(path / "forwarding.json")) != report["head"]["files"].get(forwarding.REFERENCE):
+                raise ValueError("forwarding reference differs from tested source")
+            names.add("forwarding.json")
+        if throughput.ELF in report["head"]["files"]:
+            if digest(regular(path / "throughput.json")) != report["head"]["files"].get(throughput.REFERENCE):
+                raise ValueError("throughput reference differs from tested source")
+            names.add("throughput.json")
+        elif FRONTEND_REFERENCE in report["head"]["files"]:
+            if digest(regular(path / "frontend.json")) != report["head"]["files"][FRONTEND_REFERENCE]:
+                raise ValueError("frontend diagnostic differs from tested source")
+            names.add("frontend.json")
     if set(manifest["files"]) != names:
         raise ValueError("compact bundle membership mismatch")
     for name, expected in manifest["files"].items():
@@ -564,10 +592,28 @@ def validate_compact_bundle(path, commit, manifest):
     check_report(report, commit)
     if report["artifact_status"] != "pass":
         return report, manifest
-    if probe.ELF in report["head"]["files"]:
-        probe.validate(report.get("frontend_simulation"))
-    elif "frontend_simulation" in report:
-        raise ValueError("frontend probe is absent from the tested source")
+    if scheduling.declared(report["head"]["files"]):
+        native_scheduling = scheduling.validate_reference(read(path / "scheduling.json"), report["head"]["files"])
+        scheduling.validate_comparison(report.get("scheduling_simulation"), native_scheduling["cases"])
+    elif "scheduling_simulation" in report:
+        raise ValueError("scheduling suite absent from tested source")
+    if forwarding.declared(report["head"]["files"]):
+        native_forwarding = forwarding.validate_reference(read(path / "forwarding.json"), report["head"]["files"])
+        forwarding.validate_comparison(report.get("forwarding_simulation"), native_forwarding["cases"])
+    elif "forwarding_simulation" in report:
+        raise ValueError("forwarding suite absent from tested source")
+    if throughput.ELF in report["head"]["files"]:
+        native_throughput = throughput.validate_reference(read(path / "throughput.json"), report["head"]["files"])
+        throughput.validate_simulation(report.get("throughput_simulation"), native_throughput["cases"])
+        if "frontend_simulation" in report:
+            raise ValueError("superseded frontend simulation in throughput report")
+    else:
+        if "throughput_simulation" in report:
+            raise ValueError("throughput suite absent from tested source")
+        if probe.ELF in report["head"]["files"]:
+            probe.validate(report.get("frontend_simulation"))
+        elif "frontend_simulation" in report:
+            raise ValueError("frontend probe is absent from the tested source")
     declared = report_manifest(report)
     measured = performance.validate(read(path / "reference.json"), declared)
     if digest(path / "reference.json") != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:
@@ -577,14 +623,17 @@ def validate_compact_bundle(path, commit, manifest):
         raise ValueError("displayed compact provenance mismatch")
     if any(report["head"]["files"].get(name) != sha for name, sha in measured["input_sources"].items()):
         raise ValueError("compact input differs from tested source/ELF")
+    profiles = model_profiles.validate(report)
     for row, observed, case in zip(report["cases"], measured["cases"], declared["cases"]):
+        if "streamcluster_replacement" in measured and row.get("reference_origin") != performance.reference_origin(measured, case):
+            raise ValueError("plotted native acquisition identity mismatch")
         if row["reference_quality"] != observed["quality"] or row["reference_user_seconds"] != observed["median_user_seconds"] or row.get("reference_p10_seconds") != observed["p10_user_seconds"] or row.get("reference_p90_seconds") != observed["p90_user_seconds"]:
             raise ValueError("compact plotted statistics mismatch")
         for label in ("head", "base"):
             if label not in row:
                 continue
             value = row[label]
-            if type(value["cycles"]) is not int or type(value["instructions"]) is not int or any(value[k] != declared["profile"][k] for k in ("configuration", "cache_config")):
+            if type(value["cycles"]) is not int or type(value["instructions"]) is not int or any(value[k] != profiles[label][k] for k in ("configuration", "cache_config")):
                 raise ValueError("compact report timing profile/count mismatch")
             seconds, real = value["predicted_user_seconds"], observed["median_user_seconds"]
             if not math.isclose(seconds, value["cycles"] / case["frequency_hz"], rel_tol=1e-12):
@@ -761,6 +810,48 @@ ERROR_BANDS = (
 )
 
 
+def correlation_statistics(points):
+    n = len(points)
+    pearson = "—"
+    concordant = discordant = measured_unequal = predicted_unequal = 0
+    if n >= 2:
+        mx, my = (sum(p[k] for p in points)/n for k in (0, 1))
+        dx, dy = ([p[k]-mean for p in points] for k, mean in ((0,mx),(1,my)))
+        denom = math.sqrt(sum(x*x for x in dx) * sum(y*y for y in dy))
+        if denom:
+            pearson = f"{sum(x*y for x,y in zip(dx,dy))/denom:.4f}"
+        for i, (x, y, _) in enumerate(points):
+            for xx, yy, _ in points[:i]:
+                measured_unequal += x != xx
+                predicted_unequal += y != yy
+                if x != xx and y != yy:
+                    if (x < xx) == (y < yy):
+                        concordant += 1
+                    else:
+                        discordant += 1
+    denominator = math.sqrt(measured_unequal * predicted_unequal)
+    tau = f"{(concordant - discordant) / denominator:.4f}" if denominator else "—"
+    pair = (f"{concordant / measured_unequal:.2%} ({concordant:,}/{measured_unequal:,})"
+            if measured_unequal else "—")
+    return dict(count=n, pearson=pearson, tau=tau, pair=pair)
+
+
+def comparison_table(cases):
+    shared = [c for c in cases if c.get("reference_quality") == "usable"
+              and all("error_percent" in c.get(role, {}) for role in ("base", "head"))]
+    body = (f'<h3>Base and head comparison</h3><p>Both rows use the same {len(shared)} qualified application cases '
+            'with base and head predictions. The overview charts use all qualified head cases.</p>'
+            '<div class="table"><table><thead><tr><th>Model</th><th>Mean error</th><th>Median error</th>'
+            '<th>Pearson r</th><th>Kendall τ-b</th><th>Pairs ordered correctly</th></tr></thead><tbody>')
+    for role in ("base", "head"):
+        metrics = correlation_statistics([(c["reference_user_seconds"] * 1000, c[role]["predicted_user_seconds"] * 1000, c["id"]) for c in shared])
+        errors = [c[role]["error_percent"] for c in shared]
+        values = [role, number(statistics.mean(errors), "%") if errors else "—",
+                  number(statistics.median(errors), "%") if errors else "—", metrics["pearson"], metrics["tau"], metrics["pair"]]
+        body += '<tr>' + ''.join('<td>' + esc(v) + '</td>' for v in values) + '</tr>'
+    return body + '</tbody></table></div>'
+
+
 def overview_charts(cases):
     # Both views and both statistics use exactly the same qualified head cases.
     points = [(c["reference_user_seconds"] * 1000, c["head"]["predicted_user_seconds"] * 1000, c["id"])
@@ -800,27 +891,8 @@ def overview_charts(cases):
                     [("head", ranks, "#087e8b")], "Case rank (underestimate → overestimate)",
                     "Time ratio (log₂ scale)", x_ticks=rank_ticks, y_ticks=ticks,
                     note=band_note, y_bands=shading)
-    pearson = "—"
-    concordant = discordant = measured_unequal = predicted_unequal = 0
-    if n >= 2:
-        mx, my = (sum(p[k] for p in points)/n for k in (0, 1))
-        dx, dy = ([p[k]-mean for p in points] for k, mean in ((0,mx),(1,my)))
-        denom = math.sqrt(sum(x*x for x in dx) * sum(y*y for y in dy))
-        if denom:
-            pearson = f"{sum(x*y for x,y in zip(dx,dy))/denom:.4f}"
-        for i, (x, y, _) in enumerate(points):
-            for xx, yy, _ in points[:i]:
-                measured_unequal += x != xx
-                predicted_unequal += y != yy
-                if x != xx and y != yy:
-                    if (x < xx) == (y < yy):
-                        concordant += 1
-                    else:
-                        discordant += 1
-    denominator = math.sqrt(measured_unequal * predicted_unequal)
-    tau = f"{(concordant - discordant) / denominator:.4f}" if denominator else "—"
-    pair = (f"{concordant / measured_unequal:.2%} ({concordant:,}/{measured_unequal:,})"
-            if measured_unequal else "—")
+    metrics = correlation_statistics(points)
+    pearson, tau, pair = (metrics[k] for k in ("pearson", "tau", "pair"))
     note = (f"<p><strong>Kendall’s τ-b = {tau}</strong><br>"
             f"<strong>Pairs ordered correctly: {pair}</strong><br>"
             f"Pearson correlation (r) = {pearson}</p>"
@@ -853,6 +925,147 @@ def frontend_table(reference, simulated=None):
             + ('<p>Simulated IPC uses the same assembly loops. Subtracting the counts for 4,096 iterations '
                'from those for 8,192 removes fixed process setup and exit costs.</p>' if simulated else '')
             + '<p><a href="frontend.json">Native reference data</a></p>')
+
+
+def throughput_table(reference, simulated=None):
+    throughput.validate_reference(reference)
+    if simulated is not None:
+        throughput.validate_simulation(simulated, reference["cases"])
+    rows = []
+    for index, case in enumerate(reference["cases"]):
+        instructions = case["iterations"] * case["instructions_per_iteration"]
+        ns = case["median_seconds"] * 1e9 / instructions
+        spread = (case["p90_seconds"] - case["p10_seconds"]) / case["median_seconds"]
+        model = f"<td>{simulated[index]['instructions'] / simulated[index]['cycles']:.2f}</td>" if simulated else ""
+        rows.append(f"<tr><td>{esc(case['id'])}</td><td>{ns:.3f}</td>"
+                    f"<td>{case['p10_seconds']*1e9/instructions:.3f}–{case['p90_seconds']*1e9/instructions:.3f}</td>"
+                    f"<td>{100*spread:.1f}%</td><td>{1e9/ns/reference['assumed_hz']:.2f}</td>{model}</tr>")
+    return ('<h3>Instruction throughput suite</h3>'
+            f"<p>{esc(reference['hardware'])} · {esc(reference['collected_at_utc'])} · native macOS thread CPU time. "
+            "Nine paired long-minus-short measurements remove fixed harness overhead; each difference covers approximately 500 million instructions. "
+            "P10/P90 use nearest lower sample ranks. Core and operating frequency were unobserved. "
+            "Estimated IPC assumes 3.49 GHz; it does not establish hardware issue width. "
+            "Memory probes reuse a warmed 64-byte working set intended to fit L1.</p>"
+            '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/instruction</th><th>P10–P90 ns/instruction</th>'
+            '<th>Spread / median</th><th>Estimated native IPC</th>'
+            + ('<th>Simulated IPC</th>' if simulated else '') + '</tr></thead><tbody>' + ''.join(rows)
+            + '</tbody></table></div><p>Simulation uses the same assembly loops, differencing 1,024 and 2,048 iterations. '
+            'All checksums are checked analytically. '
+            'These cases are excluded from application accuracy statistics. <a href="throughput.json">Reference data</a></p>')
+
+
+def forwarding_panels(reference, simulations, profiles):
+    """Render dependency probes only in the microbenchmark section."""
+    forwarding.validate_reference(reference)
+    forwarding.validate_comparison(simulations, reference["cases"])
+    frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
+    if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
+        raise ValueError("invalid forwarding model frequency")
+    rows = {}
+    for index, case in enumerate(reference["cases"]):
+        updates = case["iterations"] * forwarding.UPDATES_PER_ITERATION
+        native = {key: case[key + "_seconds"] * 1e9 / updates for key in ("p10", "median", "p90")}
+        model = {role: simulations[role][index]["cycles"] * 1e9 / simulations[role][index]["updates"] / frequencies[role]
+                 for role in ("base", "head")}
+        spread = 100 * (native["p90"] - native["p10"]) / native["median"]
+        tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.4f}/{native["median"]:.4f}/{native["p90"]:.4f} ns/update; '
+                   f'spread {spread:.2f}%; base {model["base"]:.4f}, head {model["head"]:.4f} ns/update')
+        rows[case["id"]] = dict(native=native, model=model, spread=spread, tooltip=tooltip)
+    groups = (
+        ("64-bit GPR dependencies", ("gpr64_register", "gpr64_same", "gpr64_disjoint", "gpr64_indexed", "gpr64_indexed_load", "gpr64_indexed_store"),
+         ("reg", "direct", "apart", "idx", "idx ld", "idx st")),
+        ("32-bit GPR dependencies", ("gpr32_register", "gpr32_same"), ("reg", "direct")),
+        ("Compare/select dependencies", ("select_register", "select_same"), ("reg", "direct")),
+        ("FP dependencies", ("fp_register", "fp_same", "fp_disjoint"), ("reg", "direct", "apart")),
+    )
+    graphs = '<h3>Store/load dependency probes</h3><p>Value-varying assembly updates; native macOS thread CPU time. '
+    graphs += (f'{esc(reference["hardware"])} · {esc(reference["collected_at_utc"])}. '
+               'Nine alternating long-minus-short pairs; 64 updates per loop iteration. '
+               'Hover a point for P10/median/P90, spread and both simulator predictions. '
+               'Core and instantaneous frequency were unobserved. '
+               + 'Simulation converts cycles using the declared model frequency: '
+               + ', '.join(f'{role} {hz/1e9:g} GHz' for role, hz in frequencies.items())
+               + '. These probes are excluded from application accuracy statistics.</p><div class="charts">')
+    for title, names, labels in groups:
+        series = []
+        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
+            values = [(i+1, rows[name]["native"]["median"] if role == "native" else rows[name]["model"][role], rows[name]["tooltip"])
+                      for i, name in enumerate(names)]
+            series.append((role, values, color))
+        graphs += chart(title, series, "Probe form", "ns/update", scatter=True,
+                        x_ticks=[(i+1, label) for i, label in enumerate(labels)])
+    graphs += ('</div><p>Reg is the same-class register chain; direct uses immediate-offset load/store; apart is a '
+               'nonoverlap throughput control, not a latency baseline. Idx uses register offsets on both sides, '
+               'idx ld/st on one side. Compare/select increments and wraps modulo 65,536. '
+               'Matched memory-minus-register differences estimate effective dependency cost including instruction/address overhead, '
+               'not physical bypass latency. P10/P90 are variability summaries, not confidence intervals.</p>')
+    table = (f'<details id="forwarding-table"><summary>Store/load dependency table · {len(rows)} probes</summary>'
+             '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/update</th><th>P10–P90 ns/update</th>'
+             '<th>Spread / median</th><th>Base ns/update</th><th>Head ns/update</th><th>Native memory − register (ns/update)</th>'
+             '</tr></thead><tbody>')
+    for name, row in rows.items():
+        baseline = next(names[0] for _, names, _ in groups if name in names)
+        difference = '—' if name == baseline or name.endswith('_disjoint') else f'{row["native"]["median"] - rows[baseline]["native"]["median"]:.4f}'
+        n = row["native"]
+        table += (f'<tr><td>{esc(name)}</td><td>{n["median"]:.4f}</td><td>{n["p10"]:.4f}–{n["p90"]:.4f}</td>'
+                  f'<td>{row["spread"]:.2f}%</td><td>{row["model"]["base"]:.4f}</td><td>{row["model"]["head"]:.4f}</td><td>{difference}</td></tr>')
+    table += ('</tbody></table></div><p>Simulation differences use the same assembly at 1,024 and 2,048 iterations, '
+              'with exact instruction counts and analytic checksums. <a href="forwarding.json">Native reference data</a></p></details>')
+    return graphs, table
+
+
+def scheduling_panels(reference, simulations, profiles):
+    """Compare additional independent work around the same dependent chain."""
+    scheduling.validate_reference(reference)
+    scheduling.validate_comparison(simulations, reference["cases"])
+    frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
+    if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
+        raise ValueError("invalid scheduling model frequency")
+    rows = {}
+    for index, case in enumerate(reference["cases"]):
+        native = {key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")}
+        modeled = {role: simulations[role][index]["cycles"] * 1e9 / (scheduling.ITERATIONS[1] - scheduling.ITERATIONS[0]) / frequencies[role]
+                   for role in ("base", "head")}
+        tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.3f}/{native["median"]:.3f}/{native["p90"]:.3f} ns/iteration; '
+                   f'base {modeled["base"]:.3f}, head {modeled["head"]:.3f} ns/iteration; {case["instructions_per_iteration"]} instructions/iteration')
+        rows[case["id"]] = dict(case=case, native=native, modeled=modeled, tooltip=tooltip)
+    groups = (("Integer dependency and independent work", ("int_chain", "int_interleaved")),
+              ("FP dependency and independent work", ("fp_chain", "fp_interleaved")))
+    if set(rows) != {name for _, names in groups for name in names}:
+        raise ValueError("scheduling panel requires the four declared dependency patterns")
+    counts = ", ".join(f'{esc(case["id"])}: {case["instructions_per_iteration"]}' for case in reference["cases"])
+    graphs = ('<h3>Execution-unit scheduling probes</h3><p>Each iteration has eight blocks. Each block runs eight dependent '
+              'MADD or FMADD updates, a dependent fan-out to six integer or four FP registers, '
+              'then an optional independent eight-update ADD or FADD chain. A final join feeds both paths into the next block. '
+              'The independent accumulator resets before each block. '
+              f'Instructions per iteration: {counts}. '
+              'Compare the incremental cost of independent work per iteration, not equal-instruction throughput. '
+              f'Native {esc(reference["hardware"])} · {esc(reference["collected_at_utc"])}. '
+              'Nine alternating long-minus-short native macOS thread CPU-time pairs. '
+              'Core and instantaneous frequency were unobserved; simulation uses declared frequencies: '
+              + ", ".join(f'{role} {hz/1e9:g} GHz' for role, hz in frequencies.items())
+              + '. These tested operand patterns do not establish physical M2 scheduling dimensions or arbitrary instruction latencies '
+              'and are excluded from application accuracy statistics.</p><div class="charts">')
+    for title, names in groups:
+        selected = [rows[name] for name in names]
+        series = []
+        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
+            points = [(i + 1, row["native"]["median"] if role == "native" else row["modeled"][role], row["tooltip"]) for i, row in enumerate(selected)]
+            series.append((role, points, color))
+        graphs += chart(title, series, "Instruction arrangement", "ns/iteration", scatter=True,
+                        x_ticks=[(1, "chain"), (2, "interleaved")])
+    graphs += '</div>'
+    table = ('<details id="scheduling-table"><summary>Execution-unit scheduling table · 4 probes</summary>'
+             '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/iteration</th><th>P10–P90</th>'
+             '<th>Base ns/iteration</th><th>Head ns/iteration</th><th>Native ns/instruction</th></tr></thead><tbody>')
+    for row in rows.values():
+        n, m, case = row["native"], row["modeled"], row["case"]
+        table += (f'<tr><td>{esc(case["id"])}</td><td>{n["median"]:.3f}</td><td>{n["p10"]:.3f}–{n["p90"]:.3f}</td>'
+                  f'<td>{m["base"]:.3f}</td><td>{m["head"]:.3f}</td><td>{n["median"]/case["instructions_per_iteration"]:.4f}</td></tr>')
+    table += ('</tbody></table></div><p>P10/P90 summarize variability, not confidence intervals. '
+              'Simulation subtracts 1,024 from 2,048 iterations, with checked instruction counts and analytic checksums. '
+              '<a href="scheduling.json">Native reference data</a></p></details>')
+    return graphs, table
 
 
 def timing_curves(groups, cases):
@@ -951,8 +1164,9 @@ def timing_table(cases, ids):
     return body
 
 
-def detail(report, entry, preview=False, frontend=None):
+def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None):
     commit = entry["commit"]
+    full_inventory = report["artifact_status"] == "pass" or live is not None
     body = (
         '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
         + esc(commit)
@@ -963,11 +1177,27 @@ def detail(report, entry, preview=False, frontend=None):
         if preview
         else '<p><a href="../../index.html">← Report history</a></p>'
     ) + "</header>"
-    body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> Current reference is an Apple M2 host running a Linux ARM64 VM; core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
+    native_reference = report.get("reference", {}).get("protocol") == performance.NATIVE_PROTOCOL
+    if native_reference:
+        environment = "Current reference is native macOS on Apple M2, using Mach-O executables with audited ELF-matched computation. Startup and runtime adapters are included; complete executable instruction streams and address layouts differ."
+    elif report.get("reference", {}).get("environment") == "virtualized":
+        environment = "Current reference is an Apple M2 host running a Linux ARM64 VM."
+    else:
+        environment = "Reference environment is unavailable for this report; no hardware environment is inferred."
+    body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> ' + environment + ' Core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
+    if live is not None:
+        body += '<div class="notice"><strong>' + esc(live["state"].title()) + '</strong> · '
+        body += f'{live["completed_cases"]} / {live["required_cases"]} cases · {live["completed_shards"]} / {live["required_shards"]} shards. '
+        body += ('Complete validated bundle.' if live.get("validated_bundle") else
+                 'Live snapshot — not a publishable report. Partial results are not a final accuracy conclusion; the subset changes as work finishes.')
+        body += ' Updated ' + esc(live["updated_at"]) + '.</div>'
+        body += '<p>Active cases: ' + esc(', '.join(live["active_cases"]) or 'none') + '</p>'
+        if live["errors"]:
+            body += '<p class="notice">' + esc('; '.join(live["errors"])) + '</p>'
     cases = report.get("cases", [])
     benchmarks = [c for c in cases if not is_micro_case(c)]
     micros = [c for c in cases if is_micro_case(c)]
-    declared = report_manifest(report)["cases"] if report["artifact_status"] == "pass" else cases
+    declared = report_manifest(report)["cases"] if full_inventory else cases
     benchmark_ids = [c["id"] for c in declared if not is_micro_case(c)]
     micro_ids = [c["id"] for c in declared if is_micro_case(c)]
     usable = sum(c.get("reference_quality") == "usable" for c in benchmarks)
@@ -984,7 +1214,7 @@ def detail(report, entry, preview=False, frontend=None):
                 ("Full Evaluation", entry.get("evaluation_conclusion", "not checked")),
                 (
                     "Usable benchmark references",
-                    f"{usable} / {len(benchmark_ids) if report.get('artifact_status') == 'pass' else '—'}",
+                    f"{usable} / {len(benchmark_ids) if full_inventory else '—'}",
                 ),
                 ("Hardware accuracy", report["accuracy_status"]),
             ]
@@ -999,7 +1229,9 @@ def detail(report, entry, preview=False, frontend=None):
         body += '<p class="notice">' + esc(report["error"]) + "</p>"
     body += '<nav class="downloads"><a href="#overall">Benchmark accuracy</a><a href="#microbenchmarks">Microbenchmarks</a></nav>'
     body += overview_charts(benchmarks)
-    summary = benchmark_summary(report)
+    body += comparison_table(benchmarks)
+    summary = (compute.case_summary([c for c in benchmarks if c.get("head")], performance=report.get("schema") == 4)
+               if full_inventory else {})
     if summary.get("head"):
         mean = number(summary["head"]["mean_error_percent"], "%")
         maximum = number(summary["head"]["maximum_error_percent"], "%")
@@ -1010,36 +1242,59 @@ def detail(report, entry, preview=False, frontend=None):
             "workloads",
             [dict(id=w, axis="iterations") for w in ("integer", "memory", "branch")],
         )
-        if report["artifact_status"] == "pass"
+        if full_inventory
         else []
     )
     body += timing_curves([g for g in groups if g["id"] not in MICRO_WORKLOADS], benchmarks)
-    body += '<h2>Benchmark timing table</h2>' + timing_table(benchmarks, benchmark_ids)
+    body += (f'<details id="benchmark-table"><summary>Benchmark timing table · {len(benchmark_ids)} cases</summary>'
+             + timing_table(benchmarks, benchmark_ids) + '</details>')
     body += '<section id="microbenchmarks"><h2>Microbenchmarks</h2>'
     body += '<p>Hardware diagnostics are reported separately from benchmark accuracy.</p>'
     if micro_ids:
         micro_usable = sum(c.get("reference_quality") == "usable" for c in micros)
-        micro_required = len(micro_ids) if report["artifact_status"] == "pass" else "—"
+        micro_required = len(micro_ids) if full_inventory else "—"
         body += f"<p>Usable microbenchmark references: {micro_usable} / {micro_required}</p>"
-    if frontend:
-        body += frontend_table(frontend, report.get("frontend_simulation"))
     body += timing_curves([g for g in groups if g["id"] in MICRO_WORKLOADS], micros)
     if report.get("schema") == 1:
         body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
-    elif report["artifact_status"] == "pass":
+    elif full_inventory:
         accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
         body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
-    body += timing_table(micros, micro_ids) + '</section>'
+    scheduling_table = ""
+    if scheduling_reference:
+        scheduling_charts, scheduling_table = scheduling_panels(
+            scheduling_reference, report.get("scheduling_simulation"), model_profiles.validate(report))
+        body += scheduling_charts
+    forwarding_table = ""
+    if forwarding_reference:
+        forwarding_charts, forwarding_table = forwarding_panels(
+            forwarding_reference, report.get("forwarding_simulation"), model_profiles.validate(report))
+        body += forwarding_charts
+    if throughput_reference:
+        body += (f'<details id="throughput-table"><summary>Instruction throughput table · {len(throughput_reference["cases"])} probes</summary>'
+                 + throughput_table(throughput_reference, report.get("throughput_simulation")) + '</details>')
+    elif frontend:
+        body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
+                 + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
+    body += scheduling_table + forwarding_table
+    body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
+             + timing_table(micros, micro_ids) + '</details></section>')
+    replacement = report.get("reference", {}).get("streamcluster_replacement")
+    if replacement:
+        body += ('<p>Streamcluster uses 16 complete initialization/computation/output passes per process. '
+                 'Its six-point native acquisition is recorded separately in the plotting reference; '
+                 'the other 258 reference points retain their original acquisition.</p>')
     body += (
         "<h2>Evidence and provenance</h2><p>Measurement completed (UTC): "
         + esc(entry.get("measurement_completed_at") or "unavailable")
-        + '</p><div class="downloads"><a href="report.json">Report JSON</a><a href="report.md">Markdown report</a><a href="bundle.json">Evidence hashes</a>'
+        + '</p><div class="downloads">'
+        + ('<a href="report.json">Report JSON</a><a href="report.md">Markdown report</a><a href="bundle.json">Evidence hashes</a>' if live is None or live.get("validated_bundle") else "")
     )
     if report["artifact_status"] == "pass":
         if report["schema"] == 4:
             body += '<a href="reference.json">Plotting data and native output identities</a>'
             collection = report["reference"]["collection_commit"]
-            body += '<a href="https://github.com/' + REPO + '/tree/' + collection + '">Exact native collection source</a>'
+            body += '<a href="https://github.com/' + REPO + '/tree/' + collection + '">' + ('Frozen ELF/computation source' if native_reference else 'Exact native collection source') + '</a>'
         elif report["schema"] == 3:
             body += '<a href="cohorts/original/reference.json">Original24 raw samples</a><a href="cohorts/compute/reference/reference.json">Compute240 raw samples</a><a href="cohorts/compute/reference/oracle.json">Independent output oracle</a><a href="cohorts/compute/reference/validation-report.json">Original validation report</a><a href="cohorts/compute/reference/validation-harness.py">Original validation harness</a><a href="cohorts/compute/source/scripts/compute_usertime.py">Compute measurement protocol</a>'
         else:
@@ -1090,13 +1345,31 @@ def detail(report, entry, preview=False, frontend=None):
                     "compute_reference": report.get("compute_reference"),
                     "compute_base_status": report.get("compute_base_status"),
                     "configuration": cases[0].get("head", {}) if cases else None,
+                    "model_profiles": report.get("model_profiles"),
                 },
                 indent=2,
             )
         )
         + "</pre></details>"
     )
-    return page("Poros accuracy · " + commit[:12], body, POINT_TIPS)
+    if live is not None:
+        body += '<p><a href="snapshot.json">Live snapshot JSON</a></p>'
+    refresh = ""
+    if live is not None:
+        # Consume the state only on the next automatic reload. A fresh visit
+        # defaults to closed; the final bundle transition restores it too.
+        refresh = """<script>(()=>{
+const key="poros-report-open:"+location.pathname;
+try{const saved=sessionStorage.getItem(key);sessionStorage.removeItem(key);
+for(const id of JSON.parse(saved||"[]")){const node=document.getElementById(id);if(node&&node.tagName==="DETAILS")node.open=true;}}catch(e){}
+"""
+        if not live.get("validated_bundle"):
+            refresh += """setTimeout(()=>{
+try{sessionStorage.setItem(key,JSON.stringify([...document.querySelectorAll("details[id][open]")].map(node=>node.id)));}catch(e){}
+location.reload();},15000);
+"""
+        refresh += "})();</script>"
+    return page("Poros accuracy · " + commit[:12], body, POINT_TIPS + refresh)
 
 
 def series_key(report):
@@ -1308,7 +1581,10 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
         e["benchmark_summary"] = benchmark_summary(retained_report)
         write(p / "metadata.json", e)
         frontend = read(p / "frontend.json") if "frontend.json" in retained_manifest["files"] else None
-        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend))
+        throughput_reference = read(p / "throughput.json") if "throughput.json" in retained_manifest["files"] else None
+        forwarding_reference = read(p / "forwarding.json") if "forwarding.json" in retained_manifest["files"] else None
+        scheduling_reference = read(p / "scheduling.json") if "scheduling.json" in retained_manifest["files"] else None
+        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference, scheduling_reference=scheduling_reference))
     write(index_path, index)
     (root / "index.html").write_text(home(index))
     (site / ".nojekyll").touch()
@@ -1408,7 +1684,15 @@ def main():
     reuse = sub.add_parser("reusable")
     reuse.add_argument("--bundle", required=True)
     reuse.add_argument("--commit", required=True)
+    serve = sub.add_parser("serve", help="Serve a live snapshot with the canonical report renderer")
+    serve.add_argument("--snapshot", required=True)
+    serve.add_argument("--bundle", help="Optional complete validated bundle to transition to")
+    serve.add_argument("--port", type=int, default=18763)
     a = p.parse_args()
+    if a.command == "serve":
+        import accuracy_live
+        accuracy_live.serve(a.snapshot, a.bundle, a.port)
+        return
     if a.command == "reusable":
         raise SystemExit(0 if reusable_bundle(a.bundle, a.commit) else 1)
     if a.command == "bundle":

@@ -38,8 +38,13 @@ func FpIdx(r arm64asm.Reg) int {
 }
 
 func ArgGPR(arg arm64asm.Arg) int {
-	if r, ok := arg.(arm64asm.Reg); ok {
+	switch r := arg.(type) {
+	case arm64asm.Reg:
 		return GprIdx(r)
+	case arm64asm.RegSP:
+		// RegSP permits SP but also represents ordinary registers in ADD/SUB
+		// immediate operands. The actual SP (index 31) remains untracked.
+		return GprIdx(arm64asm.Reg(r))
 	}
 	return -1
 }
@@ -87,7 +92,7 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 	// Compare/test instructions only set flags.
 	switch op {
 	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST,
-		arm64asm.CCMP, arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCCMP, arm64asm.FCCMPE:
+		arm64asm.CCMP, arm64asm.CCMN, arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCCMP, arm64asm.FCCMPE:
 		return
 	}
 
@@ -109,12 +114,10 @@ func DestRegs(inst arm64asm.Inst) (gpr, fp int) {
 	}
 
 	// Extract destination register from Args[0], handling both
-	// plain Reg and SIMD RegisterWithArrangement.
+	// Reg/RegSP and SIMD RegisterWithArrangement.
 	fp = ArgFP(inst.Args[0])
-	if r, ok := inst.Args[0].(arm64asm.Reg); ok {
-		if idx := GprIdx(r); idx >= 0 && idx < 31 {
-			gpr = idx
-		}
+	if idx := ArgGPR(inst.Args[0]); idx >= 0 && idx < 31 {
+		gpr = idx
 	}
 
 	// LDP writes two registers (Args[0] and Args[1]).
@@ -252,8 +255,14 @@ func SourceGPRs(inst arm64asm.Inst) []int {
 		return srcs
 	}
 
-	// General case: Args[1..] are sources.
-	for i := 1; i < len(inst.Args); i++ {
+	// General case: Args[1..] are sources. Compare instructions have no
+	// destination register, so their first operand is a source as well.
+	start := 1
+	switch op {
+	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST, arm64asm.CCMP, arm64asm.CCMN:
+		start = 0
+	}
+	for i := start; i < len(inst.Args); i++ {
 		if inst.Args[i] == nil {
 			break
 		}
@@ -318,7 +327,8 @@ func ExtractArgGPRs(arg arm64asm.Arg, add func(int)) {
 	case arm64asm.Reg:
 		add(GprIdx(a))
 	case arm64asm.RegSP:
-		// SP — not tracked in scoreboard
+		// The caller filters actual SP (index 31), not every RegSP operand.
+		add(GprIdx(arm64asm.Reg(a)))
 	case arm64asm.MemImmediate:
 		r := MemImmBase(a)
 		add(GprIdx(r))

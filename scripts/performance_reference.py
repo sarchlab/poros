@@ -16,7 +16,8 @@ import native_usertime as native
 import workload_contract as contract
 
 PATH = "evaluation/usertime/performance-v1.json"
-PROTOCOL = "performance-summary-v1"
+PROTOCOL = "performance-summary-v1"  # Historical Linux VM archives.
+NATIVE_PROTOCOL = "performance-macho-summary-v1"
 NUMERICAL = {"gramschmidt", "blackscholes", "bodytrack", "canneal", "raytrace", "facesim", "x264"}
 
 
@@ -63,13 +64,19 @@ def summarize(case, samples, sha, length, numerical):
 
 def validate(reference, declared):
     compute.validate_expanded(declared)
-    if reference.get("schema") != 1 or reference.get("protocol") != PROTOCOL or reference.get("inventory_sha256") != compute.object_digest(declared):
+    if reference.get("schema") != 1 or reference.get("protocol") not in (PROTOCOL, NATIVE_PROTOCOL) or reference.get("inventory_sha256") != compute.object_digest(declared):
         raise ValueError("compact reference protocol/input identity mismatch")
     if reference.get("quality_policy") != compute.QUALITY_POLICY or reference.get("metric") != "child_user_cpu_seconds" or reference.get("timer") != "wait4.ru_utime":
         raise ValueError("compact reference accounting/quality mismatch")
     if reference.get("collection_dirty") is not False or reference.get("oracle_commit") != reference.get("collection_commit") or not re.fullmatch(r"[0-9a-f]{40}", reference.get("collection_commit", "")):
         raise ValueError("compact reference requires one exact clean collection/oracle commit")
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", reference.get("container_image", "")) or reference.get("environment") != "virtualized" or reference.get("machine") not in ("aarch64", "arm64"):
+    is_native = reference["protocol"] == NATIVE_PROTOCOL
+    if not is_native and ("streamcluster_replacement" in reference or "historical_input_sources" in reference):
+        raise ValueError("replacement provenance requires native protocol")
+    if is_native:
+        import macho_reference
+        macho_reference.validate_metadata(reference, declared)
+    elif not re.fullmatch(r"sha256:[0-9a-f]{64}", reference.get("container_image", "")) or reference.get("environment") != "virtualized" or reference.get("machine") not in ("aarch64", "arm64"):
         raise ValueError("invalid compact measurement environment")
     try:
         start = datetime.strptime(reference["started_at_utc"], "%Y-%m-%dT%H:%M:%SZ")
@@ -88,7 +95,7 @@ def validate(reference, declared):
             compute.relative(name)
             if not re.fullmatch(r"[0-9a-f]{64}", sha):
                 raise ValueError("invalid compact source digest")
-    if set(reference["collector_sources"]) != set(compute.support(compute.PROTOCOL)):
+    if not is_native and set(reference["collector_sources"]) != set(compute.support(compute.PROTOCOL)):
         raise ValueError("incomplete collection protocol sources")
     if not re.fullmatch(r"[0-9a-f]{64}", reference.get("numerical_oracle_sha256", "")):
         raise ValueError("missing numerical oracle executable identity")
@@ -121,10 +128,22 @@ def validate(reference, declared):
     return reference
 
 
-def load(root):
+def reference_origin(reference, case):
+    """Resolve the actual measured native binary for a case in a mixed acquisition."""
+    replacement = reference.get("streamcluster_replacement")
+    if replacement and case["id"] in replacement["case_ids"]:
+        return dict(acquisition="streamcluster-16pass", native_sha256=replacement["native_sha256"],
+                    capture_sha256=replacement["capture_sha256"])
+    return dict(acquisition="original", native_sha256=reference["native_programs"][case["workload"]]["binary_sha256"],
+                capture_sha256=reference["capture_evidence"]["capture_sha256"])
+
+
+def load(root, *, require_native=False):
     root = Path(root)
     declared = inventory(root)
     reference = validate(compute.read(root / PATH), declared)
+    if require_native and reference["protocol"] != NATIVE_PROTOCOL:
+        raise ValueError("active accuracy requires the native Mach-O reference")
     for name, sha in reference["input_sources"].items():
         if contract.digest(root / name) != sha:
             raise ValueError("live source/ELF changed since measurement")

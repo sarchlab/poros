@@ -3625,7 +3625,7 @@
       "suite": "parsec",
       "source": "tests/benchmarks/streamcluster.c",
       "kernel": "parsec/kernels/streamcluster.c",
-      "binary": "tests/benchmarks/streamcluster.elf",
+      "binary": "tests/benchmarks/streamcluster-repeat.elf",
       "dimensions": [
         {
           "name": "n",
@@ -3636,71 +3636,81 @@
           "name": "dim",
           "min": 1,
           "max": 32
+        },
+        {
+          "name": "repetitions",
+          "min": 16,
+          "max": 16
         }
       ],
       "cases": [
         {
           "id": "1",
           "args": [
-            "300000",
-            "32"
+            "160000",
+            "32",
+            "16"
           ],
           "outputs": [
             {
               "type": "double",
-              "count": 300000
+              "count": 2560000
             }
           ]
         },
         {
           "id": "2",
           "args": [
-            "340000",
-            "32"
+            "200000",
+            "32",
+            "16"
           ],
           "outputs": [
             {
               "type": "double",
-              "count": 340000
+              "count": 3200000
             }
           ]
         },
         {
           "id": "3",
           "args": [
-            "380000",
-            "32"
+            "250000",
+            "32",
+            "16"
           ],
           "outputs": [
             {
               "type": "double",
-              "count": 380000
+              "count": 4000000
             }
           ]
         },
         {
           "id": "4",
           "args": [
-            "420000",
-            "32"
+            "315000",
+            "32",
+            "16"
           ],
           "outputs": [
             {
               "type": "double",
-              "count": 420000
+              "count": 5040000
             }
           ]
         },
         {
           "id": "5",
           "args": [
-            "460000",
-            "32"
+            "397000",
+            "32",
+            "16"
           ],
           "outputs": [
             {
               "type": "double",
-              "count": 460000
+              "count": 6352000
             }
           ]
         },
@@ -3708,12 +3718,13 @@
           "id": "6",
           "args": [
             "500000",
-            "32"
+            "32",
+            "16"
           ],
           "outputs": [
             {
               "type": "double",
-              "count": 500000
+              "count": 8000000
             }
           ]
         }

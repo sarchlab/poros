@@ -25,7 +25,7 @@ class CompactReferenceTests(unittest.TestCase):
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.temp.cleanup)
-        cls.fixture = fixtures.Evidence(ROOT, Path(cls.temp.name))
+        cls.fixture = fixtures.Evidence(ROOT, Path(cls.temp.name), native=False)
         cls.declared, cls.reference = performance.load(cls.fixture.source)
 
     def test_collection_ancestry_survives_only_history_preserving_merge(self):
