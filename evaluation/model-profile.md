@@ -128,6 +128,16 @@ loads, but do not train stream prefetching. An odd-half store miss can therefore
 also fetch the adjacent L2 line. Dirty writeback traffic, coherence and a full
 DRAM controller are not modeled.
 
+Known write-accuracy limitation: stores to the same pending cache line still
+occupy separate instruction allocation slots, and stores do not train streams.
+Dense DRAM-resident writes can therefore be limited by allocation capacity and
+fill latency well below the configured transport bandwidth. This can overpredict
+write-heavy execution and initialization; it is not evidence of a physical M2
+bottleneck. Store combining and dirty writeback are unmodeled, so enabling store
+prefetch alone would not establish an accurate write path. This PR retains and
+discloses that limitation. Write-accuracy improvements and discrimination among
+these mechanisms are deferred to a separate PR.
+
 The sequential stream model trains on three same-direction demand L1 misses,
 then advances by at most four L2 lines per trigger, no farther than 48 lines
 ahead of demand. Sixteen entries are replaced LRU. `PrefetchPageBytes` is an
