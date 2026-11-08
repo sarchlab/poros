@@ -98,14 +98,14 @@ def execute(binary, root, case, index, iterations, mode, revision=None, profile=
             or row["args"] != ["program", str(index), str(iterations)] or row["env"]
             or base64.b64decode(row["stdout_base64"], validate=True) != struct.pack("<Q", suite.checksum(case, iterations))
             or type(row["instructions"]) is not int or not 0 < row["instructions"] <= 2000000):
-        raise ValueError("invalid throughput execution: " + case["id"])
+        raise ValueError("invalid assembly probe execution: " + case["id"])
     if revision is not None and (row["build"].get("vcs.revision") != revision or row["build"].get("vcs.modified") != "false"):
-        raise ValueError("throughput simulator revision mismatch")
+        raise ValueError("assembly probe simulator revision mismatch")
     if mode == "ooo":
         timing = row["timing"]
         if (timing["retired_instructions"] != row["instructions"] or type(timing["user_cycles"]) is not int
                 or timing["user_cycles"] <= 0 or (profile is not None and any(timing[k] != profile[k] for k in ("configuration", "cache_config")))):
-            raise ValueError("invalid throughput timing/profile")
+            raise ValueError("invalid assembly probe timing/profile")
     elif "timing" in row:
         raise ValueError("functional probe unexpectedly timed")
     return row
@@ -139,11 +139,11 @@ def measure(binary, root, revision, profile, suite=THROUGHPUT):
 
 def validate_simulation(rows, declared):
     if not isinstance(rows, list) or [r.get("id") for r in rows] != [c["id"] for c in declared]:
-        raise ValueError("missing/duplicate/reordered throughput simulations")
+        raise ValueError("missing/duplicate/reordered assembly probe simulations")
     for row, case in zip(rows, declared):
         if (type(row.get("instructions")) is not int or row["instructions"] != (ITERATIONS[1] - ITERATIONS[0]) * case["instructions_per_iteration"]
                 or type(row.get("cycles")) is not int or row["cycles"] <= 0):
-            raise ValueError("invalid throughput counters")
+            raise ValueError("invalid assembly probe counters")
 
 
 def validate_reference(reference, files=None, suite=THROUGHPUT):
@@ -151,7 +151,7 @@ def validate_reference(reference, files=None, suite=THROUGHPUT):
             or reference.get("core_identity") != "unknown" or reference.get("instantaneous_frequency") != "unknown"
             or reference.get("hardware") != "Apple M2" or reference.get("trials") != 9
             or reference.get("assumed_hz") != 3490000000):
-        raise ValueError("invalid throughput reference protocol/environment")
+        raise ValueError("invalid assembly probe reference protocol/environment")
     if (not isinstance(reference.get("compiler"), str) or not reference["compiler"]
             or not isinstance(reference.get("platform"), str) or not reference["platform"]
             or not re.fullmatch(r"[0-9a-f]{64}", reference.get("native_binary_sha256", ""))):
@@ -164,27 +164,27 @@ def validate_reference(reference, files=None, suite=THROUGHPUT):
         raise ValueError("invalid native collection timestamp") from None
     sources = reference.get("sources", {})
     if set(sources) != set(suite.inputs) or any(not re.fullmatch(r"[0-9a-f]{64}", sha) for sha in sources.values()):
-        raise ValueError("incomplete throughput provenance")
+        raise ValueError("incomplete assembly probe provenance")
     if files is not None and any(files.get(name) != sources[name] for name in suite.measurement_inputs):
-        raise ValueError("throughput reference differs from source")
+        raise ValueError("assembly probe reference differs from source")
     if files is not None and not re.fullmatch(r"[0-9a-f]{64}", files.get(suite.elf, "")):
         raise ValueError("assembly probe ELF absent from tested source")
     definition = reference.get("definition", "")
     if hashlib.sha256(definition.encode()).hexdigest() != sources[suite.directory + "cases.def"]:
-        raise ValueError("throughput case definition digest mismatch")
+        raise ValueError("assembly probe case definition digest mismatch")
     declared = reference.get("cases", [])
     if [{k: row[k] for k in ("id", "instructions_per_iteration", "kind")} for row in declared] != parse_cases(definition, suite):
-        raise ValueError("throughput native case coverage mismatch")
+        raise ValueError("assembly probe native case coverage mismatch")
     if not declared or len({r["id"] for r in declared}) != len(declared):
-        raise ValueError("missing/duplicate throughput native cases")
+        raise ValueError("missing/duplicate assembly probe native cases")
     for row in declared:
         if (not re.fullmatch(r"[a-z0-9_]+", row["id"]) or row["kind"] not in suite.kinds
                 or type(row["instructions_per_iteration"]) is not int or row["instructions_per_iteration"] < 3
                 or type(row["iterations"]) is not int or row["iterations"] != 500000000 // row["instructions_per_iteration"]):
-            raise ValueError("invalid throughput native case")
+            raise ValueError("invalid assembly probe native case")
         values = [row[k + "_seconds"] for k in ("p10", "median", "p90")]
         if any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in values) or values != sorted(values):
-            raise ValueError("invalid throughput native distribution")
+            raise ValueError("invalid assembly probe native distribution")
     return reference
 
 
@@ -193,7 +193,7 @@ def load_reference(root, suite=THROUGHPUT):
     reference = json.loads((root / suite.reference).read_text())
     validate_reference(reference, {name: digest(root / name) for name in [*suite.measurement_inputs, suite.elf]}, suite)
     if [{k: row[k] for k in ("id", "instructions_per_iteration", "kind")} for row in reference["cases"]] != cases(root, suite):
-        raise ValueError("throughput manifest differs from reference")
+        raise ValueError("assembly probe manifest differs from reference")
     return reference
 
 
@@ -239,7 +239,7 @@ def collect(output, suite=THROUGHPUT, evidence_dir=None):
             print(case["id"], row["median_seconds"], flush=True)
     validate_reference(reference, suite=suite)
     if reference["sources"] != {name: digest(ROOT / name) for name in suite.inputs}:
-        raise ValueError("throughput collection source changed during measurement")
+        raise ValueError("assembly probe collection source changed during measurement")
     Path(output).write_text(json.dumps(reference, indent=2) + "\n")
 
 

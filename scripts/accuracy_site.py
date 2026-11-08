@@ -1021,14 +1021,18 @@ def scheduling_panels(reference, simulations, profiles):
     frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
     if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
         raise ValueError("invalid scheduling model frequency")
-    rows = []
+    rows = {}
     for index, case in enumerate(reference["cases"]):
         native = {key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")}
         modeled = {role: simulations[role][index]["cycles"] * 1e9 / (scheduling.ITERATIONS[1] - scheduling.ITERATIONS[0]) / frequencies[role]
                    for role in ("base", "head")}
         tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.3f}/{native["median"]:.3f}/{native["p90"]:.3f} ns/iteration; '
                    f'base {modeled["base"]:.3f}, head {modeled["head"]:.3f} ns/iteration; {case["instructions_per_iteration"]} instructions/iteration')
-        rows.append(dict(case=case, native=native, modeled=modeled, tooltip=tooltip))
+        rows[case["id"]] = dict(case=case, native=native, modeled=modeled, tooltip=tooltip)
+    groups = (("Integer dependency and independent work", ("int_chain", "int_interleaved")),
+              ("FP dependency and independent work", ("fp_chain", "fp_interleaved")))
+    if set(rows) != {name for _, names in groups for name in names}:
+        raise ValueError("scheduling panel requires the four declared dependency patterns")
     counts = ", ".join(f'{esc(case["id"])}: {case["instructions_per_iteration"]}' for case in reference["cases"])
     graphs = ('<h3>Execution-unit scheduling probes</h3><p>Each iteration has eight blocks. Each block runs eight dependent '
               'MADD or FMADD updates, a dependent fan-out to six integer or four FP registers, '
@@ -1042,7 +1046,8 @@ def scheduling_panels(reference, simulations, profiles):
               + ", ".join(f'{role} {hz/1e9:g} GHz' for role, hz in frequencies.items())
               + '. These tested operand patterns do not establish physical M2 scheduling dimensions or arbitrary instruction latencies '
               'and are excluded from application accuracy statistics.</p><div class="charts">')
-    for title, selected in (("Integer dependency and independent work", rows[:2]), ("FP dependency and independent work", rows[2:])):
+    for title, names in groups:
+        selected = [rows[name] for name in names]
         series = []
         for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
             points = [(i + 1, row["native"]["median"] if role == "native" else row["modeled"][role], row["tooltip"]) for i, row in enumerate(selected)]
@@ -1053,7 +1058,7 @@ def scheduling_panels(reference, simulations, profiles):
     table = ('<details id="scheduling-table"><summary>Execution-unit scheduling table · 4 probes</summary>'
              '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/iteration</th><th>P10–P90</th>'
              '<th>Base ns/iteration</th><th>Head ns/iteration</th><th>Native ns/instruction</th></tr></thead><tbody>')
-    for row in rows:
+    for row in rows.values():
         n, m, case = row["native"], row["modeled"], row["case"]
         table += (f'<tr><td>{esc(case["id"])}</td><td>{n["median"]:.3f}</td><td>{n["p10"]:.3f}–{n["p90"]:.3f}</td>'
                   f'<td>{m["base"]:.3f}</td><td>{m["head"]:.3f}</td><td>{n["median"]/case["instructions_per_iteration"]:.4f}</td></tr>')

@@ -48,9 +48,34 @@ fields; stray forwarding evidence on an undeclaring head is rejected.
   correspondingly named fields in `report`, with both complete model-profile
   declarations retained.
 
+A head declaring the scheduling suite (any measurement input, ELF fixture or
+reference under `evaluation/microbenchmarks/scheduling/` in `report.head.files`)
+also requires the analogous scheduling fields. Historical heads without the
+suite omit them, and stray scheduling evidence is rejected.
+
+- `scheduling_reference_text`: exact UTF-8 bytes of the committed
+  `evaluation/microbenchmarks/scheduling/m2.json`, transported as a JSON string.
+  Its SHA-256 must match the corresponding `report.head.files` entry, including
+  whitespace and the final newline. Parsed `scheduling_reference` is rejected.
+- `report.scheduling_simulation`: exactly `base` and `head`, each an ordered
+  list matching the four reference cases. Each row contains `id`, `instructions`
+  and positive integer `cycles`. Counts subtract 1,024 from 2,048 iterations;
+  instructions must equal 1,024 times the case's declared per-iteration count.
+  Both roles execute the head-declared scheduling ELF and pass analytic output,
+  instruction-count, exact binary revision and role-specific profile checks.
+  Unlike forwarding rows, scheduling rows have no `updates` field.
+- `scheduling_provenance`: exactly `head_commit`, `base_commit`,
+  `head_binary_sha256`, `base_binary_sha256` and `model_profiles`, matching
+  `report` in the same way as forwarding provenance above.
+
+The final bundle retains exact scheduling reference bytes as `scheduling.json`
+and both simulated series. The common renderer shows the scheduling graphs
+and default-collapsed table only in the separate microbenchmark section; these
+points do not enter application error or correlation summaries.
+
 For a live campaign, prepare the clean base/head binaries and profiles, then
-execute and validate **both roles of the forwarding probes before starting the
-264-point application run**. The first live snapshot can therefore carry the
+execute and validate **both roles of every declared forwarding and scheduling suite before starting
+the 264-point campaign (246 application points and 18 legacy microbenchmark points)**. The first live snapshot can therefore carry the
 mandatory microbenchmark evidence and exact reference bytes. If those checks
 fail, resolve the failure before launching application shards; do not publish
 placeholder measurements or relax the snapshot validator. This is producer

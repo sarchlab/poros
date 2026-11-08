@@ -76,6 +76,9 @@ MSHR availability determine the earliest issue time, the pipeline selects an
 execution-unit gap and commits the unit/MSHR allocation once. MSHRs retain their
 existing busy-until policy. Expired unit reservations are pruned at the actual
 pipeline cycle, never at an instruction's future operand-ready time.
+A separate finite issue-queue capacity is not modeled; the existing ROB and FP
+destination limits still bound admitted work. These reservation lists do not
+claim a physical M2 issue-queue size.
 
 These mutable interval lists belong to component `State` and survive JSON state
 round trips. The old experimental numeric `IntUnits`, `FpUnits`, and `LdstUnits`

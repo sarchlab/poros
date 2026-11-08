@@ -43,6 +43,9 @@ func (p *middleware) pruneUnitReservations() {
 }
 
 func firstUnitGap(list []UnitReservation, earliest, occupancy uint64) uint64 {
+	if len(list) == 0 || list[len(list)-1].End <= earliest {
+		return earliest
+	}
 	for _, slot := range list {
 		if earliest+occupancy <= slot.Start {
 			break
@@ -57,9 +60,15 @@ func firstUnitGap(list []UnitReservation, earliest, occupancy uint64) uint64 {
 func (p *middleware) findUnit(ut unitType, earliest, occupancy uint64) (int, uint64) {
 	units := p.units(ut)
 	best, start := 0, firstUnitGap(units[0], earliest, occupancy)
+	if start == earliest {
+		return best, start
+	}
 	for i := 1; i < len(units); i++ {
 		if candidate := firstUnitGap(units[i], earliest, occupancy); candidate < start {
 			best, start = i, candidate
+			if start == earliest {
+				return best, start
+			}
 		}
 	}
 	return best, start
@@ -77,10 +86,15 @@ func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64, miss 
 	unit, issue := p.findUnit(ut, earliest, occupancy)
 	units := p.units(ut)
 	list := units[unit]
-	pos := sort.Search(len(list), func(i int) bool { return list[i].Start >= issue })
-	list = append(list, UnitReservation{})
-	copy(list[pos+1:], list[pos:])
-	list[pos] = UnitReservation{Start: issue, End: issue + occupancy}
+	reservation := UnitReservation{Start: issue, End: issue + occupancy}
+	if len(list) == 0 || list[len(list)-1].End <= issue {
+		list = append(list, reservation)
+	} else {
+		pos := sort.Search(len(list), func(i int) bool { return list[i].Start >= issue })
+		list = append(list, UnitReservation{})
+		copy(list[pos+1:], list[pos:])
+		list[pos] = reservation
+	}
 	units[unit] = list
 	if mshr >= 0 {
 		p.comp.State.MshrBusyUntil[mshr] = issue + latency

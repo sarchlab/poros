@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Scheduling evidence shares transport checks without joining application stats."""
 import copy
+import hashlib
 import json
 from pathlib import Path
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import scheduling_microbenchmark as suite
 import throughput_microbenchmark as throughput
@@ -47,6 +49,30 @@ class SchedulingTests(unittest.TestCase):
             mutation(bad)
             with self.assertRaises(ValueError):
                 suite.validate_comparison(bad, self.cases)
+
+    def test_panels_group_by_ids_and_reject_missing_patterns(self):
+        reference = copy.deepcopy(self.reference)
+        # A self-consistent synthetic reference may order its cases differently;
+        # integer and FP charts must still select their named patterns.
+        order = (2, 0, 3, 1)
+        reference["cases"] = [reference["cases"][i] for i in order]
+        lines = reference["definition"].splitlines()
+        reference["definition"] = "\n".join(lines[i] for i in order) + "\n"
+        reference["sources"][suite.DIRECTORY + "cases.def"] = hashlib.sha256(reference["definition"].encode()).hexdigest()
+        simulations = {role: [self.rows[i] for i in order] for role in ("base", "head")}
+        profiles = {role: {"configuration": {"freq": 3490000000}} for role in ("base", "head")}
+        with patch.object(site, "chart", return_value="chart") as chart:
+            site.scheduling_panels(reference, simulations, profiles)
+        for call, names in zip(chart.call_args_list, (("int_chain", "int_interleaved"), ("fp_chain", "fp_interleaved"))):
+            points = call.args[1][0][1]
+            self.assertEqual([p[2].split(":")[0] for p in points], list(names))
+        reference["cases"].pop()
+        reference["definition"] = "\n".join(reference["definition"].splitlines()[:-1]) + "\n"
+        reference["sources"][suite.DIRECTORY + "cases.def"] = hashlib.sha256(reference["definition"].encode()).hexdigest()
+        for rows in simulations.values():
+            rows.pop()
+        with self.assertRaisesRegex(ValueError, "four declared dependency patterns"):
+            site.scheduling_panels(reference, simulations, profiles)
 
     def test_bundle_and_archive_keep_scheduling_separate_and_fail_closed(self):
         with tempfile.TemporaryDirectory() as folder:

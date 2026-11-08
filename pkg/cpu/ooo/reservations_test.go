@@ -152,6 +152,24 @@ func TestUnitReservationsUseWholeOccupancyAndEarliestAvailableUnit(t *testing.T)
 	}
 }
 
+func TestUnitReservationFastPathsKeepFirstUnitOnTies(t *testing.T) {
+	p := &middleware{comp: &Comp{State: State{IntUnits: [][]UnitReservation{{{10, 20}}, nil}}}}
+	// Both units can issue before the first future reservation.
+	if unit, issue := p.findUnit(unitINT, 5, 1); unit != 0 || issue != 5 {
+		t.Fatalf("gap tie: unit=%d issue=%d", unit, issue)
+	}
+	// Both can also issue beyond the tail. Preserve the same lowest-index tie.
+	if unit, issue := p.findUnit(unitINT, 30, 4); unit != 0 || issue != 30 {
+		t.Fatalf("tail tie: unit=%d issue=%d", unit, issue)
+	}
+	if got := p.reserveIssue(unitINT, 30, 4, false, 4); got != 30 {
+		t.Fatal(got)
+	}
+	if want := []UnitReservation{{10, 20}, {30, 34}}; !reflect.DeepEqual(p.comp.State.IntUnits[0], want) {
+		t.Fatalf("append changed reservations: %+v", p.comp.State.IntUnits[0])
+	}
+}
+
 func TestUnitReservationSearchMatchesDiscreteResourceOracle(t *testing.T) {
 	p := &middleware{comp: &Comp{State: State{IntUnits: make([][]UnitReservation, 3)}}}
 	rng := rand.New(rand.NewSource(7))
