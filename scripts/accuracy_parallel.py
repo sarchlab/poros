@@ -20,6 +20,7 @@ import performance_reference as reference
 import compute_usertime as compute
 import usertime as user
 import model_profiles
+import memory_microbenchmark as memory
 
 ROOT = user.ROOT
 REFERENCE = reference.PATH
@@ -98,6 +99,8 @@ def prepare(base, directory, run_id, attempt, shards):
     declarations = model_profiles.resolve(ROOT, state, base)
     if declarations is not None:
         plan["model_profiles"] = declarations
+    if memory.declared(state["files"]):
+        plan["memory"] = memory_plan(state, shards)
     if not plan["run_id"]:
         raise ValueError("run identity is required")
     write(directory / "plan.json", plan)
@@ -117,6 +120,11 @@ def load_plan(directory, run_id, attempt):
     site.sha(plan["base_commit"])
     if plan.get("model_profiles") != model_profiles.resolve(ROOT, state, plan["base_commit"]):
         raise ValueError("plan model declarations differ from source")
+    if memory.declared(state["files"]):
+        if plan.get("memory") != memory_plan(state, len(plan["shards"])):
+            raise ValueError("memory plan source/coverage mismatch")
+    elif "memory" in plan:
+        raise ValueError("memory plan absent from source")
     cases, witnesses = inputs()
     if plan["cases"] != cases or plan["shards"] != partition(cases, len(plan["shards"])):
         raise ValueError("plan coverage/partition mismatch")
@@ -181,6 +189,8 @@ def run_shard(directory, run_id, attempt, index, output):
             report["errors"].append(dict(case_id=ident, error=str(exc)))
             print("accuracy shard", index, ident, "FAIL", str(exc), flush=True)
         write(output, report)
+    if "memory" in plan:
+        run_memory_records(plan, directory, index, report, output)
     # Repeat identity checks after execution; a changed binary/source invalidates
     # the whole shard even when its individual executions appeared successful.
     load_plan(directory, run_id, attempt)
@@ -253,6 +263,112 @@ def recorded_executor(plan, selected, witnesses, directory):
     return execute, remaining
 
 
+
+def memory_plan(state, shards):
+    """One memory case per existing accuracy worker, with explicit source binding."""
+    memory.load_reference(ROOT)
+    declared = memory.cases(ROOT)
+    return dict(reference_sha256=state["files"][memory.REFERENCE],
+                elf_sha256=state["files"][memory.ELF], cases=declared,
+                shards=partition(declared, min(shards, len(declared))))
+
+
+def run_memory_records(plan, directory, index, report, output):
+    report["memory_records"] = []
+    if index >= len(plan["memory"]["shards"]):
+        return
+    declared = {c["id"]: c for c in plan["memory"]["cases"]}
+    for ident in plan["memory"]["shards"][index]:
+        record = dict(case_id=ident, executions={})
+        report["memory_records"].append(record)
+        try:
+            for role in ("head", "base"):
+                revision = plan["head"]["commit"] if role == "head" else plan["base_commit"]
+                profile = plan["model_profiles"][role]["profile"]
+                record["executions"][role] = memory.measure_case(Path(directory) / role, ROOT, declared[ident], revision, profile)
+            print("memory shard", index, ident, "pass", flush=True)
+        except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as exc:
+            report["errors"].append(dict(case_id=ident, error=str(exc)))
+            print("memory shard", index, ident, "FAIL", str(exc), flush=True)
+        write(output, report)
+
+
+def run_memory_shard(directory, run_id, attempt, index, output):
+    """Run only this campaign's memory point, for diagnostic-only local campaigns."""
+    plan, _ = load_plan(directory, run_id, attempt)
+    if "memory" not in plan or type(index) is not int or not 0 <= index < len(plan["memory"]["shards"]):
+        raise ValueError("unknown memory shard")
+    report = dict(schema=SCHEMA, plan_id=identity(plan), run_id=str(run_id), attempt=attempt,
+                  shard=index, status="fail", errors=[], memory_records=[], started_at=time.time())
+    write(output, report)
+    run_memory_records(plan, directory, index, report, output)
+    load_plan(directory, run_id, attempt)
+    report.update(status="fail" if report["errors"] else "pass", completed_at=time.time())
+    write(output, report)
+    return 0 if report["status"] == "pass" else 1
+
+
+def recorded_memory(plan, reports, attempt):
+    """Validate raw role/length executions before deriving compact memory rows."""
+    partitions = plan["memory"]["shards"]
+    selected, seen = {}, set()
+    for report in reports:
+        if report.get("schema") != SCHEMA or report.get("plan_id") != identity(plan) or report.get("run_id") != plan["run_id"]:
+            raise ValueError("foreign memory shard identity")
+        index, recorded_attempt = report["shard"], report["attempt"]
+        if type(index) is not int or not 0 <= index < len(partitions):
+            raise ValueError("unexpected memory shard")
+        if not plan["prepared_attempt"] <= positive(recorded_attempt) <= positive(attempt):
+            raise ValueError("memory shard attempt outside plan")
+        if (index, recorded_attempt) in seen:
+            raise ValueError("duplicate memory shard attempt")
+        seen.add((index, recorded_attempt))
+        if index not in selected or selected[index]["attempt"] < recorded_attempt:
+            selected[index] = report
+    if set(selected) != set(range(len(partitions))):
+        raise ValueError("missing required memory shards")
+    declared = {c["id"]: c for c in plan["memory"]["cases"]}
+    result = {role: {} for role in ("head", "base")}
+    for index, report in sorted(selected.items()):
+        if report.get("status") != "pass" or report.get("errors") or not report.get("completed_at"):
+            raise ValueError("memory shard failed/incomplete")
+        records = report.get("memory_records", [])
+        if [r.get("case_id") for r in records] != partitions[index]:
+            raise ValueError("memory shard case coverage mismatch")
+        for record in records:
+            case = declared[record["case_id"]]
+            if set(record.get("executions", {})) != {"head", "base"}:
+                raise ValueError("memory execution role mismatch")
+            for role, samples in record["executions"].items():
+                if not isinstance(samples, list) or len(samples) != 2:
+                    raise ValueError("memory short/long pair missing")
+                revision = plan["head"]["commit"] if role == "head" else plan["base_commit"]
+                for factor, sample in enumerate(samples, 1):
+                    memory.validate_execution(sample, case, factor * case["passes"], plan["memory"]["elf_sha256"],
+                                              revision=revision, profile=plan["model_profiles"][role]["profile"])
+                if case["id"] in result[role]:
+                    raise ValueError("duplicate memory execution")
+                result[role][case["id"]] = memory.summarize_samples(case, samples)
+    result = {role: [rows[c["id"]] for c in plan["memory"]["cases"]] for role, rows in result.items()}
+    memory.validate_comparison(result, plan["memory"]["cases"])
+    return result
+
+
+def aggregate_memory(directory, results, run_id, attempt, output):
+    """A memory-only evidence artifact; never masquerades as an application run."""
+    plan, _ = load_plan(directory, run_id, attempt)
+    reports = [read(p) for p in sorted(Path(results).rglob("memory-shard.json"))]
+    simulations = recorded_memory(plan, reports, attempt)
+    load_plan(directory, run_id, attempt)
+    report = dict(schema=1, kind="poros-memory-diagnostics-v1", artifact_status="pass", accuracy_status="unverified",
+                  plan_id=identity(plan), run_id=run_id, head=plan["head"], base_commit=plan["base_commit"],
+                  head_binary_sha256=plan["binaries"]["head"], base_binary_sha256=plan["binaries"]["base"],
+                  model_profiles=plan["model_profiles"], reference_sha256=plan["memory"]["reference_sha256"],
+                  memory_simulation=simulations)
+    write(output, report)
+    return 0
+
+
 def aggregate(directory, results, run_id, attempt, output, shard_status="success"):
     output = Path(output)
     # Create a valid failure artifact even when prepare/download was unavailable.
@@ -268,6 +384,11 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
                                base_unavailable=False, base_commit=plan["base_commit"],
                                reference=str(ROOT / REFERENCE),
                                output=str(output))
+        if "memory" in plan:
+            if any(selected[i].get("memory_records") != [] for i in range(len(plan["memory"]["shards"]), len(selected))):
+                raise ValueError("unexpected memory records in unassigned shard")
+            memory_reports = [selected[i] for i in range(len(plan["memory"]["shards"]))]
+            args.memory_simulation = recorded_memory(plan, memory_reports, attempt)
         status = user.compare(args, executor)
         if status:
             # The shared comparator already wrote its detailed failure report.
@@ -288,7 +409,7 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("prepare", "shard", "aggregate"):
+    for name in ("prepare", "shard", "aggregate", "memory-shard", "memory-aggregate"):
         p = sub.add_parser(name)
         p.add_argument("--prepared", required=True)
         p.add_argument("--run-id", required=True)
@@ -298,9 +419,9 @@ def main():
             p.add_argument("--shards", type=int, default=132)
         else:
             p.add_argument("--output", required=True)
-        if name == "shard":
+        if name in ("shard", "memory-shard"):
             p.add_argument("--index", type=int, required=True)
-        if name == "aggregate":
+        if name in ("aggregate", "memory-aggregate"):
             p.add_argument("--results", required=True)
             p.add_argument("--shard-status", default="success")
     args = parser.parse_args()
@@ -311,6 +432,10 @@ def main():
                 out.write("plan_id=" + plan_id + "\n")
         print(plan_id)
         return 0
+    if args.command == "memory-shard":
+        return run_memory_shard(args.prepared, args.run_id, args.attempt, args.index, args.output)
+    if args.command == "memory-aggregate":
+        return aggregate_memory(args.prepared, args.results, args.run_id, args.attempt, args.output)
     if args.command == "shard":
         return run_shard(args.prepared, args.run_id, args.attempt, args.index, args.output)
     return aggregate(args.prepared, args.results, args.run_id, args.attempt, args.output, args.shard_status)

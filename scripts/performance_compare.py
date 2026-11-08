@@ -8,6 +8,7 @@ import frontend_microbenchmark as frontend
 import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
 import scheduling_microbenchmark as scheduling
+import memory_microbenchmark as memory
 import model_profiles
 
 
@@ -100,6 +101,17 @@ def compare(args, executor):
                 for label, binary, revision in (("head", args.head, state["commit"]),
                                                 ("base", args.base, args.base_commit))
             }
+        if memory.declared(state["files"]):
+            native_memory = memory.load_reference(user.ROOT)
+            if hasattr(args, "memory_simulation"):
+                report["memory_simulation"] = args.memory_simulation
+            else:
+                report["memory_simulation"] = {
+                    label: memory.measure(binary, user.ROOT, revision, profiles[label])
+                    for label, binary, revision in (("head", args.head, state["commit"]),
+                                                    ("base", args.base, args.base_commit))
+                }
+            memory.validate_comparison(report["memory_simulation"], native_memory["cases"])
         report["summary"] = compute.summaries(report["cases"], True)
         if user.source_state() != state or user.digest(args.head) != report["head_binary_sha256"] or user.digest(args.base) != report["base_binary_sha256"]:
             raise ValueError("source or simulator changed during comparison")

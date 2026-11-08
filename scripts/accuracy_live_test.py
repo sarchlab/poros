@@ -71,6 +71,68 @@ class LiveReportTests(unittest.TestCase):
         site.write(path, value)
         return live.SnapshotView(path, bundle)
 
+    def test_memory_snapshot_and_complete_bundle_share_bound_evidence(self):
+        value = self.snapshot()
+        report, suite = value['report'], site.memory
+        reference = suite.load_reference(ROOT)
+        for name in [*suite.INPUTS, suite.REFERENCE]:
+            path = self.source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, path)
+            report['head']['files'][name] = suite.digest(path)
+        rows = [dict(id=c['id'], instructions=c['instructions_per_pass'] * c['passes'], cycles=1000000)
+                for c in reference['cases']]
+        report['memory_simulation'] = dict(base=copy.deepcopy(rows), head=copy.deepcopy(rows))
+        value['memory_reference_text'] = (ROOT / suite.REFERENCE).read_text()
+        provenance = {key: report[key] for key in ('base_commit', 'head_binary_sha256', 'base_binary_sha256', 'model_profiles')}
+        provenance['head_commit'] = report['head']['commit']
+        value['memory_provenance'] = copy.deepcopy(provenance)
+        live.validate_snapshot(value)
+        rendered, assets = self.view(value).load()
+        self.assertEqual(assets['memory.json'], (ROOT / suite.REFERENCE).read_bytes())
+        text = rendered.decode()
+        self.assertLess(text.index('Memory latency, parallelism and bandwidth'), text.index('<details id="memory-diagnostics-table">'))
+        self.assertIn('data-tip=', text)
+        for mutate in (lambda v: v.pop('memory_reference_text'),
+                       lambda v: v['report']['memory_simulation'].pop('base'),
+                       lambda v: v['memory_provenance'].update(head_commit='0' * 40),
+                       lambda v: v['memory_provenance'].update(base_binary_sha256='0' * 64),
+                       lambda v: v.update(memory_reference_text=v['memory_reference_text'] + ' '),
+                       lambda v: v['report']['head']['files'].pop(suite.ELF)):
+            bad = copy.deepcopy(value); mutate(bad)
+            with self.assertRaises((ValueError, KeyError)): live.validate_snapshot(bad)
+        complete = copy.deepcopy(value)
+        complete['report']['cases'] = copy.deepcopy(self.report['cases'])
+        complete['progress'].update(state='complete', completed_cases=264, completed_shards=132, active_cases=[])
+        report = copy.deepcopy(complete['report']); report['artifact_status'] = 'pass'
+        folder = self.folder / 'memory-complete'
+        folder.mkdir()
+        raw = folder / 'report.json'; site.write(raw, report)
+        raw.with_suffix('.md').write_text('Synthetic memory transport; not hardware performance evidence')
+        bundle = folder / 'bundle'
+        site.bundle(raw, self.source, bundle, report['head']['commit'])
+        rendered, assets = self.view(complete, bundle).load()
+        self.assertIn(b'Complete validated bundle.', rendered)
+        self.assertEqual(assets['memory.json'], (ROOT / suite.REFERENCE).read_bytes())
+        # Adding diagnostics must leave nonempty application statistics unchanged.
+        self.assertEqual(site.benchmark_summary(report), site.benchmark_summary(self.report))
+        self.assertEqual(site.overview_charts([c for c in report['cases'] if not site.is_micro_case(c)]),
+                         site.overview_charts([c for c in self.report['cases'] if not site.is_micro_case(c)]))
+        for label, mutate in [('missing', lambda r: r.pop('memory_simulation')),
+                              ('partial', lambda r: r['memory_simulation']['base'].pop())]:
+            bad = copy.deepcopy(report); mutate(bad)
+            bad_raw = folder / (label + '.json'); site.write(bad_raw, bad)
+            bad_raw.with_suffix('.md').write_text('Invalid synthetic memory evidence')
+            with self.assertRaises(ValueError):
+                site.bundle(bad_raw, self.source, folder / label, report['head']['commit'])
+        (bundle / 'memory.json').write_bytes((ROOT / suite.REFERENCE).read_bytes() + b' ')
+        with self.assertRaises(ValueError): site.validate_bundle(bundle, report['head']['commit'])
+        (bundle / 'memory.json').unlink()
+        with self.assertRaises((ValueError, OSError)): site.validate_bundle(bundle, report['head']['commit'])
+        # The historical bundle has no memory declaration and remains readable.
+        historical, _ = site.validate_bundle(self.bundle, self.report['head']['commit'])
+        self.assertNotIn('memory_simulation', historical)
+
     def test_forwarding_snapshot_requires_both_revision_provenance_and_one_renderer(self):
         value=self.snapshot()
         report=value['report']

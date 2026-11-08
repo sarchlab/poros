@@ -73,3 +73,15 @@ quality policy and publication. Simulator elapsed time and QEMU elapsed time are
 never hardware references. Unknown core identity/frequency and VM effects keep
 hardware accuracy unverified. Unusable points stay visible but are excluded from
 error summaries. Raw measurements are never rescaled or offset.
+
+## Memory diagnostics
+
+The [single-core memory suite](microbenchmarks/memory/README.md) adds random
+pointer chasing (1/2/4/8/16 independent chains) and scalar Read/Write/Copy
+bandwidth over 80 working-set/pattern points. Native Mach-O and simulated ELF
+use byte-matched computation functions and a warmed long-minus-short protocol.
+Small correctness/QEMU checks run in ordinary PR CI; the existing post-merge
+accuracy workers execute the full suite, retaining exact base/head identities.
+These results have their own plots and collapsed table and never change the
+application error or correlation population. The initial suite changes no
+memory-model mechanism or parameter.

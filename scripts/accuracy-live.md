@@ -93,3 +93,31 @@ Snapshot-only pages link only to available JSON; completed pages expose only
 validated bundle assets. Incomplete, failed or waiting pages refresh every
 15 seconds. Malformed/intermediate input preserves the last validated snapshot
 with a warning; a producer silent for 45 seconds is visibly stale.
+
+## Memory diagnostics
+
+A head declaring the memory suite additionally requires `memory_reference_text`,
+`report.memory_simulation`, and `memory_provenance`. They use the same byte-bound
+reference and exact base/head provenance contract described above. The final
+bundle retains `memory.json`. Each simulated row contains `id`, `instructions`,
+and positive integer `cycles`, in the reference's canonical case order. The
+instruction difference equals `passes * instructions_per_pass` for that case;
+pass counts vary by working-set size and must not be replaced by the older
+suites' fixed 1,024-iteration difference.
+
+The normal post-merge workflow executes memory points alongside application
+points in the existing source-bound workers, then aggregates their raw pairs.
+A local snapshot producer must have all required memory evidence before emitting
+a valid snapshot; it must not manufacture placeholders for points still running.
+For a memory-only development campaign, `accuracy_parallel.py memory-shard` and
+`memory-aggregate` use the same prepared plan and exact binaries without running
+application points. Render that artifact with:
+
+```sh
+python3 scripts/accuracy_site.py memory-preview --report /path/memory-report.json --source . --output /path/memory-preview
+```
+
+This explicitly labeled diagnostic preview uses `accuracy_site.memory_panels`,
+the same graphs and collapsed table used by the complete and live reports. It
+contains no reused or relabeled application results and makes no new application
+accuracy claim. See [the measurement contract](../evaluation/microbenchmarks/memory/README.md).
