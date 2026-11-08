@@ -5,6 +5,7 @@ import copy
 import accuracy_test_support as fixtures
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
@@ -412,6 +413,62 @@ class AccuracySiteTest(unittest.TestCase):
         html = site.overview_charts(rows)
         for _, label, _ in site.ERROR_BANDS:
             self.assertIn(f"{site.esc(label)} <strong>1 (20.00%)</strong>", html)
+
+    def test_error_cdf_uses_ranked_absolute_errors_and_step_geometry(self):
+        points = [(100, 200, "tie-b"), (200, 100, "tie-a"),
+                  (100, 100, "zero"), (100, 125, "quarter")]
+        with patch.object(site, "chart", wraps=site.chart) as render:
+            page = site.absolute_error_cdf(points)
+        call = render.call_args
+        values = call.args[1][0][1]
+        self.assertEqual([x for x, _, _ in values], [.5, .75, 1])
+        self.assertAlmostEqual(values[0][1], site.math.log10(25))
+        self.assertEqual([y for _, y, _ in values[1:]], [2, 2])
+        self.assertIn("quarter", values[0][2])
+        self.assertIn("tie-a", values[1][2])
+        self.assertIn("tie-b", values[2][2])
+        self.assertIn("absolute error 25%", values[0][2])
+        self.assertIn("measured 100 ms · predicted 125 ms", values[0][2])
+        self.assertEqual(call.kwargs["x_domain"], (0, 1))
+        self.assertEqual(call.kwargs["step_start"], .25)
+        self.assertIn("Exact zero error: 1 / 4 (25.00%)", page)
+        self.assertNotIn("head: zero", page)
+        coords = re.search(r'<polyline[^>]*points="([^"]*)"', page).group(1)
+        positions = [tuple(map(float, point.split(','))) for point in coords.split()]
+        for left, right in zip(positions, positions[1:]):
+            self.assertTrue(left[0] == right[0] or left[1] == right[1])
+
+    def test_error_cdf_empty_single_allzero_and_small_errors(self):
+        empty = site.absolute_error_cdf([])
+        self.assertIn("No comparable points", empty)
+        zeros = site.absolute_error_cdf([(1, 1, "a"), (2, 2, "b")])
+        self.assertIn("2 / 2 (100.00%)", zeros)
+        self.assertNotIn("<circle", zeros)
+        single = site.absolute_error_cdf([(100, 125, "single")])
+        self.assertIn('cx="401.000"', single)
+        self.assertIn("cumulative fraction 1/1 = 1", single)
+        tiny = site.absolute_error_cdf([(1, 1.000000001, "tiny")])
+        for page in (empty, zeros, single, tiny):
+            self.assertNotIn("nan", page.lower())
+            self.assertNotIn("infinity", page.lower())
+        self.assertIn("Absolute error (%) · log scale", single)
+        self.assertIn("Cumulative fraction of cases", single)
+
+    def test_overview_cdf_shares_application_sample_and_row(self):
+        def row(name, quality="usable", head=True):
+            return dict(id=name, reference_quality=quality, reference_user_seconds=1,
+                        head=dict(predicted_user_seconds=1.25) if head else {})
+        rows = [row("app-1"), row("memory-1"), row("integer-1"), row("branch-1"),
+                row("noisy-1", "noisy"), row("missing-1", head=False)]
+        with patch.object(site, "absolute_error_cdf", wraps=site.absolute_error_cdf) as render:
+            page = site.overview_charts(rows)
+        self.assertEqual(render.call_args.args[0], [(1000, 1250, "app-1")])
+        self.assertIn("Absolute error across 1 qualified cases", page)
+        self.assertLess(page.index("S-curve:"), page.index("Absolute error distribution (CDF)"))
+        self.assertLess(page.index("Absolute error distribution (CDF)"), page.index("Qualified reference vs. prediction"))
+        self.assertIn('</div><div class="charts" style="margin-top:16px"><figure><figcaption>Qualified reference vs. prediction', page)
+        self.assertIn("Kendall’s τ-b", page)
+        self.assertIn("Pearson correlation", page)
 
     def test_bad_bundles_rejected(self):
         commit = revision(1)
