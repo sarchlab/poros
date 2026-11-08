@@ -20,7 +20,7 @@ files are unchanged by the frontend/dependency correction.
 
 ## Response-driven memory backend
 
-The default single-core OoO model uses `ooo.AsyncComp`, Akita write-back L1/L2,
+The default single-core OoO model uses `detailed.Comp`, Akita write-back L1/L2,
 and `simplebankedmemory`. `poros elf --mode ooo --memory-backend analytical`
 retains the prior model. In-order and independent-copy multicore execution remain
 analytical and identify that backend in their results. An explicit Akita request
@@ -30,7 +30,11 @@ Functional instruction execution remains in program order to determine the corre
 instruction stream, addresses and values. Timing dispatch snapshots producer tags
 before destination renaming. Unknown load completions remain unresolved until a
 real memory response; independent instructions can issue meanwhile. Timing-only
-cache payloads never overwrite architectural registers or memory. Address knowledge
+cache payloads never overwrite architectural registers or memory. CPU time is derived
+from the simulation clock. When dispatch and issue are blocked, the CPU can
+sleep until a known execution completion or an Akita port notification; this
+changes host event work, not modeled completion times. Always-ticking control
+tests cover cycles, output, and request/response counts. Address knowledge
 from functional execution does not permit a younger load to bypass an older
 store whose address-generation dependencies/unit are still unresolved.
 

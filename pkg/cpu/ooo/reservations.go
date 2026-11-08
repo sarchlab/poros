@@ -102,16 +102,4 @@ func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64, miss 
 	return issue
 }
 
-// Occupancy controls issue throughput; it is independent of result latency.
-func unitOccupancy(op arm64asm.Op) uint64 {
-	switch op {
-	case arm64asm.SDIV, arm64asm.UDIV:
-		return uint64(instinfo.ExecuteLatency(op))
-	case arm64asm.FDIV:
-		return 10
-	case arm64asm.FSQRT:
-		return 6
-	default:
-		return 1
-	}
-}
+func unitOccupancy(op arm64asm.Op) uint64 { return instinfo.UnitOccupancy(op) }

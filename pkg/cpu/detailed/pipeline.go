@@ -1,6 +1,8 @@
-package ooo
+// Package detailed models a response-driven out-of-order CPU with Akita memory.
+package detailed
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -8,14 +10,18 @@ import (
 	"github.com/sarchlab/akita/v5/sim/messaging"
 	"github.com/sarchlab/akita/v5/sim/modeling/ticking"
 	"github.com/sarchlab/akita/v5/sim/timing"
+	"github.com/sarchlab/poros/pkg/cpu/internal/branchpredictor"
 	instinfo "github.com/sarchlab/poros/pkg/cpu/internal/inst"
 	"github.com/sarchlab/poros/pkg/emu"
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
-// AsyncSpec describes the response-driven CPU. Unlike Comp's analytical path,
+// PredictorSpec exposes the shared predictor configuration without an internal-package dependency.
+type PredictorSpec = branchpredictor.PredictorSpec
+
+// Spec describes the response-driven CPU. Unlike the analytical backend,
 // it cannot reserve a load's completion before the memory response arrives.
-type AsyncSpec struct {
+type Spec struct {
 	Freq             timing.Freq          `json:"freq"`
 	FetchWidth       int                  `json:"fetch_width"`
 	RetireWidth      int                  `json:"retire_width"`
@@ -33,8 +39,8 @@ type AsyncSpec struct {
 	LineBytes        uint64               `json:"line_bytes"`
 }
 
-func DefaultAsyncSpec() AsyncSpec {
-	return AsyncSpec{
+func DefaultSpec() Spec {
+	return Spec{
 		Freq: 3490 * timing.MHz, FetchWidth: 8, RetireWidth: 8, ROBCapacity: 256,
 		NumINT: 6, NumFP: 4, NumLDST: 4, NumStores: 2, BranchPenalty: 17, FpPhysLimit: 72, StoreBufferSize: 56,
 		BranchPrediction: true, Predictor: PredictorSpec{BimodalSize: 4096, TaggedTableSize: 2048, BTBSize: 2048, BTBWays: 4, RASSize: 32, TaggedHistLen: 32},
@@ -42,7 +48,7 @@ func DefaultAsyncSpec() AsyncSpec {
 	}
 }
 
-func (v AsyncSpec) Validate() error {
+func (v Spec) Validate() error {
 	if math.IsNaN(float64(v.Freq)) || math.IsInf(float64(v.Freq), 0) || math.Trunc(float64(v.Freq)) != float64(v.Freq) {
 		return fmt.Errorf("CPU frequency must be finite integer Hz")
 	}
@@ -55,11 +61,25 @@ func (v AsyncSpec) Validate() error {
 	return nil
 }
 
-type AsyncPorts struct {
+// Resources owns the architectural executor independently of timing-only payloads.
+type Resources struct {
+	Emu       *emu.Emulator
+	Execution emu.Execution
+	Context   context.Context
+}
+
+func (r Resources) backend() emu.Execution {
+	if r.Execution != nil {
+		return r.Execution
+	}
+	return r.Emu
+}
+
+type Ports struct {
 	Memory messaging.Port `akita:"role=github.com/sarchlab/akita/v5/mem/memprotocol.requester"`
 }
-type AsyncMiddlewares struct{ Pipeline *asyncMiddleware }
-type AsyncComp = ticking.Component[AsyncSpec, AsyncState, Resources, AsyncPorts, AsyncMiddlewares]
+type Middlewares struct{ Pipeline *asyncMiddleware }
+type Comp = ticking.Component[Spec, State, Resources, Ports, Middlewares]
 
 // A dependency names a producer generation, not just a physical ROB slot.
 // Base selects the address-update result of a pre/post-indexed instruction.
@@ -70,7 +90,7 @@ type dependency struct {
 type asyncEntry struct {
 	Tag                    uint64
 	Op                     arm64asm.Op
-	Unit                   unitType
+	Unit                   instinfo.Unit
 	Deps, AddrDeps         []dependency
 	Accesses               []emu.MemAccess
 	Issued                 bool
@@ -82,13 +102,11 @@ type asyncEntry struct {
 	Sent                   int
 	ForwardEligible        bool
 	Mispredict             bool
-	Branch                 bool
 }
 
 type asyncStore struct {
 	Tag           uint64
 	Accesses      []emu.MemAccess
-	AddrDeps      []dependency
 	Ready         uint64
 	AddressReady  uint64
 	Retired       bool
@@ -112,7 +130,7 @@ type MemoryCounters struct {
 	SendBlockedCycles uint64 `json:"send_blocked_cycles"`
 }
 
-type AsyncState struct {
+type State struct {
 	Cycles, InstDone          uint64
 	Done                      bool
 	Cancelled                 bool
@@ -129,14 +147,15 @@ type AsyncState struct {
 	IntBusy, FpBusy, LdstBusy []uint64
 	FrontendReady             uint64
 	BlockedBranch             uint64
-	Predictor                 PredictorState
+	DispatchBlock             uint8
+	Predictor                 branchpredictor.PredictorState
 	Memory                    MemoryCounters
 }
 
-func (s *AsyncState) Initialize(c *AsyncComp) {
+func (s *State) Initialize(c *Comp) {
 	v := c.Spec
-	if (c.Resources.Emu == nil) == (c.Resources.Execution == nil) || c.Resources.Cache != nil {
-		panic("async CPU: exactly one functional backend and no analytical cache required")
+	if (c.Resources.Emu == nil) == (c.Resources.Execution == nil) {
+		panic("async CPU: exactly one functional backend required")
 	}
 	if c.Resources.Emu != nil && !c.Resources.Emu.Mem.TrackAccesses {
 		panic("async CPU: memory access tracking required")
@@ -151,20 +170,20 @@ func (s *AsyncState) Initialize(c *AsyncComp) {
 	s.LdstBusy = make([]uint64, v.NumLDST)
 	s.Pending = make(map[uint64]pendingAccess)
 	if v.BranchPrediction {
-		(&predictor{PredictorState: &s.Predictor, spec: v.Predictor}).init()
+		(&branchpredictor.Predictor{PredictorState: &s.Predictor, Spec: v.Predictor}).Init()
 	}
 }
-func (m *AsyncMiddlewares) Initialize(c *AsyncComp) { m.Pipeline = &asyncMiddleware{c: c} }
-func (s *AsyncState) CPI() float64 {
+func (m *Middlewares) Initialize(c *Comp) { m.Pipeline = &asyncMiddleware{c: c} }
+func (s *State) CPI() float64 {
 	if s.InstDone == 0 {
 		return 0
 	}
 	return float64(s.Cycles) / float64(s.InstDone)
 }
 
-type asyncMiddleware struct{ c *AsyncComp }
+type asyncMiddleware struct{ c *Comp }
 
-func (p *asyncMiddleware) Handle(_ timing.Event) bool {
+func (p *asyncMiddleware) Handle(event timing.Event) bool {
 	s := &p.c.State
 	if s.Done {
 		return false
@@ -180,13 +199,13 @@ func (p *asyncMiddleware) Handle(_ timing.Event) bool {
 		default:
 		}
 	}
-	s.Cycles++
+	s.Cycles = p.c.Spec.Freq.Cycle(event.Time())
 	p.responses()
 	if s.Cancelled {
 		// Stop admission and issue, but keep consuming already-sent requests
 		// so bounded response buffers cannot deadlock the memory hierarchy.
 		s.Done = len(s.Pending) == 0
-		return !s.Done
+		return false // Response arrival wakes the CPU while cancellation drains.
 	}
 	p.retire()
 	p.drainStores()
@@ -195,7 +214,69 @@ func (p *asyncMiddleware) Handle(_ timing.Event) bool {
 	if s.Count == 0 && len(s.Stores) == 0 && len(s.Pending) == 0 && (p.c.Resources.backend().Stopped() || s.Err != "") {
 		s.Done = true
 	}
-	return !s.Done
+	return p.scheduleNext()
+}
+
+// scheduleNext skips only cycles with no possible CPU-side work. It does not
+// predict memory completion: incoming responses and outgoing-port space wake
+// the component through Akita. Known execution completions retain an explicit
+// clock-edge wakeup. Ready but resource-blocked instructions conservatively
+// keep ticking, so this optimization cannot manufacture extra issue bandwidth.
+func (p *asyncMiddleware) scheduleNext() bool {
+	s := &p.c.State
+	if s.Done {
+		return false
+	}
+	frontend := s.Err == "" && s.BlockedBranch == 0 && !p.c.Resources.backend().Stopped() && s.Count < len(s.Rob) && s.FpInFlight < p.c.Spec.FpPhysLimit
+	if s.DispatchBlock == 1 && (s.Count > 0 || len(s.Stores) > 0 || len(s.Pending) > 0) {
+		frontend = false
+	}
+	if s.DispatchBlock == 2 && len(s.Stores) >= p.c.Spec.StoreBufferSize {
+		frontend = false
+	}
+	if frontend && s.FrontendReady <= s.Cycles {
+		return true
+	}
+	var next uint64
+	consider := func(at uint64) {
+		if at > s.Cycles && (next == 0 || at < next) {
+			next = at
+		}
+	}
+	if frontend {
+		consider(s.FrontendReady)
+	}
+	if s.Count > 0 && s.Rob[s.Head].Complete != 0 && s.Rob[s.Head].Complete <= s.Cycles {
+		return true
+	}
+	for _, tag := range s.Waiting {
+		e := p.entry(tag)
+		if e == nil {
+			continue
+		}
+		if e.Issued || p.depsReady(e.Deps) || (instinfo.IsStore(e.Op) && e.AddressReady == 0 && p.depsReady(e.AddrDeps)) {
+			return true
+		}
+	}
+	// Completed stores can become drainable after the issue/dispatch phases.
+	for _, st := range s.Stores {
+		if st.Retired && st.Sent < len(st.Accesses) {
+			return true
+		}
+	}
+	for i := 0; i < s.Count; i++ {
+		e := &s.Rob[(s.Head+i)%len(s.Rob)]
+		consider(e.Complete)
+		consider(e.BaseComplete)
+		consider(e.AddressReady)
+	}
+	if next != 0 {
+		p.c.TickAt(timing.VTimeInPicoSec(next) * p.c.Spec.Freq.Period())
+		return false
+	}
+	// No response outstanding means no external wakeup is guaranteed. Keep a
+	// tick for error/timeout handling rather than silently ending a stalled run.
+	return len(s.Pending) == 0
 }
 
 func (p *asyncMiddleware) entry(tag uint64) *asyncEntry {
@@ -415,20 +496,20 @@ func (p *asyncMiddleware) storeGroup() storeGroup {
 	return group
 }
 
-func (p *asyncMiddleware) freeUnit(u unitType, op arm64asm.Op) bool {
+func (p *asyncMiddleware) freeUnit(u instinfo.Unit, op arm64asm.Op) bool {
 	s := &p.c.State
 	var units []uint64
 	switch u {
-	case unitINT:
+	case instinfo.UnitINT:
 		units = s.IntBusy
-	case unitFP:
+	case instinfo.UnitFP:
 		units = s.FpBusy
 	default:
 		units = s.LdstBusy
 	}
 	for i := range units {
 		if units[i] <= s.Cycles {
-			units[i] = s.Cycles + unitOccupancy(op)
+			units[i] = s.Cycles + instinfo.UnitOccupancy(op)
 			return true
 		}
 	}
@@ -498,12 +579,12 @@ func (p *asyncMiddleware) loadOrder(e *asyncEntry) (ready, forward bool, latency
 		return true, false, 0
 	}
 	if exact {
-		return true, true, exactGPRForwardLatency
+		return true, true, instinfo.ExactGPRForwardLatency
 	}
 	if conventionalReady > p.c.State.Cycles {
 		return false, false, 0
 	}
-	return true, true, conventionalForwardLatency
+	return true, true, instinfo.ConventionalForwardLatency
 }
 
 func (p *asyncMiddleware) issue() {
@@ -540,7 +621,7 @@ func (p *asyncMiddleware) issueEntry(e *asyncEntry, stores *int) {
 	load, store := instinfo.IsLoad(e.Op), instinfo.IsStore(e.Op)
 	// Address generation uses an actual LDST slot independently of
 	// store-data readiness. Base writeback cannot bypass that resource.
-	if store && e.AddressReady == 0 && p.depsReady(e.AddrDeps) && p.freeUnit(unitLDST, e.Op) {
+	if store && e.AddressReady == 0 && p.depsReady(e.AddrDeps) && p.freeUnit(instinfo.UnitLDST, e.Op) {
 		e.AddressReady = s.Cycles + 1
 		if e.BaseDest {
 			e.BaseComplete = e.AddressReady
@@ -633,11 +714,13 @@ func (p *asyncMiddleware) dispatch() {
 	if s.Err != "" || s.BlockedBranch != 0 || s.Cycles < s.FrontendReady {
 		return
 	}
+	s.DispatchBlock = 0
 	for n := 0; n < spec.FetchWidth && s.Count < len(s.Rob) && s.FpInFlight < spec.FpPhysLimit && !r.backend().Stopped(); n++ {
 		pc := r.backend().CPURegisters().PC
-		inst, gprs, fps, err := r.peekSources(pc)
+		inst, gprs, fps, err := instinfo.PeekSources(r.backend(), pc)
 		if err != nil {
 			if s.Count > 0 || len(s.Stores) > 0 {
+				s.DispatchBlock = 1
 				return
 			}
 			_, _, err = r.backend().StepDetailed()
@@ -646,13 +729,15 @@ func (p *asyncMiddleware) dispatch() {
 		}
 		barrier := inst.Op == arm64asm.SVC || inst.Op == arm64asm.DMB || inst.Op == arm64asm.DSB || inst.Op == arm64asm.ISB
 		if barrier && (s.Count > 0 || len(s.Stores) > 0 || len(s.Pending) > 0) {
+			s.DispatchBlock = 1
 			return
 		}
 		if instinfo.IsStore(inst.Op) && len(s.Stores) >= spec.StoreBufferSize {
+			s.DispatchBlock = 2
 			return
 		}
 		tag := s.NextTag
-		e := asyncEntry{Tag: tag, Op: inst.Op, Unit: classifyUnit(inst), ForwardEligible: directGPRTransfer(inst)}
+		e := asyncEntry{Tag: tag, Op: inst.Op, Unit: instinfo.ClassifyUnit(inst), ForwardEligible: instinfo.DirectGPRTransfer(inst)}
 		add := func(d dependency) {
 			if p.entry(d.Tag) != nil {
 				e.Deps = append(e.Deps, d)
@@ -703,10 +788,10 @@ func (p *asyncMiddleware) dispatch() {
 			s.Flags = dependency{Tag: tag}
 		}
 		if instinfo.IsStore(inst.Op) {
-			s.Stores = append(s.Stores, asyncStore{Tag: tag, Accesses: e.Accesses, AddrDeps: e.AddrDeps, Eligible: e.ForwardEligible})
+			s.Stores = append(s.Stores, asyncStore{Tag: tag, Accesses: e.Accesses, Eligible: e.ForwardEligible})
 		}
 		if instinfo.IsBranch(inst.Op) && spec.BranchPrediction {
-			pred := predictor{PredictorState: &s.Predictor, spec: spec.Predictor}
+			pred := branchpredictor.Predictor{PredictorState: &s.Predictor, Spec: spec.Predictor}
 			call, ret := inst.Op == arm64asm.BL || inst.Op == arm64asm.BLR, inst.Op == arm64asm.RET
 			taken, target := pred.Predict(pc, call, ret)
 			actual := r.backend().CPURegisters().PC

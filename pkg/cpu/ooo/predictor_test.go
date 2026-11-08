@@ -230,7 +230,7 @@ func TestBranchPred_BTBTargetUpdate(t *testing.T) {
 }
 
 func TestBranchPred_ConfigurableSizes(t *testing.T) {
-	bp := &predictor{PredictorState: &PredictorState{}, spec: PredictorSpec{
+	bp := &predictor{PredictorState: &PredictorState{}, Spec: PredictorSpec{
 		BimodalSize:     256,
 		TaggedTableSize: 128,
 		BTBSize:         64,
@@ -239,7 +239,7 @@ func TestBranchPred_ConfigurableSizes(t *testing.T) {
 		TaggedHistLen:   32,
 	}}
 
-	bp.init()
+	bp.Init()
 
 	// Verify tables were allocated with correct sizes.
 	if len(bp.Bimodal) != 256 {
@@ -316,7 +316,7 @@ func TestBranchPred_Accuracy90PercentLoop(t *testing.T) {
 }
 
 func NewBranchPredictor() *predictor {
-	p := &predictor{PredictorState: &PredictorState{}, spec: DefaultSpec().Predictor}
-	p.init()
+	p := &predictor{PredictorState: &PredictorState{}, Spec: DefaultSpec().Predictor}
+	p.Init()
 	return p
 }

@@ -1,20 +1,27 @@
-package ooo
+package detailed
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/sarchlab/akita/v5/sim"
 	"github.com/sarchlab/akita/v5/sim/messaging/twowaybuffered"
 	"github.com/sarchlab/akita/v5/sim/modeling"
+	"github.com/sarchlab/akita/v5/sim/modeling/modelingtest"
 	"github.com/sarchlab/akita/v5/sim/timing"
 	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/mem/timed"
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
-func asyncProbe(t *testing.T, code []uint32, setup func(*emu.Emulator), tweak func(*AsyncSpec, *timed.Config)) *AsyncComp {
+func asyncProbe(t *testing.T, code []uint32, setup func(*emu.Emulator), tweak func(*Spec, *timed.Config)) *Comp {
+	t.Helper()
+	return asyncProbeClock(t, code, setup, tweak, false)
+}
+
+func asyncProbeClock(t *testing.T, code []uint32, setup func(*emu.Emulator), tweak func(*Spec, *timed.Config), alwaysTick bool) *Comp {
 	t.Helper()
 	em := emu.NewEmulator()
 	em.Regs.PC = 0x10000
@@ -29,14 +36,14 @@ func asyncProbe(t *testing.T, code []uint32, setup func(*emu.Emulator), tweak fu
 	em.Mem.TrackAccesses = true
 	s := sim.MakeBuilder().Build()
 	defer s.Terminate()
-	spec := DefaultAsyncSpec()
+	spec := DefaultSpec()
 	cfg := timed.DefaultConfig(spec.Freq)
 	if tweak != nil {
 		tweak(&spec, &cfg)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	c := modeling.MakeBuilder[*AsyncComp](spec).WithSimulation(s).WithResources(Resources{Emu: em, Context: ctx}).Build("CPU")
+	c := modeling.MakeBuilder[*Comp](spec).WithSimulation(s).WithResources(Resources{Emu: em, Context: ctx}).Build("CPU")
 	c.BindPort("Memory", twowaybuffered.MakeBuilder().WithSimulation(s).WithSpec(twowaybuffered.Spec{IncomingCapacity: cfg.PortCapacity, OutgoingCapacity: cfg.PortCapacity}).Build())
 	if _, err := timed.Build(s, c.Ports.Memory, cfg); err != nil {
 		t.Fatal(err)
@@ -45,6 +52,11 @@ func asyncProbe(t *testing.T, code []uint32, setup func(*emu.Emulator), tweak fu
 		t.Fatal(err)
 	}
 	c.TickLater()
+	if alwaysTick {
+		clock := &testCPUClock{c: c, engine: s.Engine()}
+		s.Engine().RegisterHandler("test-clock", clock)
+		s.Engine().Schedule(timing.EventBase{At: spec.Freq.Period(), Handler: "test-clock", Secondary: true})
+	}
 	if err := s.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +70,7 @@ func asyncProbe(t *testing.T, code []uint32, setup func(*emu.Emulator), tweak fu
 }
 
 func TestAsyncDrainedStorePrefixDoesNotWaitForYoungerRetirement(t *testing.T) {
-	c := &AsyncComp{State: AsyncState{Stores: []asyncStore{{Tag: 1, Retired: true, Sent: 1, Accesses: []emu.MemAccess{{Addr: 0x100, Size: 8, IsWrite: true}}}, {Tag: 2}}}}
+	c := &Comp{State: State{Stores: []asyncStore{{Tag: 1, Retired: true, Sent: 1, Accesses: []emu.MemAccess{{Addr: 0x100, Size: 8, IsWrite: true}}}, {Tag: 2}}}}
 	p := &asyncMiddleware{c: c}
 	p.drainStores()
 	if len(c.State.Stores) != 1 || c.State.Stores[0].Tag != 2 {
@@ -67,7 +79,7 @@ func TestAsyncDrainedStorePrefixDoesNotWaitForYoungerRetirement(t *testing.T) {
 }
 
 func TestAsyncPairLoadCannotReadUndrainedOverlappingPart(t *testing.T) {
-	c := &AsyncComp{State: AsyncState{Cycles: 10, Stores: []asyncStore{{Tag: 1, Ready: 2, AddressReady: 1, Accesses: []emu.MemAccess{{Addr: 0x100, Size: 8, IsWrite: true}}}}}}
+	c := &Comp{State: State{Cycles: 10, Stores: []asyncStore{{Tag: 1, Ready: 2, AddressReady: 1, Accesses: []emu.MemAccess{{Addr: 0x100, Size: 8, IsWrite: true}}}}}}
 	p := &asyncMiddleware{c: c}
 	load := asyncEntry{Tag: 2, Accesses: []emu.MemAccess{{Addr: 0x100, Size: 8}, {Addr: 0x108, Size: 8}}}
 	if ready, _, _ := p.loadOrder(&load); ready {
@@ -81,7 +93,7 @@ func TestAsyncPairLoadCannotReadUndrainedOverlappingPart(t *testing.T) {
 
 func TestAsyncStoreCoalescingMaskAndOrdering(t *testing.T) {
 	write := func(addr uint64, size int) emu.MemAccess { return emu.MemAccess{Addr: addr, Size: size, IsWrite: true} }
-	c := &AsyncComp{Spec: DefaultAsyncSpec(), State: AsyncState{Stores: []asyncStore{
+	c := &Comp{Spec: DefaultSpec(), State: State{Stores: []asyncStore{
 		{Tag: 1, Retired: true, Accesses: []emu.MemAccess{write(0x108, 8)}},
 		{Tag: 2, Retired: true, Accesses: []emu.MemAccess{write(0x118, 8), write(0x110, 8)}},
 		{Tag: 3, Retired: true, Accesses: []emu.MemAccess{write(0x200, 8)}},
@@ -114,7 +126,7 @@ func TestAsyncCoalescedAcknowledgementReleasesAllStores(t *testing.T) {
 	for i := 0; i < 16; i++ {
 		body = append(body, 0xf9000020+uint32(i)*1024)
 	}
-	c := asyncProbe(t, body, func(e *emu.Emulator) { e.Regs.WriteX(1, 0x20000); e.Regs.WriteX(0, 7) }, func(s *AsyncSpec, c *timed.Config) { c.PortCapacity = 1 })
+	c := asyncProbe(t, body, func(e *emu.Emulator) { e.Regs.WriteX(1, 0x20000); e.Regs.WriteX(0, 7) }, func(s *Spec, c *timed.Config) { c.PortCapacity = 1 })
 	if c.State.Memory.StoreAccesses != 16 || c.State.Memory.CoalescedAccesses == 0 || c.State.Memory.Responses != c.State.Memory.Writes {
 		t.Fatalf("coalesced store acknowledgement accounting: %+v", c.State.Memory)
 	}
@@ -124,12 +136,13 @@ type cancelExecution struct {
 	*emu.Emulator
 	cancel context.CancelFunc
 	steps  int
+	after  int
 }
 
 func (e *cancelExecution) StepDetailed() (arm64asm.Inst, bool, error) {
 	i, b, err := e.Emulator.StepDetailed()
 	e.steps++
-	if e.steps == 32 {
+	if e.steps == e.after {
 		e.cancel()
 	}
 	return i, b, err
@@ -144,14 +157,14 @@ func TestAsyncCancellationDrainsMoreResponsesThanPortCapacity(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	x := &cancelExecution{Emulator: em, cancel: cancel}
+	x := &cancelExecution{Emulator: em, cancel: cancel, after: 32}
 	s := sim.MakeBuilder().Build()
 	defer s.Terminate()
-	spec := DefaultAsyncSpec()
+	spec := DefaultSpec()
 	cfg := timed.DefaultConfig(spec.Freq)
 	cfg.PortCapacity = 1
-	c := modeling.MakeBuilder[*AsyncComp](spec).WithSimulation(s).WithResources(Resources{Execution: x, Context: ctx}).Build("CPU")
-	c.BindPort("Memory", twowaybuffered.MakeBuilder().WithSimulation(s).Build())
+	c := modeling.MakeBuilder[*Comp](spec).WithSimulation(s).WithResources(Resources{Execution: x, Context: ctx}).Build("CPU")
+	c.BindPort("Memory", twowaybuffered.MakeBuilder().WithSimulation(s).WithSpec(twowaybuffered.Spec{IncomingCapacity: 1, OutgoingCapacity: 1}).Build())
 	if _, err := timed.Build(s, c.Ports.Memory, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -163,6 +176,43 @@ func TestAsyncCancellationDrainsMoreResponsesThanPortCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !c.State.Cancelled || !c.State.Done || len(c.State.Pending) != 0 || c.State.Memory.Reads < 2 || c.State.Memory.Responses != c.State.Memory.Reads {
+		t.Fatalf("cancellation left queued traffic: %+v", c.State.Memory)
+	}
+}
+
+func TestAsyncCancellationDrainsCoalescedStores(t *testing.T) {
+	em := emu.NewEmulator()
+	em.Regs.PC = 0x10000
+	em.Regs.WriteX(1, 0x20000)
+	em.Mem.TrackAccesses = true
+	for i := 0; i < 256; i++ {
+		word := uint32(0xd503201f)
+		if i < 32 {
+			word = 0xf9000020 + uint32(i)*1024
+		}
+		em.Mem.WriteU32(0x10000+uint64(i*4), word)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	x := &cancelExecution{Emulator: em, cancel: cancel, after: 192}
+	s := sim.MakeBuilder().Build()
+	defer s.Terminate()
+	spec := DefaultSpec()
+	cfg := timed.DefaultConfig(spec.Freq)
+	cfg.PortCapacity = 1
+	c := modeling.MakeBuilder[*Comp](spec).WithSimulation(s).WithResources(Resources{Execution: x, Context: ctx}).Build("CPU")
+	c.BindPort("Memory", twowaybuffered.MakeBuilder().WithSimulation(s).WithSpec(twowaybuffered.Spec{IncomingCapacity: 1, OutgoingCapacity: 1}).Build())
+	if _, err := timed.Build(s, c.Ports.Memory, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	c.TickLater()
+	if err := s.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.State.Cancelled || !c.State.Done || len(c.State.Pending) != 0 || c.State.Memory.CoalescedAccesses == 0 || c.State.Memory.Responses != c.State.Memory.Writes {
 		t.Fatalf("cancellation left queued traffic: %+v", c.State.Memory)
 	}
 }
@@ -200,7 +250,7 @@ func TestAsyncL1DependentLatency(t *testing.T) {
 		t.Fatal("load completed without actual response")
 	}
 	for _, ratio := range []int{1, 2, 3, 4} {
-		tweak := func(s *AsyncSpec, c *timed.Config) {
+		tweak := func(s *Spec, c *timed.Config) {
 			c.L1.Freq = s.Freq * timing.Freq(ratio)
 			c.L2.Freq = c.L1.Freq
 			c.Memory.Freq = c.L1.Freq
@@ -224,7 +274,7 @@ func TestAsyncROBWrapAndBackpressure(t *testing.T) {
 	for i := 0; i < 80; i++ {
 		body = append(body, 0xf9000020, 0x91020021, 0xf9400022)
 	} // store; add address128;load
-	c := asyncProbe(t, body, func(e *emu.Emulator) { e.Regs.WriteX(1, 0x20000) }, func(s *AsyncSpec, c *timed.Config) {
+	c := asyncProbe(t, body, func(e *emu.Emulator) { e.Regs.WriteX(1, 0x20000) }, func(s *Spec, c *timed.Config) {
 		s.ROBCapacity = 8
 		s.StoreBufferSize = 2
 		c.PortCapacity = 1
@@ -232,5 +282,57 @@ func TestAsyncROBWrapAndBackpressure(t *testing.T) {
 	})
 	if c.State.Memory.Writes != 80 || c.State.Memory.Reads != 80 {
 		t.Fatalf("lost request at wrap/backpressure: %+v", c.State.Memory)
+	}
+}
+
+func TestModelDeclaration(t *testing.T) { modelingtest.CheckTicking(t, (*Comp)(nil), DefaultSpec()) }
+
+// testCPUClock forces every CPU cycle through public TickAt notifications;
+// it serves as the always-ticking control without a production mode switch.
+type testCPUClock struct {
+	c      *Comp
+	engine timing.Engine
+}
+
+func (w *testCPUClock) Handle(e timing.Event) {
+	if w.c.State.Done {
+		return
+	}
+	next := e.Time() + w.c.Spec.Freq.Period()
+	w.c.TickAt(next)
+	w.engine.Schedule(timing.EventBase{At: next, Handler: "test-clock", Secondary: true})
+}
+func TestIdleWakeHasIdenticalCyclesAndTraffic(t *testing.T) {
+	cases := []struct {
+		name string
+		code []uint32
+	}{
+		{"dependent", []uint32{0xf9400021, 0xf9400021, 0xf9400021, 0xf9400021}},
+		{"independent", []uint32{0xf9400022, 0xf9400064, 0xf94000a6, 0xf94000e8}},
+		{"store_and_forward", []uint32{0xf9000022, 0xf9000422, 0xf9400023, 0xf9400444}},
+		{"pair_mixed", []uint32{0xf9000022, 0xa9401023, 0xd503201f}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setup := func(e *emu.Emulator) {
+				for r := 1; r < 9; r++ {
+					e.Regs.WriteX(r, 0x20000+uint64(r)*4096)
+				}
+				for r := 1; r < 9; r++ {
+					e.Mem.WriteU64(0x20000+uint64(r)*4096, 0x21000)
+				}
+			}
+			tweak := func(v *Spec, cfg *timed.Config) {
+				v.BranchPrediction = false
+				v.ROBCapacity = 4
+				cfg.PortCapacity = 1
+				cfg.L1.NumMSHREntries = 1
+			}
+			idle := asyncProbeClock(t, tc.code, setup, tweak, false)
+			every := asyncProbeClock(t, tc.code, setup, tweak, true)
+			if idle.State.Cycles != every.State.Cycles || idle.State.InstDone != every.State.InstDone || !reflect.DeepEqual(idle.State.Memory, every.State.Memory) || !reflect.DeepEqual(idle.Resources.Emu.Regs, every.Resources.Emu.Regs) {
+				t.Fatalf("idle=%+v every=%+v", idle.State, every.State)
+			}
+		})
 	}
 }

@@ -153,7 +153,7 @@ only component references and immutable configuration-derived lookups. The old
 `cpu.NewPipeline` / `cpu.NewOoOPipeline` constructors are replaced by the Akita
 model builder. The following example explicitly constructs the analytical backend;
 normal single-core callers should use `elfsim.Run`, whose default is the
-response-driven `ooo.AsyncComp` with the assembled Akita hierarchy:
+response-driven `detailed.Comp` with the assembled Akita hierarchy:
 
 ```go
 simulation := sim.MakeBuilder().Build()

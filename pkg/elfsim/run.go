@@ -12,6 +12,7 @@ import (
 	"github.com/sarchlab/akita/v5/sim/modeling"
 	"github.com/sarchlab/akita/v5/sim/timing"
 	"github.com/sarchlab/poros/pkg/cpu"
+	"github.com/sarchlab/poros/pkg/cpu/detailed"
 	"github.com/sarchlab/poros/pkg/cpu/inorder"
 	"github.com/sarchlab/poros/pkg/cpu/ooo"
 	"github.com/sarchlab/poros/pkg/linuxuser"
@@ -30,33 +31,33 @@ type Options struct {
 	Limits      linuxuser.RunOptions
 }
 type TimingProfile struct {
-	Configuration ooo.AsyncSpec `json:"configuration"`
+	Configuration detailed.Spec `json:"configuration"`
 	CacheConfig   timed.Config  `json:"cache_config"`
 }
 
 func DefaultTimingProfile(freq timing.Freq) TimingProfile {
-	c := ooo.DefaultAsyncSpec()
+	c := detailed.DefaultSpec()
 	c.Freq = freq
 	return TimingProfile{Configuration: c, CacheConfig: timed.DefaultConfig(freq)}
 }
 
 type Statistics struct {
-	Model                  string              `json:"model"`
-	AssumedHz              float64             `json:"assumed_hz"`
-	Cycles                 uint64              `json:"user_cycles"`
-	Retired                uint64              `json:"retired_instructions"`
-	CPI                    float64             `json:"cpi"`
-	PredictedUserSeconds   float64             `json:"predicted_user_seconds"`
-	Cache                  mem.CacheStats      `json:"cache"`
-	CacheConfig            any                 `json:"cache_config"`
-	MemoryBackend          string              `json:"memory_backend"`
-	CacheMetricsAvailable  bool                `json:"cache_metrics_available"`
-	MemoryRequests         *ooo.MemoryCounters `json:"memory_requests,omitempty"`
-	BranchMetricsAvailable bool                `json:"branch_metrics_available"`
-	BranchPredictions      uint64              `json:"branch_predictions"`
-	BranchDirectionHits    uint64              `json:"branch_direction_hits"`
-	Configuration          any                 `json:"configuration"`
-	Policy                 string              `json:"policy"`
+	Model                  string                   `json:"model"`
+	AssumedHz              float64                  `json:"assumed_hz"`
+	Cycles                 uint64                   `json:"user_cycles"`
+	Retired                uint64                   `json:"retired_instructions"`
+	CPI                    float64                  `json:"cpi"`
+	PredictedUserSeconds   float64                  `json:"predicted_user_seconds"`
+	Cache                  mem.CacheStats           `json:"cache"`
+	CacheConfig            any                      `json:"cache_config"`
+	MemoryBackend          string                   `json:"memory_backend"`
+	CacheMetricsAvailable  bool                     `json:"cache_metrics_available"`
+	MemoryRequests         *detailed.MemoryCounters `json:"memory_requests,omitempty"`
+	BranchMetricsAvailable bool                     `json:"branch_metrics_available"`
+	BranchPredictions      uint64                   `json:"branch_predictions"`
+	BranchDirectionHits    uint64                   `json:"branch_direction_hits"`
+	Configuration          any                      `json:"configuration"`
+	Policy                 string                   `json:"policy"`
 }
 type Result struct {
 	linuxuser.Result
@@ -102,8 +103,11 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 			err = e
 		}
 	}()
-	cache := mem.NewCache(mem.DefaultCacheConfig())
-	r.Timing = Statistics{Model: o.Model, AssumedHz: o.FrequencyHz, MemoryBackend: o.MemoryBackend, CacheMetricsAvailable: o.MemoryBackend == "analytical", CacheConfig: cache.Config(), Policy: "whole ELF user execution; cold modeled cache; SVC serializes, counts as one user instruction; host syscall work and loader excluded; no kernel cache effects; not a validated hardware profile"}
+	var cache *mem.Cache
+	if o.MemoryBackend == "analytical" {
+		cache = mem.NewCache(mem.DefaultCacheConfig())
+	}
+	r.Timing = Statistics{Model: o.Model, AssumedHz: o.FrequencyHz, MemoryBackend: o.MemoryBackend, CacheMetricsAvailable: o.MemoryBackend == "analytical", CacheConfig: mem.DefaultCacheConfig(), Policy: "whole ELF user execution; cold modeled cache; SVC serializes, counts as one user instruction; host syscall work and loader excluded; no kernel cache effects; not a validated hardware profile"}
 	var pipelineError string
 	if o.MemoryBackend == "akita" {
 		profile := DefaultTimingProfile(timing.Freq(o.FrequencyHz))
@@ -119,7 +123,7 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 		if err = profile.CacheConfig.Validate(profile.Configuration.Freq); err != nil {
 			return r, err
 		}
-		c := modeling.MakeBuilder[*ooo.AsyncComp](profile.Configuration).WithSimulation(s).WithResources(ooo.Resources{Execution: cpu.NewELFTimingExecution(x), Context: ctx}).Build("CPU")
+		c := modeling.MakeBuilder[*detailed.Comp](profile.Configuration).WithSimulation(s).WithResources(detailed.Resources{Execution: cpu.NewELFTimingExecution(x), Context: ctx}).Build("CPU")
 		c.BindPort("Memory", twowaybuffered.MakeBuilder().WithSimulation(s).WithSpec(twowaybuffered.Spec{IncomingCapacity: profile.CacheConfig.PortCapacity, OutgoingCapacity: profile.CacheConfig.PortCapacity}).Build())
 		if _, err = timed.Build(s, c.Ports.Memory, profile.CacheConfig); err != nil {
 			return r, err
@@ -179,7 +183,9 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 		pipelineError = c.State.Err
 	}
 	r.Result = x.Result()
-	r.Timing.Cache = cache.Stats()
+	if cache != nil {
+		r.Timing.Cache = cache.Stats()
+	}
 	r.Timing.PredictedUserSeconds = float64(r.Timing.Cycles) / o.FrequencyHz
 	if !x.Stopped() {
 		return r, fmt.Errorf("pipeline stopped before process: %s", pipelineError)

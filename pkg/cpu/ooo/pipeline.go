@@ -2,7 +2,6 @@
 package ooo
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/sarchlab/akita/v5/sim/modeling/ticking"
@@ -55,9 +54,6 @@ type Resources struct {
 	Emu       *emu.Emulator
 	Execution emu.Execution
 	Cache     *mem.Cache
-	// Context cancels a response-driven run even when no instruction can
-	// execute. It has no influence on simulated cycles or timing decisions.
-	Context context.Context
 }
 type Ports struct{}
 type Middlewares struct{ Pipeline *middleware }
@@ -91,12 +87,12 @@ type storeBufferEntry struct {
 	ReadyCycle          uint64
 	FastForwardEligible bool
 }
-type unitType int
+type unitType = instinfo.Unit
 
 const (
-	unitINT unitType = iota
-	unitFP
-	unitLDST
+	unitINT  = instinfo.UnitINT
+	unitFP   = instinfo.UnitFP
+	unitLDST = instinfo.UnitLDST
 )
 
 func (s *State) Initialize(c *Comp) {
@@ -118,7 +114,7 @@ func (s *State) Initialize(c *Comp) {
 	s.StoreBuffer = make([]storeBufferEntry, 0, v.StoreBufferSize)
 	s.MshrBusyUntil = make([]uint64, v.NumMSHREntries)
 	if v.BranchPrediction {
-		(&predictor{PredictorState: &s.Predictor, spec: v.Predictor}).init()
+		(&predictor{PredictorState: &s.Predictor, Spec: v.Predictor}).Init()
 	}
 }
 func (m *Middlewares) Initialize(c *Comp) {
@@ -142,7 +138,7 @@ type middleware struct {
 }
 
 func (p *middleware) predictor() *predictor {
-	return &predictor{PredictorState: &p.comp.State.Predictor, spec: p.comp.Spec.Predictor}
+	return &predictor{PredictorState: &p.comp.State.Predictor, Spec: p.comp.Spec.Predictor}
 }
 
 // CPI returns cycles per instruction.
@@ -426,29 +422,7 @@ func (p *middleware) fetchAndProcess() {
 	}
 }
 
-// classifyUnit determines which execution unit type an instruction needs.
-func classifyUnit(instruction arm64asm.Inst) unitType {
-	op := instruction.Op
-	if (op == arm64asm.ORR || op == arm64asm.MOVI) && instinfo.ArgFP(instruction.Args[0]) >= 0 {
-		return unitFP
-	}
-	if instinfo.IsLoad(op) || instinfo.IsStore(op) {
-		return unitLDST
-	}
-	switch op {
-	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FMUL,
-		arm64asm.FMADD, arm64asm.FMSUB,
-		arm64asm.FNMUL, arm64asm.FNMADD,
-		arm64asm.FDIV, arm64asm.FSQRT,
-		arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FMOV, arm64asm.FCSEL,
-		arm64asm.SCVTF, arm64asm.UCVTF,
-		arm64asm.FCVTZS, arm64asm.FCVTZU,
-		arm64asm.FNEG, arm64asm.FABS:
-		return unitFP
-	default:
-		return unitINT
-	}
-}
+func classifyUnit(instruction arm64asm.Inst) unitType { return instinfo.ClassifyUnit(instruction) }
 
 // instrLatencyWithPC computes the execution latency for an instruction,
 // using the PC to check for hooked BL instructions.
@@ -521,23 +495,8 @@ func (p *middleware) acquireMSHR(issueCycle uint64) (int, uint64) {
 	return bestIdx, issueCycle
 }
 
-// An execution resource may return the static register dependencies alongside
-// the instruction it fetched. Other resources can construct synthetic Inst
-// values, so extract their operands directly rather than relying on Enc.
-type sourcePeeker interface {
-	PeekSources(pc uint64) (arm64asm.Inst, []int, []int, error)
-}
-
 func (r Resources) peekSources(pc uint64) (arm64asm.Inst, []int, []int, error) {
-	backend := r.backend()
-	if p, ok := backend.(sourcePeeker); ok {
-		return p.PeekSources(pc)
-	}
-	inst, err := backend.Peek(pc)
-	if err != nil {
-		return inst, nil, nil, err
-	}
-	return inst, instinfo.SourceGPRs(inst), instinfo.SourceFPs(inst), nil
+	return instinfo.PeekSources(r.backend(), pc)
 }
 
 func (r Resources) backend() emu.Execution {

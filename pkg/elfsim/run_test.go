@@ -7,7 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"github.com/sarchlab/poros/pkg/cpu/ooo"
+	"github.com/sarchlab/poros/pkg/cpu/detailed"
 	"math"
 	"os"
 	"path/filepath"
@@ -269,7 +269,7 @@ func TestTimingFrequencyContract(t *testing.T) {
 		if want == 0 {
 			want = 3.49e9
 		}
-		if r.Timing.AssumedHz != want || float64(r.Timing.Configuration.(ooo.AsyncSpec).Freq) != want || r.Timing.PredictedUserSeconds != float64(r.Timing.Cycles)/want {
+		if r.Timing.AssumedHz != want || float64(r.Timing.Configuration.(detailed.Spec).Freq) != want || r.Timing.PredictedUserSeconds != float64(r.Timing.Cycles)/want {
 			t.Fatalf("frequency metadata disagrees with actual configuration: %+v", r.Timing)
 		}
 	}
