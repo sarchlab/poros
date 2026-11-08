@@ -359,3 +359,54 @@ func TestStoreTransferWidthsAndFutureDependency(t *testing.T) {
 		})
 	}
 }
+
+func TestTimedReadFillUpdatesMSHRBeforeLaterBookings(t *testing.T) {
+	cache := mem.NewCache(mem.DefaultCacheConfig())
+	p := reservationPipeline(t, []uint32{0xf9400020}, cache)
+	p.comp.Spec.StreamPrefetch = mem.StreamSpec{Enabled: true, TableEntries: 4, Trigger: 2, Distance: 1, Degree: 1, MaxPending: 4, MaxObservations: 16, ReadBytesPerCycle: 16}
+	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
+	p.comp.Resources.Emu.Mem.WriteU64(0x4000, 42)
+	latency := uint64(cache.Config().DRAMLatency)
+	line := uint64(cache.Config().L2LineSize)
+	first := p.comp.State.Stream.ReserveDemand(1, latency, 1, line, p.comp.Spec.StreamPrefetch)
+	p.fetchAndProcess()
+	want := first + (line+15)/16
+	if p.comp.State.GprReady[0] != want || p.comp.State.MshrBusyUntil[0] != want || p.comp.State.Rob[0] != want {
+		t.Fatalf("bus delay absent from load/MSHR: ready%d mshr%d want%d", p.comp.State.GprReady[0], p.comp.State.MshrBusyUntil[0], want)
+	}
+	if _, next := p.acquireMSHR(1); next != want {
+		t.Fatal("later booking reused occupied MSHR")
+	}
+	if level := cache.LookupWithoutPrefetch(0x4000+uint64(cache.Config().L1LineSize), 8, false); level == mem.HitL1 {
+		t.Fatal("enabled timed mode retained free immediate next-line fill")
+	}
+	if len(p.comp.State.Stream.Observations) != 1 || p.comp.State.Stream.Observations[0].Issue != 1 {
+		t.Fatal("observation did not record final issue")
+	}
+}
+
+func TestTimedReadFillCountsDistinctLinesAndCrossings(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		accesses []emu.MemAccess
+		want     uint64
+	}{
+		{"same line pair", []emu.MemAccess{{Addr: 0x4000, Size: 8}, {Addr: 0x4008, Size: 8}}, 1},
+		{"cross line vector", []emu.MemAccess{{Addr: 0x4078, Size: 16}}, 2},
+		{"crossing with duplicate", []emu.MemAccess{{Addr: 0x4078, Size: 16}, {Addr: 0x4080, Size: 8}}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := mem.DefaultCacheConfig()
+			cfg.L1LineSize = 64
+			cfg.L2LineSize = 128
+			p := reservationPipeline(t, []uint32{0xd503201f}, mem.NewCache(cfg))
+			p.comp.Spec.StreamPrefetch.Enabled = true
+			for _, a := range tc.accesses {
+				p.cacheLookup(a)
+			}
+			if p.dramReadLines != tc.want {
+				t.Fatalf("read fills%d want%d", p.dramReadLines, tc.want)
+			}
+		})
+	}
+}

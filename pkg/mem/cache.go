@@ -4,7 +4,7 @@ package mem
 type HitLevel int
 
 const (
-	HitL1   HitLevel = iota
+	HitL1 HitLevel = iota
 	HitL2
 	HitDRAM
 )
@@ -179,6 +179,15 @@ func (c *Cache) Prefetch(addr uint64) {
 
 // Lookup simulates a memory access and returns the level where it was satisfied.
 func (c *Cache) Lookup(addr uint64, size int, isWrite bool) HitLevel {
+	return c.lookup(addr, size, isWrite, true)
+}
+
+// LookupWithoutPrefetch preserves demand classification but disables the legacy
+// immediate next-line installation. Timed prefetch completion is managed separately.
+func (c *Cache) LookupWithoutPrefetch(addr uint64, size int, isWrite bool) HitLevel {
+	return c.lookup(addr, size, isWrite, false)
+}
+func (c *Cache) lookup(addr uint64, size int, isWrite bool, nextLinePrefetch bool) HitLevel {
 	if c.l1.lookup(addr) {
 		c.stats.L1Hits++
 		return HitL1
@@ -190,14 +199,18 @@ func (c *Cache) Lookup(addr uint64, size int, isWrite bool) HitLevel {
 	if c.l2.lookup(addr) {
 		c.stats.L2Hits++
 		c.l1.install(addr)
-		c.Prefetch(nextLine)
+		if nextLinePrefetch {
+			c.Prefetch(nextLine)
+		}
 		return HitL2
 	}
 	c.stats.L2Misses++
 
 	c.l2.install(addr)
 	c.l1.install(addr)
-	c.Prefetch(nextLine)
+	if nextLinePrefetch {
+		c.Prefetch(nextLine)
+	}
 	return HitDRAM
 }
 
@@ -214,4 +227,21 @@ func (c *Cache) Stats() CacheStats {
 // ResetStats zeroes the hit/miss counters.
 func (c *Cache) ResetStats() {
 	c.stats = CacheStats{}
+}
+
+// contains is a read-only tag probe: it does not update recency or statistics.
+func (cl *cacheLevel) contains(addr uint64) bool {
+	for _, line := range cl.sets[cl.setIndex(addr)] {
+		if line.valid && line.tag == cl.tag(addr) {
+			return true
+		}
+	}
+	return false
+}
+func (c *Cache) installPrefetchedL2(addr uint64) bool {
+	if c.l2.contains(addr) {
+		return false
+	}
+	c.l2.install(addr)
+	return true
 }

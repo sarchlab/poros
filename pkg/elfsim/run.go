@@ -24,19 +24,20 @@ type Options struct {
 	Limits      linuxuser.RunOptions
 }
 type Statistics struct {
-	Model                  string          `json:"model"`
-	AssumedHz              float64         `json:"assumed_hz"`
-	Cycles                 uint64          `json:"user_cycles"`
-	Retired                uint64          `json:"retired_instructions"`
-	CPI                    float64         `json:"cpi"`
-	PredictedUserSeconds   float64         `json:"predicted_user_seconds"`
-	Cache                  mem.CacheStats  `json:"cache"`
-	CacheConfig            mem.CacheConfig `json:"cache_config"`
-	BranchMetricsAvailable bool            `json:"branch_metrics_available"`
-	BranchPredictions      uint64          `json:"branch_predictions"`
-	BranchDirectionHits    uint64          `json:"branch_direction_hits"`
-	Configuration          any             `json:"configuration"`
-	Policy                 string          `json:"policy"`
+	ReadFill               *mem.StreamStats `json:"read_fill,omitempty"`
+	Model                  string           `json:"model"`
+	AssumedHz              float64          `json:"assumed_hz"`
+	Cycles                 uint64           `json:"user_cycles"`
+	Retired                uint64           `json:"retired_instructions"`
+	CPI                    float64          `json:"cpi"`
+	PredictedUserSeconds   float64          `json:"predicted_user_seconds"`
+	Cache                  mem.CacheStats   `json:"cache"`
+	CacheConfig            mem.CacheConfig  `json:"cache_config"`
+	BranchMetricsAvailable bool             `json:"branch_metrics_available"`
+	BranchPredictions      uint64           `json:"branch_predictions"`
+	BranchDirectionHits    uint64           `json:"branch_direction_hits"`
+	Configuration          any              `json:"configuration"`
+	Policy                 string           `json:"policy"`
 }
 type Result struct {
 	linuxuser.Result
@@ -94,6 +95,10 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 		r.Timing.Retired = c.State.InstDone
 		r.Timing.CPI = c.State.CPI()
 		r.Timing.Configuration = spec
+		if spec.StreamPrefetch.Enabled {
+			stats := c.State.Stream.Stats
+			r.Timing.ReadFill = &stats
+		}
 		r.Timing.BranchMetricsAvailable = true
 		r.Timing.BranchPredictions = c.State.Predictor.Predictions
 		r.Timing.BranchDirectionHits = c.State.Predictor.Hits
