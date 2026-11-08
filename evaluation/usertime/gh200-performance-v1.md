@@ -1,0 +1,3 @@
+# Poros GH200 native user-time capture
+
+I finished the full GH200 run in Poros: all 264 cases ran, 216 are good and 48 are noisy (the M2 had 17 noisy). gh02 uses 64 KiB memory pages and the committed programs crash on it, so I ran the same programs unchanged in an Ubuntu virtual machine with 4 KiB pages (default settings), using Docker. Most noisy cases are programs that spend a lot of time in the kernel, such as trisolv, streamcluster, vips and bicg. Their total CPU time is stable, but the virtual machine does not split time between user and kernel exactly, so the user time jumps around. The typical GH200 user time is 1.07× the M2's.
