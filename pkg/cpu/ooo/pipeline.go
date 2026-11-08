@@ -64,7 +64,7 @@ type State struct {
 	Serializing                  bool
 	GprReady, FpReady            [32]uint64
 	FlagsReady                   uint64
-	IntUnits, FpUnits, LdstUnits []uint64
+	IntUnits, FpUnits, LdstUnits [][]UnitReservation
 	Rob                          []uint64
 	RobFPDests                   []int
 	RobHead, RobTail, RobCount   int
@@ -106,9 +106,9 @@ func (s *State) Initialize(c *Comp) {
 	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumLDST < 1 || v.LoadLatency < 1 || v.FpPhysLimit < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
 	}
-	s.IntUnits = make([]uint64, v.NumINT)
-	s.FpUnits = make([]uint64, v.NumFP)
-	s.LdstUnits = make([]uint64, v.NumLDST)
+	s.IntUnits = make([][]UnitReservation, v.NumINT)
+	s.FpUnits = make([][]UnitReservation, v.NumFP)
+	s.LdstUnits = make([][]UnitReservation, v.NumLDST)
 	s.Rob = make([]uint64, v.ROBCapacity)
 	s.RobFPDests = make([]int, v.ROBCapacity)
 	s.StoreBuffer = make([]storeBufferEntry, 0, v.StoreBufferSize)
@@ -155,6 +155,7 @@ func (p *middleware) Handle(_ timing.Event) bool {
 		return false
 	}
 	p.comp.State.Cycles++
+	p.pruneUnitReservations()
 
 	// Phase 1: Retire completed instructions from ROB head.
 	p.retire()
@@ -255,9 +256,11 @@ func (p *middleware) fetchAndProcess() {
 		// NOP is eliminated before execution, while retaining frontend, ROB
 		// and retirement accounting. Other HINT instructions are not assumed
 		// to have the same resource behavior.
-		bestUnit := -1
-		if inst.Op != arm64asm.NOP {
-			bestUnit, issueCycle = p.findUnit(ut, issueCycle)
+		usesUnit := inst.Op != arm64asm.NOP
+		if instinfo.IsLoad(inst.Op) {
+			// Forwarding eligibility depends on when a load could issue.
+			// Other instructions need only the final resource selection below.
+			_, issueCycle = p.findUnit(ut, issueCycle, unitOccupancy(inst.Op))
 		}
 
 		// 4. Execute functionally (in program order).
@@ -278,19 +281,18 @@ func (p *middleware) fetchAndProcess() {
 			issueCycle = forwarding.issueCycle
 		}
 
-		// 6. Compute execution latency.
+		// 6. Compute latency, then select a common execution-unit/MSHR time.
+		// Forwarding and MSHR waits may have invalidated the earlier unit
+		// candidate. Do not reserve either resource until both are available.
 		var latency uint64
+		var miss bool
 		if forwarding.forwarded {
 			latency = forwarding.latency
 		} else {
-			var miss bool
 			latency, miss = p.instrLatencyWithPC(inst, pc)
-			// MSHR: if load missed L1, acquire an MSHR slot (may stall).
-			if miss {
-				mshrIdx, mshrCycle := p.acquireMSHR(issueCycle)
-				issueCycle = mshrCycle
-				p.comp.State.MshrBusyUntil[mshrIdx] = issueCycle + latency
-			}
+		}
+		if usesUnit {
+			issueCycle = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss, latency)
 		}
 		completeCycle := issueCycle + latency
 		if forwarding.forwarded && forwarding.dataReady+latency > completeCycle {
@@ -367,11 +369,6 @@ func (p *middleware) fetchAndProcess() {
 			}
 		}
 
-		// 9. Mark execution unit busy.
-		if bestUnit >= 0 {
-			p.markUnitBusy(ut, bestUnit, issueCycle, inst.Op)
-		}
-
 		// 10. Add to ROB and track FP register usage.
 		p.comp.State.Rob[p.comp.State.RobTail] = completeCycle
 		p.comp.State.RobFPDests[p.comp.State.RobTail] = fpDests
@@ -446,60 +443,6 @@ func classifyUnit(instruction arm64asm.Inst) unitType {
 		return unitFP
 	default:
 		return unitINT
-	}
-}
-
-// findUnit scans all units of the matching type and returns the one that
-// becomes free earliest (>= earliest). Returns (unitIndex, actualIssueCycle).
-func (p *middleware) findUnit(ut unitType, earliest uint64) (int, uint64) {
-	var units []uint64
-	switch ut {
-	case unitINT:
-		units = p.comp.State.IntUnits
-	case unitFP:
-		units = p.comp.State.FpUnits
-	case unitLDST:
-		units = p.comp.State.LdstUnits
-	}
-
-	bestIdx := 0
-	bestTime := units[0]
-	if earliest > bestTime {
-		bestTime = earliest
-	}
-	for i := 1; i < len(units); i++ {
-		t := units[i]
-		if earliest > t {
-			t = earliest
-		}
-		if t < bestTime {
-			bestIdx = i
-			bestTime = t
-		}
-	}
-	return bestIdx, bestTime
-}
-
-// markUnitBusy marks an execution unit as occupied.
-// Most units are pipelined (1-cycle throughput). DIV/SQRT are partially
-// pipelined: the unit is busy for throughput cycles (< latency).
-func (p *middleware) markUnitBusy(ut unitType, idx int, issueCycle uint64, op arm64asm.Op) {
-	busyUntil := issueCycle + 1 // pipelined: 1-cycle throughput
-	switch op {
-	case arm64asm.SDIV, arm64asm.UDIV:
-		busyUntil = issueCycle + uint64(instinfo.ExecuteLatency(op)) // non-pipelined
-	case arm64asm.FDIV:
-		busyUntil = issueCycle + 10 // partially pipelined: 10cy throughput, 22cy latency
-	case arm64asm.FSQRT:
-		busyUntil = issueCycle + 6 // partially pipelined: 6cy throughput, 12cy latency
-	}
-	switch ut {
-	case unitINT:
-		p.comp.State.IntUnits[idx] = busyUntil
-	case unitFP:
-		p.comp.State.FpUnits[idx] = busyUntil
-	case unitLDST:
-		p.comp.State.LdstUnits[idx] = busyUntil
 	}
 }
 

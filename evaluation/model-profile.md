@@ -65,3 +65,28 @@ JSON does not imply equal simulator behavior. The source revision must therefore
 be retained when comparing or reusing results. Old serialized store-buffer
 entries without the new readiness/classification fields retain the conventional
 path; newly produced states round-trip those fields.
+
+## Execution-unit reservations
+
+OoO execution units record occupied half-open intervals rather than a single
+busy-until timestamp. A future reservation leaves its earlier gaps available to
+ready independent instructions. Each instruction reserves its whole throughput
+occupancy; its result latency remains unchanged. After store forwarding and
+MSHR availability determine the earliest issue time, the pipeline selects an
+execution-unit gap and commits the unit/MSHR allocation once. MSHRs retain their
+existing busy-until policy. Expired unit reservations are pruned at the actual
+pipeline cycle, never at an instruction's future operand-ready time.
+
+These mutable interval lists belong to component `State` and survive JSON state
+round trips. The old experimental numeric `IntUnits`, `FpUnits`, and `LdstUnits`
+arrays are replaced by per-unit arrays of `{Start, End}` intervals; old numeric
+state JSON is not a compatible checkpoint. Configuration and model-profile
+parameters are unchanged, and Poros does not expose a saved timing-state restore
+CLI. The source revision distinguishes this scheduling change. Cache fill and
+prefetch behavior remain separate work; no claim of complete memory timing
+accuracy follows from this correction.
+
+The [scheduling probes](microbenchmarks/scheduling/README.md) contrast dependent
+MADD/FMADD chains with added independent work. They support mechanism-level
+checks, while the full application comparison must disclose regressions as well
+as improvements. Fewer modeled cycles alone do not establish better accuracy.

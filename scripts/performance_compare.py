@@ -7,6 +7,7 @@ import performance_reference as reference
 import frontend_microbenchmark as frontend
 import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
+import scheduling_microbenchmark as scheduling
 import model_profiles
 
 
@@ -89,6 +90,13 @@ def compare(args, executor):
             forwarding.load_reference(user.ROOT)
             report["forwarding_simulation"] = {
                 label: forwarding.measure(binary, user.ROOT, revision, profiles[label])
+                for label, binary, revision in (("head", args.head, state["commit"]),
+                                                ("base", args.base, args.base_commit))
+            }
+        if scheduling.declared(state["files"]):
+            scheduling.load_reference(user.ROOT)
+            report["scheduling_simulation"] = {
+                label: scheduling.measure(binary, user.ROOT, revision, profiles[label])
                 for label, binary, revision in (("head", args.head, state["commit"]),
                                                 ("base", args.base, args.base_commit))
             }

@@ -76,7 +76,7 @@ func TestNOPUsesFrontendAndRetirementButNotIntegerUnits(t *testing.T) {
 		t.Fatal("NOP bypassed architectural accounting")
 	}
 	// NOPs don't mark the integer unit busy; RET is the only issuing instruction.
-	if wide.State.IntUnits[0] > wide.State.Cycles {
+	if len(wide.State.IntUnits[0]) != 0 {
 		t.Fatal("NOP resource state did not drain")
 	}
 }
