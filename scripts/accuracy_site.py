@@ -1288,10 +1288,30 @@ def timing_table(cases, ids):
     return body
 
 
+def live_progress(live):
+    completed, required = live["completed_cases"], live["required_cases"]
+    percentage = 100 * completed / required
+    validated = live.get("validated_bundle", False)
+    state = ("Complete" if validated else "Cases finished · validation pending") if live["state"] == "complete" else live["state"].title()
+    body = '<section class="notice" aria-labelledby="live-progress-label">'
+    body += '<label id="live-progress-label" for="case-progress"><strong>' + esc(state) + '</strong> · '
+    body += f'{completed} / {required} cases · {percentage:.1f}%</label>'
+    body += f'<progress id="case-progress" value="{completed}" max="{required}" aria-describedby="live-progress-context" style="display:block;width:100%;height:18px;margin-top:10px;accent-color:#006e75">{percentage:.1f}%</progress>'
+    body += '<p id="live-progress-context">'
+    body += f'{live["completed_shards"]} / {live["required_shards"]} shards. '
+    body += ('Complete validated bundle.' if validated else
+             'Live snapshot — not a publishable report. Partial results are not a final accuracy conclusion; the subset changes as work finishes.')
+    body += ' Updated ' + esc(live["updated_at"]) + '.</p>'
+    if live["errors"]:
+        body += '<p>' + esc('; '.join(live["errors"])) + '</p>'
+    return body + '</section>'
+
+
 def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None):
     commit = entry["commit"]
     full_inventory = report["artifact_status"] == "pass" or live is not None
-    body = (
+    body = live_progress(live) if live is not None else ""
+    body += (
         '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
         + esc(commit)
         + "</code></p>"
@@ -1309,15 +1329,6 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     else:
         environment = "Reference environment is unavailable for this report; no hardware environment is inferred."
     body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> ' + environment + ' Core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
-    if live is not None:
-        body += '<div class="notice"><strong>' + esc(live["state"].title()) + '</strong> · '
-        body += f'{live["completed_cases"]} / {live["required_cases"]} cases · {live["completed_shards"]} / {live["required_shards"]} shards. '
-        body += ('Complete validated bundle.' if live.get("validated_bundle") else
-                 'Live snapshot — not a publishable report. Partial results are not a final accuracy conclusion; the subset changes as work finishes.')
-        body += ' Updated ' + esc(live["updated_at"]) + '.</div>'
-        body += '<p>Active cases: ' + esc(', '.join(live["active_cases"]) or 'none') + '</p>'
-        if live["errors"]:
-            body += '<p class="notice">' + esc('; '.join(live["errors"])) + '</p>'
     cases = report.get("cases", [])
     benchmarks = [c for c in cases if not is_micro_case(c)]
     micros = [c for c in cases if is_micro_case(c)]

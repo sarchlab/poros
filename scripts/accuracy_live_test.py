@@ -71,6 +71,34 @@ class LiveReportTests(unittest.TestCase):
         site.write(path, value)
         return live.SnapshotView(path, bundle)
 
+    def test_live_progress_is_first_and_does_not_claim_unvalidated_completion(self):
+        value = self.snapshot()
+        progress = value["progress"]
+        entry = dict(commit=self.report["head"]["commit"])
+        page = site.detail(self.report, entry, live=progress)
+        self.assertLess(page.index('id="case-progress"'), page.index('<header>'))
+        self.assertIn('<label id="live-progress-label" for="case-progress">', page)
+        self.assertIn('value="30" max="264" aria-describedby="live-progress-context"', page)
+        self.assertIn('30 / 264 cases · 11.4%', page)
+        self.assertNotIn('Active cases:', page)
+        self.assertIn('active_cases', progress)
+        self.assertNotIn('id="case-progress"', site.detail(self.report, entry))
+        for state, validated, expected in (("failed", False, "Failed"),
+                                            ("complete", False, "Cases finished · validation pending"),
+                                            ("complete", True, "Complete validated bundle.")):
+            with self.subTest(state=state, validated=validated):
+                current = dict(progress, state=state, completed_cases=264,
+                               completed_shards=132, validated_bundle=validated)
+                if state == "failed":
+                    current["errors"] = ["bundle <validation> failed"]
+                rendered = site.detail(self.report, entry, live=current)
+                self.assertIn(expected, rendered)
+                self.assertIn('264 / 264 cases · 100.0%', rendered)
+                if not validated:
+                    self.assertNotIn('Complete validated bundle.', rendered)
+                if state == "failed":
+                    self.assertIn('bundle &lt;validation&gt; failed', rendered)
+
     def test_memory_snapshot_and_complete_bundle_share_bound_evidence(self):
         value = self.snapshot()
         report, suite = value['report'], site.memory
