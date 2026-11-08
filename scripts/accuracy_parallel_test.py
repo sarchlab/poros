@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path
 import tempfile
+import struct
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -20,6 +21,7 @@ import frontend_microbenchmark as probe
 import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
 import model_profiles as models
+import memory_microbenchmark as memory
 import hashlib
 
 HEAD = "a" * 40
@@ -227,6 +229,102 @@ class ParallelAccuracyTests(unittest.TestCase):
         aggregated = parallel.read(self.root / "aggregate/report.json")
         self.assertEqual(serial, aggregated)
         site.check_report(aggregated, HEAD)
+
+    @contextlib.contextmanager
+    def memory_fixture(self):
+        """Two assigned memory shards plus six genuinely unassigned app shards."""
+        cases = memory.cases()[:2]
+        state, plan = copy.deepcopy(self.state), copy.deepcopy(self.plan)
+        profile_hash = hashlib.sha256(models.encode(self.profile)).hexdigest()
+        state["files"].update({memory.ELF: "f" * 64, memory.REFERENCE: "e" * 64,
+                               models.PATH: profile_hash})
+        declarations = {role: dict(commit=revision, path=models.PATH, sha256=profile_hash,
+                                   profile=self.profile) for role, revision in (("head", HEAD), ("base", BASE))}
+        plan.update(head=state, model_profiles=declarations,
+                    memory=dict(elf_sha256="f" * 64, reference_sha256="e" * 64,
+                                cases=cases, shards=parallel.partition(cases, 2)))
+        parallel.write(self.prepared / "plan.json", plan)
+        with patch.object(user, "source_state", return_value=state), \
+             patch.object(models, "resolve", return_value=declarations), \
+             patch.object(memory, "cases", return_value=cases), \
+             patch.object(memory, "load_reference", return_value={"cases": cases}):
+            yield plan
+
+    def memory_samples(self, binary, root, case, revision, profile):
+        samples = []
+        hz = profile["configuration"]["freq"]
+        for factor in (1, 2):
+            passes = case["passes"] * factor
+            instructions = 1000 + passes * case["instructions_per_pass"]
+            cycles = 2000 + instructions
+            samples.append(dict(termination="exit", exit_status=0, stderr_base64="",
+                                binary_sha256="f" * 64, args=["program", *memory.arguments(case, passes)],
+                                env=[], instructions=instructions,
+                                stdout_base64=base64.b64encode(struct.pack("<Q", memory.expected(case, passes))).decode(),
+                                build={"vcs.revision": revision, "vcs.modified": "false"},
+                                timing=dict(model="ooo", user_cycles=cycles, retired_instructions=instructions,
+                                            assumed_hz=hz, predicted_user_seconds=cycles / hz, **profile)))
+        return samples
+
+    def live_result(self, binary, case, mode=None, **options):
+        role = "functional" if mode == "functional" else Path(binary).name
+        return self.result(case, role)
+
+    def test_memory_runs_in_assigned_shards_and_aggregate_only_consumes_records(self):
+        results, output = self.root / "memory-shards", self.root / "memory/report.json"
+        with self.memory_fixture() as plan, contextlib.redirect_stdout(io.StringIO()):
+            with patch.object(user, "execute", side_effect=self.live_result), \
+                 patch.object(memory, "measure_case", side_effect=self.memory_samples) as execute_memory:
+                for index in range(8):
+                    self.assertEqual(parallel.run_shard(self.prepared, "123", 1, index,
+                                                       results / str(index) / "shard.json"), 0)
+            self.assertEqual(execute_memory.call_count, 4)  # Two cases, each base/head.
+            shards = [parallel.read(results / str(i) / "shard.json") for i in range(8)]
+            self.assertEqual([len(s["memory_records"]) for s in shards], [1, 1, 0, 0, 0, 0, 0, 0])
+            expected = parallel.recorded_memory(plan, shards[:2], 1)
+            with patch.object(user, "execute", side_effect=AssertionError("aggregate executed app")), \
+                 patch.object(memory, "measure_case", side_effect=AssertionError("aggregate executed memory")), \
+                 patch.object(memory, "measure", side_effect=AssertionError("aggregate used serial fallback")), \
+                 patch.object(user, "compare", wraps=user.compare) as compare:
+                self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output), 0)
+                self.assertEqual(compare.call_args.kwargs["memory_simulation"], expected)
+                self.assertFalse(hasattr(compare.call_args.args[0], "memory_simulation"))
+                report = parallel.read(output)
+                self.assertEqual(report["artifact_status"], "pass")
+                self.assertEqual(report["memory_simulation"], expected)
+                self.assertEqual(len(report["cases"]), 264)
+                for index, records, reason in ((0, [], "coverage"),
+                                               (2, shards[0]["memory_records"], "unassigned")):
+                    changed = copy.deepcopy(shards[index]); changed["memory_records"] = records
+                    parallel.write(results / str(index) / "shard.json", changed)
+                    self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output), 1)
+                    self.assertIn(reason, parallel.read(output)["error"])
+                    parallel.write(results / str(index) / "shard.json", shards[index])
+
+    def test_compare_memory_explicit_rows_fail_closed_and_serial_path_announces_work(self):
+        args = SimpleNamespace(head=str(self.prepared / "head"), base=str(self.prepared / "base"),
+                               base_unavailable=False, base_commit=BASE,
+                               reference=str(parallel.ROOT / parallel.REFERENCE), output=str(self.root / "serial-memory.json"))
+        with self.memory_fixture() as plan, contextlib.redirect_stdout(io.StringIO()) as notices:
+            def measured(binary, root, revision, profile):
+                return [memory.summarize_samples(c, self.memory_samples(binary, root, c, revision, profile))
+                        for c in plan["memory"]["cases"]]
+            with patch.object(memory, "measure", side_effect=measured) as measure:
+                self.assertEqual(user.compare(args, self.live_result, memory_simulation={}), 1)
+                measure.assert_not_called()
+                self.assertIn("both base and head", parallel.read(args.output)["error"])
+                self.assertEqual(user.compare(args, self.live_result), 0)
+                self.assertEqual(measure.call_count, 2)
+            self.assertIn("measuring the full memory suite serially", notices.getvalue())
+
+    def test_memory_aggregate_rejects_unsupported_shard_status_option(self):
+        argv = ["accuracy_parallel.py", "memory-aggregate", "--prepared", "unused", "--run-id", "123",
+                "--attempt", "1", "--results", "unused", "--output", "unused", "--shard-status", "failure"]
+        with patch("sys.argv", argv), contextlib.redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaises(SystemExit) as failure:
+                parallel.main()
+        self.assertEqual(failure.exception.code, 2)
+        self.assertIn("unrecognized arguments: --shard-status failure", errors.getvalue())
 
     def test_upstream_failure_cannot_reuse_old_success_and_failure_bundle_is_valid(self):
         output = self.root / "failed/report.json"

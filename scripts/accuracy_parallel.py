@@ -384,12 +384,13 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
                                base_unavailable=False, base_commit=plan["base_commit"],
                                reference=str(ROOT / REFERENCE),
                                output=str(output))
+        memory_simulation = None
         if "memory" in plan:
             if any(selected[i].get("memory_records") != [] for i in range(len(plan["memory"]["shards"]), len(selected))):
                 raise ValueError("unexpected memory records in unassigned shard")
             memory_reports = [selected[i] for i in range(len(plan["memory"]["shards"]))]
-            args.memory_simulation = recorded_memory(plan, memory_reports, attempt)
-        status = user.compare(args, executor)
+            memory_simulation = recorded_memory(plan, memory_reports, attempt)
+        status = user.compare(args, executor, memory_simulation=memory_simulation)
         if status:
             # The shared comparator already wrote its detailed failure report.
             return status
@@ -423,6 +424,7 @@ def main():
             p.add_argument("--index", type=int, required=True)
         if name in ("aggregate", "memory-aggregate"):
             p.add_argument("--results", required=True)
+        if name == "aggregate":
             p.add_argument("--shard-status", default="success")
     args = parser.parse_args()
     if args.command == "prepare":

@@ -26,7 +26,8 @@ def benchmark_summary(report):
                              performance=report.get("schema") == 4)
 
 
-def compare(args, executor):
+def compare(args, executor, *, memory_simulation=None):
+    """Optional memory_simulation consumes validated rows; None requests serial measurement."""
     import usertime as user
     output = Path(args.output)
     report = dict(schema=4, artifact_status="fail", accuracy_status="unverified", formula=user.FORMULA, cases=[])
@@ -101,11 +102,14 @@ def compare(args, executor):
                 for label, binary, revision in (("head", args.head, state["commit"]),
                                                 ("base", args.base, args.base_commit))
             }
+        if memory_simulation is not None and not memory.declared(state["files"]):
+            raise ValueError("recorded memory rows supplied without a declared suite")
         if memory.declared(state["files"]):
             native_memory = memory.load_reference(user.ROOT)
-            if hasattr(args, "memory_simulation"):
-                report["memory_simulation"] = args.memory_simulation
+            if memory_simulation is not None:
+                report["memory_simulation"] = memory_simulation
             else:
+                print("accuracy memory: measuring the full memory suite serially for both revisions; use accuracy_parallel.py for sharded execution", flush=True)
                 report["memory_simulation"] = {
                     label: memory.measure(binary, user.ROOT, revision, profiles[label])
                     for label, binary, revision in (("head", args.head, state["commit"]),

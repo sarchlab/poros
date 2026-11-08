@@ -418,9 +418,10 @@ def compare_legacy(args, executor=None):
     return 0 if report["artifact_status"] == "pass" else 1
 
 
-def compare(args, executor=None):
+def compare(args, executor=None, *, memory_simulation=None):
+    """Compare applications and consume explicit memory rows, or measure them serially."""
     from performance_compare import compare as compare_performance
-    return compare_performance(args, executor or execute)
+    return compare_performance(args, executor or execute, memory_simulation=memory_simulation)
 
 
 def main():

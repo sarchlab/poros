@@ -25,7 +25,10 @@ complete pass visits every node exactly once across the chains. Total residency
 stays constant across chain counts. An extra 17 steps per chain makes the final
 output depend on the permutation rather than always returning the cycle's start.
 The independent Python oracle checks normalized final offsets and the expected
-instruction difference. The seed and relative layout match between platforms;
+instruction difference. Chase outputs do not depend on the number of complete
+passes; the exact simulated instruction difference verifies that count, and the
+ELF/Mach-O function-byte audit carries the same loop-count behavior to native.
+The seed and relative layout match between platforms;
 actual pointer values and executable addresses need not match.
 
 Read and Write use the whole buffer. Copy uses its first half as source and
