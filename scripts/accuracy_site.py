@@ -760,6 +760,81 @@ POINT_TIPS = """<div id="point-tip" role="tooltip" hidden></div><script>
 </script>"""
 
 
+LIVE_REFRESH = """<script>
+(() => {
+  const root = document.getElementById('accuracy-report');
+  const identity = root.dataset.reportIdentity;
+  root.style.overflowAnchor = 'none'; // Scroll anchoring is restored explicitly below.
+  // Semantic keys survive newly inserted charts and changing table row order.
+  function key(node) {
+    if (node === root) return 'report';
+    if (node.id) return 'id:' + node.id;
+    const tag = node.localName;
+    if (tag === 'figure') return 'figure:' + node.querySelector('figcaption').textContent;
+    if (tag === 'details') return 'details:' + node.querySelector('summary').textContent.split('·')[0].trim();
+    if (/^h[123]$/.test(tag)) return tag + ':' + node.textContent;
+    const parent = node.parentElement;
+    if (!parent || !root.contains(parent)) return null;
+    const prefix = key(parent);
+    if (tag === 'tr' && node.querySelector('td')) return prefix + '/row:' + node.querySelector('td').textContent;
+    if (node.dataset.pointKey) return prefix + '/point:' + node.dataset.pointKey;
+    if (tag === 'a') return prefix + '/link:' + node.getAttribute('href');
+    return prefix + '/' + tag + ':' + [...parent.children].filter(n => n.localName === tag).indexOf(node);
+  }
+  function apply(next) {
+    const oldNodes = [...root.querySelectorAll('*')];
+    const states = oldNodes.filter(n => n.localName === 'details' || n.scrollLeft || n.scrollTop)
+      .map(n => ({key:key(n), open:n.localName === 'details' ? n.open : null, x:n.scrollLeft, y:n.scrollTop}));
+    const focused = root.contains(document.activeElement) ? key(document.activeElement) : null;
+    const anchors = [...root.querySelectorAll('figure,figcaption,details,summary,tr,h2,h3,pre')]
+      .map(n => ({key:key(n), box:n.getBoundingClientRect()}))
+      .filter(a => a.box.height && a.box.bottom > 0 && a.box.top < innerHeight)
+      .sort((a,b) => Math.abs(a.box.top)-Math.abs(b.box.top));
+    const x = scrollX, y = scrollY;
+    document.getElementById('point-tip').hidden = true;
+    root.replaceChildren(...next.childNodes);
+    root.dataset.liveState = next.dataset.liveState;
+    const nodes = new Map([...root.querySelectorAll('*')].map(n => [key(n), n]));
+    for (const saved of states) {
+      const node = nodes.get(saved.key);
+      if (!node) continue;
+      if (saved.open !== null) node.open = saved.open;
+      node.scrollLeft = saved.x; node.scrollTop = saved.y;
+    }
+    const focus = nodes.get(focused);
+    if (focus) focus.focus({preventScroll:true});
+    const anchor = anchors.find(a => nodes.has(a.key));
+    const delta = anchor ? nodes.get(anchor.key).getBoundingClientRect().top - anchor.box.top : 0;
+    window.scrollTo(x, y + delta);
+  }
+  async function refresh() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(location.href, {cache:'no-store', signal:controller.signal});
+      if (!response.ok) throw new Error('Report unavailable');
+      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const next = doc.getElementById('accuracy-report');
+      if (!next || next.dataset.reportIdentity !== identity ||
+          !['polling','validated'].includes(next.dataset.liveState) ||
+          !next.querySelector('#case-progress') || !next.querySelector('header') ||
+          next.lastElementChild?.dataset.reportEnd !== identity) {
+        throw new Error('Invalid or different report');
+      }
+      apply(next);
+    } catch (_) {
+      // Keep the last good view on transient HTTP, network or snapshot errors.
+    } finally {
+      clearTimeout(timeout);
+      // Schedule only after this request finishes; never overlap requests.
+      if (root.dataset.liveState !== 'validated') setTimeout(refresh, 15000);
+    }
+  }
+  setTimeout(refresh, 15000);
+})();
+</script>"""
+
+
 def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=None,
           ideal=False, note="", y_bands=(), y_ranges=(), x_domain=None, step_start=None):
     """Plot the data domain; guide lines never contribute observations."""
@@ -814,7 +889,15 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
             marks.setdefault((x, y), []).append((color, name + ": " + label))
     for (x, y), entries in marks.items():
         tip = esc(chr(10).join(label for _, label in entries))
-        body += (f'<circle cx="{px(x):.3f}" cy="{py(y):.3f}" r="3.2" fill="{entries[-1][0]}" '
+        keys = []
+        for _, label in entries:
+            role, _, observation = label.partition(': ')
+            observation = re.sub(r'^rank [0-9]+ · ', '', observation)
+            case = re.split(r'[:\n]| · ', observation, maxsplit=1)[0]
+            ranked = title.startswith('S-curve:') or title == 'Absolute error distribution (CDF)'
+            keys.append([role, case] if ranked else [role, case, x])
+        point_key = esc(json.dumps(keys))
+        body += (f'<circle data-point-key="{point_key}" cx="{px(x):.3f}" cy="{py(y):.3f}" r="3.2" fill="{entries[-1][0]}" '
                  f'stroke="transparent" stroke-width="4" tabindex="0" aria-label="{tip}" data-tip="{tip}"/>')
     body += f'<text x="235" y="279" text-anchor="middle">{esc(xlabel)}</text><text x="6" y="12">{esc(ylabel)}</text>'
     legend = " · ".join(f'<span style="color:{color}">{esc(name)}</span>' for name, _, color in series)
@@ -1522,21 +1605,13 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     )
     if live is not None:
         body += '<p><a href="snapshot.json">Live snapshot JSON</a></p>'
-    refresh = ""
-    if live is not None:
-        # Consume the state only on the next automatic reload. A fresh visit
-        # defaults to closed; the final bundle transition restores it too.
-        refresh = """<script>(()=>{
-const key="poros-report-open:"+location.pathname;
-try{const saved=sessionStorage.getItem(key);sessionStorage.removeItem(key);
-for(const id of JSON.parse(saved||"[]")){const node=document.getElementById(id);if(node&&node.tagName==="DETAILS")node.open=true;}}catch(e){}
-"""
-        if not live.get("validated_bundle"):
-            refresh += """setTimeout(()=>{
-try{sessionStorage.setItem(key,JSON.stringify([...document.querySelectorAll("details[id][open]")].map(node=>node.id)));}catch(e){}
-location.reload();},15000);
-"""
-        refresh += "})();</script>"
+    identity = hashlib.sha256(json.dumps(dict(commit=commit, **{name: report.get(name) for name in (
+        'base_commit', 'reference_sha256', 'workload_manifest', 'model_profiles',
+        'head_binary_sha256', 'base_binary_sha256')}), sort_keys=True).encode()).hexdigest()
+    state = 'static' if live is None else 'validated' if live.get('validated_bundle') else 'polling'
+    body = (f'<div id="accuracy-report" data-report-identity="{identity}" data-live-state="{state}">'
+            + body + f'<span hidden data-report-end="{identity}"></span></div>')
+    refresh = LIVE_REFRESH if state == 'polling' else ''
     return page("Poros accuracy · " + commit[:12], body, POINT_TIPS + refresh)
 
 
