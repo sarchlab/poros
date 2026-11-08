@@ -1,6 +1,7 @@
 package elfsim
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,20 +29,74 @@ func DefaultTimingProfile(freq timing.Freq) TimingProfile {
 	return TimingProfile{Configuration: c, CacheConfig: m}
 }
 func ReadTimingProfile(r io.Reader) (*TimingProfile, error) {
-	var p TimingProfile
+	var raw json.RawMessage
 	d := json.NewDecoder(r)
-	d.DisallowUnknownFields()
-	if err := d.Decode(&p); err != nil {
+	if err := d.Decode(&raw); err != nil {
 		return nil, fmt.Errorf("timing profile: %w", err)
 	}
 	var extra any
 	if err := d.Decode(&extra); err != io.EOF {
 		return nil, fmt.Errorf("timing profile must contain exactly one JSON object")
 	}
+	// Derive required keys from the canonical public representation rather than
+	// maintaining a second list of CPU/cache fields. Presence is distinct from
+	// value validation: omitted booleans and optional-resource zeros are not a
+	// complete profile, even when their Go zero values would pass Validate.
+	canonical, err := json.Marshal(DefaultTimingProfile(timing.GHz))
+	if err != nil {
+		return nil, fmt.Errorf("canonical timing profile: %w", err)
+	}
+	if err := requireProfileShape(raw, canonical, "profile"); err != nil {
+		return nil, err
+	}
+	var p TimingProfile
+	d = json.NewDecoder(bytes.NewReader(raw))
+	d.DisallowUnknownFields()
+	if err := d.Decode(&p); err != nil {
+		return nil, fmt.Errorf("timing profile: %w", err)
+	}
 	if err := p.Validate(); err != nil {
 		return nil, err
 	}
 	return &p, nil
+}
+
+// requireProfileShape checks complete canonical object keys and non-null values.
+// Typed decoding below still owns scalar types and Validate owns numeric bounds.
+func requireProfileShape(raw, canonical json.RawMessage, path string) error {
+	raw = bytes.TrimSpace(raw)
+	if bytes.Equal(raw, []byte("null")) {
+		if path == "profile.configuration.func_hook_cycles" {
+			return nil
+		}
+		return fmt.Errorf("timing profile: %s must not be null", path)
+	}
+	canonical = bytes.TrimSpace(canonical)
+	if len(canonical) == 0 || canonical[0] != '{' {
+		return nil
+	}
+	var actual, expected map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &actual); err != nil {
+		return fmt.Errorf("timing profile: %s must be an object: %w", path, err)
+	}
+	if err := json.Unmarshal(canonical, &expected); err != nil {
+		return err
+	}
+	for key, shape := range expected {
+		value, ok := actual[key]
+		if !ok {
+			return fmt.Errorf("timing profile: missing %s.%s", path, key)
+		}
+		if err := requireProfileShape(value, shape, path+"."+key); err != nil {
+			return err
+		}
+	}
+	for key := range actual {
+		if _, ok := expected[key]; !ok {
+			return fmt.Errorf("timing profile: unknown field %s.%s", path, key)
+		}
+	}
+	return nil
 }
 func (p TimingProfile) Validate() error {
 	c := p.Configuration

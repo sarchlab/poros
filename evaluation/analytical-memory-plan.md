@@ -145,14 +145,17 @@ mechanism explicitly rather than expanding into another simulator rewrite.
 
 `poros elf --mode ooo --timing-profile candidate.json program.elf ...` accepts a
 complete `configuration`/`cache_config` object matching `model-profile.json`.
-Unknown fields, trailing JSON, invalid geometry/resource bounds, unsupported
+Omitted canonical keys, null scalar/object values (except canonical
+`func_hook_cycles:null`), unknown fields, trailing JSON, invalid geometry/resource bounds, unsupported
 functional hooks, and mismatched requested/profile frequency are rejected. A
 profile is supported only for single-core OoO; it is never silently ignored for
 functional, in-order, or multicore execution. Effective values are emitted in
 each result. `configuration.num_stores = 0` disables the extra store resource and
 is the baseline/control setting; the provisional ELF OoO profile uses two.
-Candidate profiles and measurement records live
-outside the source tree until numeric selection is justified by the memory suite.
+Alternative candidate profiles and raw measurement records remain outside the
+source tree. The provisional default is checked in as `model-profile.json` and
+implemented by `elfsim.DefaultTimingProfile`; full-suite validation still gates
+its final adoption.
 
 ### Calibration blocker reproduced and fixed
 

@@ -157,3 +157,66 @@ func TestELFCalibrationScope(t *testing.T) {
 		}
 	}
 }
+
+func TestTimingProfileRequiresCompleteNonNullShape(t *testing.T) {
+	canonical, err := json.Marshal(DefaultTimingProfile(timing.GHz))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Enumerate every key in the four canonical objects, including fields whose
+	// legal zero values cannot distinguish omission after ordinary Go decoding.
+	for _, path := range [][]string{{}, {"configuration"}, {"cache_config"}, {"configuration", "predictor"}} {
+		var source map[string]any
+		if err := json.Unmarshal(canonical, &source); err != nil {
+			t.Fatal(err)
+		}
+		object := source
+		for _, key := range path {
+			object = object[key].(map[string]any)
+		}
+		for key := range object {
+			field := strings.Join(append(append([]string{}, path...), key), ".")
+			for _, mutation := range []string{"omitted", "null"} {
+				if field == "configuration.func_hook_cycles" && mutation == "null" {
+					continue
+				}
+				t.Run(field+"/"+mutation, func(t *testing.T) {
+					var changed map[string]any
+					if err := json.Unmarshal(canonical, &changed); err != nil {
+						t.Fatal(err)
+					}
+					parent := changed
+					for _, part := range path {
+						parent = parent[part].(map[string]any)
+					}
+					if mutation == "omitted" {
+						delete(parent, key)
+					} else {
+						parent[key] = nil
+					}
+					data, err := json.Marshal(changed)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := ReadTimingProfile(strings.NewReader(string(data))); err == nil || !strings.Contains(err.Error(), field) {
+						t.Fatalf("%s field accepted or incorrect diagnostic: %v", mutation, err)
+					}
+				})
+			}
+		}
+	}
+	// Zero is allowed when explicitly supplied; null is allowed only for hooks.
+	zero := DefaultTimingProfile(timing.GHz)
+	zero.Configuration.NumStores = 0
+	zero.Configuration.BranchPrediction = false
+	zero.Configuration.BranchPenalty = 0
+	zero.Configuration.FuncHookCycles = nil
+	data, err := json.Marshal(zero)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadTimingProfile(strings.NewReader(string(data)))
+	if err != nil || !reflect.DeepEqual(got, &zero) {
+		t.Fatalf("explicit zero/null-hook profile rejected: %+v %v", got, err)
+	}
+}
