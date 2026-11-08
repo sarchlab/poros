@@ -9,6 +9,8 @@ import math
 from pathlib import Path
 import tempfile
 import struct
+import shutil
+import subprocess
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -323,6 +325,70 @@ class ParallelAccuracyTests(unittest.TestCase):
                 self.assertEqual(user.compare(args, self.live_result), 0)
                 self.assertEqual(measure.call_count, 2)
             self.assertIn("measuring the full memory suite serially", notices.getvalue())
+
+    def test_memory_only_roundtrip_with_real_source_metadata(self):
+        # Only simulator execution is synthetic. Git commits, source hashes,
+        # reference, model declarations and the complete 140-point transport are real.
+        source = self.root / "memory-source"
+        shutil.copytree(self.fixture.source, source)
+        for name in [*memory.INPUTS, memory.REFERENCE, models.PATH,
+                     "pkg/loader/elf.go", "pkg/linuxuser/run.go", "cmd/poros/elf.go"]:
+            target = source / name; target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(memory.ROOT / name, target)
+        def git(*args):
+            return subprocess.check_output(['git', '-C', str(source), *args], stderr=subprocess.DEVNULL, text=True).strip()
+        git('init'); git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.org')
+        cli = source / 'cmd/poros/elf.go'
+        current_cli = cli.read_bytes()
+        cli.write_bytes(subprocess.check_output(['git', '-C', str(memory.ROOT), 'show', BASE + ':cmd/poros/elf.go']))
+        git('add', '.'); git('commit', '-m', 'fixture base without extended image option')
+        base = git('rev-parse', 'HEAD')
+        cli.write_bytes(current_cli)
+        git('add', '.'); git('commit', '-m', 'fixture head with extended image option')
+        real_source_state = self.state_patch.temp_original
+        original_capability, original_cohort = parallel.compute.base_capability, parallel.compute.base_declares_cohort
+        with patch.object(parallel, 'ROOT', source), patch.object(user, 'ROOT', source), \
+             patch.object(user, 'source_state', side_effect=real_source_state), \
+             patch.object(parallel.compute, 'base_capability', side_effect=lambda rev: original_capability(rev, source)), \
+             patch.object(parallel.compute, 'base_declares_cohort', side_effect=lambda rev: original_cohort(rev, source)), \
+             contextlib.redirect_stdout(io.StringIO()):
+            state = user.source_state()
+            self.assertFalse(state['dirty'])
+            plan = copy.deepcopy(self.plan)
+            plan.update(head=state, base_commit=base, base_capability=original_capability(base, source),
+                        model_profiles=models.resolve(source, state, base),
+                        memory=parallel.memory_plan(state, len(plan['shards']), base))
+            parallel.write(self.prepared / 'plan.json', plan)
+            def simulate(binary, root, case, revision, profile):
+                samples = self.memory_samples(binary, root, case, revision, profile)
+                for sample in samples: sample['binary_sha256'] = state['files'][memory.case_elf(case)]
+                return samples
+            results = self.root / 'memory-only-shards'
+            with patch.object(memory, 'measure_case', side_effect=simulate):
+                for index in range(len(plan['memory']['shards'])):
+                    self.assertEqual(parallel.run_memory_shard(self.prepared, '123', 1, index,
+                                     results / str(index) / 'memory-shard.json'), 0)
+            output = self.root / 'memory-only.json'
+            with patch.object(memory, 'measure_case', side_effect=AssertionError('aggregate reran simulation')):
+                self.assertEqual(parallel.aggregate_memory(self.prepared, results, '123', 1, output), 0)
+            preview = self.root / 'memory-only-preview'
+            site.memory_preview(output, source, preview)
+            rendered = (preview / 'index.html').read_text()
+            self.assertIn('140 diagnostic points', rendered)
+            self.assertIn('application accuracy was not rerun', rendered)
+            self.assertEqual(parallel.read(preview / 'memory-report.json'), parallel.read(output))
+            # A syntactically valid unsupported-capability report cannot disagree
+            # with the supplied Git source (this base has no extended image flag).
+            altered = parallel.read(output); altered['memory_base_large_image_support'] = True
+            altered['memory_simulation']['base'] = copy.deepcopy(altered['memory_simulation']['head'])
+            memory.validate_comparison(altered['memory_simulation'], plan['memory']['cases'], True)
+            parallel.write(output, altered)
+            with self.assertRaisesRegex(ValueError, 'base capability differs from source'):
+                site.memory_preview(output, source, self.root / 'bad-preview')
+            shard = results / '0/memory-shard.json'
+            shard.rename(shard.with_name('wrong-name.json'))
+            with self.assertRaisesRegex(ValueError, 'missing required memory shards'):
+                parallel.aggregate_memory(self.prepared, results, '123', 1, output)
 
     def test_memory_aggregate_rejects_unsupported_shard_status_option(self):
         argv = ["accuracy_parallel.py", "memory-aggregate", "--prepared", "unused", "--run-id", "123",

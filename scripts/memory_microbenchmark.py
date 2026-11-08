@@ -249,12 +249,22 @@ def smoke(binary, root=ROOT, qemu=None):
             timed = execute(binary, root, case, passes)
             require(actual['instructions'] == timed['instructions'] and actual['stdout_base64'] == timed['stdout_base64'], 'memory functional/timing mismatch')
             if qemu is not None:
-                p = subprocess.run([str(qemu), str(Path(root) / ELF), *arguments(case, passes)], capture_output=True, timeout=30)
+                p = subprocess.run([str(qemu), str(Path(root) / case_elf(case)), *arguments(case, passes)], capture_output=True, timeout=30)
                 require(p.returncode == 0 and not p.stderr and p.stdout == base64.b64decode(actual['stdout_base64']), 'memory QEMU differential failed')
             samples.append(timed)
         trial_case = dict(case, passes=1)
         summarize_samples(trial_case, samples)
         print(case['id'], 'functional/timing/checksum/instruction delta' + ('/QEMU' if qemu else ''), 'pass', flush=True)
+
+
+    # Exercise the real large image/capacity path with only an 8 KiB workload.
+    # This is functional CI coverage, not an expensive 256 MiB timing run.
+    large = dict(declared[0], elf=LARGE_ELF, max_image_bytes=512 * 1024 * 1024)
+    actual = execute(binary, root, large, 1, 'functional')
+    if qemu is not None:
+        p = subprocess.run([str(qemu), str(Path(root) / case_elf(large)), *arguments(large, 1)], capture_output=True, timeout=30)
+        require(p.returncode == 0 and not p.stderr and p.stdout == base64.b64decode(actual['stdout_base64']), 'large memory QEMU differential failed')
+    print('memory-large.elf 8 KiB functional/checksum/512 MiB image budget' + ('/QEMU' if qemu else ''), 'pass', flush=True)
 
 
 def percentile(values, q):

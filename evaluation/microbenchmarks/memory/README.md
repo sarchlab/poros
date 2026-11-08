@@ -51,7 +51,7 @@ its buffer and permutation workspace are BSS. `memory.elf` reserves 128 MiB
 plus a 4 MiB permutation; only the five 256 MiB cases use `memory-large.elf`,
 which reserves 256 MiB plus an 8 MiB permutation. Both share exact probe bytes. One native binary reserves 256 MiB and measures
 only each case's declared footprint.
-`memory-large.elf` explicitly requests a 512 MiB image budget; the default loader budget
+The harness passes `--max-image-bytes=536870912` when executing `memory-large.elf`; the default loader budget
 remains 256 MiB. Older base revisions without this option are marked unsupported
 for those five points, with no substituted or patched base binary.
 
@@ -108,7 +108,9 @@ python3 scripts/memory_microbenchmark.py smoke --poros /tmp/poros --qemu /usr/bi
 ```
 
 This checks all eight patterns at 8 and 32 KiB and the five 96 KiB chase cases in functional and timing modes,
-with the same ELF independently executed by QEMU. Native collection on a quiet
+with the same ELF independently executed by QEMU. A further functional-only
+8 KiB workload uses the real large ELF and explicit 512 MiB image budget,
+including a QEMU cross-check; CI does not time the full 256 MiB footprint. Native collection on a quiet
 Apple M2 host is explicit:
 
 ```
@@ -121,7 +123,9 @@ with the exact prepared base/head binaries. Each point is assigned once;
 aggregation validates the raw pairs and consumes their compact results without
 running the large memory probes again. The workflow's trigger policy is unchanged.
 For a diagnostic-only local campaign, the same prepared plan supports
-`accuracy_parallel.py memory-shard` and `memory-aggregate`; these commands never
+`accuracy_parallel.py memory-shard` and `memory-aggregate`. Each memory-only
+shard must use the filename `memory-shard.json` (in its own shard directory);
+`memory-aggregate --results` discovers that exact basename recursively. These commands never
 claim that application accuracy was rerun.
 
 The shared report renderer shows logarithmically spaced working-set curves,

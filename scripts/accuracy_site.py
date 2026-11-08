@@ -1176,6 +1176,8 @@ def memory_preview(report_path, source, output):
     reference = memory.load_reference(source)
     memory.validate_reference(reference, report['head']['files'])
     profiles = model_profiles.verify_source(source, report)
+    if report.get("memory_base_large_image_support") is not memory.supports_large_images(source, report["base_commit"]):
+        raise ValueError("memory-only base capability differs from source")
     graphs, table = memory_panels(reference, report['memory_simulation'], profiles, report.get('memory_base_large_image_support'))
     output.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(reference_path, output / 'memory.json')
