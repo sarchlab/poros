@@ -18,6 +18,69 @@ Revisions before this declaration use their recorded
 frozen-profile validation. The native input manifests and both native reference
 files are unchanged by the frontend/dependency correction.
 
+## Response-driven memory backend
+
+The default single-core OoO model uses `ooo.AsyncComp`, Akita write-back L1/L2,
+and `simplebankedmemory`. `poros elf --mode ooo --memory-backend analytical`
+retains the prior model. In-order and independent-copy multicore execution remain
+analytical and identify that backend in their results. An explicit Akita request
+to the multicore API is rejected, rather than silently falling back.
+
+Functional instruction execution remains in program order to determine the correct
+instruction stream, addresses and values. Timing dispatch snapshots producer tags
+before destination renaming. Unknown load completions remain unresolved until a
+real memory response; independent instructions can issue meanwhile. Timing-only
+cache payloads never overwrite architectural registers or memory. Address knowledge
+from functional execution does not permit a younger load to bypass an older
+store whose address-generation dependencies/unit are still unresolved.
+
+Stores generate addresses through LDST units, wait separately for data and the
+scalar-store issue limit, retire in order, then drain in the background. Consecutive
+retired writes to one L1 line may coalesce with byte enables. Each contributing
+instruction retains its buffer entry until the combined response returns. Forwarding
+still uses the youngest overlapping original store; partial or mixed pair coverage
+waits conservatively for the store to drain. SVC, barriers and process exit drain
+CPU memory operations; they do not flush all dirty cache lines to backing memory.
+Cancellation stops new work while consuming already-sent responses so a small
+response port cannot deadlock the hierarchy. A cancelled run is not a valid
+accuracy sample.
+
+The cache domain uses four internal ticks per CPU cycle at the M2 profile. This
+is an abstract timing resolution, **not a measured M2 cache frequency**. Akita v5.0.0
+advances the directory stage `NumReqPerCycle` times per component tick; this profile
+sets it to one and expresses throughput through the internal timebase and queues.
+Effective latencies must be measured end to end, not inferred from one pipeline
+parameter. The simplified backing service has its own declared frequency and
+pipeline depth, separating approximately 100 ns service latency from its nominal
+64 GB/s line-service limit. This one-bank abstraction is not a claim about physical
+M2 DRAM bank count or topology. Native calibration and full application acceptance
+remain separate checks. Parameter calibration/full-suite comparison is pending.
+
+At other requested CPU frequencies the default domains scale proportionally,
+except that internal ticks are capped at the engine's one-picosecond resolution.
+Akita truncates periods to integer picoseconds. Results retain the established
+`CPU cycles / assumed CPU Hz` convention; all domain frequencies are in the profile.
+
+`--timing-profile FILE.json` accepts a complete alternative declaration for bounded
+calibration. Its CPU frequency must match `--frequency-hz`. The runner validates
+geometry, capacity, routing, clock and pipeline bounds before building components;
+unknown JSON fields are rejected. Every result reports the effective configuration.
+Cache hit/miss counters from the old analytical cache are unavailable in the new
+path (`cache_metrics_available: false`); zero placeholders must not be interpreted
+as no misses. `memory_requests` reports actual CPU reads, coalesced writes,
+responses, outstanding traffic and forwarding instead.
+
+No detailed DRAM commands, timed prefetcher, address translation/TLB, coherence,
+or calibrated M2 system-level cache are added here. Both cache replacement and
+virtual-address indexing still need independent validation. The measured Mach-O
+references are unchanged, microbenchmarks remain separate from application
+accuracy, and `hardware accuracy unverified` remains the appropriate status.
+
+## Analytical backend history
+
+The descriptions below document the retained analytical backend and the previous
+frontend/forwarding fixes. They are not the response-driven memory protocol above.
+
 The default frontend admission limit is eight instructions per cycle. This is a
 modeling choice supported by the native NOP and mixed-resource throughput probes;
 it does not assert an eight-wide backend issue limit. NOP still uses frontend,
@@ -33,7 +96,7 @@ includes the in-order ELF workload cases.
 
 ## Store-to-load timing hypothesis
 
-The default OoO model has a one-cycle effective forwarding path for scalar
+The analytical OoO model has a one-cycle effective forwarding path for scalar
 32/64-bit GPR `LDR`/`STR` with immediate-offset addressing and no writeback on
 both producer and consumer. Its single access must exactly match the youngest
 overlapping, still-in-flight eligible store in address and width. The load

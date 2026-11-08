@@ -27,6 +27,9 @@ type MultiCoreResult struct {
 // exit (including instruction limits, deadlines, cancellation or execution faults).
 // Callers must inspect the error as well as any returned per-core results and counters.
 func RunMultiCore(ctx context.Context, processes []*linuxuser.Process, o Options) (result MultiCoreResult, err error) {
+	if (o.MemoryBackend != "" && o.MemoryBackend != "analytical") || o.TimingProfile != nil {
+		return result, fmt.Errorf("multicore supports analytical memory only")
+	}
 	if o.Model == "" {
 		o.Model = "ooo"
 	}
@@ -76,7 +79,7 @@ func RunMultiCore(ctx context.Context, processes []*linuxuser.Process, o Options
 	result.TotalInstructions = mc.TotalInstructions
 	for i, core := range mc.Cores {
 		r := executions[i].Result()
-		stats := Statistics{Model: "ooo", AssumedHz: o.FrequencyHz, Cycles: core.State.Cycles, Retired: core.State.InstDone, CPI: core.State.CPI(), PredictedUserSeconds: float64(core.State.Cycles) / o.FrequencyHz, Cache: core.Resources.Cache.Stats(), CacheConfig: core.Resources.Cache.Config(), Configuration: core.Spec, BranchMetricsAvailable: true, BranchPredictions: core.State.Predictor.Predictions, BranchDirectionHits: core.State.Predictor.Hits, Policy: result.Policy}
+		stats := Statistics{Model: "ooo", MemoryBackend: "analytical", CacheMetricsAvailable: true, AssumedHz: o.FrequencyHz, Cycles: core.State.Cycles, Retired: core.State.InstDone, CPI: core.State.CPI(), PredictedUserSeconds: float64(core.State.Cycles) / o.FrequencyHz, Cache: core.Resources.Cache.Stats(), CacheConfig: core.Resources.Cache.Config(), Configuration: core.Spec, BranchMetricsAvailable: true, BranchPredictions: core.State.Predictor.Predictions, BranchDirectionHits: core.State.Predictor.Hits, Policy: result.Policy}
 		result.Cores = append(result.Cores, Result{Result: r, Timing: stats})
 		if !executions[i].Stopped() || stats.Retired != r.Instructions {
 			return result, fmt.Errorf("core%d did not drain to architectural boundary: %s", i, core.State.Err)

@@ -129,7 +129,7 @@ func TestExitBoundaryCycles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r, err := Run(context.Background(), p, Options{Model: model})
+		r, err := Run(context.Background(), p, Options{Model: model, MemoryBackend: "analytical"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -269,7 +269,7 @@ func TestTimingFrequencyContract(t *testing.T) {
 		if want == 0 {
 			want = 3.49e9
 		}
-		if r.Timing.AssumedHz != want || float64(r.Timing.Configuration.(ooo.Spec).Freq) != want || r.Timing.PredictedUserSeconds != float64(r.Timing.Cycles)/want {
+		if r.Timing.AssumedHz != want || float64(r.Timing.Configuration.(ooo.AsyncSpec).Freq) != want || r.Timing.PredictedUserSeconds != float64(r.Timing.Cycles)/want {
 			t.Fatalf("frequency metadata disagrees with actual configuration: %+v", r.Timing)
 		}
 	}

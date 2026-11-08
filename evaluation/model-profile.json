@@ -1,27 +1,86 @@
 {
   "cache_config": {
-    "DRAMLatency": 335,
-    "L1Latency": 5,
-    "L1LineSize": 64,
-    "L1Size": 131072,
-    "L1Ways": 8,
-    "L2Latency": 14,
-    "L2LineSize": 128,
-    "L2Size": 16777216,
-    "L2Ways": 16
+    "backend": "akita",
+    "l1": {
+      "bank_latency": 0,
+      "bank_width": 4,
+      "bottom": {
+        "destinations": [
+          "L2.Top"
+        ],
+        "fallback": "",
+        "interleaving_size": 4096,
+        "range_high": 0,
+        "range_low": 0
+      },
+      "dir_latency": 5,
+      "directory_width": 4,
+      "freq": 13960000000,
+      "log2_block_size": 6,
+      "max_in_flight_evictions": 16,
+      "max_in_flight_fetches": 24,
+      "num_banks": 1,
+      "num_mshr_entries": 24,
+      "num_req_per_cycle": 1,
+      "num_sets": 256,
+      "num_ways": 8,
+      "write_buffer_capacity": 32
+    },
+    "l2": {
+      "bank_latency": 64,
+      "bank_width": 4,
+      "bottom": {
+        "destinations": [
+          "Memory.Top"
+        ],
+        "fallback": "",
+        "interleaving_size": 4096,
+        "range_high": 0,
+        "range_low": 0
+      },
+      "dir_latency": 1,
+      "directory_width": 4,
+      "freq": 13960000000,
+      "log2_block_size": 7,
+      "max_in_flight_evictions": 32,
+      "max_in_flight_fetches": 64,
+      "num_banks": 4,
+      "num_mshr_entries": 64,
+      "num_req_per_cycle": 1,
+      "num_sets": 8192,
+      "num_ways": 16,
+      "write_buffer_capacity": 64
+    },
+    "memory": {
+      "bank_address_conversion": {
+        "element_index": 0,
+        "interleaving_size": 0,
+        "kind": "",
+        "num_elements": 0,
+        "offset": 0
+      },
+      "bank_pipeline_depth": 1,
+      "bank_pipeline_width": 1,
+      "bank_selector_log2_interleave_size": 7,
+      "freq": 500000000,
+      "num_banks": 1,
+      "post_pipeline_buf_size": 4,
+      "stage_latency": 50
+    },
+    "port_capacity": 16
   },
   "configuration": {
+    "bottom": "L1.Top",
     "branch_penalty": 17,
     "branch_prediction": true,
     "fetch_width": 8,
     "fp_phys_limit": 72,
     "freq": 3490000000,
-    "func_hook_cycles": null,
-    "load_latency": 5,
+    "line_bytes": 64,
     "num_fp": 4,
     "num_int": 6,
     "num_ldst": 4,
-    "num_mshr_entries": 12,
+    "num_stores": 2,
     "predictor": {
       "bimodal_size": 4096,
       "btb_size": 2048,

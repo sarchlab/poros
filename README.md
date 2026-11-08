@@ -78,7 +78,9 @@ go test -v -run '^TestBenchmarkELF$/^atax$' ./pkg/elfsim -timeout 10m
 - Register readiness tracking (GPR + FP)
 - Physical register file pressure modeling (72 FP physical registers)
 - Address-based load-store disambiguation with 56-entry store buffer
-- 12 MSHRs for outstanding L1 misses
+- Response-driven load completion, producer tags, and independent ready-instruction issue
+- Separate store address/data readiness, ordered retirement, and buffered write coalescing
+- Cache MSHRs and writeback queues provide actual memory backpressure
 
 ### TAGE-like Branch Predictor
 
@@ -91,14 +93,16 @@ go test -v -run '^TestBenchmarkELF$/^atax$' ./pkg/elfsim -timeout 10m
 
 ### Cache Hierarchy
 
-- L1D: 128 KB, 8-way, 64B lines, 5-cycle latency
-- L2: 16 MB, 16-way, 128B lines, 14-cycle latency
-- DRAM: 335-cycle latency
-- LRU replacement policy
+- Single-core OoO uses Akita write-back L1D (128 KiB, 8-way, 64 B lines) and L2 (16 MiB, 16-way, 128 B lines)
+- Akita `simplebankedmemory` supplies finite service bandwidth and latency; no detailed DRAM command model
+- Effective hit/miss latency includes component pipelines, queues and port traffic
+- CPU and memory clock domains, queue sizes and latencies are declared in `evaluation/model-profile.json`
+- `poros elf --mode ooo --memory-backend analytical` selects the previous synchronous model for comparison
+- Prefetch, TLB/page walks and a calibrated M2 system-level cache are not modeled
 
 ### Multi-Core Support
 
-- `MultiCorePipeline` wraps N independent `ooo.Comp` instances
+- `MultiCorePipeline` retains the analytical memory backend and wraps N independent `ooo.Comp` instances
 - Per-core private L1 caches (128 KB each)
 - Shared L2 cache (16 MB, 16-way) across all cores
 - Configurable core count via `--cores` flag, running independent copies of the same ELF process
@@ -119,7 +123,7 @@ pkg/cpu/inorder/ — In-order Akita v5 ticking component
 pkg/cpu/ooo/     — OoO Akita v5 ticking component and branch predictor
 pkg/cpu/internal/inst/ — Shared instruction dependency and latency helpers
 pkg/emu/       — ARM64 functional emulator
-pkg/mem/       — Cache hierarchy (L1, shared L2, DRAM)
+pkg/mem/       — Analytical cache hierarchy; timed/ assembles Akita writeback caches and banked memory
 internal/benchmarks/ — ELF inventory, provenance and complete-output validation
 tests/benchmarks/ — Forty complete guest programs and six-point inputs
 pkg/loader/    — Mach-O extraction/disassembly and static AArch64 ELF image loading
@@ -134,9 +138,11 @@ cmd/disasm/    — ARM64 disassembler tool
 ## Akita v5 integration
 
 Poros pins **Akita v5.0.0** and requires **Go 1.27.0 or newer**. The migration
-preserves the M2 timing parameters, functional emulator, synchronous cache model,
-the existing pipeline semantics and stored native measurements. It does not introduce new CPU
-models, asynchronous memory, or CPU–GPU offload.
+preserves the functional emulator and stored native measurements. Single-core OoO
+execution now uses asynchronous Akita memory requests in the same simulation.
+The analytical backend remains an explicit comparison mode; in-order and the
+independent-copy multicore experiment retain their previous memory policy.
+No CPU–GPU offload or detailed DRAM command model is introduced.
 
 The in-order, OoO, and demo components each use the v5
 `Spec` / `State` / `Resources` / `Ports` / `Middlewares` model and declare
@@ -145,7 +151,9 @@ Configuration is supplied before
 Build, runtime pipeline and predictor data lives in State, and middlewares contain
 only component references and immutable configuration-derived lookups. The old
 `cpu.NewPipeline` / `cpu.NewOoOPipeline` constructors are replaced by the Akita
-model builder. For example:
+model builder. The following example explicitly constructs the analytical backend;
+normal single-core callers should use `elfsim.Run`, whose default is the
+response-driven `ooo.AsyncComp` with the assembled Akita hierarchy:
 
 ```go
 simulation := sim.MakeBuilder().Build()
@@ -189,7 +197,7 @@ the cycle-based comparison with stored native times.
 The component State is serializable, including in-flight fetched instruction
 encodings and branch-predictor tables. **Whole-system checkpoint/resume is not
 supported by this migration:** functional emulator registers/memory/hooks and the
-synchronous cache hierarchy remain external live Resources and are not saved by
+analytical cache hierarchy remain external live Resources and are not saved by
 component checkpoints. Restoring pipeline State alone cannot resume a workload.
 
 `go test ./... -timeout 45m` requires all six new input points in all three

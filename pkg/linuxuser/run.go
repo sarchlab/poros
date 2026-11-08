@@ -79,6 +79,24 @@ func (x *Execution) Result() Result                  { return x.result }
 func (x *Execution) CPURegisters() *emu.Registers    { return &x.process.Registers }
 func (x *Execution) Stopped() bool                   { return x.done }
 func (x *Execution) MemoryAccesses() []emu.MemAccess { return x.memory.accesses }
+
+// CancelIfRequested lets a timing driver observe cancellation while waiting
+// for a memory response, without fetching or executing another instruction.
+func (x *Execution) CancelIfRequested() bool {
+	if x.done {
+		return false
+	}
+	select {
+	case <-x.ctx.Done():
+		x.done = true
+		x.result.Termination = "time_limit"
+		x.result.Diagnostic = x.ctx.Err().Error()
+		x.result.PC = x.process.Registers.PC
+		return true
+	default:
+		return false
+	}
+}
 func (x *Execution) Peek(pc uint64) (arm64asm.Inst, error) {
 	var b [4]byte
 	if err := x.process.Memory.Fetch(pc, b[:]); err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -30,6 +31,8 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	fs.SetOutput(diagnostics)
 	imageLimit := fs.Uint64("max-image-bytes", loader.MaxELFImageBytes, "page-aligned ELF image budget, at most 512 MiB (default 256 MiB)")
 	mode := fs.String("mode", "functional", "functional, inorder or ooo")
+	memoryBackend := fs.String("memory-backend", "", "akita (OoO default) or analytical")
+	profilePath := fs.String("timing-profile", "", "optional JSON CPU/Akita-memory configuration for calibration")
 	hz := fs.Float64("frequency-hz", 3.49e9, "assumed integer CPU Hz (1 MHz to 1 THz), not measured")
 	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
 	timeout := fs.Duration("timeout", 2*time.Second, "host execution timeout")
@@ -76,11 +79,35 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	var result linuxuser.Result
 	var timingStats *elfsim.Statistics
 	limits := linuxuser.RunOptions{MaxInstructions: *steps, Timeout: *timeout, MaxOutput: *output}
+	var profile *elfsim.TimingProfile
+	if *profilePath != "" {
+		b, e := os.ReadFile(*profilePath)
+		if e != nil {
+			fmt.Fprintln(diagnostics, e)
+			return 2
+		}
+		profile = &elfsim.TimingProfile{}
+		decoder := json.NewDecoder(bytes.NewReader(b))
+		decoder.DisallowUnknownFields()
+		if e = decoder.Decode(profile); e != nil {
+			fmt.Fprintln(diagnostics, e)
+			return 2
+		}
+		var trailing any
+		if e = decoder.Decode(&trailing); e != io.EOF {
+			fmt.Fprintln(diagnostics, "timing profile must contain one JSON object")
+			return 2
+		}
+	}
+	if *mode == "functional" && (*memoryBackend != "" || profile != nil) {
+		fmt.Fprintln(diagnostics, "memory timing options require a timing mode")
+		return 2
+	}
 	if *mode == "functional" {
 		result, err = p.Run(context.Background(), limits)
 	} else {
 		var timed elfsim.Result
-		timed, err = elfsim.Run(context.Background(), p, elfsim.Options{Model: *mode, FrequencyHz: *hz, Limits: limits})
+		timed, err = elfsim.Run(context.Background(), p, elfsim.Options{Model: *mode, MemoryBackend: *memoryBackend, TimingProfile: profile, FrequencyHz: *hz, Limits: limits})
 		result = timed.Result
 		timingStats = &timed.Timing
 	}

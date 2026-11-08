@@ -2,6 +2,7 @@
 package ooo
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/sarchlab/akita/v5/sim/modeling/ticking"
@@ -54,6 +55,9 @@ type Resources struct {
 	Emu       *emu.Emulator
 	Execution emu.Execution
 	Cache     *mem.Cache
+	// Context cancels a response-driven run even when no instruction can
+	// execute. It has no influence on simulated cycles or timing decisions.
+	Context context.Context
 }
 type Ports struct{}
 type Middlewares struct{ Pipeline *middleware }
