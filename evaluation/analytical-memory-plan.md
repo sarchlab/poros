@@ -2,7 +2,8 @@
 
 ## Status and scope
 
-This is a plan, not an implemented model change. The starting revision is
+The candidate-profile interface and optional store-transfer resource are implemented;
+calibrated defaults and acceptance results are still pending. The starting revision is
 `a1954771adc8a13f84f689c11e2d3229fe67c682` on the memory-accuracy umbrella.
 The prior Akita cache replacement experiment is not part of this change. Keep
 Poros's existing lightweight CPU/cache path and its functional behavior. Reuse
@@ -13,7 +14,7 @@ separation, CI triggers, or the hardware-accuracy qualification.
 The first increment should test whether latency calibration and a small,
 independent store-throughput constraint improve the observed errors. It should
 not require a new CPU implementation, message-based cache hierarchy, or detailed
-DRAM controller. The changes below remain proposals until implemented and tested.
+DRAM controller. The default numeric timing remains the baseline while controlled candidates are measured.
 
 ## What the current code actually does
 
@@ -121,3 +122,15 @@ There is no predeclared promise that every workload improves or that hardware
 accuracy becomes verified. If a small parameter/resource change cannot explain
 large stream or parallelism errors, retain that finding and propose the next
 mechanism explicitly rather than expanding into another simulator rewrite.
+
+## Candidate interface
+
+`poros elf --mode ooo --timing-profile candidate.json program.elf ...` accepts a
+complete `configuration`/`cache_config` object matching `model-profile.json`.
+Unknown fields, trailing JSON, invalid geometry/resource bounds, unsupported
+functional hooks, and mismatched requested/profile frequency are rejected. A
+profile is supported only for single-core OoO; it is never silently ignored for
+functional, in-order, or multicore execution. Effective values are emitted in
+each result. `configuration.num_stores = 0` disables the extra store resource and
+is the initial default/control. Candidate profiles and measurement records live
+outside the source tree until numeric selection is justified by the memory suite.

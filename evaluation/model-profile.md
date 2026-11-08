@@ -93,3 +93,17 @@ The [scheduling probes](microbenchmarks/scheduling/README.md) contrast dependent
 MADD/FMADD chains with added independent work. They support mechanism-level
 checks, while the full application comparison must disclose regressions as well
 as improvements. Fewer modeled cycles alone do not establish better accuracy.
+
+
+## Lightweight calibration candidates
+
+`poros elf --mode ooo --timing-profile FILE.json` accepts a validated complete
+CPU/cache profile for bounded calibration. Results emit the effective values;
+normal accuracy execution still uses the revision-bound defaults. The optional
+`num_stores` resource limits store transfers separately from shared LDST issue.
+Zero retains the earlier behavior. Scalar and single Q stores book one cycle;
+STP books two cycles on one lane. These abstract transfer counts are not a claim
+about measured M2 vector micro-ops. Joint resource search preserves future gaps
+and commits shared LDST/store reservations once, without changing store result
+latency. The existing immediate cache-fill/free-prefetch approximations remain.
+See [the calibration plan](analytical-memory-plan.md) for acceptance and limits.

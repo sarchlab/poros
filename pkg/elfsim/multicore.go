@@ -27,6 +27,9 @@ type MultiCoreResult struct {
 // exit (including instruction limits, deadlines, cancellation or execution faults).
 // Callers must inspect the error as well as any returned per-core results and counters.
 func RunMultiCore(ctx context.Context, processes []*linuxuser.Process, o Options) (result MultiCoreResult, err error) {
+	if o.TimingProfile != nil {
+		return result, fmt.Errorf("custom timing profiles are supported only by single-core OoO execution")
+	}
 	if o.Model == "" {
 		o.Model = "ooo"
 	}

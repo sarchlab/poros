@@ -22,6 +22,7 @@
     "num_int": 6,
     "num_ldst": 4,
     "num_mshr_entries": 12,
+    "num_stores": 0,
     "predictor": {
       "bimodal_size": 4096,
       "btb_size": 2048,
