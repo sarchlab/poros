@@ -882,6 +882,9 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
     marks = {}
     for name, values, color in series:
         if not scatter:
+            # Partial/live observations can arrive out of x order. Sort a copy
+            # of complete observations so coordinates and labels stay paired.
+            values = sorted(values, key=lambda point: point[0])
             line = [(x, y) for x, y, _ in values]
             if step_start is not None:
                 line, previous = [], step_start

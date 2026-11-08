@@ -2,6 +2,7 @@
 """Archive retention, provenance, failure visibility and publisher boundary tests."""
 
 import copy
+from html.parser import HTMLParser
 import accuracy_test_support as fixtures
 import json
 import os
@@ -390,6 +391,44 @@ class AccuracySiteTest(unittest.TestCase):
             scatter=True,
         )
         self.assertNotIn("polyline", scatter)
+
+    def test_line_series_sort_observations_without_mutating_inputs(self):
+        class Plot(HTMLParser):
+            def __init__(self, page):
+                super().__init__()
+                self.lines, self.dots = [], []
+                self.feed(page)
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'polyline':
+                    self.lines.append([tuple(map(float, p.split(','))) for p in attrs['points'].split()])
+                if tag == 'circle':
+                    self.dots.append((float(attrs['cx']), float(attrs['cy']), attrs['data-tip']))
+        values = [(x, x*x, f'case-{x}') for x in (5, 6, 1, 2, 3, 4)]
+        for tied in (False, True):
+            observations = values + ([(3, 20, 'case-3-tie')] if tied else [])
+            series = [('head', observations, '#000')]
+            before = copy.deepcopy(series)
+            ordered = sorted(observations, key=lambda p: p[0])
+            for step in (None, 1):
+                with self.subTest(tied=tied, step=step):
+                    plot = Plot(site.chart('line', series, 'x', 'y', step_start=step))
+                    expected = []
+                    previous = 1
+                    for x, y, label in ordered:
+                        px, py = 72+(x-1)*329/5, 235-y*215/36
+                        if step is not None:
+                            expected.append((72+(previous-1)*329/5, py))
+                        expected.append((px, py))
+                        previous = x
+                    self.assertEqual(plot.lines, [[(round(x, 2), round(y, 2)) for x, y in expected]])
+                    self.assertEqual(plot.dots, [(round(72+(x-1)*329/5, 3), round(235-y*215/36, 3), 'head: '+label)
+                                                for x, y, label in ordered])
+                    self.assertEqual(series, before)
+            scatter = Plot(site.chart('scatter', series, 'x', 'y', scatter=True))
+            self.assertFalse(scatter.lines)
+            self.assertEqual([tip for _, _, tip in scatter.dots], ['head: '+label for _, _, label in observations])
+            self.assertEqual(series, before)
 
     def test_overview_ties_quality_and_rank_direction(self):
         def row(name, x, y, quality="usable"):
