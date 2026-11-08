@@ -244,6 +244,11 @@ class MemoryTests(unittest.TestCase):
         self.assertIn('<details id="memory-diagnostics-table">', table)
         self.assertNotIn('<details open', table)
         self.assertNotIn('<table', graphs)
+        # A pattern repeats across sizes; refresh must identify each row by its
+        # full case ID rather than matching a different row with the same label.
+        self.assertEqual(table.count('data-row-key='), len(self.reference['cases']))
+        for case in self.reference['cases']:
+            self.assertEqual(table.count(f'data-row-key="{case["id"]}"'), 1)
         before = comparison.benchmark_summary(dict(artifact_status='pass', schema=4, cases=[]))
         after = comparison.benchmark_summary(dict(artifact_status='pass', schema=4, cases=[], memory_simulation=result))
         self.assertEqual(before, after)

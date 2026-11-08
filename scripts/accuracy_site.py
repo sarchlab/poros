@@ -776,7 +776,8 @@ LIVE_REFRESH = """<script>
     const parent = node.parentElement;
     if (!parent || !root.contains(parent)) return null;
     const prefix = key(parent);
-    if (tag === 'tr' && node.querySelector('td')) return prefix + '/row:' + node.querySelector('td').textContent;
+    if (tag === 'tr' && node.querySelector('td')) return prefix + '/row:' +
+      (node.dataset.rowKey || node.querySelector('td').textContent);
     if (node.dataset.pointKey) return prefix + '/point:' + node.dataset.pointKey;
     if (tag === 'a') return prefix + '/link:' + node.getAttribute('href');
     return prefix + '/' + tag + ':' + [...parent.children].filter(n => n.localName === tag).indexOf(node);
@@ -795,17 +796,22 @@ LIVE_REFRESH = """<script>
     root.replaceChildren(...next.childNodes);
     root.dataset.liveState = next.dataset.liveState;
     const nodes = new Map([...root.querySelectorAll('*')].map(n => [key(n), n]));
+    // Reopen every disclosure before scroll writes force layout. Replacing
+    // long open tables with collapsed ones can temporarily clamp window scroll.
+    for (const saved of states) {
+      const node = nodes.get(saved.key);
+      if (node && saved.open !== null) node.open = saved.open;
+    }
     for (const saved of states) {
       const node = nodes.get(saved.key);
       if (!node) continue;
-      if (saved.open !== null) node.open = saved.open;
       node.scrollLeft = saved.x; node.scrollTop = saved.y;
     }
     const focus = nodes.get(focused);
     if (focus) focus.focus({preventScroll:true});
     const anchor = anchors.find(a => nodes.has(a.key));
     const delta = anchor ? nodes.get(anchor.key).getBoundingClientRect().top - anchor.box.top : 0;
-    window.scrollTo(x, y + delta);
+    window.scrollTo(x, anchor ? scrollY + delta : y);
   }
   async function refresh() {
     const controller = new AbortController();
@@ -1270,7 +1276,7 @@ def memory_panels(reference, simulations, profiles, base_large_image_support):
              '<th>P10–P90 time-derived range</th><th>Base</th><th>Head</th><th>Quality</th><th>Time spread</th></tr></thead><tbody>')
     for row in rows:
         c, n, m = row['case'], row['native'], row['modeled']
-        table += (f'<tr><td>{esc(c["pattern"])}</td><td>{esc(row["size_label"])}</td><td>{row["unit"]}</td>'
+        table += (f'<tr data-row-key="{esc(c["id"])}"><td>{esc(c["pattern"])}</td><td>{esc(row["size_label"])}</td><td>{row["unit"]}</td>'
                   f'<td>{n["median"]:.4f}</td><td>{row["low"]:.4f}–{row["high"]:.4f}</td>'
                   f'<td>{format(m["base"], ".4f") if "base" in m else "Unsupported image capacity"}</td><td>{m["head"]:.4f}</td><td>{esc(c["quality"])}</td><td>{c["relative_spread"]:.2%}</td></tr>')
     table += ('</tbody></table></div><p>P10/P90 summarize variability, not confidence intervals. '
