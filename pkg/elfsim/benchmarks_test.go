@@ -139,6 +139,13 @@ func TestStreamclusterRepeatELF(t *testing.T) {
 	limits := linuxuser.RunOptions{MaxInstructions: 100_000, Timeout: 10 * time.Second, MaxOutput: 1024}
 	run := func(name, mode string, args ...string) linuxuser.Result {
 		t.Helper()
+		info, err := os.Stat(root + name + ".elf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0111 == 0 {
+			t.Fatalf("%s ELF is packaged without executable permission required by QEMU", name)
+		}
 		image, err := os.ReadFile(root + name + ".elf")
 		if err != nil {
 			t.Fatal(err)
