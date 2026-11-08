@@ -14,10 +14,6 @@ import (
 func TestTimingProfileStrictValidation(t *testing.T) {
 	good := DefaultTimingProfile(3490 * timing.MHz)
 	for name, change := range map[string]func(*TimingProfile){
-		"invalid prefetch service": func(p *TimingProfile) {
-			p.Configuration.StreamPrefetch.Enabled = true
-			p.Configuration.StreamPrefetch.ReadBytesPerCycle = 0
-		},
 		"negative stores":   func(p *TimingProfile) { p.Configuration.NumStores = -1 },
 		"zero MSHR":         func(p *TimingProfile) { p.Configuration.NumMSHREntries = 0 },
 		"huge ROB":          func(p *TimingProfile) { p.Configuration.ROBCapacity = 1 << 30 },

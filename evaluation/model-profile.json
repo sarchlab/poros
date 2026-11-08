@@ -33,16 +33,6 @@
     },
     "retire_width": 8,
     "rob_capacity": 256,
-    "store_buffer_size": 56,
-    "stream_prefetch": {
-      "degree": 1,
-      "distance": 16,
-      "enabled": false,
-      "max_observations": 1024,
-      "max_pending": 32,
-      "read_bytes_per_cycle": 16,
-      "table_entries": 32,
-      "trigger": 2
-    }
+    "store_buffer_size": 56
   }
 }

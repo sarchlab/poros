@@ -40,9 +40,6 @@ func ReadTimingProfile(r io.Reader) (*TimingProfile, error) {
 }
 func (p TimingProfile) Validate() error {
 	c := p.Configuration
-	if err := c.StreamPrefetch.Validate(); err != nil {
-		return err
-	}
 	if c.Freq < timing.MHz || c.Freq > 1000*timing.GHz || c.FetchWidth < 1 || c.FetchWidth > 64 || c.RetireWidth < 1 || c.RetireWidth > 64 || c.ROBCapacity < 1 || c.ROBCapacity > 4096 || c.NumINT < 1 || c.NumINT > 64 || c.NumFP < 1 || c.NumFP > 64 || c.NumLDST < 1 || c.NumLDST > 64 || c.NumStores < 0 || c.NumStores > 64 || c.LoadLatency < 1 || c.LoadLatency > 100000 || c.FpPhysLimit < 1 || c.FpPhysLimit > 4096 || c.StoreBufferSize < 1 || c.StoreBufferSize > 4096 || c.NumMSHREntries < 1 || c.NumMSHREntries > 4096 || c.BranchPenalty < 0 || c.BranchPenalty > 10000 {
 		return fmt.Errorf("invalid timing profile CPU configuration")
 	}
@@ -54,9 +51,6 @@ func (p TimingProfile) Validate() error {
 		return fmt.Errorf("invalid timing profile predictor")
 	}
 	m := p.CacheConfig
-	if c.StreamPrefetch.Enabled && m.L2LineSize > 0 && m.DRAMLatency < (m.L2LineSize+c.StreamPrefetch.ReadBytesPerCycle-1)/c.StreamPrefetch.ReadBytesPerCycle {
-		return fmt.Errorf("DRAM latency must cover one read-fill transfer")
-	}
 	for _, g := range [][3]int{{m.L1Size, m.L1Ways, m.L1LineSize}, {m.L2Size, m.L2Ways, m.L2LineSize}} {
 		size, ways, line := g[0], g[1], g[2]
 		if size < 1 || size > 512<<20 || ways < 1 || ways > 64 || line < 16 || line > 4096 || line&(line-1) != 0 || size%(ways*line) != 0 {

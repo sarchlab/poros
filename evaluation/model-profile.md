@@ -115,12 +115,3 @@ sources. Forwarding queries do not delete entries, because issue times can arriv
 out of order. Only a completed program-order prefix is pruned at the actual CPU
 cycle. This fixes a source-dependent timing bug without changing the numeric
 profile: keep exact source revisions when comparing candidates with older runs.
-
-The optional `stream_prefetch` experiment is disabled by default. When enabled,
-actual-cycle observation/fill queues and finite lookahead/read-fill reservations
-replace free next-line prefetch in single-core OoO execution. It fills L2 only,
-charges distinct DRAM read lines including crossings, and reports its own
-`read_fill` counters. Its byte-rate bound excludes writes/writebacks and does not
-make the retained program-order demand-cache approximation exact. See the
-[experiment contract](analytical-memory-plan.md#optional-timed-l2-stream-experiment-default-off)
-before interpreting candidate results or enabling a calibrated default.

@@ -20,23 +20,22 @@ type HookCycles struct {
 
 // Spec contains immutable structural and timing parameters.
 type Spec struct {
-	Freq             timing.Freq    `json:"freq"`
-	FetchWidth       int            `json:"fetch_width"`
-	RetireWidth      int            `json:"retire_width"`
-	ROBCapacity      int            `json:"rob_capacity"`
-	NumINT           int            `json:"num_int"`
-	NumFP            int            `json:"num_fp"`
-	NumStores        int            `json:"num_stores"` // zero disables the additional store-transfer limit
-	NumLDST          int            `json:"num_ldst"`
-	BranchPenalty    int            `json:"branch_penalty"`
-	LoadLatency      int            `json:"load_latency"`
-	FpPhysLimit      int            `json:"fp_phys_limit"`
-	StoreBufferSize  int            `json:"store_buffer_size"`
-	NumMSHREntries   int            `json:"num_mshr_entries"`
-	BranchPrediction bool           `json:"branch_prediction"`
-	Predictor        PredictorSpec  `json:"predictor"`
-	StreamPrefetch   mem.StreamSpec `json:"stream_prefetch"`
-	FuncHookCycles   []HookCycles   `json:"func_hook_cycles"`
+	Freq             timing.Freq   `json:"freq"`
+	FetchWidth       int           `json:"fetch_width"`
+	RetireWidth      int           `json:"retire_width"`
+	ROBCapacity      int           `json:"rob_capacity"`
+	NumINT           int           `json:"num_int"`
+	NumFP            int           `json:"num_fp"`
+	NumStores        int           `json:"num_stores"` // zero disables the additional store-transfer limit
+	NumLDST          int           `json:"num_ldst"`
+	BranchPenalty    int           `json:"branch_penalty"`
+	LoadLatency      int           `json:"load_latency"`
+	FpPhysLimit      int           `json:"fp_phys_limit"`
+	StoreBufferSize  int           `json:"store_buffer_size"`
+	NumMSHREntries   int           `json:"num_mshr_entries"`
+	BranchPrediction bool          `json:"branch_prediction"`
+	Predictor        PredictorSpec `json:"predictor"`
+	FuncHookCycles   []HookCycles  `json:"func_hook_cycles"`
 }
 
 func DefaultSpec() Spec {
@@ -44,8 +43,7 @@ func DefaultSpec() Spec {
 		Freq: 3490 * timing.MHz, FetchWidth: 8, RetireWidth: 8, ROBCapacity: 256,
 		NumINT: 6, NumFP: 4, NumLDST: 4, NumStores: 0, BranchPenalty: 17, LoadLatency: 5,
 		FpPhysLimit: 72, StoreBufferSize: 56, NumMSHREntries: 12, BranchPrediction: true,
-		StreamPrefetch: mem.StreamSpec{Enabled: false, TableEntries: 32, Trigger: 2, Distance: 16, Degree: 1, MaxPending: 32, MaxObservations: 1024, ReadBytesPerCycle: 16},
-		Predictor:      PredictorSpec{BimodalSize: 4096, TaggedTableSize: 2048, BTBSize: 2048, BTBWays: 4, RASSize: 32, TaggedHistLen: 32},
+		Predictor: PredictorSpec{BimodalSize: 4096, TaggedTableSize: 2048, BTBSize: 2048, BTBWays: 4, RASSize: 32, TaggedHistLen: 32},
 	}
 }
 
@@ -64,7 +62,6 @@ type Comp = ticking.Component[Spec, State, Resources, Ports, Middlewares]
 
 // State owns mutable scheduling, queues, predictor tables, and counters.
 type State struct {
-	Stream                       mem.StreamState
 	Serializing                  bool
 	GprReady, FpReady            [32]uint64
 	FlagsReady                   uint64
@@ -108,12 +105,6 @@ func (s *State) Initialize(c *Comp) {
 		panic("ooo: enable emulator memory access tracking before Build")
 	}
 	v := c.Spec
-	if err := v.StreamPrefetch.Validate(); err != nil {
-		panic(err)
-	}
-	if v.StreamPrefetch.Enabled && c.Resources.Cache == nil {
-		panic("timed stream prefetch requires a cache")
-	}
 	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumLDST < 1 || v.NumStores < 0 || v.NumStores > 64 || v.LoadLatency < 1 || v.FpPhysLimit < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
 	}
@@ -145,10 +136,8 @@ func (m *Middlewares) Initialize(c *Comp) {
 
 // hookCycles is an immutable lookup derived from Spec.
 type middleware struct {
-	comp          *Comp
-	hookCycles    map[uint64]int
-	dramReadLines uint64
-	dramLineTags  []uint64
+	comp       *Comp
+	hookCycles map[uint64]int
 }
 
 func (p *middleware) predictor() *predictor {
@@ -171,9 +160,6 @@ func (p *middleware) Handle(_ timing.Event) bool {
 	p.comp.State.Cycles++
 	p.pruneUnitReservations()
 	p.pruneStores()
-	if p.comp.Spec.StreamPrefetch.Enabled {
-		p.comp.State.Stream.Advance(p.comp.State.Cycles, p.comp.Resources.Cache, p.comp.Spec.StreamPrefetch)
-	}
 
 	// Phase 1: Retire completed instructions from ROB head.
 	p.retire()
@@ -311,15 +297,8 @@ func (p *middleware) fetchAndProcess() {
 		}
 		if instinfo.IsStore(inst.Op) && p.comp.Spec.NumStores > 0 {
 			issueCycle = p.reserveStoreIssue(issueCycle, storeTransfers(inst))
-		} else if usesUnit && miss && p.dramReadLines > 0 && p.comp.Spec.StreamPrefetch.Enabled {
-			issueCycle, latency = p.reserveReadIssue(ut, issueCycle, unitOccupancy(inst.Op), latency)
 		} else if usesUnit {
 			issueCycle = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss, latency)
-		}
-		if instinfo.IsLoad(inst.Op) && !forwarding.forwarded && p.comp.Spec.StreamPrefetch.Enabled {
-			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
-				p.comp.State.Stream.Observe(pc, acc.Addr, issueCycle, uint64(p.comp.Resources.Cache.Config().L2LineSize), p.comp.Spec.StreamPrefetch)
-			}
 		}
 		completeCycle := issueCycle + latency
 		if forwarding.forwarded && forwarding.dataReady+latency > completeCycle {
@@ -491,8 +470,6 @@ func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64) (latency 
 // instrLatency computes the execution latency for an instruction.
 // For loads, l1Miss indicates whether the load missed L1 (needs MSHR).
 func (p *middleware) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bool) {
-	p.dramReadLines = 0
-	p.dramLineTags = p.dramLineTags[:0]
 	if instinfo.IsLoad(inst.Op) {
 		if p.comp.Resources.Cache != nil {
 			accesses := p.comp.Resources.backend().MemoryAccesses()
@@ -501,7 +478,7 @@ func (p *middleware) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bo
 			}
 			worst := mem.HitL1
 			for _, acc := range accesses {
-				level := p.cacheLookup(acc)
+				level := p.comp.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
 				if level > worst {
 					worst = level
 				}
@@ -521,7 +498,7 @@ func (p *middleware) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bo
 	if instinfo.IsStore(inst.Op) {
 		if p.comp.Resources.Cache != nil {
 			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
-				p.cacheLookup(acc)
+				p.comp.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
 			}
 		}
 		return 3, false
@@ -574,51 +551,3 @@ func (r Resources) backend() emu.Execution {
 
 // processMode enables process boundary/fault policy independently of backend state.
 func (r Resources) processMode() bool { return r.Execution != nil }
-
-// Timed mode accounts for all touched L1 lines and deduplicates DRAM fills
-// at L2-line granularity within an instruction. Disabled mode is unchanged.
-func (p *middleware) cacheLookup(acc emu.MemAccess) mem.HitLevel {
-	c := p.comp.Resources.Cache
-	if !p.comp.Spec.StreamPrefetch.Enabled {
-		return c.Lookup(acc.Addr, acc.Size, acc.IsWrite)
-	}
-	cfg := c.Config()
-	worst := mem.HitL1
-	for acc.Size > 0 {
-		n := cfg.L1LineSize - int(acc.Addr%uint64(cfg.L1LineSize))
-		if n > acc.Size {
-			n = acc.Size
-		}
-		level := c.LookupWithoutPrefetch(acc.Addr, n, acc.IsWrite)
-		if level > worst {
-			worst = level
-		}
-		if level == mem.HitDRAM && !acc.IsWrite {
-			tag := acc.Addr / uint64(cfg.L2LineSize)
-			seen := false
-			for _, old := range p.dramLineTags {
-				if old == tag {
-					seen = true
-					break
-				}
-			}
-			if !seen {
-				p.dramLineTags = append(p.dramLineTags, tag)
-				p.dramReadLines++
-			}
-		}
-		acc.Addr += uint64(n)
-		acc.Size -= n
-	}
-	return worst
-}
-
-func (p *middleware) reserveReadIssue(ut unitType, earliest, occupancy, latency uint64) (uint64, uint64) {
-	mshr, earliest := p.acquireMSHR(earliest)
-	unit, issue := p.findUnit(ut, earliest, occupancy)
-	ready := p.comp.State.Stream.ReserveDemand(issue, latency, p.dramReadLines, uint64(p.comp.Resources.Cache.Config().L2LineSize), p.comp.Spec.StreamPrefetch)
-	units := p.units(ut)
-	units[unit] = insertReservation(units[unit], issue, occupancy)
-	p.comp.State.MshrBusyUntil[mshr] = ready
-	return issue, ready - issue
-}
