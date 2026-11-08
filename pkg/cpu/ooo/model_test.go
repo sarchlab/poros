@@ -42,9 +42,9 @@ func TestConfigurationIsolationAndStateRoundTrip(t *testing.T) {
 	}
 	a.State.Rob[0] = 123
 	a.State.RobCount = 1
-	a.State.IntUnits[0] = 3
+	a.State.IntUnits[0] = []UnitReservation{{Start: 10, End: 11}, {Start: 100, End: 101}}
 	a.State.Predictor.Bimodal[0] = 3
-	if b.State.Rob[0] != 0 || b.State.IntUnits[0] != 0 || b.State.Predictor.Bimodal[0] != 2 {
+	if b.State.Rob[0] != 0 || len(b.State.IntUnits[0]) != 0 || b.State.Predictor.Bimodal[0] != 2 {
 		t.Fatal("runtime arrays shared across components")
 	}
 	data, err := json.Marshal(a.State)

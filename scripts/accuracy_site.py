@@ -22,6 +22,7 @@ import performance_reference as performance
 import frontend_microbenchmark as probe
 import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
+import scheduling_microbenchmark as scheduling
 import model_profiles
 from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
 
@@ -544,6 +545,9 @@ def bundle_compact(report_path, source, output, commit):
     if report["artifact_status"] == "pass":
         shutil.copyfile(source / performance.PATH, output / "reference.json")
         names.add("reference.json")
+        if scheduling.declared(report["head"]["files"]):
+            shutil.copyfile(source / scheduling.REFERENCE, output / "scheduling.json")
+            names.add("scheduling.json")
         if forwarding.declared(report["head"]["files"]):
             shutil.copyfile(source / forwarding.REFERENCE, output / "forwarding.json")
             names.add("forwarding.json")
@@ -557,13 +561,17 @@ def bundle_compact(report_path, source, output, commit):
           run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
           files={name: digest(output / name) for name in names}))
     validate_bundle(output, commit)
-    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None, forwarding_reference=read(output / "forwarding.json") if "forwarding.json" in names else None))
+    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None, forwarding_reference=read(output / "forwarding.json") if "forwarding.json" in names else None, scheduling_reference=read(output / "scheduling.json") if "scheduling.json" in names else None))
 
 
 def validate_compact_bundle(path, commit, manifest):
     report = read(regular(path / "report.json"))
     names = {"report.json", "report.md"} | ({"reference.json"} if report["artifact_status"] == "pass" else set())
     if report["artifact_status"] == "pass":
+        if scheduling.declared(report["head"]["files"]):
+            if digest(regular(path / "scheduling.json")) != report["head"]["files"].get(scheduling.REFERENCE):
+                raise ValueError("scheduling reference differs from tested source")
+            names.add("scheduling.json")
         if forwarding.declared(report["head"]["files"]):
             if digest(regular(path / "forwarding.json")) != report["head"]["files"].get(forwarding.REFERENCE):
                 raise ValueError("forwarding reference differs from tested source")
@@ -584,6 +592,11 @@ def validate_compact_bundle(path, commit, manifest):
     check_report(report, commit)
     if report["artifact_status"] != "pass":
         return report, manifest
+    if scheduling.declared(report["head"]["files"]):
+        native_scheduling = scheduling.validate_reference(read(path / "scheduling.json"), report["head"]["files"])
+        scheduling.validate_comparison(report.get("scheduling_simulation"), native_scheduling["cases"])
+    elif "scheduling_simulation" in report:
+        raise ValueError("scheduling suite absent from tested source")
     if forwarding.declared(report["head"]["files"]):
         native_forwarding = forwarding.validate_reference(read(path / "forwarding.json"), report["head"]["files"])
         forwarding.validate_comparison(report.get("forwarding_simulation"), native_forwarding["cases"])
@@ -1001,6 +1014,60 @@ def forwarding_panels(reference, simulations, profiles):
     return graphs, table
 
 
+def scheduling_panels(reference, simulations, profiles):
+    """Compare additional independent work around the same dependent chain."""
+    scheduling.validate_reference(reference)
+    scheduling.validate_comparison(simulations, reference["cases"])
+    frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
+    if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
+        raise ValueError("invalid scheduling model frequency")
+    rows = {}
+    for index, case in enumerate(reference["cases"]):
+        native = {key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")}
+        modeled = {role: simulations[role][index]["cycles"] * 1e9 / (scheduling.ITERATIONS[1] - scheduling.ITERATIONS[0]) / frequencies[role]
+                   for role in ("base", "head")}
+        tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.3f}/{native["median"]:.3f}/{native["p90"]:.3f} ns/iteration; '
+                   f'base {modeled["base"]:.3f}, head {modeled["head"]:.3f} ns/iteration; {case["instructions_per_iteration"]} instructions/iteration')
+        rows[case["id"]] = dict(case=case, native=native, modeled=modeled, tooltip=tooltip)
+    groups = (("Integer dependency and independent work", ("int_chain", "int_interleaved")),
+              ("FP dependency and independent work", ("fp_chain", "fp_interleaved")))
+    if set(rows) != {name for _, names in groups for name in names}:
+        raise ValueError("scheduling panel requires the four declared dependency patterns")
+    counts = ", ".join(f'{esc(case["id"])}: {case["instructions_per_iteration"]}' for case in reference["cases"])
+    graphs = ('<h3>Execution-unit scheduling probes</h3><p>Each iteration has eight blocks. Each block runs eight dependent '
+              'MADD or FMADD updates, a dependent fan-out to six integer or four FP registers, '
+              'then an optional independent eight-update ADD or FADD chain. A final join feeds both paths into the next block. '
+              'The independent accumulator resets before each block. '
+              f'Instructions per iteration: {counts}. '
+              'Compare the incremental cost of independent work per iteration, not equal-instruction throughput. '
+              f'Native {esc(reference["hardware"])} · {esc(reference["collected_at_utc"])}. '
+              'Nine alternating long-minus-short native macOS thread CPU-time pairs. '
+              'Core and instantaneous frequency were unobserved; simulation uses declared frequencies: '
+              + ", ".join(f'{role} {hz/1e9:g} GHz' for role, hz in frequencies.items())
+              + '. These tested operand patterns do not establish physical M2 scheduling dimensions or arbitrary instruction latencies '
+              'and are excluded from application accuracy statistics.</p><div class="charts">')
+    for title, names in groups:
+        selected = [rows[name] for name in names]
+        series = []
+        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
+            points = [(i + 1, row["native"]["median"] if role == "native" else row["modeled"][role], row["tooltip"]) for i, row in enumerate(selected)]
+            series.append((role, points, color))
+        graphs += chart(title, series, "Instruction arrangement", "ns/iteration", scatter=True,
+                        x_ticks=[(1, "chain"), (2, "interleaved")])
+    graphs += '</div>'
+    table = ('<details id="scheduling-table"><summary>Execution-unit scheduling table · 4 probes</summary>'
+             '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/iteration</th><th>P10–P90</th>'
+             '<th>Base ns/iteration</th><th>Head ns/iteration</th><th>Native ns/instruction</th></tr></thead><tbody>')
+    for row in rows.values():
+        n, m, case = row["native"], row["modeled"], row["case"]
+        table += (f'<tr><td>{esc(case["id"])}</td><td>{n["median"]:.3f}</td><td>{n["p10"]:.3f}–{n["p90"]:.3f}</td>'
+                  f'<td>{m["base"]:.3f}</td><td>{m["head"]:.3f}</td><td>{n["median"]/case["instructions_per_iteration"]:.4f}</td></tr>')
+    table += ('</tbody></table></div><p>P10/P90 summarize variability, not confidence intervals. '
+              'Simulation subtracts 1,024 from 2,048 iterations, with checked instruction counts and analytic checksums. '
+              '<a href="scheduling.json">Native reference data</a></p></details>')
+    return graphs, table
+
+
 def timing_curves(groups, cases):
     body = '<div class="charts">'
     for group in groups:
@@ -1097,7 +1164,7 @@ def timing_table(cases, ids):
     return body
 
 
-def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None):
+def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None):
     commit = entry["commit"]
     full_inventory = report["artifact_status"] == "pass" or live is not None
     body = (
@@ -1193,6 +1260,11 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     elif full_inventory:
         accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
         body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
+    scheduling_table = ""
+    if scheduling_reference:
+        scheduling_charts, scheduling_table = scheduling_panels(
+            scheduling_reference, report.get("scheduling_simulation"), model_profiles.validate(report))
+        body += scheduling_charts
     forwarding_table = ""
     if forwarding_reference:
         forwarding_charts, forwarding_table = forwarding_panels(
@@ -1204,7 +1276,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     elif frontend:
         body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
                  + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
-    body += forwarding_table
+    body += scheduling_table + forwarding_table
     body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
              + timing_table(micros, micro_ids) + '</details></section>')
     replacement = report.get("reference", {}).get("streamcluster_replacement")
@@ -1511,7 +1583,8 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
         frontend = read(p / "frontend.json") if "frontend.json" in retained_manifest["files"] else None
         throughput_reference = read(p / "throughput.json") if "throughput.json" in retained_manifest["files"] else None
         forwarding_reference = read(p / "forwarding.json") if "forwarding.json" in retained_manifest["files"] else None
-        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference))
+        scheduling_reference = read(p / "scheduling.json") if "scheduling.json" in retained_manifest["files"] else None
+        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference, scheduling_reference=scheduling_reference))
     write(index_path, index)
     (root / "index.html").write_text(home(index))
     (site / ".nojekyll").touch()
