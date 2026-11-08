@@ -21,6 +21,9 @@ type Options struct {
 	// FrequencyHz is integer CPU Hz in [1 MHz, 1 THz]; zero selects 3.49 GHz.
 	FrequencyHz float64
 	Limits      linuxuser.RunOptions
+	// CacheConfig overrides the default cache model for experiments; nil keeps
+	// mem.DefaultCacheConfig(). The CLI never sets it.
+	CacheConfig *mem.CacheConfig
 }
 type Statistics struct {
 	Model                  string          `json:"model"`
@@ -63,7 +66,11 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 			err = e
 		}
 	}()
-	cache := mem.NewCache(mem.DefaultCacheConfig())
+	cacheConfig := mem.DefaultCacheConfig()
+	if o.CacheConfig != nil {
+		cacheConfig = *o.CacheConfig
+	}
+	cache := mem.NewCache(cacheConfig)
 	r.Timing = Statistics{Model: o.Model, AssumedHz: o.FrequencyHz, CacheConfig: cache.Config(), Policy: "whole ELF user execution; cold modeled cache; SVC serializes, counts as one user instruction; host syscall work and loader excluded; no kernel cache effects; not a validated hardware profile"}
 	var pipelineError string
 	if o.Model == "ooo" {

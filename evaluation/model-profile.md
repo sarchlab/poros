@@ -93,3 +93,40 @@ The [scheduling probes](microbenchmarks/scheduling/README.md) contrast dependent
 MADD/FMADD chains with added independent work. They support mechanism-level
 checks, while the full application comparison must disclose regressions as well
 as improvements. Fewer modeled cycles alone do not establish better accuracy.
+
+## Timed fills, fill transport and stream prefetch
+
+OoO loads use a timed cache path (`mem.Cache.Access`). Every line installed by
+that path carries the cycle at which its fill arrives; a load that hits a line
+whose fill is pending completes at the arrival, never earlier, including the
+adjacent 64 B half of a 128 B L2 line and lines copied by the untimed store path.
+Timed fills use two serial transports: every 64 B L1 fill occupies 2 cycles on
+the L2-to-L1 transport (`FillBytesPerCycle` = 32) and every 128 B DRAM fill
+8 cycles on the DRAM-to-L2 transport (`DRAMBytesPerCycle` = 16), booked as
+non-overlapping intervals so out-of-order issue times can use earlier gaps. The
+rates come from a native one-load-per-line strided read on the M2 host (about
+2.0 cycles per 64 B line from a 4 MiB buffer, 3.6 from a 64 MiB buffer); they
+are effective single-core rates, not bus specifications. A
+sequential stream prefetcher in units of L2 lines trains on three consecutive
+same-direction demand L1 misses (`PrefetchTrainMisses`), then advances a frontier
+by at most `PrefetchDegree` lines per demand L1 miss, at most `PrefetchDistance`
+lines ahead of the demand line, into L2 only; `PrefetchStreams` entries are
+replaced LRU. An optional `PrefetchPageBytes` boundary stops the frontier; it is
+off by default because an exposed miss per 16 KiB page would make a sequential
+DRAM stream about 30 % slower than an L2-resident one, while the native scalar
+read rate is the same from L2 and DRAM within 4 %. OoO stores allocate their
+lines through the same transports (one 128 B DRAM transfer per store-missed
+line, the lower bound of an allocation fetch or a writeback) but still never
+wait for their line and do not train streams; native `copy` moves each
+direction at about half the rate of `read`, which free stores cannot produce.
+The in-order model and `Lookup` keep the previous untimed behavior.
+
+Evidence classes: the transport rates are measured on the M2 host as described
+above (the DRAM rate is a lower bound, rounded down); the distance is an
+inferred lower bound (the native scalar read rate of 57.6-59.8 GB/s from 1 MiB
+to 64 MiB times the DRAM latency); the training rule,
+degree, stream count and page bound are mechanism-compatible choices shaped
+after the only published stream-prefetcher reverse engineering (Intel, not
+Apple). None of these is a measured Apple M2 parameter. Demand misses still use
+the OoO MSHRs; prefetches do not. Stores and the in-order pipeline do not charge
+the transport. This does not claim complete memory timing accuracy.

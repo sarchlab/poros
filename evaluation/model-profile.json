@@ -1,6 +1,8 @@
 {
   "cache_config": {
+    "DRAMBytesPerCycle": 16,
     "DRAMLatency": 335,
+    "FillBytesPerCycle": 32,
     "L1Latency": 5,
     "L1LineSize": 64,
     "L1Size": 131072,
@@ -8,7 +10,12 @@
     "L2Latency": 14,
     "L2LineSize": 128,
     "L2Size": 16777216,
-    "L2Ways": 16
+    "L2Ways": 16,
+    "PrefetchDegree": 4,
+    "PrefetchDistance": 48,
+    "PrefetchPageBytes": 0,
+    "PrefetchStreams": 16,
+    "PrefetchTrainMisses": 3
   },
   "configuration": {
     "branch_penalty": 17,

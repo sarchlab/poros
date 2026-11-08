@@ -284,17 +284,26 @@ func (p *middleware) fetchAndProcess() {
 		// 6. Compute latency, then select a common execution-unit/MSHR time.
 		// Forwarding and MSHR waits may have invalidated the earlier unit
 		// candidate. Do not reserve either resource until both are available.
-		var latency uint64
+		// A cached load also learns the absolute cycle at which its line's
+		// fill arrives; its result can never be used before that arrival.
+		var latency, dataReady uint64
 		var miss bool
 		if forwarding.forwarded {
 			latency = forwarding.latency
 		} else {
-			latency, miss = p.instrLatencyWithPC(inst, pc)
+			latency, miss, dataReady = p.instrLatencyWithPC(inst, pc, issueCycle)
+		}
+		holdLatency := latency
+		if dataReady > issueCycle+holdLatency {
+			holdLatency = dataReady - issueCycle
 		}
 		if usesUnit {
-			issueCycle = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss, latency)
+			issueCycle = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss, holdLatency)
 		}
 		completeCycle := issueCycle + latency
+		if dataReady > completeCycle {
+			completeCycle = dataReady
+		}
 		if forwarding.forwarded && forwarding.dataReady+latency > completeCycle {
 			completeCycle = forwarding.dataReady + latency
 		}
@@ -448,56 +457,64 @@ func classifyUnit(instruction arm64asm.Inst) unitType {
 
 // instrLatencyWithPC computes the execution latency for an instruction,
 // using the PC to check for hooked BL instructions.
-func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64) (latency uint64, l1Miss bool) {
+func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycle uint64) (latency uint64, l1Miss bool, dataReady uint64) {
 	// Check for hooked BL instruction.
 	if inst.Op == arm64asm.BL && p.hookCycles != nil {
 		if pcrel, ok := inst.Args[0].(arm64asm.PCRel); ok {
 			target := uint64(int64(pc) + int64(pcrel))
 			if cycles, ok := p.hookCycles[target]; ok {
-				return uint64(cycles), false
+				return uint64(cycles), false, 0
 			}
 		}
 	}
-	return p.instrLatency(inst)
+	return p.instrLatency(inst, issueCycle)
 }
 
 // instrLatency computes the execution latency for an instruction.
-// For loads, l1Miss indicates whether the load missed L1 (needs MSHR).
-func (p *middleware) instrLatency(inst arm64asm.Inst) (latency uint64, l1Miss bool) {
+// For loads, l1Miss indicates whether the load missed L1 (needs MSHR) and
+// dataReady is the absolute cycle at which the cache can deliver the data
+// (zero when the cache model is not timed or not present). Loads and stores
+// use the timed cache path issued at the instruction's earliest issue cycle;
+// a store's allocation occupies the fill transports but the store itself never
+// waits for its line (its latency stays 3 and its readiness is ignored).
+func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latency uint64, l1Miss bool, dataReady uint64) {
 	if instinfo.IsLoad(inst.Op) {
 		if p.comp.Resources.Cache != nil {
 			accesses := p.comp.Resources.backend().MemoryAccesses()
 			if len(accesses) == 0 {
-				return uint64(p.comp.Spec.LoadLatency), false
+				return uint64(p.comp.Spec.LoadLatency), false, 0
 			}
 			worst := mem.HitL1
 			for _, acc := range accesses {
-				level := p.comp.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
+				level, ready := p.comp.Resources.Cache.Access(acc.Addr, acc.Size, acc.IsWrite, issueCycle)
 				if level > worst {
 					worst = level
+				}
+				if ready > dataReady {
+					dataReady = ready
 				}
 			}
 			cfg := p.comp.Resources.Cache.Config()
 			switch worst {
 			case mem.HitL2:
-				return uint64(cfg.L2Latency), true
+				return uint64(cfg.L2Latency), true, dataReady
 			case mem.HitDRAM:
-				return uint64(cfg.DRAMLatency), true
+				return uint64(cfg.DRAMLatency), true, dataReady
 			default:
-				return uint64(cfg.L1Latency), false
+				return uint64(cfg.L1Latency), false, dataReady
 			}
 		}
-		return uint64(p.comp.Spec.LoadLatency), false
+		return uint64(p.comp.Spec.LoadLatency), false, 0
 	}
 	if instinfo.IsStore(inst.Op) {
 		if p.comp.Resources.Cache != nil {
 			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
-				p.comp.Resources.Cache.Lookup(acc.Addr, acc.Size, acc.IsWrite)
+				p.comp.Resources.Cache.Access(acc.Addr, acc.Size, true, issueCycle)
 			}
 		}
-		return 3, false
+		return 3, false, 0
 	}
-	return uint64(instinfo.ExecuteLatency(inst.Op)), false
+	return uint64(instinfo.ExecuteLatency(inst.Op)), false, 0
 }
 
 // acquireMSHR finds the earliest-available MSHR slot. If all MSHRs are busy
