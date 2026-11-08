@@ -2,8 +2,11 @@
 
 ## Status and scope
 
-The candidate-profile interface and optional store-transfer resource are implemented;
-calibrated defaults and acceptance results are still pending. The starting revision is
+The completed-store forwarding fix, candidate-profile interface, and optional
+store-transfer resource are implemented. Calibrated defaults and full acceptance
+results are still pending. The user selected this narrower increment; timed
+prefetch/read-fill service and write-traffic modeling are deferred and are not
+part of this PR. The starting revision is
 `a1954771adc8a13f84f689c11e2d3229fe67c682` on the memory-accuracy umbrella.
 The prior Akita cache replacement experiment is not part of this change. Keep
 Poros's existing lightweight CPU/cache path and its functional behavior. Reuse
@@ -30,7 +33,8 @@ books timing work into the future. `instrLatency` calls that cache immediately;
 anonymous busy-until slots, not line-indexed transactions. The execution-unit
 interval lists preserve gaps so a later-dispatched independent instruction can
 issue before an earlier instruction waiting for operands. Stores and loads share
-`NumLDST`; there is no separate store-data throughput limit.
+`NumLDST`; the optional `NumStores` resource adds an independent store-transfer
+limit when enabled, while zero preserves the baseline resource behavior.
 
 Consequently, merely adding `AdvanceTo(futureIssue)` to this cache is unsafe:
 future issue times are not monotone in dispatch order. An earlier query after a
@@ -41,8 +45,11 @@ line's fill timestamp alone cannot reconstruct the overwritten cache history.
 
 1. **Latency-only control.** Use usable dependent pointer-chase points to test
    L1, L2, and beyond-L2 latency candidates. Initial hypotheses are approximately
-   3/20/360 CPU cycles rather than the current 5/14/335. These are calibration
-   candidates, not measured physical pipeline depths. Native measurements are
+   3/20/360 CPU cycles rather than the current 5/14/335. The initial matrix
+   found that lowering L1 latency worsened high-chain L1 controls, and raising
+   DRAM latency worsened large Read/Copy. The next conservative candidate keeps
+   L1/DRAM at 5/335, with L2 at 20. None is selected as a default yet; these
+   are calibration candidates, not measured physical pipeline depths. Native measurements are
    times; conversion uses the explicitly assumed model frequency. Keep cache
    geometry, workload sizes, and references fixed during this comparison.
 2. **Store throughput.** Test a distinct scalar-store issue resource alongside
@@ -71,7 +78,13 @@ store.
 ## Deferred mechanisms and their prerequisite
 
 Completion-delayed fills, finite prefetch transactions, line-specific miss
-merging, and eviction ordering remain worthwhile follow-ups. A correct temporal
+merging, and eviction ordering remain deferred follow-ups. A bounded read-fill
+prototype was tested separately and removed from this PR after the scope decision.
+It improved large Read but aggressive lookahead made Copy unrealistic because
+destination allocation and writeback traffic were absent. Restricting lookahead
+solely to compensate for missing writes is not an accepted calibration method.
+Prototype results remain experimental evidence and are not gains of this PR.
+A future prefetch change must address read/write traffic balance explicitly. A correct temporal
 implementation must first resolve the nonmonotone future-issue contract. Two
 possible approaches are to defer memory issue until its actual time with explicit
 unresolved dependencies, or to constrain memory admission to chronological order.
@@ -147,3 +160,7 @@ plus completed-prefix pruning at actual CPU time. Youngest-overlap and
 future-query/earlier-query tests protect ordering. Numeric calibration must use
 the corrected source; initial-control measurements remain diagnostic evidence,
 not final candidate results.
+
+The forwarding correction applies to all users of the OoO CPU, including
+multicore OoO. In-order execution is unchanged. Custom calibration profiles
+remain single-core OoO only, with unsupported modes rejected explicitly.

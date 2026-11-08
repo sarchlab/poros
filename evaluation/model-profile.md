@@ -102,7 +102,9 @@ CPU/cache profile for bounded calibration. Results emit the effective values;
 normal accuracy execution still uses the revision-bound defaults. The optional
 `num_stores` resource limits store transfers separately from shared LDST issue.
 Zero retains the earlier behavior. Scalar and single Q stores book one cycle;
-STP books two cycles on one lane. These abstract transfer counts are not a claim
+The supported pair-store instruction STP books two cycles on one lane. Unsupported
+STNP and structured ST1–ST4 forms are not added by this timing change. These
+abstract transfer counts are not a claim
 about measured M2 vector micro-ops. Joint resource search preserves future gaps
 and commits shared LDST/store reservations once, without changing store result
 latency. The existing immediate cache-fill/free-prefetch approximations remain.
@@ -115,3 +117,8 @@ sources. Forwarding queries do not delete entries, because issue times can arriv
 out of order. Only a completed program-order prefix is pruned at the actual CPU
 cycle. This fixes a source-dependent timing bug without changing the numeric
 profile: keep exact source revisions when comparing candidates with older runs.
+
+This shared OoO correction also applies to multicore OoO; in-order execution is
+unchanged. Custom calibration profiles remain single-core OoO only. Timed
+prefetch/read-fill service and write-traffic modeling are deferred; the existing
+immediate tag installation and free next-line prefetch remain approximations.
