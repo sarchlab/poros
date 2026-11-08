@@ -25,6 +25,7 @@ import forwarding_microbenchmark as forwarding
 import scheduling_microbenchmark as scheduling
 import memory_microbenchmark as memory
 import model_profiles
+from usertime import error_percent
 from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
 
 SCHEMA = 1
@@ -760,12 +761,12 @@ POINT_TIPS = """<div id="point-tip" role="tooltip" hidden></div><script>
 
 
 def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=None,
-          ideal=False, note="", y_bands=(), y_ranges=()):
+          ideal=False, note="", y_bands=(), y_ranges=(), x_domain=None, step_start=None):
     """Plot the data domain; guide lines never contribute observations."""
     points = [(x, y) for _, values, _ in series for x, y, _ in values]
     if not points:
         return f"<figure><figcaption>{esc(title)}</figcaption><p>No comparable points available.</p></figure>"
-    xmin, xmax = min(x for x, _ in points), max(x for x, _ in points)
+    xmin, xmax = x_domain if x_domain is not None else (min(x for x, _ in points), max(x for x, _ in points))
     ymin, ymax = (y_ticks[0][0], y_ticks[-1][0]) if y_ticks else (0, max([y for _, y in points] + [high for _, _, high, _ in y_ranges]) or 1)
 
     def px(x):
@@ -800,7 +801,13 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
     marks = {}
     for name, values, color in series:
         if not scatter:
-            coords = " ".join(f"{px(x):.2f},{py(y):.2f}" for x, y, _ in values)
+            line = [(x, y) for x, y, _ in values]
+            if step_start is not None:
+                line, previous = [], step_start
+                for x, y, _ in values:
+                    line.extend(((previous, y), (x, y)))
+                    previous = x
+            coords = " ".join(f"{px(x):.2f},{py(y):.2f}" for x, y in line)
             body += f'<polyline fill="none" stroke="{color}" points="{coords}"/>'
         for x, y, label in values:
             # Identical base/head observations must both be readable on hover.
@@ -869,10 +876,39 @@ def comparison_table(cases):
     return body + '</tbody></table></div>'
 
 
+def absolute_error_cdf(points):
+    """Inverse empirical CDF: sorted error at rank i/n, without interpolation."""
+    title = "Absolute error distribution (CDF)"
+    ranked = sorted((error_percent(pred, ref), name, ref, pred) for ref, pred, name in points)
+    n = len(ranked)
+    if not n:
+        return chart(title, [], "Cumulative fraction of cases", "Absolute error (%) · log scale")
+    zeros = sum(error == 0 for error, _, _, _ in ranked)
+    note = f'<p class="muted">Exact zero error: {zeros} / {n} ({zeros/n:.2%}).'
+    if zeros == n:
+        return f'<figure><figcaption>{title}</figcaption>{note} No positive errors to plot on a log axis.</p></figure>'
+    note += ' Zero-error points are omitted from the log axis.</p>' if zeros else '</p>'
+    values = []
+    for i, (error, name, ref, pred) in enumerate(ranked, 1):
+        if error == 0:
+            continue
+        label = (f'{name} · cumulative fraction {i}/{n} = {i/n:.6g} · absolute error {error:.17g}%'
+                 f' · measured {ref:.17g} ms · predicted {pred:.17g} ms')
+        values.append((i/n, math.log10(error), label))
+    low, high = math.floor(min(y for _, y, _ in values)), math.ceil(max(y for _, y, _ in values))
+    if low == high:
+        low, high = low - 1, high + 1
+    ticks = [(e, f'{10.0**e:g}') for e in range(low, high+1)]
+    return chart(title, [("head", values, "#087e8b")], "Cumulative fraction of cases",
+                 "Absolute error (%) · log scale", x_domain=(0, 1),
+                 x_ticks=[(x/4, f'{x/4:g}') for x in range(5)], y_ticks=ticks,
+                 step_start=zeros/n, note=note)
+
+
 def overview_charts(cases):
-    # Both views and both statistics use exactly the same qualified head cases.
+    # All overview views and statistics use exactly the same qualified head cases.
     points = [(c["reference_user_seconds"] * 1000, c["head"]["predicted_user_seconds"] * 1000, c["id"])
-              for c in cases if c.get("reference_quality") == "usable" and c.get("head")
+              for c in cases if not is_micro_case(c) and c.get("reference_quality") == "usable" and c.get("head")
               and c["reference_user_seconds"] > 0 and c["head"]["predicted_user_seconds"] > 0]
     ranks, scatter = [], []
     band_counts = [0] * len(ERROR_BANDS)
@@ -916,7 +952,9 @@ def overview_charts(cases):
             f"<p class='muted'>{n} qualified cases. The percentage compares pairs with distinct measured times.</p>")
     comparison = chart("Qualified reference vs. prediction", [("head", scatter, "#087e8b")],
                        "Reference user time (ms)", "Predicted user time (ms)", scatter=True, ideal=True, note=note)
-    return '<h2 id="overall">Overall benchmark accuracy</h2><div class="charts">' + s_curve + comparison + "</div>"
+    return ('<h2 id="overall">Overall benchmark accuracy</h2><div class="charts">'
+            + s_curve + absolute_error_cdf(points) + '</div><div class="charts" style="margin-top:16px">'
+            + comparison + "</div>")
 
 
 def frontend_table(reference, simulated=None):
@@ -1288,6 +1326,41 @@ def timing_table(cases, ids):
     return body
 
 
+def live_progress(live):
+    completed, required = live["completed_cases"], live["required_cases"]
+    # Snapshot validation rejects unknown/completed active IDs. Count unique IDs
+    # so repeated worker observations cannot inflate the in-progress segment.
+    active = len(set(live["active_cases"]))
+    remaining = required - completed - active
+    if required <= 0 or completed < 0 or remaining < 0:
+        raise ValueError("invalid live progress counts")
+    percentage = 100 * completed / required
+    validated = live.get("validated_bundle", False)
+    state = ("Complete" if validated else "Cases finished · validation pending") if live["state"] == "complete" else live["state"].title()
+    body = '<section class="notice" aria-labelledby="live-progress-label">'
+    body += '<div id="live-progress-label"><strong>' + esc(state) + '</strong> · '
+    body += f'{completed} / {required} cases · {percentage:.1f}%</div>'
+    segments = (("completed", "Completed", completed, "#168574"),
+                ("active", "In progress", active, "#4e87d4"),
+                ("remaining", "Not started", remaining, "#d7e1e4"))
+    description = "; ".join(f"{label}: {count}" for _, label, count, _ in segments)
+    body += f'<div id="case-progress" role="progressbar" aria-label="Case progress" aria-valuemin="0" aria-valuenow="{completed}" aria-valuemax="{required}" aria-valuetext="{description}" aria-describedby="live-progress-context" style="display:flex;height:18px;margin-top:10px;border-radius:4px;overflow:hidden">'
+    for key, _, count, color in segments:
+        body += f'<span data-progress-state="{key}" aria-hidden="true" style="width:{100 * count / required:.8f}%;background:{color}"></span>'
+    body += '</div><p style="display:flex;gap:16px;flex-wrap:wrap">'
+    for _, label, count, color in segments:
+        body += f'<span><span aria-hidden="true" style="display:inline-block;width:10px;height:10px;background:{color};margin-right:5px"></span>{label}: {count}</span>'
+    body += '</p>'
+    body += '<p id="live-progress-context">'
+    body += f'{live["completed_shards"]} / {live["required_shards"]} shards. '
+    if validated:
+        body += "Complete validated bundle."
+    body += ' Updated ' + esc(live["updated_at"]) + '.</p>'
+    if live["errors"]:
+        body += '<p>' + esc('; '.join(live["errors"])) + '</p>'
+    return body + '</section>'
+
+
 def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None):
     commit = entry["commit"]
     full_inventory = report["artifact_status"] == "pass" or live is not None
@@ -1301,50 +1374,15 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         if preview
         else '<p><a href="../../index.html">← Report history</a></p>'
     ) + "</header>"
-    native_reference = report.get("reference", {}).get("protocol") == performance.NATIVE_PROTOCOL
-    if native_reference:
-        environment = "Current reference is native macOS on Apple M2, using Mach-O executables with audited ELF-matched computation. Startup and runtime adapters are included; complete executable instruction streams and address layouts differ."
-    elif report.get("reference", {}).get("environment") == "virtualized":
-        environment = "Current reference is an Apple M2 host running a Linux ARM64 VM."
-    else:
-        environment = "Reference environment is unavailable for this report; no hardware environment is inferred."
-    body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> ' + environment + ' Core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
     if live is not None:
-        body += '<div class="notice"><strong>' + esc(live["state"].title()) + '</strong> · '
-        body += f'{live["completed_cases"]} / {live["required_cases"]} cases · {live["completed_shards"]} / {live["required_shards"]} shards. '
-        body += ('Complete validated bundle.' if live.get("validated_bundle") else
-                 'Live snapshot — not a publishable report. Partial results are not a final accuracy conclusion; the subset changes as work finishes.')
-        body += ' Updated ' + esc(live["updated_at"]) + '.</div>'
-        body += '<p>Active cases: ' + esc(', '.join(live["active_cases"]) or 'none') + '</p>'
-        if live["errors"]:
-            body += '<p class="notice">' + esc('; '.join(live["errors"])) + '</p>'
+        body += live_progress(live)
+    native_reference = report.get("reference", {}).get("protocol") == performance.NATIVE_PROTOCOL
     cases = report.get("cases", [])
     benchmarks = [c for c in cases if not is_micro_case(c)]
     micros = [c for c in cases if is_micro_case(c)]
     declared = report_manifest(report)["cases"] if full_inventory else cases
     benchmark_ids = [c["id"] for c in declared if not is_micro_case(c)]
     micro_ids = [c["id"] for c in declared if is_micro_case(c)]
-    usable = sum(c.get("reference_quality") == "usable" for c in benchmarks)
-    body += (
-        '<div class="cards">'
-        + "".join(
-            '<div class="card">'
-            + esc(label)
-            + "<strong>"
-            + esc(value)
-            + "</strong></div>"
-            for label, value in [
-                ("Report artifact", report["artifact_status"]),
-                ("Full Evaluation", entry.get("evaluation_conclusion", "not checked")),
-                (
-                    "Usable benchmark references",
-                    f"{usable} / {len(benchmark_ids) if full_inventory else '—'}",
-                ),
-                ("Hardware accuracy", report["accuracy_status"]),
-            ]
-        )
-        + "</div>"
-    )
     if report["artifact_status"] == "fail" and not report.get("head", {}).get(
         "commit", report.get("head_commit")
     ):

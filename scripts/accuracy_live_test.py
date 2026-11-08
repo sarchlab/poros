@@ -71,6 +71,69 @@ class LiveReportTests(unittest.TestCase):
         site.write(path, value)
         return live.SnapshotView(path, bundle)
 
+    def test_live_progress_follows_title_and_does_not_claim_unvalidated_completion(self):
+        value = self.snapshot()
+        progress = value["progress"]
+        entry = dict(commit=self.report["head"]["commit"])
+        page = site.detail(self.report, entry, live=progress)
+        self.assertLess(page.index('</header>'), page.index('id="case-progress"'))
+        self.assertLess(page.index('id="case-progress"'), page.index('<nav'))
+        self.assertIn('role="progressbar"', page)
+        self.assertIn('aria-valuenow="30" aria-valuemax="264"', page)
+        self.assertIn('aria-valuetext="Completed: 30; In progress: 1; Not started: 233"', page)
+        for segment in ("completed", "active", "remaining"):
+            self.assertIn(f'data-progress-state="{segment}"', page)
+        self.assertIn('30 / 264 cases · 11.4%', page)
+        self.assertNotIn('Active cases:', page)
+        self.assertIn('active_cases', progress)
+        static = site.detail(self.report, entry)
+        self.assertNotIn('id="case-progress"', static)
+        for rendered in (page, static):
+            for removed in ("Live snapshot — not a publishable report.",
+                            "Partial results are not a final accuracy conclusion",
+                            "Hardware accuracy: unverified", "Core identity and instantaneous frequency",
+                            "Report artifact", "Full Evaluation", "Usable benchmark references",
+                            '<div class="cards">'):
+                self.assertNotIn(removed, rendered)
+            self.assertIn("Evidence and provenance", rendered)
+        self.assertEqual(self.report["accuracy_status"], "unverified")
+        for state, validated, expected in (("failed", False, "Failed"),
+                                            ("complete", False, "Cases finished · validation pending"),
+                                            ("complete", True, "Complete validated bundle.")):
+            with self.subTest(state=state, validated=validated):
+                current = dict(progress, state=state, completed_cases=264,
+                               completed_shards=132, active_cases=[], validated_bundle=validated)
+                if state == "failed":
+                    current["errors"] = ["bundle <validation> failed"]
+                rendered = site.detail(self.report, entry, live=current)
+                self.assertIn(expected, rendered)
+                self.assertIn('264 / 264 cases · 100.0%', rendered)
+                if not validated:
+                    self.assertNotIn('Complete validated bundle.', rendered)
+                if state == "failed":
+                    self.assertIn('bundle &lt;validation&gt; failed', rendered)
+
+    def test_progress_counts_use_unique_active_cases_and_validate_disjointness(self):
+        value = self.snapshot()
+        progress = value["progress"]
+        progress["active_cases"] *= 3
+        with self.assertRaises(ValueError):
+            live.validate_snapshot(value)
+        rendered = site.live_progress(progress)
+        self.assertIn('Completed: 30; In progress: 1; Not started: 233', rendered)
+        idle = dict(progress, active_cases=[])
+        self.assertIn('Completed: 30; In progress: 0; Not started: 234', site.live_progress(idle))
+        for active in ([value["report"]["cases"][0]["id"]], ["unknown-case"]):
+            invalid = copy.deepcopy(value)
+            invalid["progress"]["active_cases"] = active
+            with self.assertRaises(ValueError):
+                live.validate_snapshot(invalid)
+        for completed, required in ((265, 264), (-1, 264), (0, 0)):
+            with self.assertRaises(ValueError):
+                site.live_progress(dict(idle, completed_cases=completed, required_cases=required))
+        with self.assertRaises(ValueError):
+            site.live_progress(dict(progress, completed_cases=264))
+
     def test_memory_snapshot_and_complete_bundle_share_bound_evidence(self):
         value = self.snapshot()
         report, suite = value['report'], site.memory
@@ -322,7 +385,7 @@ class LiveReportTests(unittest.TestCase):
         value = self.snapshot()
         view = self.view(value)
         page, assets = view.load()
-        self.assertIn(b'Live snapshot', page)
+        self.assertIn(b'id="case-progress"', page)
         self.assertIn(('Measurement completed (UTC): ' + value['report']['reference']['completed_at_utc']).encode(), page)
         self.assertNotIn(b'href="report.json"', page)
         self.assertNotIn(b'href="report.md"', page)
