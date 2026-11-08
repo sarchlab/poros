@@ -1,6 +1,8 @@
 package ooo
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/sarchlab/poros/pkg/mem"
@@ -160,5 +162,48 @@ func TestDoneAndFaultPathsReleaseSharedTimingClient(t *testing.T) {
 		}()
 		sibling.Advance(1000)
 		sibling.Access(0x8000, 8, false, 1000)
+	}
+}
+
+func TestRejectsLegacyOrIncompatibleStoreAllocationState(t *testing.T) {
+	for _, slots := range []int{0, 1} {
+		t.Run(fmt.Sprint(slots), func(t *testing.T) {
+			p := reservationPipeline(t, []uint32{0xf9000020}, nil)
+			// Deserialization of legacy State leaves this new field nil. A wrong
+			// nonzero length is equally incompatible with the configured capacity.
+			p.comp.State.StoreDrainUntil = make([]uint64, slots)
+			defer func() {
+				r := recover()
+				if r == nil || !strings.Contains(fmt.Sprint(r), "store-allocation state") {
+					t.Fatalf("expected explicit state error, got %v", r)
+				}
+			}()
+			p.Handle(nil)
+		})
+	}
+}
+
+func TestCheckedFetchFaultDrainsPriorStoreAllocations(t *testing.T) {
+	p := reservationPipeline(t, []uint32{0xf9000020, 0x00000000}, mem.NewCache(mem.DefaultCacheConfig()))
+	em := p.comp.Resources.Emu
+	em.Regs.WriteX(1, 0x4000)
+	// Emulator satisfies Execution; this enables the checked-process fault
+	// policy while preserving the minimal reproducible instruction stream.
+	p.comp.Resources.Execution = em
+	p.comp.Resources.Emu = nil
+	p.comp.Spec.FetchWidth = 1
+	p.Handle(nil)
+	drain := p.comp.State.StoreDrainUntil[0]
+	if drain <= p.comp.State.Cycles {
+		t.Fatal("store did not leave an allocation")
+	}
+	for !p.comp.State.Done && p.comp.State.Cycles <= drain {
+		p.Handle(nil)
+		if p.comp.State.Done && p.comp.State.Cycles < drain {
+			t.Fatalf("fetch fault terminated at%d before drain%d", p.comp.State.Cycles, drain)
+		}
+	}
+	if !p.comp.State.Done || !strings.Contains(p.comp.State.Err, "fetch:") || p.comp.State.Cycles != drain || len(p.comp.State.StoreBuffer) != 0 {
+		t.Fatalf("done=%v cycles=%d drain=%d records=%d err=%s", p.comp.State.Done, p.comp.State.Cycles, drain, len(p.comp.State.StoreBuffer), p.comp.State.Err)
 	}
 }

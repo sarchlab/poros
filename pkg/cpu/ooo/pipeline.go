@@ -49,7 +49,10 @@ func DefaultSpec() Spec {
 // Resources selects exactly one execution policy. Emu preserves legacy kernel
 // hooks and termination behavior. Execution drives a checked process: faults
 // drain older work, and SVC serializes the pipeline. Cache is optional.
-// These live objects are not included in component checkpoints.
+// These live objects are not included in component checkpoints. A Cache is a
+// single-run timed client: this pipeline advances its clock and finalizes it on
+// termination. Warm it with Lookup before starting; use a new Cache for another
+// timed run. Finalization does not prohibit untimed Lookup access.
 type Resources struct {
 	Emu       *emu.Emulator
 	Execution emu.Execution
@@ -162,6 +165,9 @@ func (p *middleware) Handle(_ timing.Event) bool {
 		}
 		return false
 	}
+	if len(p.comp.State.StoreDrainUntil) != p.comp.Spec.StoreBufferSize {
+		panic("ooo: missing or incompatible store-allocation state; pipeline-only checkpoint restore is unsupported")
+	}
 	p.comp.State.Cycles++
 	p.pruneUnitReservations()
 	if p.comp.Resources.Cache != nil {
@@ -226,8 +232,9 @@ func (p *middleware) fetchAndProcess() {
 		inst, gprs, fps, err := p.comp.Resources.peekSources(pc)
 		if err != nil {
 			if p.comp.Resources.processMode() {
-				// Resolve a checked fetch fault only after older work retires.
-				if p.comp.State.RobCount != 0 {
+				// Resolve a checked fetch fault only after older instructions
+				// and their outstanding store allocations have drained.
+				if p.comp.State.RobCount != 0 || !p.storesDrained() {
 					return
 				}
 				_, _, err = p.comp.Resources.backend().StepDetailed()
@@ -319,7 +326,7 @@ func (p *middleware) fetchAndProcess() {
 		if forwarding.forwarded {
 			latency = forwarding.latency
 		} else {
-			latency, _, dataReady = p.instrLatencyWithPC(inst, pc, issueCycle)
+			latency, dataReady = p.instrLatencyWithPC(inst, pc, issueCycle)
 		}
 		completeCycle := issueCycle + latency
 		if !instinfo.IsStore(inst.Op) && dataReady > completeCycle {
@@ -481,13 +488,13 @@ func classifyUnit(instruction arm64asm.Inst) unitType {
 
 // instrLatencyWithPC computes the execution latency for an instruction,
 // using the PC to check for hooked BL instructions.
-func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycle uint64) (latency uint64, l1Miss bool, dataReady uint64) {
+func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycle uint64) (latency uint64, dataReady uint64) {
 	// Check for hooked BL instruction.
 	if inst.Op == arm64asm.BL && p.hookCycles != nil {
 		if pcrel, ok := inst.Args[0].(arm64asm.PCRel); ok {
 			target := uint64(int64(pc) + int64(pcrel))
 			if cycles, ok := p.hookCycles[target]; ok {
-				return uint64(cycles), false, 0
+				return uint64(cycles), 0
 			}
 		}
 	}
@@ -495,18 +502,17 @@ func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycl
 }
 
 // instrLatency computes the execution latency for an instruction.
-// For loads, l1Miss indicates whether the load missed L1 (needs MSHR) and
 // dataReady is the absolute cycle at which the cache can deliver the data
 // (zero when the cache model is not timed or not present). Loads and stores
 // use the timed cache path only after the final execution-resource selection.
 // A store's data latency stays 3; dataReady holds its allocation slot, rather
 // than delaying forwarding or architectural register readiness.
-func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latency uint64, l1Miss bool, dataReady uint64) {
+func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latency uint64, dataReady uint64) {
 	if instinfo.IsLoad(inst.Op) {
 		if p.comp.Resources.Cache != nil {
 			accesses := p.comp.Resources.backend().MemoryAccesses()
 			if len(accesses) == 0 {
-				return uint64(p.comp.Spec.LoadLatency), false, 0
+				return uint64(p.comp.Spec.LoadLatency), 0
 			}
 			worst := mem.HitL1
 			for _, acc := range accesses {
@@ -521,14 +527,14 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 			cfg := p.comp.Resources.Cache.Config()
 			switch worst {
 			case mem.HitL2:
-				return uint64(cfg.L2Latency), true, dataReady
+				return uint64(cfg.L2Latency), dataReady
 			case mem.HitDRAM:
-				return uint64(cfg.DRAMLatency), true, dataReady
+				return uint64(cfg.DRAMLatency), dataReady
 			default:
-				return uint64(cfg.L1Latency), false, dataReady
+				return uint64(cfg.L1Latency), dataReady
 			}
 		}
-		return uint64(p.comp.Spec.LoadLatency), false, 0
+		return uint64(p.comp.Spec.LoadLatency), 0
 	}
 	if instinfo.IsStore(inst.Op) {
 		if p.comp.Resources.Cache != nil {
@@ -539,9 +545,9 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 				}
 			}
 		}
-		return 3, false, dataReady
+		return 3, dataReady
 	}
-	return uint64(instinfo.ExecuteLatency(inst.Op)), false, 0
+	return uint64(instinfo.ExecuteLatency(inst.Op)), 0
 }
 
 // loadMissesL1 only classifies current dispatch-order cache residency.

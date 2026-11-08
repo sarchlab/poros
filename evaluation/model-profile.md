@@ -56,7 +56,8 @@ unobserved; the same instruction class
 can behave differently in longer application dependency graphs. The unchanged
 FP path can still contain compensating errors. Full application accuracy remains
 a separate check. Existing application and instruction-throughput hardware
-references, benchmark inputs, frequency and cache defaults remain unchanged.
+references, benchmark inputs, frequency and cache defaults were unchanged by
+that forwarding correction; the later timed-fill defaults are described below.
 
 The forwarding rule itself adds no configurable default.
 Hardcoded timing/dependency behavior is identified by the exact source revision
