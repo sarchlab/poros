@@ -28,19 +28,21 @@ PERFORMANCE_MANIFEST = "tests/usertime/performance.json"
 PERFORMANCE_REFERENCE = "evaluation/usertime/m2-linuxvm-performance-v1.json"
 
 
+def _is_repeat_streamcluster(case):
+    return (case.get("file") == "tests/benchmarks/streamcluster-repeat.elf"
+            and len(case.get("args", [])) == 4 and case["args"][2:] == ["32", "16"])
+
+
 def instruction_budget(case):
     # The measured 16-pass Streamcluster workload reaches ~4.94B instructions.
     # Keep the existing limit for every other workload and malformed variants.
-    if (case.get("file") == "tests/benchmarks/streamcluster-repeat.elf"
-            and len(case.get("args", [])) == 4 and case["args"][2:] == ["32", "16"]):
-        return 6_000_000_000
-    return 2_000_000_000
+    return 6_000_000_000 if _is_repeat_streamcluster(case) else 2_000_000_000
 
 
 def execution_timeout_seconds(case):
     # Extra host-runtime margin only for the measured 16-pass workload. Shard
     # jobs remain bounded at 300 minutes; all other executions keep 45 minutes.
-    return 90 * 60 if instruction_budget(case) == 6_000_000_000 else 45 * 60
+    return 90 * 60 if _is_repeat_streamcluster(case) else 45 * 60
 
 
 def manifest_path(manifest):
