@@ -106,11 +106,23 @@ class ComputeTimeTests(unittest.TestCase):
         result, manifest = site.validate_bundle(bundle, SHA)
         self.assertEqual(len(result["cases"]), 264)
         html = (bundle / "index.html").read_text()
-        self.assertTrue("246 / 246" in html and "18 / 18" in html, "qualified coverage must retain old24 quality")
+        applications = [case for case in result["cases"] if not site.is_micro_case(case)]
+        self.assertEqual(len(applications), 246)
+        self.assertEqual(sum(case["reference_quality"] == "usable" for case in applications), 246)
+        summary = site.benchmark_summary(result)
+        self.assertEqual(summary["required"], 246)
+        self.assertEqual(summary["comparable"], 246)
+        self.assertIn("Benchmark timing table · 246 cases", html)
+        self.assertIn("Usable microbenchmark references: 18 / 18", html)
         self.assertIn("Application timing error across 246 qualified cases", html)
+        cdf = html.split("<figcaption>Absolute error distribution (CDF)</figcaption>", 1)[1].split("</figure>", 1)[0]
+        self.assertIn("cumulative fraction 246/246 = 1", cdf)
+        for case in result["cases"]:
+            if site.is_micro_case(case):
+                self.assertNotIn(case["id"] + " · cumulative fraction", cdf)
         self.assertNotIn("Case / split", html)
         self.assertTrue("m=1, n=1" in html, "missing actual dimension labels")
-        self.assertEqual(html.count("<figcaption>"), 46)  # 44 workload curves + two overall charts
+        self.assertEqual(html.count("<figcaption>"), 47)  # 44 workload curves + three overall charts
         self.assertIn("cohorts/compute/source/parsec/kernels/bodytrack.c", manifest["files"])
         self.assertIn("cohorts/compute/source/tests/benchmarks/bodytrack.c", manifest["files"])
         path = bundle / "cohorts/compute/reference" / compute.output_name(self.reference["cases"][0],compute.PROTOCOL)

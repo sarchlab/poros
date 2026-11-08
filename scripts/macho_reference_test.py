@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Native reference, archive boundaries, and local evidence import regressions."""
 import copy
+import html
 import json
 from pathlib import Path
 import shutil
@@ -27,6 +28,11 @@ class NativeReferenceTests(unittest.TestCase):
         cls.addClassCleanup(cls.temp.cleanup)
         cls.fixture = fixtures.Evidence(ROOT, Path(cls.temp.name))
         cls.declared, cls.reference = performance.load(cls.fixture.source, require_native=True)
+
+    def rendered_provenance(self, page):
+        marker = '<summary>Reference environment and exact configuration</summary><pre>'
+        self.assertIn(marker, page)
+        return json.loads(html.unescape(page.split(marker, 1)[1].split('</pre>', 1)[0]))
 
     def test_committed_capture_coverage_and_quality(self):
         declared, measured = performance.load(ROOT, require_native=True)
@@ -121,12 +127,15 @@ class NativeReferenceTests(unittest.TestCase):
             report=fixtures.compact_report(old)
             raw=Path(directory)/'report.json';compute.write(raw,report);raw.with_suffix('.md').write_text('Legacy archive')
             site.bundle(raw,old.source,Path(directory)/'bundle',fixtures.SHA)
-            self.assertIn('Linux ARM64 VM',(Path(directory)/'bundle/index.html').read_text())
+            page = (Path(directory)/'bundle/index.html').read_text()
+            evidence = self.rendered_provenance(page)
+            self.assertEqual(evidence['reference'], report['reference'])
+            self.assertEqual(evidence['reference']['environment'], 'virtualized')
 
     def test_failed_report_without_reference_does_not_claim_vm_or_native(self):
         report=dict(schema=1,artifact_status="fail",accuracy_status="unverified",head_commit=fixtures.SHA,cases=[],error="Prepare failed")
         page=site.detail(report,dict(commit=fixtures.SHA),preview=True)
-        self.assertIn("Reference environment is unavailable",page)
+        self.assertIsNone(self.rendered_provenance(page)["reference"])
         self.assertNotIn("Linux ARM64 VM",page)
         self.assertNotIn("native macOS on Apple M2",page)
 
@@ -148,7 +157,11 @@ class NativeReferenceTests(unittest.TestCase):
             site.bundle(raw,source,root/'bundle',head)
             publisher.verify_source(source,root/'bundle',head)
             page=(root/'bundle/index.html').read_text()
-            self.assertIn('native macOS on Apple M2',page)
+            evidence = self.rendered_provenance(page)
+            self.assertEqual(evidence['reference'], report['reference'])
+            self.assertEqual(evidence['reference']['protocol'], performance.NATIVE_PROTOCOL)
+            self.assertEqual(evidence['reference']['environment'], 'native')
+            self.assertEqual(evidence['reference']['executable_format'], 'Mach-O')
             self.assertIn('Frozen ELF/computation source',page)
             self.assertNotIn('Linux ARM64 VM',page)
             self.assertNotIn('Exact native collection source',page)

@@ -71,6 +71,136 @@ class LiveReportTests(unittest.TestCase):
         site.write(path, value)
         return live.SnapshotView(path, bundle)
 
+    def test_live_progress_follows_title_and_does_not_claim_unvalidated_completion(self):
+        value = self.snapshot()
+        progress = value["progress"]
+        entry = dict(commit=self.report["head"]["commit"])
+        page = site.detail(self.report, entry, live=progress)
+        self.assertLess(page.index('</header>'), page.index('id="case-progress"'))
+        self.assertLess(page.index('id="case-progress"'), page.index('<nav'))
+        self.assertIn('role="progressbar"', page)
+        self.assertIn('aria-valuenow="30" aria-valuemax="264"', page)
+        self.assertIn('aria-valuetext="Completed: 30; In progress: 1; Not started: 233"', page)
+        for segment in ("completed", "active", "remaining"):
+            self.assertIn(f'data-progress-state="{segment}"', page)
+        self.assertIn('30 / 264 cases · 11.4%', page)
+        self.assertNotIn('Active cases:', page)
+        self.assertIn('active_cases', progress)
+        static = site.detail(self.report, entry)
+        self.assertNotIn('id="case-progress"', static)
+        for rendered in (page, static):
+            for removed in ("Live snapshot — not a publishable report.",
+                            "Partial results are not a final accuracy conclusion",
+                            "Hardware accuracy: unverified", "Core identity and instantaneous frequency",
+                            "Report artifact", "Full Evaluation", "Usable benchmark references",
+                            '<div class="cards">'):
+                self.assertNotIn(removed, rendered)
+            self.assertIn("Evidence and provenance", rendered)
+        self.assertEqual(self.report["accuracy_status"], "unverified")
+        for state, validated, expected in (("failed", False, "Failed"),
+                                            ("complete", False, "Cases finished · validation pending"),
+                                            ("complete", True, "Complete validated bundle.")):
+            with self.subTest(state=state, validated=validated):
+                current = dict(progress, state=state, completed_cases=264,
+                               completed_shards=132, active_cases=[], validated_bundle=validated)
+                if state == "failed":
+                    current["errors"] = ["bundle <validation> failed"]
+                rendered = site.detail(self.report, entry, live=current)
+                self.assertIn(expected, rendered)
+                self.assertIn('264 / 264 cases · 100.0%', rendered)
+                if not validated:
+                    self.assertNotIn('Complete validated bundle.', rendered)
+                if state == "failed":
+                    self.assertIn('bundle &lt;validation&gt; failed', rendered)
+
+    def test_progress_counts_use_unique_active_cases_and_validate_disjointness(self):
+        value = self.snapshot()
+        progress = value["progress"]
+        progress["active_cases"] *= 3
+        with self.assertRaises(ValueError):
+            live.validate_snapshot(value)
+        rendered = site.live_progress(progress)
+        self.assertIn('Completed: 30; In progress: 1; Not started: 233', rendered)
+        idle = dict(progress, active_cases=[])
+        self.assertIn('Completed: 30; In progress: 0; Not started: 234', site.live_progress(idle))
+        for active in ([value["report"]["cases"][0]["id"]], ["unknown-case"]):
+            invalid = copy.deepcopy(value)
+            invalid["progress"]["active_cases"] = active
+            with self.assertRaises(ValueError):
+                live.validate_snapshot(invalid)
+        for completed, required in ((265, 264), (-1, 264), (0, 0)):
+            with self.assertRaises(ValueError):
+                site.live_progress(dict(idle, completed_cases=completed, required_cases=required))
+        with self.assertRaises(ValueError):
+            site.live_progress(dict(progress, completed_cases=264))
+
+    def test_memory_snapshot_and_complete_bundle_share_bound_evidence(self):
+        value = self.snapshot()
+        report, suite = value['report'], site.memory
+        reference = suite.load_reference(ROOT)
+        for name in [*suite.INPUTS, suite.REFERENCE]:
+            path = self.source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / name, path)
+            report['head']['files'][name] = suite.digest(path)
+        rows = [dict(id=c['id'], instructions=c['instructions_per_pass'] * c['passes'], cycles=1000000)
+                for c in reference['cases']]
+        report['memory_simulation'] = dict(base=copy.deepcopy(rows), head=copy.deepcopy(rows))
+        report['memory_base_large_image_support'] = True
+        value['memory_reference_text'] = (ROOT / suite.REFERENCE).read_text()
+        provenance = {key: report[key] for key in ('base_commit', 'head_binary_sha256', 'base_binary_sha256', 'model_profiles')}
+        provenance['head_commit'] = report['head']['commit']
+        value['memory_provenance'] = copy.deepcopy(provenance)
+        live.validate_snapshot(value)
+        rendered, assets = self.view(value).load()
+        self.assertEqual(assets['memory.json'], (ROOT / suite.REFERENCE).read_bytes())
+        text = rendered.decode()
+        self.assertLess(text.index('Memory latency, parallelism and bandwidth'), text.index('<details id="memory-diagnostics-table">'))
+        self.assertIn('data-tip=', text)
+        for mutate in (lambda v: v.pop('memory_reference_text'),
+                       lambda v: v['report']['memory_simulation'].pop('base'),
+                       lambda v: v['report'].pop('memory_base_large_image_support'),
+                       lambda v: v['report'].update(memory_base_large_image_support=False),
+                       lambda v: v['memory_provenance'].update(head_commit='0' * 40),
+                       lambda v: v['memory_provenance'].update(base_binary_sha256='0' * 64),
+                       lambda v: v.update(memory_reference_text=v['memory_reference_text'] + ' '),
+                       lambda v: v['report']['head']['files'].pop(suite.ELF)):
+            bad = copy.deepcopy(value); mutate(bad)
+            with self.assertRaises((ValueError, KeyError)): live.validate_snapshot(bad)
+        complete = copy.deepcopy(value)
+        complete['report']['cases'] = copy.deepcopy(self.report['cases'])
+        complete['progress'].update(state='complete', completed_cases=264, completed_shards=132, active_cases=[])
+        report = copy.deepcopy(complete['report']); report['artifact_status'] = 'pass'
+        folder = self.folder / 'memory-complete'
+        folder.mkdir()
+        raw = folder / 'report.json'; site.write(raw, report)
+        raw.with_suffix('.md').write_text('Synthetic memory transport; not hardware performance evidence')
+        bundle = folder / 'bundle'
+        site.bundle(raw, self.source, bundle, report['head']['commit'])
+        rendered, assets = self.view(complete, bundle).load()
+        self.assertIn(b'Complete validated bundle.', rendered)
+        self.assertEqual(assets['memory.json'], (ROOT / suite.REFERENCE).read_bytes())
+        # Adding diagnostics must leave nonempty application statistics unchanged.
+        self.assertEqual(site.benchmark_summary(report), site.benchmark_summary(self.report))
+        self.assertEqual(site.overview_charts([c for c in report['cases'] if not site.is_micro_case(c)]),
+                         site.overview_charts([c for c in self.report['cases'] if not site.is_micro_case(c)]))
+        for label, mutate in [('missing', lambda r: r.pop('memory_simulation')),
+                              ('partial', lambda r: r['memory_simulation']['base'].pop()),
+                              ('missing-capability', lambda r: r.pop('memory_base_large_image_support')),
+                              ('wrong-capability', lambda r: r.update(memory_base_large_image_support=False))]:
+            bad = copy.deepcopy(report); mutate(bad)
+            bad_raw = folder / (label + '.json'); site.write(bad_raw, bad)
+            bad_raw.with_suffix('.md').write_text('Invalid synthetic memory evidence')
+            with self.assertRaises(ValueError):
+                site.bundle(bad_raw, self.source, folder / label, report['head']['commit'])
+        (bundle / 'memory.json').write_bytes((ROOT / suite.REFERENCE).read_bytes() + b' ')
+        with self.assertRaises(ValueError): site.validate_bundle(bundle, report['head']['commit'])
+        (bundle / 'memory.json').unlink()
+        with self.assertRaises((ValueError, OSError)): site.validate_bundle(bundle, report['head']['commit'])
+        # The historical bundle has no memory declaration and remains readable.
+        historical, _ = site.validate_bundle(self.bundle, self.report['head']['commit'])
+        self.assertNotIn('memory_simulation', historical)
+
     def test_forwarding_snapshot_requires_both_revision_provenance_and_one_renderer(self):
         value=self.snapshot()
         report=value['report']
@@ -255,7 +385,7 @@ class LiveReportTests(unittest.TestCase):
         value = self.snapshot()
         view = self.view(value)
         page, assets = view.load()
-        self.assertIn(b'Live snapshot', page)
+        self.assertIn(b'id="case-progress"', page)
         self.assertIn(('Measurement completed (UTC): ' + value['report']['reference']['completed_at_utc']).encode(), page)
         self.assertNotIn(b'href="report.json"', page)
         self.assertNotIn(b'href="report.md"', page)

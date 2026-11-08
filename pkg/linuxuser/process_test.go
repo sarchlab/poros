@@ -223,3 +223,15 @@ func TestStartupLimitsBoundary(t *testing.T) {
 	process(t, Options{StackSize: 4096})
 	process(t, Options{StackSize: MaxStackSize})
 }
+
+func TestImageBudgetOptionPropagates(t *testing.T) {
+	if _, err := Parse(fixture(t), Options{MaxImageBytes: 8192}); err == nil {
+		t.Fatal("Parse ignored explicit image budget")
+	}
+	if _, err := Load("../loader/testdata/elf/startup.elf", Options{MaxImageBytes: 8192}); err == nil {
+		t.Fatal("Load ignored explicit image budget")
+	}
+	if _, err := Parse(fixture(t), Options{MaxImageBytes: 12288}); err != nil {
+		t.Fatal(err)
+	}
+}

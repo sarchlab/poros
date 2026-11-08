@@ -8,6 +8,7 @@ import frontend_microbenchmark as frontend
 import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
 import scheduling_microbenchmark as scheduling
+import memory_microbenchmark as memory
 import model_profiles
 
 
@@ -25,7 +26,8 @@ def benchmark_summary(report):
                              performance=report.get("schema") == 4)
 
 
-def compare(args, executor):
+def compare(args, executor, *, memory_simulation=None, memory_base_large_image_support=None):
+    """Optional memory_simulation consumes validated rows; None requests serial measurement."""
     import usertime as user
     output = Path(args.output)
     report = dict(schema=4, artifact_status="fail", accuracy_status="unverified", formula=user.FORMULA, cases=[])
@@ -100,6 +102,24 @@ def compare(args, executor):
                 for label, binary, revision in (("head", args.head, state["commit"]),
                                                 ("base", args.base, args.base_commit))
             }
+        if (memory_simulation is not None or memory_base_large_image_support is not None) and not memory.declared(state["files"]):
+            raise ValueError("recorded memory rows supplied without a declared suite")
+        if memory.declared(state["files"]):
+            native_memory = memory.load_reference(user.ROOT)
+            capability = memory.supports_large_images(user.ROOT, args.base_commit)
+            report["memory_base_large_image_support"] = capability
+            if memory_simulation is not None:
+                if type(memory_base_large_image_support) is not bool or memory_base_large_image_support != capability:
+                    raise ValueError("recorded memory base capability differs from source")
+                report["memory_simulation"] = memory_simulation
+            else:
+                print("accuracy memory: measuring the full memory suite serially for both revisions; use accuracy_parallel.py for sharded execution", flush=True)
+                report["memory_simulation"] = {
+                    label: memory.measure(binary, user.ROOT, revision, profiles[label])
+                    for label, binary, revision in (("head", args.head, state["commit"]),
+                                                    ("base", args.base, args.base_commit))
+                }
+            memory.validate_comparison(report["memory_simulation"], native_memory["cases"], capability)
         report["summary"] = compute.summaries(report["cases"], True)
         if user.source_state() != state or user.digest(args.head) != report["head_binary_sha256"] or user.digest(args.base) != report["base_binary_sha256"]:
             raise ValueError("source or simulator changed during comparison")

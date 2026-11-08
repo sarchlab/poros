@@ -14,6 +14,7 @@ const (
 	ELFAddressLimit      uint64 = 1 << 48
 	MaxELFFileBytes             = 16 << 20
 	MaxELFImageBytes     uint64 = 256 << 20
+	MaxELFImageLimit     uint64 = 512 << 20
 	MaxELFProgramHeaders        = 128
 )
 
@@ -42,8 +43,16 @@ type ELFImage struct {
 	Segments                    []ELFSegment
 }
 
+// ELFOptions sets a bounded image allocation budget. Zero retains the 256 MiB default.
+type ELFOptions struct{ MaxImageBytes uint64 }
+
 // LoadELF reads a bounded file and validates program headers. Sections are unused.
 func LoadELF(path string) (*ELFImage, error) {
+	return LoadELFWithOptions(path, ELFOptions{})
+}
+
+// LoadELFWithOptions keeps file and address limits unchanged.
+func LoadELFWithOptions(path string, options ELFOptions) (*ELFImage, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -53,12 +62,24 @@ func LoadELF(path string) (*ELFImage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ParseELF(b)
+	return ParseELFWithOptions(b, options)
 }
 
 // ParseELF accepts ELF64 LE AArch64 ET_EXEC with no dynamic runtime requirements.
 // Validation completes before any segment bytes are copied into the result.
 func ParseELF(b []byte) (*ELFImage, error) {
+	return ParseELFWithOptions(b, ELFOptions{})
+}
+
+// ParseELFWithOptions validates the allocation budget before parsing or allocating.
+func ParseELFWithOptions(b []byte, options ELFOptions) (*ELFImage, error) {
+	limit := options.MaxImageBytes
+	if limit == 0 {
+		limit = MaxELFImageBytes
+	}
+	if limit < ELFPageSize || limit > MaxELFImageLimit || limit%ELFPageSize != 0 {
+		return nil, elfError("limit", "image budget must be page-aligned and between 4 KiB and 512 MiB")
+	}
 	if len(b) > MaxELFFileBytes {
 		return nil, elfError("limit", "file exceeds %d bytes", MaxELFFileBytes)
 	}
@@ -153,8 +174,8 @@ func ParseELF(b []byte) (*ELFImage, error) {
 			return nil, elfError("unsupported", "segment %d has overlapping or unordered mapping pages", i)
 		}
 		previousEnd = end
-		if end-start > MaxELFImageBytes-total {
-			return nil, elfError("limit", "mapped image exceeds %d bytes", MaxELFImageBytes)
+		if end-start > limit-total {
+			return nil, elfError("limit", "mapped image exceeds %d bytes", limit)
 		}
 		total += end - start
 		// Copy the file-backed mapping, not just bytes from p_vaddr. Linux

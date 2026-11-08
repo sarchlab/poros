@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.0'
-      - name: Build exact base/head and freeze the 264-point plan
+      - name: Build exact base/head and freeze application and memory plans
         id: prepare
         env:
           BASE_REVISION: ${{ inputs.base }}
@@ -67,7 +67,7 @@ jobs:
         with:
           name: ${{ needs.accuracy-prepare.outputs.artifact }}
           path: ${{ runner.temp }}/prepared/
-      - name: Execute this shard with the prepared binaries
+      - name: Execute application and memory points with the prepared binaries
         run: |
           chmod +x "$RUNNER_TEMP/prepared/head" "$RUNNER_TEMP/prepared/base"
           python3 scripts/accuracy_parallel.py shard --prepared "$RUNNER_TEMP/prepared" \
