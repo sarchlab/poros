@@ -51,7 +51,7 @@ its buffer and permutation workspace are BSS. `memory.elf` reserves 128 MiB
 plus a 4 MiB permutation; only the five 256 MiB cases use `memory-large.elf`,
 which reserves 256 MiB plus an 8 MiB permutation. Both share exact probe bytes. One native binary reserves 256 MiB and measures
 only each case's declared footprint.
-The latter explicitly requests a 512 MiB image budget; the default loader budget
+`memory-large.elf` explicitly requests a 512 MiB image budget; the default loader budget
 remains 256 MiB. Older base revisions without this option are marked unsupported
 for those five points, with no substituted or patched base binary.
 

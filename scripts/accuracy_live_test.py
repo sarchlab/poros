@@ -75,7 +75,7 @@ class LiveReportTests(unittest.TestCase):
         value = self.snapshot()
         report, suite = value['report'], site.memory
         reference = suite.load_reference(ROOT)
-        for name in [*suite.CURRENT_INPUTS, suite.REFERENCE]:
+        for name in [*suite.INPUTS, suite.REFERENCE]:
             path = self.source / name
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, path)
@@ -83,6 +83,7 @@ class LiveReportTests(unittest.TestCase):
         rows = [dict(id=c['id'], instructions=c['instructions_per_pass'] * c['passes'], cycles=1000000)
                 for c in reference['cases']]
         report['memory_simulation'] = dict(base=copy.deepcopy(rows), head=copy.deepcopy(rows))
+        report['memory_base_large_image_support'] = True
         value['memory_reference_text'] = (ROOT / suite.REFERENCE).read_text()
         provenance = {key: report[key] for key in ('base_commit', 'head_binary_sha256', 'base_binary_sha256', 'model_profiles')}
         provenance['head_commit'] = report['head']['commit']
@@ -95,6 +96,8 @@ class LiveReportTests(unittest.TestCase):
         self.assertIn('data-tip=', text)
         for mutate in (lambda v: v.pop('memory_reference_text'),
                        lambda v: v['report']['memory_simulation'].pop('base'),
+                       lambda v: v['report'].pop('memory_base_large_image_support'),
+                       lambda v: v['report'].update(memory_base_large_image_support=False),
                        lambda v: v['memory_provenance'].update(head_commit='0' * 40),
                        lambda v: v['memory_provenance'].update(base_binary_sha256='0' * 64),
                        lambda v: v.update(memory_reference_text=v['memory_reference_text'] + ' '),
@@ -119,7 +122,9 @@ class LiveReportTests(unittest.TestCase):
         self.assertEqual(site.overview_charts([c for c in report['cases'] if not site.is_micro_case(c)]),
                          site.overview_charts([c for c in self.report['cases'] if not site.is_micro_case(c)]))
         for label, mutate in [('missing', lambda r: r.pop('memory_simulation')),
-                              ('partial', lambda r: r['memory_simulation']['base'].pop())]:
+                              ('partial', lambda r: r['memory_simulation']['base'].pop()),
+                              ('missing-capability', lambda r: r.pop('memory_base_large_image_support')),
+                              ('wrong-capability', lambda r: r.update(memory_base_large_image_support=False))]:
             bad = copy.deepcopy(report); mutate(bad)
             bad_raw = folder / (label + '.json'); site.write(bad_raw, bad)
             bad_raw.with_suffix('.md').write_text('Invalid synthetic memory evidence')

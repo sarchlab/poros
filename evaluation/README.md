@@ -78,7 +78,8 @@ error summaries. Raw measurements are never rescaled or offset.
 
 The [single-core memory suite](microbenchmarks/memory/README.md) adds random
 pointer chasing (1/2/4/8/16 independent chains) and scalar Read/Write/Copy
-bandwidth over 80 working-set/pattern points. Native Mach-O and simulated ELF
+bandwidth over 140 points: 22 chase working sets × five chain counts, plus ten
+streaming working sets × three patterns. Native Mach-O and simulated ELF
 use byte-matched computation functions and a warmed long-minus-short protocol.
 Small correctness/QEMU checks run in ordinary PR CI; the existing post-merge
 accuracy workers execute the full suite, retaining exact base/head identities.

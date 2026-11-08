@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import struct
+import subprocess
 import tempfile
 import unittest
 
@@ -37,7 +38,7 @@ class MemoryTests(unittest.TestCase):
             self.assertGreaterEqual(case['passes'] * (case['operations_per_pass'] if case['kind'] <= 5 else case['effective_bytes_per_pass']),
                                     65536 if case['kind'] <= 5 else 1048576)
 
-    def test_expanded_matrix_validation_and_legacy_definition(self):
+    def test_expanded_matrix_validation_rejects_superseded_definition(self):
         definition = memory.read(memory.ROOT / memory.DEFINITION)
         self.assertEqual(sum(c['kind'] <= 5 for c in self.cases), 110)
         self.assertEqual(sum(c['kind'] > 5 for c in self.cases), 30)
@@ -57,36 +58,56 @@ class MemoryTests(unittest.TestCase):
             bad = copy.deepcopy(definition); mutate(bad)
             with self.assertRaises(ValueError): memory.parse_cases(bad)
         old = dict(schema=1, working_set_bytes=definition['stream_working_set_bytes'], patterns=definition['patterns'])
-        legacy_cases = memory.parse_cases(old)
-        self.assertEqual(len(legacy_cases), 80)
-        self.assertTrue(all('elf' not in c for c in legacy_cases))
-        # Offline archives retain their original source hashes and schema, without
-        # pretending they match the current executable or acquisition.
-        legacy = copy.deepcopy(self.reference)
-        legacy.pop('native_capacity_bytes')
-        legacy['sources'].pop(memory.LARGE_ELF)
-        legacy['definition'] = json.dumps(old)
-        legacy['sources'][memory.DEFINITION] = hashlib.sha256(legacy['definition'].encode()).hexdigest()
-        by_id = {c['id']: c for c in legacy['cases']}
-        legacy['cases'] = [dict(by_id[c['id']], **c) for c in legacy_cases]
-        for row in legacy['cases']:
-            row.pop('elf'); row.pop('max_image_bytes')
-        memory.validate_reference(legacy)
+        with self.assertRaises(ValueError): memory.parse_cases(old)
 
     def test_only_large_base_may_be_explicitly_unavailable(self):
         plan, shards = self.plan_and_shards()
         result = parallel.recorded_memory(plan, shards, 1)
         self.assertEqual(sum(r.get('status') == memory.UNSUPPORTED_IMAGE for r in result['base']), 5)
         self.assertTrue(all('cycles' in r for r in result['head']))
+        for capability in (None, 0, 'false', True):
+            with self.assertRaises(ValueError): memory.validate_comparison(result, self.cases, capability)
         for role, index in (('head', -1), ('base', 0)):
             bad = copy.deepcopy(result); bad[role][index] = memory.unavailable(self.cases[index])
-            with self.assertRaises(ValueError): memory.validate_comparison(bad, self.cases)
+            with self.assertRaises(ValueError): memory.validate_comparison(bad, self.cases, False)
         # A base that advertises support must supply genuine executions too.
         supported = copy.deepcopy(plan); supported['memory']['base_large_image_support'] = True
         updated = copy.deepcopy(shards)
         for shard in updated: shard['plan_id'] = parallel.identity(supported)
         with self.assertRaisesRegex(ValueError, 'role mismatch'):
             parallel.recorded_memory(supported, updated, 1)
+
+    def test_source_bound_capacity_flag_probe(self):
+        # Isolated Git history keeps this test independent of shallow CI clones.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(root), *args], stderr=subprocess.DEVNULL, text=True).strip()
+            git('init'); git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.org')
+            source = root / 'cmd/poros/elf.go'; source.parent.mkdir(parents=True)
+            source.write_text('package main\n// max-image-bytes mentioned without flag registration\n')
+            git('add', '.'); git('commit', '-m', 'old binary interface')
+            old = git('rev-parse', 'HEAD')
+            source.write_text('package main\nfunc flags() { fs.Uint64("max-image-bytes", 268435456, "budget") }\n')
+            git('add', '.'); git('commit', '-m', 'bounded image option')
+            current = git('rev-parse', 'HEAD')
+            self.assertFalse(memory.supports_large_images(root, old))
+            self.assertTrue(memory.supports_large_images(root, current))
+
+    def test_image_budget_metadata_checks_default_and_large_executions(self):
+        for case in (self.cases[0], self.cases[-1]):
+            valid = self.sample(case, 1, 'head')
+            memory.validate_execution(valid, case, case['passes'], 'f' * 64)
+            changed = copy.deepcopy(valid)
+            changed['max_image_bytes'] = 536870912 if case['max_image_bytes'] == 268435456 else 268435456
+            with self.assertRaisesRegex(ValueError, 'capacity provenance'):
+                memory.validate_execution(changed, case, case['passes'], 'f' * 64)
+            del valid['max_image_bytes']
+            if case['max_image_bytes'] == 268435456:
+                memory.validate_execution(valid, case, case['passes'], 'f' * 64)  # Older base JSON.
+            else:
+                with self.assertRaisesRegex(ValueError, 'capacity provenance'):
+                    memory.validate_execution(valid, case, case['passes'], 'f' * 64)
 
     def test_random_cycles_cover_every_node_without_overlap(self):
         for size in (8192, 131072, 1048576):
@@ -177,7 +198,7 @@ class MemoryTests(unittest.TestCase):
         plan = dict(schema=1, run_id='synthetic-memory-test', prepared_attempt=1,
                     head=dict(commit='a' * 40), base_commit='b' * 40,
                     model_profiles={role: dict(profile=self.profile) for role in ('head', 'base')},
-                    memory=dict(elf_sha256='f' * 64, elfs={memory.ELF: 'f' * 64, memory.LARGE_ELF: 'f' * 64}, base_large_image_support=False, cases=self.cases, shards=parallel.partition(self.cases, count)))
+                    memory=dict(elfs={memory.ELF: 'f' * 64, memory.LARGE_ELF: 'f' * 64}, base_large_image_support=False, cases=self.cases, shards=parallel.partition(self.cases, count)))
         cases = {c['id']: c for c in self.cases}
         shards = [dict(schema=1, run_id=plan['run_id'], plan_id=parallel.identity(plan), attempt=1, shard=i,
                        status='pass', errors=[], completed_at=2,
@@ -191,7 +212,7 @@ class MemoryTests(unittest.TestCase):
         result = parallel.recorded_memory(plan, list(reversed(shards)), 1)
         for role in ('head', 'base'):
             self.assertEqual([r['id'] for r in result[role]], [c['id'] for c in self.cases])
-        memory.validate_comparison(result, self.cases)
+        memory.validate_comparison(result, self.cases, False)
 
     def test_transport_rejects_missing_duplicate_and_tampered_evidence(self):
         plan, shards = self.plan_and_shards()
@@ -214,7 +235,7 @@ class MemoryTests(unittest.TestCase):
     def test_renderer_uses_working_sets_units_tooltips_and_collapsed_table(self):
         plan, shards = self.plan_and_shards()
         result = parallel.recorded_memory(plan, shards, 1)
-        graphs, table = site.memory_panels(self.reference, result, {role: self.profile for role in ('head', 'base')})
+        graphs, table = site.memory_panels(self.reference, result, {role: self.profile for role in ('head', 'base')}, False)
         self.assertEqual(graphs.count('<figure>'), 8)
         self.assertEqual(graphs.count('class="variability-range"'), 140)
         self.assertIn('Unsupported image capacity', table)
@@ -226,7 +247,7 @@ class MemoryTests(unittest.TestCase):
         before = comparison.benchmark_summary(dict(artifact_status='pass', schema=4, cases=[]))
         after = comparison.benchmark_summary(dict(artifact_status='pass', schema=4, cases=[], memory_simulation=result))
         self.assertEqual(before, after)
-        with self.assertRaises(ValueError): site.memory_panels(self.reference, {'head': result['head']}, {'head': self.profile, 'base': self.profile})
+        with self.assertRaises(ValueError): site.memory_panels(self.reference, {'head': result['head']}, {'head': self.profile, 'base': self.profile}, False)
 
 
 if __name__ == '__main__':

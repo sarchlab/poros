@@ -83,12 +83,15 @@ def validate_snapshot(value):
                 raise ValueError("snapshot " + name + " reference bytes differ from tested source")
             reference = json.loads(reference_text)
             suite.validate_reference(reference, report["head"]["files"])
-            suite.validate_comparison(report.get(name + "_simulation"), reference["cases"])
+            if name == "memory":
+                suite.validate_comparison(report.get(name + "_simulation"), reference["cases"], report.get("memory_base_large_image_support"))
+            else:
+                suite.validate_comparison(report.get(name + "_simulation"), reference["cases"])
             expected = {key: report[key] for key in ("base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")}
             expected["head_commit"] = report["head"]["commit"]
             if value.get(name + "_provenance") != expected:
                 raise ValueError("snapshot " + name + " revision mismatch")
-        elif reference_text is not None or name + "_simulation" in report or name + "_provenance" in value:
+        elif reference_text is not None or name + "_simulation" in report or name + "_provenance" in value or (name == "memory" and "memory_base_large_image_support" in report):
             raise ValueError("snapshot " + name + " suite absent from source")
     return value
 

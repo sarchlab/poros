@@ -602,8 +602,8 @@ def validate_compact_bundle(path, commit, manifest):
         return report, manifest
     if memory.declared(report["head"]["files"]):
         native_memory = memory.validate_reference(read(path / "memory.json"), report["head"]["files"])
-        memory.validate_comparison(report.get("memory_simulation"), native_memory["cases"])
-    elif "memory_simulation" in report:
+        memory.validate_comparison(report.get("memory_simulation"), native_memory["cases"], report.get("memory_base_large_image_support"))
+    elif "memory_simulation" in report or "memory_base_large_image_support" in report:
         raise ValueError("memory suite absent from tested source")
     if scheduling.declared(report["head"]["files"]):
         native_scheduling = scheduling.validate_reference(read(path / "scheduling.json"), report["head"]["files"])
@@ -1086,10 +1086,10 @@ def scheduling_panels(reference, simulations, profiles):
 
 
 
-def memory_panels(reference, simulations, profiles):
+def memory_panels(reference, simulations, profiles, base_large_image_support):
     """One canonical renderer for CI reports, live snapshots and diagnostic previews."""
     memory.validate_reference(reference)
-    memory.validate_comparison(simulations, reference["cases"])
+    memory.validate_comparison(simulations, reference["cases"], base_large_image_support)
     frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
     if any(not memory.finite(hz) for hz in frequencies.values()):
         raise ValueError("invalid memory model frequency")
@@ -1176,7 +1176,7 @@ def memory_preview(report_path, source, output):
     reference = memory.load_reference(source)
     memory.validate_reference(reference, report['head']['files'])
     profiles = model_profiles.verify_source(source, report)
-    graphs, table = memory_panels(reference, report['memory_simulation'], profiles)
+    graphs, table = memory_panels(reference, report['memory_simulation'], profiles, report.get('memory_base_large_image_support'))
     output.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(reference_path, output / 'memory.json')
     shutil.copyfile(report_path, output / 'memory-report.json')
@@ -1384,7 +1384,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
     memory_table = ""
     if memory_reference is not None:
-        memory_charts, memory_table = memory_panels(memory_reference, report.get("memory_simulation"), model_profiles.validate(report))
+        memory_charts, memory_table = memory_panels(memory_reference, report.get("memory_simulation"), model_profiles.validate(report), report.get("memory_base_large_image_support"))
         body += memory_charts
     elif full_inventory and memory.declared(report.get("head", {}).get("files", {})):
         raise ValueError("memory reference required by tested source")

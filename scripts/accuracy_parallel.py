@@ -265,20 +265,19 @@ def recorded_executor(plan, selected, witnesses, directory):
 
 
 def memory_plan(state, shards, base):
-    """One memory case per existing accuracy worker, with explicit source binding."""
+    """Memory cases partitioned across existing workers, with explicit source binding."""
     memory.load_reference(ROOT)
     declared = memory.cases(ROOT)
     result = dict(reference_sha256=state["files"][memory.REFERENCE],
-                elf_sha256=state["files"][memory.ELF], cases=declared,
+                cases=declared,
                 shards=partition(declared, min(shards, len(declared))))
-    if memory.LARGE_ELF in state["files"]:
-        result["elfs"] = {name: state["files"][name] for name in {memory.case_elf(c) for c in declared}}
-        result["base_large_image_support"] = memory.supports_large_images(ROOT, base)
+    result["elfs"] = {name: state["files"][name] for name in {memory.case_elf(c) for c in declared}}
+    result["base_large_image_support"] = memory.supports_large_images(ROOT, base)
     return result
 
 
 def memory_roles(plan, case):
-    if case.get("max_image_bytes", 0) > 256 * 1024 * 1024:
+    if case["max_image_bytes"] > 256 * 1024 * 1024:
         if type(plan["memory"].get("base_large_image_support")) is not bool:
             raise ValueError("missing memory base image capability")
         if not plan["memory"]["base_large_image_support"]:
@@ -357,7 +356,7 @@ def recorded_memory(plan, reports, attempt):
                     raise ValueError("memory short/long pair missing")
                 revision = plan["head"]["commit"] if role == "head" else plan["base_commit"]
                 for factor, sample in enumerate(samples, 1):
-                    elf_hash = plan["memory"].get("elfs", {memory.ELF: plan["memory"]["elf_sha256"]})[memory.case_elf(case)]
+                    elf_hash = plan["memory"]["elfs"][memory.case_elf(case)]
                     memory.validate_execution(sample, case, factor * case["passes"], elf_hash,
                                               revision=revision, profile=plan["model_profiles"][role]["profile"])
                 if case["id"] in result[role]:
@@ -366,7 +365,7 @@ def recorded_memory(plan, reports, attempt):
             if "base" not in memory_roles(plan, case):
                 result["base"][case["id"]] = memory.unavailable(case)
     result = {role: [rows[c["id"]] for c in plan["memory"]["cases"]] for role, rows in result.items()}
-    memory.validate_comparison(result, plan["memory"]["cases"])
+    memory.validate_comparison(result, plan["memory"]["cases"], plan["memory"]["base_large_image_support"])
     return result
 
 
@@ -380,7 +379,7 @@ def aggregate_memory(directory, results, run_id, attempt, output):
                   plan_id=identity(plan), run_id=run_id, head=plan["head"], base_commit=plan["base_commit"],
                   head_binary_sha256=plan["binaries"]["head"], base_binary_sha256=plan["binaries"]["base"],
                   model_profiles=plan["model_profiles"], reference_sha256=plan["memory"]["reference_sha256"],
-                  memory_simulation=simulations)
+                  memory_simulation=simulations, memory_base_large_image_support=plan["memory"]["base_large_image_support"])
     write(output, report)
     return 0
 
@@ -401,12 +400,15 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
                                reference=str(ROOT / REFERENCE),
                                output=str(output))
         memory_simulation = None
+        memory_base_large_image_support = None
         if "memory" in plan:
             if any(selected[i].get("memory_records") != [] for i in range(len(plan["memory"]["shards"]), len(selected))):
                 raise ValueError("unexpected memory records in unassigned shard")
             memory_reports = [selected[i] for i in range(len(plan["memory"]["shards"]))]
             memory_simulation = recorded_memory(plan, memory_reports, attempt)
-        status = user.compare(args, executor, memory_simulation=memory_simulation)
+            memory_base_large_image_support = plan["memory"]["base_large_image_support"]
+        status = user.compare(args, executor, memory_simulation=memory_simulation,
+                              memory_base_large_image_support=memory_base_large_image_support)
         if status:
             # The shared comparator already wrote its detailed failure report.
             return status

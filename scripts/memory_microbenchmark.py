@@ -24,8 +24,7 @@ DEFINITION = DIRECTORY + 'cases.json'
 MEASUREMENT_INPUTS = [DIRECTORY + n for n in ('cases.json', 'driver.h', 'loops.S', 'native.c')]
 COLLECTOR_SOURCES = [DIRECTORY + n for n in ('linux.c', 'entry.S', 'build.sh', 'memory.elf')]
 COLLECTOR_SOURCES += ['scripts/memory_microbenchmark.py', 'tests/usertime/layout.ld']
-INPUTS = MEASUREMENT_INPUTS + COLLECTOR_SOURCES
-CURRENT_INPUTS = INPUTS + [LARGE_ELF]
+INPUTS = MEASUREMENT_INPUTS + COLLECTOR_SOURCES + [LARGE_ELF]
 PROTOCOL = 'assembly-memory-v1'
 NODE_BYTES, WARMUP_PASSES, CHASE_TAIL = 128, 2, 17
 MAX_BYTES, MASK = 64 * 1024 * 1024, (1 << 64) - 1
@@ -68,29 +67,25 @@ def write(path, value):
 
 
 def parse_cases(definition):
-    require(isinstance(definition, dict) and type(definition.get('schema')) is int and definition['schema'] in (1, 2), 'invalid memory case definition')
-    expanded = definition['schema'] == 2
-    keys = {'schema', 'patterns', 'chase_working_set_bytes', 'stream_working_set_bytes'} if expanded else {'schema', 'patterns', 'working_set_bytes'}
+    require(isinstance(definition, dict) and type(definition.get('schema')) is int and definition['schema'] == 2, 'invalid memory case definition')
+    keys = {'schema', 'patterns', 'chase_working_set_bytes', 'stream_working_set_bytes'}
     require(set(definition) == keys and json.dumps(definition['patterns'], sort_keys=True) == json.dumps(PATTERNS, sort_keys=True), 'invalid memory patterns/definition')
     def sizes(key, maximum):
         values = definition[key]
         require(isinstance(values, list) and len(values) >= 2 and all(positive(n) for n in values)
                 and values == sorted(set(values)) and all(8192 <= n <= maximum and n % (NODE_BYTES * 16) == 0 for n in values), 'invalid memory working sets')
-        if not expanded: require(all(not n & (n - 1) for n in values), 'invalid legacy memory working sets')
         return values
-    chase = sizes('chase_working_set_bytes', 256 * 1024 * 1024) if expanded else sizes('working_set_bytes', MAX_BYTES)
-    stream = sizes('stream_working_set_bytes', MAX_BYTES) if expanded else chase
+    chase = sizes('chase_working_set_bytes', 256 * 1024 * 1024)
+    stream = sizes('stream_working_set_bytes', MAX_BYTES)
     result = []
     for size in sorted(set(chase + stream)):
         for pattern in PATTERNS:
             if size not in (chase if pattern['kind'] <= 5 else stream): continue
             case = dict(pattern, id=f'{pattern["id"]}-{size}', pattern=pattern['id'], working_set_bytes=size)
-            case['passes'] = max(1, (65536 * NODE_BYTES if pattern['kind'] <= 5 else 1048576) // size)
-            if expanded:
-                minimum = max(1, ((65536 * NODE_BYTES if pattern['kind'] <= 5 else 1048576) + size - 1) // size)
-                case['passes'] = 1 << (minimum - 1).bit_length()
-                case['elf'] = LARGE_ELF if size > 128 * 1024 * 1024 else ELF
-                case['max_image_bytes'] = (512 if size > 128 * 1024 * 1024 else 256) * 1024 * 1024
+            minimum = max(1, ((65536 * NODE_BYTES if pattern['kind'] <= 5 else 1048576) + size - 1) // size)
+            case['passes'] = 1 << (minimum - 1).bit_length()
+            case['elf'] = LARGE_ELF if size > 128 * 1024 * 1024 else ELF
+            case['max_image_bytes'] = (512 if size > 128 * 1024 * 1024 else 256) * 1024 * 1024
             case['instructions_per_pass'] = instructions_per_pass(case)
             case['operations_per_pass'] = size // NODE_BYTES if pattern['kind'] <= 5 else size // (16 if pattern['kind'] == 8 else 8)
             case['effective_bytes_per_pass'] = 0 if pattern['kind'] <= 5 else size
@@ -103,13 +98,15 @@ def cases(root=ROOT):
 
 
 def case_elf(case):
-    return case.get('elf', ELF)
+    return case['elf']
 
 
 def supports_large_images(root, revision):
-    # Source capability, not a branch-name assumption or a modified base binary.
+    # Prepared binaries can target Linux while prepare runs on macOS, so a runtime
+    # help probe cannot be used here. This deliberately follows the flag registration
+    # in cmd/poros/elf.go at the exact source revision; tests lock that coupling.
     result = subprocess.run(['git', '-C', str(root), 'show', revision + ':cmd/poros/elf.go'], capture_output=True, text=True, check=True)
-    return '"max-image-bytes"' in result.stdout
+    return 'fs.Uint64("max-image-bytes",' in result.stdout
 
 
 def unavailable(case):
@@ -163,7 +160,7 @@ def execute(binary, root, case, passes, mode='ooo', revision=None, profile=None)
            '--timeout', '600s']
     if profile is not None:
         cmd += ['--frequency-hz', str(profile['configuration']['freq'])]
-    if case.get('max_image_bytes', 0) > 256 * 1024 * 1024:
+    if case['max_image_bytes'] > 256 * 1024 * 1024:
         cmd += ['--max-image-bytes', str(case['max_image_bytes'])]
     cmd += [str(Path(root) / case_elf(case)), *arguments(case, passes)]
     process = subprocess.run(cmd, capture_output=True, timeout=620)
@@ -179,8 +176,8 @@ def validate_execution(result, case, passes, elf_hash, mode='ooo', revision=None
             and result.get('env') == [] and positive(result.get('instructions'))
             and result['instructions'] <= instruction_budget(case, passes), 'invalid memory execution/identity')
     require(base64.b64decode(result['stdout_base64'], validate=True) == struct.pack('<Q', expected(case, passes)), 'memory checksum mismatch')
-    if case.get('max_image_bytes', 0) > 256 * 1024 * 1024:
-        require(result.get('max_image_bytes') == case['max_image_bytes'], 'memory image capacity provenance mismatch')
+    if 'max_image_bytes' in result or case['max_image_bytes'] > 256 * 1024 * 1024:
+        require(type(result.get('max_image_bytes')) is int and result['max_image_bytes'] == case['max_image_bytes'], 'memory image capacity provenance mismatch')
     if revision is not None:
         require(result.get('build', {}).get('vcs.revision') == revision and result['build'].get('vcs.modified') == 'false', 'memory simulator revision mismatch')
     if mode == 'functional':
@@ -221,7 +218,7 @@ def measure_case(binary, root, case, revision, profile):
 
 def measure(binary, root, revision, profile):
     large = supports_large_images(root, revision)
-    return [unavailable(case) if case.get('max_image_bytes', 0) > 256 * 1024 * 1024 and not large
+    return [unavailable(case) if case['max_image_bytes'] > 256 * 1024 * 1024 and not large
             else summarize_samples(case, measure_case(binary, root, case, revision, profile)) for case in cases(root)]
 
 
@@ -229,13 +226,15 @@ def declared(files):
     return any(name in files for name in [*MEASUREMENT_INPUTS, ELF, REFERENCE])
 
 
-def validate_comparison(simulations, declared_cases):
+def validate_comparison(simulations, declared_cases, base_large_image_support):
+    require(type(base_large_image_support) is bool, 'memory base image capability must be a boolean')
     require(isinstance(simulations, dict) and set(simulations) == {'base', 'head'}, 'memory requires both base and head simulation')
     for role, rows in simulations.items():
         require(isinstance(rows, list) and [r.get('id') for r in rows] == [c['id'] for c in declared_cases], 'memory simulation case coverage mismatch')
         for row, case in zip(rows, declared_cases):
-            if role == 'base' and row == unavailable(case):
-                require(case.get('max_image_bytes', 0) > 256 * 1024 * 1024, 'unsupported memory status for default-capacity case')
+            unsupported = role == 'base' and case['max_image_bytes'] > 256 * 1024 * 1024 and not base_large_image_support
+            if unsupported:
+                require(row == unavailable(case), 'memory unsupported base row must match declared capability')
             else:
                 validate_rows([row], [case])
 
@@ -358,16 +357,12 @@ def validate_reference(reference, files=None):
         require(stamp.utcoffset() is not None and stamp.utcoffset().total_seconds() == 0, 'memory collection timestamp not UTC')
     except (KeyError, TypeError, ValueError):
         raise ValueError('invalid memory native collection timestamp') from None
-    expanded = reference.get('native_capacity_bytes') is not None
-    required_inputs = CURRENT_INPUTS if expanded else INPUTS
     sources = reference.get('sources', {})
-    require(set(sources) == set(required_inputs) and all(sha(v) for v in sources.values()), 'incomplete memory source identities')
+    require(set(sources) == set(INPUTS) and all(sha(v) for v in sources.values()), 'incomplete memory source identities')
     definition = reference.get('definition')
     require(isinstance(definition, str) and hashlib.sha256(definition.encode()).hexdigest() == sources[DEFINITION], 'memory case definition identity mismatch')
     declared_cases = parse_cases(json.loads(definition))
-    require((json.loads(definition)['schema'] == 2) == expanded, 'memory definition/capacity mismatch')
-    if expanded:
-        require(type(reference['native_capacity_bytes']) is int and reference['native_capacity_bytes'] == 256 * 1024 * 1024, 'invalid native buffer capacity')
+    require(type(reference.get('native_capacity_bytes')) is int and reference['native_capacity_bytes'] == 256 * 1024 * 1024, 'invalid native buffer capacity')
     rows = reference.get('cases')
     require(isinstance(rows, list) and len(rows) == len(declared_cases), 'memory native coverage mismatch')
     for row, case in zip(rows, declared_cases):
@@ -384,7 +379,7 @@ def validate_reference(reference, files=None):
     require(set(audit) == set(FUNCTIONS) and all(set(v) == {'bytes', 'sha256'} and positive(v['bytes'])
             and v['bytes'] % 4 == 0 and sha(v['sha256']) for v in audit.values()), 'memory instruction audit incomplete')
     if files is not None:
-        bound_inputs = [*MEASUREMENT_INPUTS, ELF] + ([LARGE_ELF] if expanded else [])
+        bound_inputs = [*MEASUREMENT_INPUTS, ELF, LARGE_ELF]
         require(all(files.get(name) == sources[name] for name in bound_inputs), 'memory reference differs from tested measurement sources or ELF')
     return reference
 
@@ -392,7 +387,7 @@ def validate_reference(reference, files=None):
 def load_reference(root=ROOT):
     root = Path(root)
     reference = read(root / REFERENCE)
-    elfs = [ELF, LARGE_ELF] if 'native_capacity_bytes' in reference else [ELF]
+    elfs = [ELF, LARGE_ELF]
     validate_reference(reference, {name: digest(root / name) for name in [*MEASUREMENT_INPUTS, *elfs]})
     for elf in elfs:
         audit = {name: dict(bytes=len(body), sha256=hashlib.sha256(body).hexdigest())
@@ -410,8 +405,8 @@ def collect(output, evidence_dir, root=ROOT):
     audit = audit_binaries(root / ELF, binary)
     require(audit_binaries(root / LARGE_ELF, binary) == audit, 'large ELF loop audit mismatch')
     write(evidence / 'instruction-audit.json', audit)
-    source_hashes = {name: digest(root / name) for name in CURRENT_INPUTS}
-    for name in CURRENT_INPUTS:
+    source_hashes = {name: digest(root / name) for name in INPUTS}
+    for name in INPUTS:
         target = evidence / "source" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(root / name, target)
@@ -439,7 +434,7 @@ def collect(output, evidence_dir, root=ROOT):
         row = dict(case, native_passes=passes, raw_samples_sha256=digest(raw_path), **distribution([s['difference_seconds'] for s in samples]))
         reference['cases'].append(row)
         print(case['id'], row['quality'], 'median', row['median_seconds'], 'spread', row['relative_spread'], flush=True)
-    require(source_hashes == {name: digest(root / name) for name in CURRENT_INPUTS}, 'memory collection source changed')
+    require(source_hashes == {name: digest(root / name) for name in INPUTS}, 'memory collection source changed')
     validate_reference(reference)
     write(output, reference)
     write(evidence / 'reference.json', reference)
