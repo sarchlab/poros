@@ -93,6 +93,7 @@ jobs:
           mkdir -p evaluation-results
           go build -o /tmp/poros ./cmd/poros
           go test -count=1 ./pkg/loader ./pkg/linuxuser ./pkg/emu ./cmd/poros
+          go test -count=1 -run '^TestStreamclusterRepeatELF$' ./pkg/elfsim
           python3 scripts/throughput_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/forwarding_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/elf-differential_test.py

@@ -37,6 +37,12 @@ def instruction_budget(case):
     return 2_000_000_000
 
 
+def execution_timeout_seconds(case):
+    # Extra host-runtime margin only for the measured 16-pass workload. Shard
+    # jobs remain bounded at 300 minutes; all other executions keep 45 minutes.
+    return 90 * 60 if instruction_budget(case) == 6_000_000_000 else 45 * 60
+
+
 def manifest_path(manifest):
     validate_manifest(manifest)
     return PERFORMANCE_MANIFEST if manifest.get("suite") == PERFORMANCE_SUITE else "tests/usertime/manifest.json"

@@ -13,7 +13,7 @@ import math
 import statistics
 import subprocess
 import native_usertime as native
-from workload_contract import case_ids, check_output, instruction_budget
+from workload_contract import case_ids, check_output, instruction_budget, execution_timeout_seconds
 from native_usertime import (
     ROOT,
     digest,
@@ -48,6 +48,7 @@ class OutputIdentity:
 
 
 def execute(poros, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None):
+    timeout_seconds = execution_timeout_seconds(case)
     argv = [
         str(poros),
         "elf",
@@ -56,7 +57,7 @@ def execute(poros, case, mode=None, expected_output=None, expected_identity=None
         "--frequency-hz",
         str(case["frequency_hz"]),
         "--timeout",
-        "45m",
+        f"{timeout_seconds // 60}m",
         "--max-instructions",
         str(instruction_budget(case)),
         "--max-output",
@@ -67,7 +68,7 @@ def execute(poros, case, mode=None, expected_output=None, expected_identity=None
     for entry in case["env"]:
         argv += ["--env", entry]
     argv += [str(ROOT / case["file"] if "outputs" in case else ROOT / "tests/usertime" / case["file"])] + case["args"][1:]
-    p = subprocess.run(argv, capture_output=True, timeout=2750)
+    p = subprocess.run(argv, capture_output=True, timeout=timeout_seconds + 50)
     if p.returncode != 0 or p.stderr:
         raise ValueError(
             "timing execution failed: "

@@ -22,8 +22,10 @@ class UserTimeTests(unittest.TestCase):
     def test_repeat_workload_instruction_budget_is_bounded_and_specific(self):
         case=dict(file='tests/benchmarks/streamcluster-repeat.elf',args=['program','500000','32','16'])
         self.assertEqual(gate.instruction_budget(case),6_000_000_000)
+        self.assertEqual(gate.execution_timeout_seconds(case),5400)
         for changed in (dict(file='tests/benchmarks/streamcluster.elf'),dict(args=['program','500000','32','64'])):
             self.assertEqual(gate.instruction_budget(dict(case,**changed)),2_000_000_000)
+            self.assertEqual(gate.execution_timeout_seconds(dict(case,**changed)),2700)
 
     def test_repeat_execution_accepts_large_count_but_retains_upper_bound(self):
         raw=bytes(128)
@@ -36,6 +38,10 @@ class UserTimeTests(unittest.TestCase):
             gate.execute('synthetic-only',case,mode='functional',expected_output=raw)
         argv=run.call_args.args[0]
         self.assertEqual(argv[argv.index('--max-instructions')+1],'6000000000')
+        self.assertEqual(argv[argv.index('--timeout')+1],'90m')
+        self.assertEqual(run.call_args.kwargs['timeout'],5450)
+        import compute_usertime as compute
+        self.assertIs(compute.differential.execution_timeout_seconds,gate.execution_timeout_seconds)
         for instructions in (0,6_000_000_001):
             with self.assertRaises(ValueError):
                 gate.validate_execution(dict(result,instructions=instructions),case,mode='functional',expected_output=raw)

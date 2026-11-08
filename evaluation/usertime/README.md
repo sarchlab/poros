@@ -155,7 +155,8 @@ Each case requires head functional and head OoO execution. Base OoO is required
 whenever the exact base can load that ELF and retain its complete output.
 
 Per-process bounds are 2 billion instructions and 45 minutes, except the
-16-pass Streamcluster ELF's bounded 6-billion-instruction allowance. Output is bounded by
+16-pass Streamcluster ELF's bounded 6-billion-instruction and 90-minute
+allowance. The subprocess guard adds 50 seconds to the same execution timeout. Output is bounded by
 the case's declared complete output size, with a minimum 1 MiB default. Shard jobs
 have a 300-minute ceiling covering two cases and their required executions. These
 are finite safety budgets, not performance targets. Actual shard durations are

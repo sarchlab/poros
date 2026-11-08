@@ -36,8 +36,13 @@ compiler/linker identities, linked libc/libgcc archive hashes, and exact hashes
 of the build script, manifest, wrappers, original included kernels, runtime,
 startup, linker layout and ELF bytes. Source changes require rebuilding before
 validation; the catalog rejects stale bindings. Rebuilding with the recorded
-toolchain should leave the binaries unchanged. Compact same-ELF performance plotting data and complete output hashes are
-committed under `evaluation/usertime/performance-v1.json`. Small correctness native references compile the same sources with the host C compiler
+toolchain should leave the binaries unchanged. Compact matched-Mach-O performance
+plotting data and complete output hashes are committed under
+`evaluation/usertime/performance-v1.json`. Streamcluster's performance-only
+`streamcluster-repeat.elf` links the frozen original computation assembly with
+an audited wrapper. Its selected sizes use 16 complete initialization,
+computation and output passes; the small correctness ELF is unchanged. Small
+correctness native references compile the same sources with the host C compiler
 and math library using `NATIVE_REFERENCE`; only argv/stdout transport differs.
 
 ## Correctness contract
@@ -63,9 +68,13 @@ provenance fail validation. QEMU/native elapsed times here are not calibration
 measurements. `performance.json` separately declares six larger inputs for each
 workload. Together with the four microprograms, these supply the
 [264-case accuracy report](../../evaluation/usertime/README.md). The performance
-oracle compares complete native/QEMU outputs and applies independent equations
-for declared sensitive kernels; it does not claim a simulator execution. CI
-separately requires all head functional/OoO runs and every supported base run.
+oracle originally compared complete native/QEMU outputs and applied independent
+equations for declared sensitive kernels. The newer six Streamcluster points
+use native-output-block identities, full Poros functional/timing checks and an
+ELF/Mach-O wrapper audit. Ordinary CI additionally checks the actual repeat ELF
+at n=7, dim=3, k=2 against two complete original outputs in functional/OoO modes
+and, in the Linux differential job, QEMU. Native/oracle validation is separate
+from simulator validation; accuracy CI requires all head functional/OoO runs and every supported base run.
 
 ```
 go test -short ./...
