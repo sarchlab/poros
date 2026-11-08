@@ -17,10 +17,15 @@ type TimingProfile struct {
 	CacheConfig   mem.CacheConfig `json:"cache_config"`
 }
 
+// DefaultTimingProfile is the revision-bound single-core ELF OoO calibration.
+// Generic components and in-order/multicore execution retain their own defaults.
 func DefaultTimingProfile(freq timing.Freq) TimingProfile {
 	c := ooo.DefaultSpec()
 	c.Freq = freq
-	return TimingProfile{Configuration: c, CacheConfig: mem.DefaultCacheConfig()}
+	c.NumStores = 2
+	m := mem.DefaultCacheConfig()
+	m.L2Latency = 20
+	return TimingProfile{Configuration: c, CacheConfig: m}
 }
 func ReadTimingProfile(r io.Reader) (*TimingProfile, error) {
 	var p TimingProfile

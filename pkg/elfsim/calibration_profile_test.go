@@ -3,12 +3,16 @@ package elfsim
 import (
 	"context"
 	"encoding/json"
-	"github.com/sarchlab/akita/v5/sim/timing"
-	"github.com/sarchlab/poros/pkg/linuxuser"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/sarchlab/akita/v5/sim/timing"
+	"github.com/sarchlab/poros/pkg/cpu/inorder"
+	"github.com/sarchlab/poros/pkg/cpu/ooo"
+	"github.com/sarchlab/poros/pkg/linuxuser"
+	"github.com/sarchlab/poros/pkg/mem"
 )
 
 func TestTimingProfileStrictValidation(t *testing.T) {
@@ -34,7 +38,7 @@ func TestTimingProfileStrictValidation(t *testing.T) {
 	if _, err := ReadTimingProfile(strings.NewReader(string(b))); err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []string{`null`, `{}`, string(b) + ` {}`, strings.Replace(string(b), `"num_stores":0`, `"num_storse":0`, 1)} {
+	for _, bad := range []string{`null`, `{}`, string(b) + ` {}`, strings.Replace(string(b), `"num_stores":`, `"num_storse":`, 1)} {
 		if _, err := ReadTimingProfile(strings.NewReader(bad)); err == nil {
 			t.Fatal("malformed profile accepted", bad)
 		}
@@ -85,5 +89,71 @@ func TestTimingProfileAPIContract(t *testing.T) {
 	result, err := RunMultiCore(context.Background(), []*linuxuser.Process{p}, Options{Model: "ooo", FrequencyHz: 1e9, TimingProfile: &profile})
 	if err == nil || !strings.Contains(err.Error(), "custom timing profiles") || len(result.Cores) != 0 || p.Registers != before {
 		t.Fatalf("multicore silently accepted profile: result%+v err%v", result, err)
+	}
+}
+
+// Calibration belongs to the single-core ELF runner; it must not leak into
+// the generic component defaults, the in-order runner, or multicore experiments.
+func TestELFCalibrationScope(t *testing.T) {
+	image, err := os.ReadFile("../../tests/elf/hello.elf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := func() *linuxuser.Process {
+		p, err := linuxuser.Parse(image, linuxuser.Options{Args: []string{"program"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	freq := timing.GHz
+	genericCPU := ooo.DefaultSpec()
+	genericCPU.Freq = freq
+	genericCache := mem.DefaultCacheConfig()
+	if genericCPU.NumStores != 0 || genericCache.L2Latency != 14 {
+		t.Fatal("generic defaults changed")
+	}
+	expected := TimingProfile{Configuration: genericCPU, CacheConfig: genericCache}
+	expected.Configuration.NumStores = 2
+	expected.CacheConfig.L2Latency = 20
+	if !reflect.DeepEqual(DefaultTimingProfile(freq), expected) {
+		t.Fatal("ELF calibration changed more than store throughput and L2 latency")
+	}
+	for _, mode := range []string{"ooo", "inorder"} {
+		r, err := Run(context.Background(), fresh(), Options{Model: mode, FrequencyHz: float64(freq)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Termination != "exit" || string(r.Stdout) != "hello, ELF\n" || r.Instructions != 51 {
+			t.Fatalf("%s functional result changed: %+v", mode, r)
+		}
+		var want any = expected.Configuration
+		wantCache := expected.CacheConfig
+		if mode == "inorder" {
+			c := inorder.DefaultSpec()
+			c.Freq = freq
+			want = c
+			wantCache = genericCache
+		}
+		if !reflect.DeepEqual(r.Timing.Configuration, want) || r.Timing.CacheConfig != wantCache {
+			t.Fatalf("%s effective configuration: %+v", mode, r.Timing)
+		}
+	}
+	multi, err := RunMultiCore(context.Background(), []*linuxuser.Process{fresh(), fresh()}, Options{Model: "ooo", FrequencyHz: float64(freq)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(multi.Cores) != 2 {
+		t.Fatal("missing multicore results")
+	}
+	for i, r := range multi.Cores {
+		actual := r.Timing.Configuration.(ooo.Spec)
+		// The multicore builder emits an empty hook slice instead of nil.
+		if len(actual.FuncHookCycles) == 0 {
+			actual.FuncHookCycles = nil
+		}
+		if r.Termination != "exit" || string(r.Stdout) != "hello, ELF\n" || r.Instructions != 51 || !reflect.DeepEqual(actual, genericCPU) || r.Timing.CacheConfig != genericCache {
+			t.Fatalf("multicore%d changed calibration scope: %+v", i, r)
+		}
 	}
 }

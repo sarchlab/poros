@@ -3,8 +3,10 @@
 ## Status and scope
 
 The completed-store forwarding fix, candidate-profile interface, and optional
-store-transfer resource are implemented. Calibrated defaults and full acceptance
-results are still pending. The user selected this narrower increment; timed
+store-transfer resource are implemented. The provisional single-core ELF OoO
+profile sets two store transfers per cycle and L2 latency to 20 cycles. All other
+numeric parameters retain the baseline; full acceptance results are still pending.
+The user selected this narrower increment; timed
 prefetch/read-fill service and write-traffic modeling are deferred and are not
 part of this PR. The starting revision is
 `a1954771adc8a13f84f689c11e2d3229fe67c682` on the memory-accuracy umbrella.
@@ -17,7 +19,10 @@ separation, CI triggers, or the hardware-accuracy qualification.
 The first increment should test whether latency calibration and a small,
 independent store-throughput constraint improve the observed errors. It should
 not require a new CPU implementation, message-based cache hierarchy, or detailed
-DRAM controller. The default numeric timing remains the baseline while controlled candidates are measured.
+DRAM controller. The revision-bound ELF OoO default exercises this provisional
+candidate so
+the complete memory/application campaign and CI use the same effective profile.
+Generic component, in-order, and multicore numeric defaults remain unchanged.
 
 ## What the current code actually does
 
@@ -48,8 +53,8 @@ line's fill timestamp alone cannot reconstruct the overwritten cache history.
    3/20/360 CPU cycles rather than the current 5/14/335. The initial matrix
    found that lowering L1 latency worsened high-chain L1 controls, and raising
    DRAM latency worsened large Read/Copy. The next conservative candidate keeps
-   L1/DRAM at 5/335, with L2 at 20. None is selected as a default yet; these
-   are calibration candidates, not measured physical pipeline depths. Native measurements are
+   L1/DRAM at 5/335, with L2 at 20. This is the provisional ELF OoO default
+   pending complete-suite validation, not a measured physical pipeline depth. Native measurements are
    times; conversion uses the explicitly assumed model frequency. Keep cache
    geometry, workload sizes, and references fixed during this comparison.
 2. **Store throughput.** Test a distinct scalar-store issue resource alongside
@@ -145,7 +150,8 @@ functional hooks, and mismatched requested/profile frequency are rejected. A
 profile is supported only for single-core OoO; it is never silently ignored for
 functional, in-order, or multicore execution. Effective values are emitted in
 each result. `configuration.num_stores = 0` disables the extra store resource and
-is the initial default/control. Candidate profiles and measurement records live
+is the baseline/control setting; the provisional ELF OoO profile uses two.
+Candidate profiles and measurement records live
 outside the source tree until numeric selection is justified by the memory suite.
 
 ### Calibration blocker reproduced and fixed

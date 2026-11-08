@@ -122,3 +122,10 @@ This shared OoO correction also applies to multicore OoO; in-order execution is
 unchanged. Custom calibration profiles remain single-core OoO only. Timed
 prefetch/read-fill service and write-traffic modeling are deferred; the existing
 immediate tag installation and free next-line prefetch remain approximations.
+
+The provisional single-core ELF OoO profile uses `num_stores = 2` and
+`L2Latency = 20`; L1 latency 5, DRAM latency 335, MSHRs 12, line geometry,
+issue widths, ROB, and assumed frequency are retained. This profile is derived
+in `elfsim.DefaultTimingProfile` and emitted by default ELF OoO runs. Generic
+component, in-order, and multicore numeric defaults remain unchanged. Full
+memory-suite, application, and host-speed validation gates its final adoption.

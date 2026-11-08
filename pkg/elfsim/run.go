@@ -77,7 +77,11 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 			err = e
 		}
 	}()
-	cache := mem.NewCache(profile.CacheConfig)
+	cacheConfig := mem.DefaultCacheConfig()
+	if o.Model == "ooo" {
+		cacheConfig = profile.CacheConfig
+	}
+	cache := mem.NewCache(cacheConfig)
 	r.Timing = Statistics{Model: o.Model, AssumedHz: o.FrequencyHz, CacheConfig: cache.Config(), Policy: "whole ELF user execution; cold modeled cache; SVC serializes, counts as one user instruction; host syscall work and loader excluded; no kernel cache effects; not a validated hardware profile"}
 	var pipelineError string
 	if o.Model == "ooo" {
