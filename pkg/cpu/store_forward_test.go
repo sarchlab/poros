@@ -129,17 +129,16 @@ func TestFPStoreLoadChainKeepsConventionalForwarding(t *testing.T) {
 	}
 }
 
-// Many in-flight stores to distinct addresses fill the store buffer; the
-// exact-match load still matches the youngest same-address store while the
-// buffer-full accounting is retained.
-func TestStoreBufferPressureKeepsExactMatch(t *testing.T) {
+// Extra stores to distinct addresses must preserve the youngest exact-match
+// path, and all completed entries must drain by the end of execution.
+func TestExtraStoresKeepExactMatchAndDrain(t *testing.T) {
 	pressure := runForwardProbe(t, append(append([]uint32{}, maxIntoMemoryBody...), encStrW0X4Idx))
 	plain := runForwardProbe(t, maxIntoMemoryBody)
 	if perIteration(pressure) > perIteration(plain)+1 {
 		t.Fatalf("extra stores broke the exact-match match: %.2f vs %.2f", perIteration(pressure), perIteration(plain))
 	}
-	if len(pressure.State.StoreBuffer) != ooo.DefaultSpec().StoreBufferSize {
-		t.Fatalf("store buffer holds %d entries, capacity %d", len(pressure.State.StoreBuffer), ooo.DefaultSpec().StoreBufferSize)
+	if len(pressure.State.StoreBuffer) != 0 {
+		t.Fatalf("completed stores retained after execution: %d", len(pressure.State.StoreBuffer))
 	}
 }
 

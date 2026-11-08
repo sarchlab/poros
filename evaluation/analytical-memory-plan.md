@@ -134,3 +134,16 @@ functional, in-order, or multicore execution. Effective values are emitted in
 each result. `configuration.num_stores = 0` disables the extra store resource and
 is the initial default/control. Candidate profiles and measurement records live
 outside the source tree until numeric selection is justified by the memory suite.
+
+### Calibration blocker reproduced and fixed
+
+The initial control exposed an inherited bug: completed initialization stores
+remained in the store buffer and supplied conventional five-cycle forwarding
+indefinitely, bypassing cache lookup even after the line should have been evicted.
+A regression case with store completion at cycle 5 and a cold-cache load at cycle 10 produced
+completion at cycle 15 with zero cache accesses instead of the 335-cycle DRAM path. The fix
+uses query-time completion filtering without mutating future reservation history,
+plus completed-prefix pruning at actual CPU time. Youngest-overlap and
+future-query/earlier-query tests protect ordering. Numeric calibration must use
+the corrected source; initial-control measurements remain diagnostic evidence,
+not final candidate results.

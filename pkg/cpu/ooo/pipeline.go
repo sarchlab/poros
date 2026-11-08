@@ -159,6 +159,7 @@ func (p *middleware) Handle(_ timing.Event) bool {
 	}
 	p.comp.State.Cycles++
 	p.pruneUnitReservations()
+	p.pruneStores()
 
 	// Phase 1: Retire completed instructions from ROB head.
 	p.retire()

@@ -107,3 +107,11 @@ about measured M2 vector micro-ops. Joint resource search preserves future gaps
 and commits shared LDST/store reservations once, without changing store result
 latency. The existing immediate cache-fill/free-prefetch approximations remain.
 See [the calibration plan](analytical-memory-plan.md) for acceptance and limits.
+
+Completed store-buffer entries no longer provide perpetual forwarding. A load
+whose issue time is at or after a store's modeled completion consults the cache
+instead; a completed younger overlap still shadows older pending forwarding
+sources. Forwarding queries do not delete entries, because issue times can arrive
+out of order. Only a completed program-order prefix is pruned at the actual CPU
+cycle. This fixes a source-dependent timing bug without changing the numeric
+profile: keep exact source revisions when comparing candidates with older runs.
