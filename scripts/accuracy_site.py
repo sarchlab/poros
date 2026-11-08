@@ -760,13 +760,13 @@ POINT_TIPS = """<div id="point-tip" role="tooltip" hidden></div><script>
 
 
 def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=None,
-          ideal=False, note="", y_bands=()):
+          ideal=False, note="", y_bands=(), y_ranges=()):
     """Plot the data domain; guide lines never contribute observations."""
     points = [(x, y) for _, values, _ in series for x, y, _ in values]
     if not points:
         return f"<figure><figcaption>{esc(title)}</figcaption><p>No comparable points available.</p></figure>"
     xmin, xmax = min(x for x, _ in points), max(x for x, _ in points)
-    ymin, ymax = (y_ticks[0][0], y_ticks[-1][0]) if y_ticks else (0, max(y for _, y in points) or 1)
+    ymin, ymax = (y_ticks[0][0], y_ticks[-1][0]) if y_ticks else (0, max([y for _, y in points] + [high for _, _, high, _ in y_ranges]) or 1)
 
     def px(x):
         return 72 + (x - xmin) / (xmax - xmin or 1) * 329
@@ -793,6 +793,10 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
     if ideal and xmin <= min(xmax, ymax):
         stop = min(xmax, ymax)
         body += f'<path d="M{px(xmin)} {py(xmin)} L{px(stop)} {py(stop)}" stroke="#899ea7" stroke-dasharray="4 3"/>'
+    for x, low, high, color in y_ranges:
+        body += (f'<path class="variability-range" d="M{px(x):.3f} {py(low):.3f}V{py(high):.3f}'
+                 f'M{px(x)-3:.3f} {py(low):.3f}h6M{px(x)-3:.3f} {py(high):.3f}h6" '
+                 f'fill="none" stroke="{color}" opacity="0.65"/>')
     marks = {}
     for name, values, color in series:
         if not scatter:
@@ -1093,7 +1097,8 @@ def memory_panels(reference, simulations, profiles):
     for index, case in enumerate(reference["cases"]):
         chase = case["kind"] <= 5
         native_seconds = {k: case[k + "_seconds"] / case["native_passes"] for k in ("p10", "median", "p90")}
-        predicted = {role: simulations[role][index]["cycles"] / frequencies[role] / case["passes"] for role in frequencies}
+        predicted = {role: simulations[role][index]["cycles"] / frequencies[role] / case["passes"]
+                     for role in frequencies if "cycles" in simulations[role][index]}
         def metric(seconds):
             return seconds * 1e9 / case["operations_per_pass"] if chase else case["effective_bytes_per_pass"] / seconds / 1e9
         native = {k: metric(v) for k, v in native_seconds.items()}
@@ -1104,7 +1109,7 @@ def memory_panels(reference, simulations, profiles):
         low, high = sorted((native["p10"], native["p90"]))
         tooltip = (f'{case["pattern"]} · {label} ({size:,} total resident bytes)\n'
                    f'Native {native["median"]:.4f} {unit}; P10–P90 time-derived range {low:.4f}–{high:.4f} {unit}\n'
-                   f'Base {modeled["base"]:.4f}; head {modeled["head"]:.4f} {unit}\n'
+                   f'Base {format(modeled["base"], ".4f") if "base" in modeled else "unsupported image capacity"}; head {modeled["head"]:.4f} {unit}\n'
                    f'Native quality {case["quality"]}; paired-time spread {case["relative_spread"]:.2%}')
         rows.append(dict(case=case, native=native, modeled=modeled, unit=unit, size_label=label, low=low, high=high, tooltip=tooltip))
     usable = sum(row["case"]["quality"] == "usable" for row in rows)
@@ -1119,18 +1124,25 @@ def memory_panels(reference, simulations, profiles):
               '<p>One random chain measures dependent-load loop latency; multiple chains show aggregate time per load, '
               'not individual access latency. Streaming plots show effective scalar bytes/s, not cache-line or DRAM-bus traffic '
               'and not peak vector bandwidth. Sizes describe working sets, not verified physical cache levels. '
-              'Noisy native points remain visible and are identified in every tooltip.</p><div class="charts">')
+              'Noisy native points remain visible and are identified in every tooltip. '
+              'Vertical ranges show native P10–P90 repeat variability, not confidence intervals or seed sensitivity. '
+              'Base points absent because of image capacity are explicitly marked in the table.</p><div class="charts">')
     for pattern in memory.PATTERNS:
         selected = [r for r in rows if r["case"]["pattern"] == pattern["id"]]
         series = []
         for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
-            points = [(math.log2(r["case"]["working_set_bytes"]), r["native"]["median"] if role == "native" else r["modeled"][role], r["tooltip"]) for r in selected]
+            points = [(math.log2(r["case"]["working_set_bytes"]), r["native"]["median"] if role == "native" else r["modeled"][role], r["tooltip"]) for r in selected if role == 'native' or role in r['modeled']]
             series.append((role, points, color))
-        ticks = [(math.log2(r["case"]["working_set_bytes"]), r["size_label"]) for i, r in enumerate(selected)
-                 if i in (0, 2, 5, 6, len(selected) - 1)]
+        # Anchor the full logarithmic range rather than indexing into a matrix
+        # whose transition samples may become denser over time.
+        tick_sizes = {selected[0]['case']['working_set_bytes'], selected[-1]['case']['working_set_bytes'],
+                      128 * 1024, 1024 * 1024, 16 * 1024 * 1024}
+        ticks = [(math.log2(r['case']['working_set_bytes']), r['size_label']) for r in selected
+                 if r['case']['working_set_bytes'] in tick_sizes]
         title = (f'Random pointer chase · {pattern["chains"]} chain' + ('' if pattern['chains'] == 1 else 's')) if pattern['kind'] <= 5 else f'Sequential {pattern["id"].title()}'
         ylabel = ('Dependent ns/load' if pattern['kind'] == 1 else 'Aggregate ns/load') if pattern['kind'] <= 5 else 'Effective GB/s'
-        graphs += chart(title, series, 'Total working set (log₂ spacing)', ylabel, x_ticks=ticks)
+        ranges = [(math.log2(r['case']['working_set_bytes']), r['low'], r['high'], '#9a6a17') for r in selected]
+        graphs += chart(title, series, 'Total working set (log₂ spacing)', ylabel, x_ticks=ticks, y_ranges=ranges)
     graphs += '</div>'
     table = (f'<details id="memory-diagnostics-table"><summary>Memory diagnostics table · {len(rows)} points</summary>'
              '<div class="table"><table><thead><tr><th>Pattern</th><th>Total working set</th><th>Unit</th><th>Native</th>'
@@ -1139,7 +1151,7 @@ def memory_panels(reference, simulations, profiles):
         c, n, m = row['case'], row['native'], row['modeled']
         table += (f'<tr><td>{esc(c["pattern"])}</td><td>{esc(row["size_label"])}</td><td>{row["unit"]}</td>'
                   f'<td>{n["median"]:.4f}</td><td>{row["low"]:.4f}–{row["high"]:.4f}</td>'
-                  f'<td>{m["base"]:.4f}</td><td>{m["head"]:.4f}</td><td>{esc(c["quality"])}</td><td>{c["relative_spread"]:.2%}</td></tr>')
+                  f'<td>{format(m["base"], ".4f") if "base" in m else "Unsupported image capacity"}</td><td>{m["head"]:.4f}</td><td>{esc(c["quality"])}</td><td>{c["relative_spread"]:.2%}</td></tr>')
     table += ('</tbody></table></div><p>P10/P90 summarize variability, not confidence intervals. '
               'Native quality requires a ≥20 ms differential and (P90−P10)/median ≤10%. '
               'Simulation differences cover complete passes with exact instruction counts and checked outputs. '

@@ -30,10 +30,14 @@ ELF execution does not yet drive the timing model (#47).
   header must request RW only. No automatic heap, guard-page mapping or vDSO.
 
 Resource bounds are explicit: 16 MiB file, 128 program headers, 256 MiB total
-page-rounded ELF image, guest addresses from 4 KiB through `2^48-1`. The stack
+page-rounded ELF image by default, guest addresses from 4 KiB through `2^48-1`. The stack
 ends at `0x0000fffffffff000`, defaults to 1 MiB and permits page-aligned sizes
 from 4 KiB through 8 MiB. ELF/stack overlap fails. Unmapped accesses are errors; there is no implicit stack growth. These are initial simulator limits, not
-claims about every Linux executable. The process is returned only after the
+claims about every Linux executable. `Options.MaxImageBytes` can explicitly select
+a page-aligned budget up to 512 MiB; zero retains the default. The ELF CLI
+exposes `--max-image-bytes` and records its effective value in JSON. It rejects
+zero or invalid explicit values. File, address, stack, and timing limits remain
+unchanged. The process is returned only after the
 entire image and startup state have passed validation.
 
 ## ABI state

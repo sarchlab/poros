@@ -24,7 +24,7 @@ class MemoryTests(unittest.TestCase):
         cls.profile = memory.read(memory.ROOT / model_profiles.PATH)
 
     def test_matrix_residency_and_load_counts(self):
-        self.assertEqual(len(self.cases), 80)
+        self.assertEqual(len(self.cases), 140)
         for size in (8192, 131072, 16777216, 67108864):
             rows = [c for c in self.cases if c['working_set_bytes'] == size]
             self.assertEqual(len(rows), 8)
@@ -36,6 +36,57 @@ class MemoryTests(unittest.TestCase):
         for case in self.cases:
             self.assertGreaterEqual(case['passes'] * (case['operations_per_pass'] if case['kind'] <= 5 else case['effective_bytes_per_pass']),
                                     65536 if case['kind'] <= 5 else 1048576)
+
+    def test_expanded_matrix_validation_and_legacy_definition(self):
+        definition = memory.read(memory.ROOT / memory.DEFINITION)
+        self.assertEqual(sum(c['kind'] <= 5 for c in self.cases), 110)
+        self.assertEqual(sum(c['kind'] > 5 for c in self.cases), 30)
+        for case in self.cases:
+            if case['working_set_bytes'] in (98304, 163840, 196608):
+                self.assertEqual(case['passes'] & (case['passes'] - 1), 0)
+                self.assertGreaterEqual(case['passes'] * case['operations_per_pass'], 65536)
+            if case['working_set_bytes'] == 268435456:
+                self.assertEqual(case['elf'], memory.LARGE_ELF)
+                self.assertEqual(case['max_image_bytes'], 536870912)
+        for mutate in (lambda d: d['chase_working_set_bytes'].append(98304),
+                       lambda d: d['chase_working_set_bytes'].__setitem__(0, True),
+                       lambda d: d['chase_working_set_bytes'].__setitem__(0, 8193),
+                       lambda d: d['chase_working_set_bytes'].append(536870912),
+                       lambda d: d['stream_working_set_bytes'].append(134217728),
+                       lambda d: d['patterns'][0].update(chains=True)):
+            bad = copy.deepcopy(definition); mutate(bad)
+            with self.assertRaises(ValueError): memory.parse_cases(bad)
+        old = dict(schema=1, working_set_bytes=definition['stream_working_set_bytes'], patterns=definition['patterns'])
+        legacy_cases = memory.parse_cases(old)
+        self.assertEqual(len(legacy_cases), 80)
+        self.assertTrue(all('elf' not in c for c in legacy_cases))
+        # Offline archives retain their original source hashes and schema, without
+        # pretending they match the current executable or acquisition.
+        legacy = copy.deepcopy(self.reference)
+        legacy.pop('native_capacity_bytes')
+        legacy['sources'].pop(memory.LARGE_ELF)
+        legacy['definition'] = json.dumps(old)
+        legacy['sources'][memory.DEFINITION] = hashlib.sha256(legacy['definition'].encode()).hexdigest()
+        by_id = {c['id']: c for c in legacy['cases']}
+        legacy['cases'] = [dict(by_id[c['id']], **c) for c in legacy_cases]
+        for row in legacy['cases']:
+            row.pop('elf'); row.pop('max_image_bytes')
+        memory.validate_reference(legacy)
+
+    def test_only_large_base_may_be_explicitly_unavailable(self):
+        plan, shards = self.plan_and_shards()
+        result = parallel.recorded_memory(plan, shards, 1)
+        self.assertEqual(sum(r.get('status') == memory.UNSUPPORTED_IMAGE for r in result['base']), 5)
+        self.assertTrue(all('cycles' in r for r in result['head']))
+        for role, index in (('head', -1), ('base', 0)):
+            bad = copy.deepcopy(result); bad[role][index] = memory.unavailable(self.cases[index])
+            with self.assertRaises(ValueError): memory.validate_comparison(bad, self.cases)
+        # A base that advertises support must supply genuine executions too.
+        supported = copy.deepcopy(plan); supported['memory']['base_large_image_support'] = True
+        updated = copy.deepcopy(shards)
+        for shard in updated: shard['plan_id'] = parallel.identity(supported)
+        with self.assertRaisesRegex(ValueError, 'role mismatch'):
+            parallel.recorded_memory(supported, updated, 1)
 
     def test_random_cycles_cover_every_node_without_overlap(self):
         for size in (8192, 131072, 1048576):
@@ -63,9 +114,9 @@ class MemoryTests(unittest.TestCase):
         self.assertNotEqual(memory.expected(case, passes), count * (count + 1) // 2 * passes)
 
     def test_native_reference_coverage_noise_and_source_binding(self):
-        self.assertEqual(len(self.reference['cases']), 80)
+        self.assertEqual(len(self.reference['cases']), 140)
         self.assertEqual(set(self.reference['instruction_audit']), set(memory.FUNCTIONS))
-        self.assertLess((memory.ROOT / memory.REFERENCE).stat().st_size, 100000)
+        self.assertLess((memory.ROOT / memory.REFERENCE).stat().st_size, 200000)
         for row in self.reference['cases']:
             quality = 'usable' if row['median_seconds'] >= .02 and row['relative_spread'] <= .10 else 'noisy'
             self.assertEqual(row['quality'], quality)
@@ -82,7 +133,7 @@ class MemoryTests(unittest.TestCase):
             bad = copy.deepcopy(self.reference); mutate(bad)
             with self.subTest(mutation=i), self.assertRaises((ValueError, KeyError)):
                 memory.validate_reference(bad)
-        files = {n: memory.digest(memory.ROOT / n) for n in [*memory.MEASUREMENT_INPUTS, memory.ELF]}
+        files = {n: memory.digest(memory.ROOT / n) for n in [*memory.MEASUREMENT_INPUTS, memory.ELF, memory.LARGE_ELF]}
         for name in files:
             bad = dict(files); bad[name] = '0' * 64
             with self.subTest(source=name), self.assertRaises(ValueError):
@@ -115,7 +166,7 @@ class MemoryTests(unittest.TestCase):
         passes = case['passes'] * factor
         instructions = 1000 + passes * case['instructions_per_pass']
         cycles = 2000 + instructions
-        return dict(termination='exit', exit_status=0, stderr_base64='', binary_sha256='f' * 64,
+        return dict(termination='exit', exit_status=0, stderr_base64='', binary_sha256='f' * 64, max_image_bytes=case.get('max_image_bytes', 256 * 1024 * 1024),
                     args=['program', *memory.arguments(case, passes)], env=[], instructions=instructions,
                     stdout_base64=base64.b64encode(struct.pack('<Q', memory.expected(case, passes))).decode(),
                     build={'vcs.revision': ('a' if role == 'head' else 'b') * 40, 'vcs.modified': 'false'},
@@ -126,12 +177,12 @@ class MemoryTests(unittest.TestCase):
         plan = dict(schema=1, run_id='synthetic-memory-test', prepared_attempt=1,
                     head=dict(commit='a' * 40), base_commit='b' * 40,
                     model_profiles={role: dict(profile=self.profile) for role in ('head', 'base')},
-                    memory=dict(elf_sha256='f' * 64, cases=self.cases, shards=parallel.partition(self.cases, count)))
+                    memory=dict(elf_sha256='f' * 64, elfs={memory.ELF: 'f' * 64, memory.LARGE_ELF: 'f' * 64}, base_large_image_support=False, cases=self.cases, shards=parallel.partition(self.cases, count)))
         cases = {c['id']: c for c in self.cases}
         shards = [dict(schema=1, run_id=plan['run_id'], plan_id=parallel.identity(plan), attempt=1, shard=i,
                        status='pass', errors=[], completed_at=2,
                        memory_records=[dict(case_id=ident, executions={role: [self.sample(cases[ident], factor, role) for factor in (1, 2)]
-                                                                      for role in ('head', 'base')}) for ident in ids])
+                                                                      for role in parallel.memory_roles(plan, cases[ident])}) for ident in ids])
                   for i, ids in enumerate(plan['memory']['shards'])]
         return plan, shards
 
@@ -165,6 +216,8 @@ class MemoryTests(unittest.TestCase):
         result = parallel.recorded_memory(plan, shards, 1)
         graphs, table = site.memory_panels(self.reference, result, {role: self.profile for role in ('head', 'base')})
         self.assertEqual(graphs.count('<figure>'), 8)
+        self.assertEqual(graphs.count('class="variability-range"'), 140)
+        self.assertIn('Unsupported image capacity', table)
         for term in ('8 KiB', '64 MiB', 'Dependent ns/load', 'Aggregate ns/load', 'Effective GB/s', 'data-tip=', 'P10–P90', 'Native quality'):
             self.assertIn(term, graphs)
         self.assertIn('<details id="memory-diagnostics-table">', table)

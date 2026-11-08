@@ -75,7 +75,7 @@ class LiveReportTests(unittest.TestCase):
         value = self.snapshot()
         report, suite = value['report'], site.memory
         reference = suite.load_reference(ROOT)
-        for name in [*suite.INPUTS, suite.REFERENCE]:
+        for name in [*suite.CURRENT_INPUTS, suite.REFERENCE]:
             path = self.source / name
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, path)

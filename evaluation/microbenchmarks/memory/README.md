@@ -4,8 +4,10 @@ This suite measures random dependent accesses, available memory parallelism,
 and scalar streaming throughput. It changes no simulator timing parameter or
 memory mechanism. See [the umbrella plan](plan.md) for the later model work.
 
-The matrix has eight patterns at ten total working sets: 8, 32, 64, 128, and
-256 KiB; 1, 8, 16, 32, and 64 MiB. These are diagnostic coordinates, not claims
+The refreshed matrix has 140 points. Streaming Read/Write/Copy retain ten total
+working sets: 8, 32, 64, 128, and 256 KiB; 1, 8, 16, 32, and 64 MiB.
+Each of the five chase patterns also includes 96, 160, and 192 KiB;
+12, 14, 18, 20, 24, 48, 96, 128, and 256 MiB. These are diagnostic coordinates, not claims
 about the capacities of physical M2 cache levels.
 
 | Pattern | Work per complete pass | Primary plotted metric |
@@ -45,13 +47,19 @@ and native Mach-O binaries. Wrappers, startup, virtual addresses and input
 construction are not claimed to be instruction-identical. `driver.h` uses an
 explicit chain-count table shared by the case definitions, without relying on
 variable shift instructions in guest setup. The checked-in ELF remains small;
-its main 64 MiB buffer and permutation workspace are BSS, within the existing
-loader image limit.
+its buffer and permutation workspace are BSS. `memory.elf` reserves 128 MiB
+plus a 4 MiB permutation; only the five 256 MiB cases use `memory-large.elf`,
+which reserves 256 MiB plus an 8 MiB permutation. Both share exact probe bytes. One native binary reserves 256 MiB and measures
+only each case's declared footprint.
+The latter explicitly requests a 512 MiB image budget; the default loader budget
+remains 256 MiB. Older base revisions without this option are marked unsupported
+for those five points, with no substituted or patched base binary.
 
 ## Measurement contract
 
-Each short and long run independently initializes data, first-touches the pages,
-and completes two warmup passes. The timed function then executes N or 2N
+Each short and long run independently initializes data and completes two warmup
+passes. Physical first touch happens once per process; later native trials reuse
+the mapped pages. Neither initialization nor first touch is inside the timer. The timed function then executes N or 2N
 complete passes. Chase's extra 17 steps and the fixed setup/teardown cancel in
 the difference. Native timing uses `CLOCK_THREAD_CPUTIME_ID` around only the
 probe call, on one thread requesting user-interactive QoS. The entire ELF runs
@@ -67,7 +75,8 @@ these differences. A usable point requires a median of at least 20 ms and
 variability summaries, not confidence intervals. All pilot and paired records,
 collection timestamps, binaries, source snapshots, and the byte audit remain in
 the external evidence directory. Git retains compact plotting data and hashes.
-Existing hardware references are unchanged.
+All 140 active memory references are freshly captured with this protocol. Prior
+raw captures remain external historical evidence; application references are unchanged.
 
 Simulation uses enough complete passes to cover at least 65,536 pointer loads
 or 1 MiB of streaming work in the differential; larger footprints require at
@@ -98,7 +107,7 @@ GCC toolchain. Ordinary PR CI runs:
 python3 scripts/memory_microbenchmark.py smoke --poros /tmp/poros --qemu /usr/bin/qemu-aarch64
 ```
 
-This checks all eight patterns at 8 and 32 KiB in functional and timing modes,
+This checks all eight patterns at 8 and 32 KiB and the five 96 KiB chase cases in functional and timing modes,
 with the same ELF independently executed by QEMU. Native collection on a quiet
 Apple M2 host is explicit:
 
@@ -116,7 +125,7 @@ For a diagnostic-only local campaign, the same prepared plan supports
 claim that application accuracy was rerun.
 
 The shared report renderer shows logarithmically spaced working-set curves,
-point tooltips, native quality, base/head values, and collapsed tables after the
+point tooltips, native P10–P90 vertical variability ranges, quality, base/head values, and collapsed tables after the
 plots. These diagnostics remain outside application S-curves, correlations,
 ranking and error summaries. Archived reports without this suite remain readable;
 reports declaring it must contain complete matching evidence. The

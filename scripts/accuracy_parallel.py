@@ -100,7 +100,7 @@ def prepare(base, directory, run_id, attempt, shards):
     if declarations is not None:
         plan["model_profiles"] = declarations
     if memory.declared(state["files"]):
-        plan["memory"] = memory_plan(state, shards)
+        plan["memory"] = memory_plan(state, shards, base)
     if not plan["run_id"]:
         raise ValueError("run identity is required")
     write(directory / "plan.json", plan)
@@ -121,7 +121,7 @@ def load_plan(directory, run_id, attempt):
     if plan.get("model_profiles") != model_profiles.resolve(ROOT, state, plan["base_commit"]):
         raise ValueError("plan model declarations differ from source")
     if memory.declared(state["files"]):
-        if plan.get("memory") != memory_plan(state, len(plan["shards"])):
+        if plan.get("memory") != memory_plan(state, len(plan["shards"]), plan["base_commit"]):
             raise ValueError("memory plan source/coverage mismatch")
     elif "memory" in plan:
         raise ValueError("memory plan absent from source")
@@ -264,13 +264,26 @@ def recorded_executor(plan, selected, witnesses, directory):
 
 
 
-def memory_plan(state, shards):
+def memory_plan(state, shards, base):
     """One memory case per existing accuracy worker, with explicit source binding."""
     memory.load_reference(ROOT)
     declared = memory.cases(ROOT)
-    return dict(reference_sha256=state["files"][memory.REFERENCE],
+    result = dict(reference_sha256=state["files"][memory.REFERENCE],
                 elf_sha256=state["files"][memory.ELF], cases=declared,
                 shards=partition(declared, min(shards, len(declared))))
+    if memory.LARGE_ELF in state["files"]:
+        result["elfs"] = {name: state["files"][name] for name in {memory.case_elf(c) for c in declared}}
+        result["base_large_image_support"] = memory.supports_large_images(ROOT, base)
+    return result
+
+
+def memory_roles(plan, case):
+    if case.get("max_image_bytes", 0) > 256 * 1024 * 1024:
+        if type(plan["memory"].get("base_large_image_support")) is not bool:
+            raise ValueError("missing memory base image capability")
+        if not plan["memory"]["base_large_image_support"]:
+            return ("head",)
+    return ("head", "base")
 
 
 def run_memory_records(plan, directory, index, report, output):
@@ -282,7 +295,7 @@ def run_memory_records(plan, directory, index, report, output):
         record = dict(case_id=ident, executions={})
         report["memory_records"].append(record)
         try:
-            for role in ("head", "base"):
+            for role in memory_roles(plan, declared[ident]):
                 revision = plan["head"]["commit"] if role == "head" else plan["base_commit"]
                 profile = plan["model_profiles"][role]["profile"]
                 record["executions"][role] = memory.measure_case(Path(directory) / role, ROOT, declared[ident], revision, profile)
@@ -337,18 +350,21 @@ def recorded_memory(plan, reports, attempt):
             raise ValueError("memory shard case coverage mismatch")
         for record in records:
             case = declared[record["case_id"]]
-            if set(record.get("executions", {})) != {"head", "base"}:
+            if set(record.get("executions", {})) != set(memory_roles(plan, case)):
                 raise ValueError("memory execution role mismatch")
             for role, samples in record["executions"].items():
                 if not isinstance(samples, list) or len(samples) != 2:
                     raise ValueError("memory short/long pair missing")
                 revision = plan["head"]["commit"] if role == "head" else plan["base_commit"]
                 for factor, sample in enumerate(samples, 1):
-                    memory.validate_execution(sample, case, factor * case["passes"], plan["memory"]["elf_sha256"],
+                    elf_hash = plan["memory"].get("elfs", {memory.ELF: plan["memory"]["elf_sha256"]})[memory.case_elf(case)]
+                    memory.validate_execution(sample, case, factor * case["passes"], elf_hash,
                                               revision=revision, profile=plan["model_profiles"][role]["profile"])
                 if case["id"] in result[role]:
                     raise ValueError("duplicate memory execution")
                 result[role][case["id"]] = memory.summarize_samples(case, samples)
+            if "base" not in memory_roles(plan, case):
+                result["base"][case["id"]] = memory.unavailable(case)
     result = {role: [rows[c["id"]] for c in plan["memory"]["cases"]] for role, rows in result.items()}
     memory.validate_comparison(result, plan["memory"]["cases"])
     return result

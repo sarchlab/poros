@@ -3,7 +3,9 @@
 /* One shared input recipe and ABI, with platform-specific wrappers. */
 typedef unsigned long u64;
 typedef unsigned int u32;
-#define MAX_BYTES (64UL * 1024 * 1024)
+#ifndef MAX_BYTES
+#define MAX_BYTES (128UL * 1024 * 1024)
+#endif
 #define NODE_BYTES 128UL
 #define WARMUP_PASSES 2UL
 #define CHASE_TAIL 17UL
@@ -34,7 +36,7 @@ static u64 parse(const char *s) {
 }
 static int valid(u64 kind, u64 bytes, u64 passes) {
     return kind >= 1 && kind <= 8 && bytes >= 8192 && bytes <= MAX_BYTES &&
-           (bytes & (bytes - 1)) == 0 && passes >= 1 && passes <= 33554432;
+           bytes % (NODE_BYTES * 16) == 0 && passes >= 1 && passes <= 33554432;
 }
 static u64 random_next(u64 *state) {
     u64 x = *state;
