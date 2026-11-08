@@ -1290,13 +1290,29 @@ def timing_table(cases, ids):
 
 def live_progress(live):
     completed, required = live["completed_cases"], live["required_cases"]
+    # Snapshot validation rejects unknown/completed active IDs. Count unique IDs
+    # so repeated worker observations cannot inflate the in-progress segment.
+    active = len(set(live["active_cases"]))
+    remaining = required - completed - active
+    if required <= 0 or completed < 0 or remaining < 0:
+        raise ValueError("invalid live progress counts")
     percentage = 100 * completed / required
     validated = live.get("validated_bundle", False)
     state = ("Complete" if validated else "Cases finished · validation pending") if live["state"] == "complete" else live["state"].title()
     body = '<section class="notice" aria-labelledby="live-progress-label">'
-    body += '<label id="live-progress-label" for="case-progress"><strong>' + esc(state) + '</strong> · '
-    body += f'{completed} / {required} cases · {percentage:.1f}%</label>'
-    body += f'<progress id="case-progress" value="{completed}" max="{required}" aria-describedby="live-progress-context" style="display:block;width:100%;height:18px;margin-top:10px;accent-color:#006e75">{percentage:.1f}%</progress>'
+    body += '<div id="live-progress-label"><strong>' + esc(state) + '</strong> · '
+    body += f'{completed} / {required} cases · {percentage:.1f}%</div>'
+    segments = (("completed", "Completed", completed, "#168574"),
+                ("active", "In progress", active, "#4e87d4"),
+                ("remaining", "Not started", remaining, "#d7e1e4"))
+    description = "; ".join(f"{label}: {count}" for _, label, count, _ in segments)
+    body += f'<div id="case-progress" role="progressbar" aria-label="Case progress" aria-valuemin="0" aria-valuenow="{completed}" aria-valuemax="{required}" aria-valuetext="{description}" aria-describedby="live-progress-context" style="display:flex;height:18px;margin-top:10px;border-radius:4px;overflow:hidden">'
+    for key, _, count, color in segments:
+        body += f'<span data-progress-state="{key}" aria-hidden="true" style="width:{100 * count / required:.8f}%;background:{color}"></span>'
+    body += '</div><p style="display:flex;gap:16px;flex-wrap:wrap">'
+    for _, label, count, color in segments:
+        body += f'<span><span aria-hidden="true" style="display:inline-block;width:10px;height:10px;background:{color};margin-right:5px"></span>{label}: {count}</span>'
+    body += '</p>'
     body += '<p id="live-progress-context">'
     body += f'{live["completed_shards"]} / {live["required_shards"]} shards. '
     if validated:
@@ -1310,8 +1326,7 @@ def live_progress(live):
 def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None):
     commit = entry["commit"]
     full_inventory = report["artifact_status"] == "pass" or live is not None
-    body = live_progress(live) if live is not None else ""
-    body += (
+    body = (
         '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
         + esc(commit)
         + "</code></p>"
@@ -1321,6 +1336,8 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         if preview
         else '<p><a href="../../index.html">← Report history</a></p>'
     ) + "</header>"
+    if live is not None:
+        body += live_progress(live)
     native_reference = report.get("reference", {}).get("protocol") == performance.NATIVE_PROTOCOL
     cases = report.get("cases", [])
     benchmarks = [c for c in cases if not is_micro_case(c)]

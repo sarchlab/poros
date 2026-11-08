@@ -58,7 +58,8 @@ def validate_snapshot(value):
             or progress["required_shards"] <= 0
             or not isinstance(progress["errors"], list) or not all(isinstance(e, str) for e in progress["errors"])
             or not isinstance(progress["active_cases"], list)
-            or any(i not in cases or i in ids for i in progress["active_cases"])):
+            or any(i not in cases or i in ids for i in progress["active_cases"])
+            or len(set(progress["active_cases"])) != len(progress["active_cases"])):
         raise ValueError("invalid snapshot progress")
     if datetime.fromisoformat(progress["updated_at"]).utcoffset() is None:
         raise ValueError("snapshot timestamp needs timezone")
