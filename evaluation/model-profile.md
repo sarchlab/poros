@@ -104,7 +104,9 @@ pending lines and the adjacent 64 B half of a 128 B L2 line. The OoO pipeline
 probes residency without mutation, selects the execution unit and MSHR, and
 only then commits the access at its final issue cycle. A demand miss holds its
 MSHR until the actual modeled load completion. Prefetches do not occupy demand
-MSHRs; the stream table and distance bound their lookahead.
+MSHRs; the stream table and distance bound their lookahead. A hit on a pending
+L1 fill waits for that arrival without reserving another demand MSHR. This is a
+merged-request approximation; the ROB bounds the number of waiting loads.
 
 Timed fills use two finite transports: every 64 B L1 fill occupies 2 cycles on
 the L2-to-L1 transport (`FillBytesPerCycle` = 32), and every 128 B DRAM fill
@@ -121,6 +123,9 @@ the later of data completion and its allocation-fill readiness. A paired store
 holds its slot until both accesses are ready. The allocation pool uses the
 existing `StoreBufferSize` (56) as a capacity assumption, not a measured M2
 structure. A full pool backpressures dispatch before functional store execution.
+Forwarding records are released at the later of allocation-fill readiness and
+store-data completion, rather than retained in a lingering FIFO. Subsequent
+loads consult the cache after that record has drained.
 Normal program termination and serialized process syscalls wait for these
 allocations to drain, so a terminal store stream cannot escape its outstanding
 cost. Stores use the same allocation transports and adjacent-line prefetch as
