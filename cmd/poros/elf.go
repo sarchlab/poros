@@ -29,7 +29,6 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	fs := flag.NewFlagSet("elf", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
 	imageLimit := fs.Uint64("max-image-bytes", loader.MaxELFImageBytes, "page-aligned ELF image budget, at most 512 MiB (default 256 MiB)")
-	profilePath := fs.String("timing-profile", "", "complete lightweight OoO CPU/cache JSON profile for calibration")
 	mode := fs.String("mode", "functional", "functional, inorder or ooo")
 	hz := fs.Float64("frequency-hz", 3.49e9, "assumed integer CPU Hz (1 MHz to 1 THz), not measured")
 	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
@@ -52,24 +51,6 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	if *mode != "functional" && *hz == 0 {
 		fmt.Fprintln(diagnostics, "timing frequency must be positive integer CPU Hz (1 MHz to 1 THz)")
 		return 2
-	}
-	var profile *elfsim.TimingProfile
-	if *profilePath != "" {
-		if *mode != "ooo" {
-			fmt.Fprintln(diagnostics, "timing profiles require --mode ooo")
-			return 2
-		}
-		pf, err := os.Open(*profilePath)
-		if err != nil {
-			fmt.Fprintln(diagnostics, err)
-			return 2
-		}
-		profile, err = elfsim.ReadTimingProfile(io.LimitReader(pf, 1<<20))
-		pf.Close()
-		if err != nil {
-			fmt.Fprintln(diagnostics, err)
-			return 2
-		}
 	}
 	path := fs.Arg(0)
 	f, err := os.Open(path)
@@ -99,7 +80,7 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 		result, err = p.Run(context.Background(), limits)
 	} else {
 		var timed elfsim.Result
-		timed, err = elfsim.Run(context.Background(), p, elfsim.Options{Model: *mode, TimingProfile: profile, FrequencyHz: *hz, Limits: limits})
+		timed, err = elfsim.Run(context.Background(), p, elfsim.Options{Model: *mode, FrequencyHz: *hz, Limits: limits})
 		result = timed.Result
 		timingStats = &timed.Timing
 	}

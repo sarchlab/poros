@@ -6,7 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sarchlab/akita/v5/sim/timing"
+	"github.com/sarchlab/poros/pkg/cpu/ooo"
+	"github.com/sarchlab/poros/pkg/mem"
 )
 
 // Calibration declarations are independent of frozen native input manifests,
@@ -20,7 +21,7 @@ func TestDeclaredModelProfileMatchesRuntimeDefaults(t *testing.T) {
 	if err = json.Unmarshal(data, &declared); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := json.Marshal(DefaultTimingProfile(3490 * timing.MHz))
+	raw, err := json.Marshal(map[string]any{"configuration": ooo.DefaultSpec(), "cache_config": mem.DefaultCacheConfig()})
 	if err != nil {
 		t.Fatal(err)
 	}

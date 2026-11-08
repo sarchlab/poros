@@ -5,7 +5,7 @@
     "L1LineSize": 64,
     "L1Size": 131072,
     "L1Ways": 8,
-    "L2Latency": 20,
+    "L2Latency": 14,
     "L2LineSize": 128,
     "L2Size": 16777216,
     "L2Ways": 16
@@ -22,7 +22,6 @@
     "num_int": 6,
     "num_ldst": 4,
     "num_mshr_entries": 12,
-    "num_stores": 2,
     "predictor": {
       "bimodal_size": 4096,
       "btb_size": 2048,

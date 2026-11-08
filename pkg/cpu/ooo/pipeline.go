@@ -26,7 +26,6 @@ type Spec struct {
 	ROBCapacity      int           `json:"rob_capacity"`
 	NumINT           int           `json:"num_int"`
 	NumFP            int           `json:"num_fp"`
-	NumStores        int           `json:"num_stores"` // zero disables the additional store-transfer limit
 	NumLDST          int           `json:"num_ldst"`
 	BranchPenalty    int           `json:"branch_penalty"`
 	LoadLatency      int           `json:"load_latency"`
@@ -41,7 +40,7 @@ type Spec struct {
 func DefaultSpec() Spec {
 	return Spec{
 		Freq: 3490 * timing.MHz, FetchWidth: 8, RetireWidth: 8, ROBCapacity: 256,
-		NumINT: 6, NumFP: 4, NumLDST: 4, NumStores: 0, BranchPenalty: 17, LoadLatency: 5,
+		NumINT: 6, NumFP: 4, NumLDST: 4, BranchPenalty: 17, LoadLatency: 5,
 		FpPhysLimit: 72, StoreBufferSize: 56, NumMSHREntries: 12, BranchPrediction: true,
 		Predictor: PredictorSpec{BimodalSize: 4096, TaggedTableSize: 2048, BTBSize: 2048, BTBWays: 4, RASSize: 32, TaggedHistLen: 32},
 	}
@@ -66,7 +65,6 @@ type State struct {
 	GprReady, FpReady            [32]uint64
 	FlagsReady                   uint64
 	IntUnits, FpUnits, LdstUnits [][]UnitReservation
-	StoreUnits                   [][]UnitReservation
 	Rob                          []uint64
 	RobFPDests                   []int
 	RobHead, RobTail, RobCount   int
@@ -105,13 +103,12 @@ func (s *State) Initialize(c *Comp) {
 		panic("ooo: enable emulator memory access tracking before Build")
 	}
 	v := c.Spec
-	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumLDST < 1 || v.NumStores < 0 || v.NumStores > 64 || v.LoadLatency < 1 || v.FpPhysLimit < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
+	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumLDST < 1 || v.LoadLatency < 1 || v.FpPhysLimit < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
 	}
 	s.IntUnits = make([][]UnitReservation, v.NumINT)
 	s.FpUnits = make([][]UnitReservation, v.NumFP)
 	s.LdstUnits = make([][]UnitReservation, v.NumLDST)
-	s.StoreUnits = make([][]UnitReservation, v.NumStores)
 	s.Rob = make([]uint64, v.ROBCapacity)
 	s.RobFPDests = make([]int, v.ROBCapacity)
 	s.StoreBuffer = make([]storeBufferEntry, 0, v.StoreBufferSize)
@@ -159,7 +156,6 @@ func (p *middleware) Handle(_ timing.Event) bool {
 	}
 	p.comp.State.Cycles++
 	p.pruneUnitReservations()
-	p.pruneStores()
 
 	// Phase 1: Retire completed instructions from ROB head.
 	p.retire()
@@ -295,9 +291,7 @@ func (p *middleware) fetchAndProcess() {
 		} else {
 			latency, miss = p.instrLatencyWithPC(inst, pc)
 		}
-		if instinfo.IsStore(inst.Op) && p.comp.Spec.NumStores > 0 {
-			issueCycle = p.reserveStoreIssue(issueCycle, storeTransfers(inst))
-		} else if usesUnit {
+		if usesUnit {
 			issueCycle = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss, latency)
 		}
 		completeCycle := issueCycle + latency

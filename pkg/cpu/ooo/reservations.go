@@ -28,7 +28,7 @@ func (p *middleware) units(ut unitType) [][]UnitReservation {
 // Discard only intervals that have ended at the actual pipeline cycle. A
 // future operand-ready time must not erase reservations needed by younger work.
 func (p *middleware) pruneUnitReservations() {
-	for _, units := range [][][]UnitReservation{p.comp.State.IntUnits, p.comp.State.FpUnits, p.comp.State.LdstUnits, p.comp.State.StoreUnits} {
+	for _, units := range [][][]UnitReservation{p.comp.State.IntUnits, p.comp.State.FpUnits, p.comp.State.LdstUnits} {
 		for i, list := range units {
 			n := 0
 			for n < len(list) && list[n].End <= p.comp.State.Cycles {
@@ -58,10 +58,7 @@ func firstUnitGap(list []UnitReservation, earliest, occupancy uint64) uint64 {
 }
 
 func (p *middleware) findUnit(ut unitType, earliest, occupancy uint64) (int, uint64) {
-	return findResource(p.units(ut), earliest, occupancy)
-}
-
-func findResource(units [][]UnitReservation, earliest, occupancy uint64) (int, uint64) {
+	units := p.units(ut)
 	best, start := 0, firstUnitGap(units[0], earliest, occupancy)
 	if start == earliest {
 		return best, start
@@ -88,14 +85,7 @@ func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64, miss 
 	}
 	unit, issue := p.findUnit(ut, earliest, occupancy)
 	units := p.units(ut)
-	units[unit] = insertReservation(units[unit], issue, occupancy)
-	if mshr >= 0 {
-		p.comp.State.MshrBusyUntil[mshr] = issue + latency
-	}
-	return issue
-}
-
-func insertReservation(list []UnitReservation, issue, occupancy uint64) []UnitReservation {
+	list := units[unit]
 	reservation := UnitReservation{Start: issue, End: issue + occupancy}
 	if len(list) == 0 || list[len(list)-1].End <= issue {
 		list = append(list, reservation)
@@ -105,7 +95,11 @@ func insertReservation(list []UnitReservation, issue, occupancy uint64) []UnitRe
 		copy(list[pos+1:], list[pos:])
 		list[pos] = reservation
 	}
-	return list
+	units[unit] = list
+	if mshr >= 0 {
+		p.comp.State.MshrBusyUntil[mshr] = issue + latency
+	}
+	return issue
 }
 
 // Occupancy controls issue throughput; it is independent of result latency.
@@ -119,32 +113,5 @@ func unitOccupancy(op arm64asm.Op) uint64 {
 		return 6
 	default:
 		return 1
-	}
-}
-
-// storeTransfers counts architectural transfers, not bytes or assumed physical
-// micro-ops: a single scalar/Q store is one, STP is two. The empirical scalar
-// throughput anchor does not establish vector store-port widths.
-func storeTransfers(inst arm64asm.Inst) uint64 {
-	if inst.Op == arm64asm.STP {
-		return 2
-	}
-	return 1
-}
-
-// reserveStoreIssue finds a common gap before committing either resource.
-// A pair occupies a store lane for two cycles but one shared AGU issue slot;
-// functional store values and the existing result latency are unchanged.
-func (p *middleware) reserveStoreIssue(earliest, transfers uint64) uint64 {
-	for {
-		agu, at := p.findUnit(unitLDST, earliest, 1)
-		store, both := findResource(p.comp.State.StoreUnits, at, transfers)
-		if both != at {
-			earliest = both
-			continue
-		}
-		p.comp.State.LdstUnits[agu] = insertReservation(p.comp.State.LdstUnits[agu], at, 1)
-		p.comp.State.StoreUnits[store] = insertReservation(p.comp.State.StoreUnits[store], at, transfers)
-		return at
 	}
 }

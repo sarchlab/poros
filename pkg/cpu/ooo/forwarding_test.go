@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/sarchlab/poros/pkg/emu"
-	"github.com/sarchlab/poros/pkg/mem"
 )
 
 func TestForwardingSelectsOnlyEligibleYoungestStores(t *testing.T) {
@@ -25,7 +24,7 @@ func TestForwardingSelectsOnlyEligibleYoungestStores(t *testing.T) {
 		{"youngest exact shadows older slow store", []storeBufferEntry{oldSlow, youngFast}, load, true, loadForwarding{5, 8, 1, true}},
 		{"youngest partial shadows older exact", []storeBufferEntry{oldSlow, {Addr: 0x1002, Size: 2, ReadyCycle: 8, CompleteCycle: 11, FastForwardEligible: true}}, load, true, loadForwarding{23, 0, 5, true}},
 		{"youngest FP shadows older exact", []storeBufferEntry{oldSlow, {Addr: 0x1000, Size: 4, ReadyCycle: 8, CompleteCycle: 11}}, load, true, loadForwarding{23, 0, 5, true}},
-		{"already completed", []storeBufferEntry{{Addr: 0x1000, Size: 4, ReadyCycle: 2, CompleteCycle: 5, FastForwardEligible: true}}, load, true, loadForwarding{5, 0, 5, false}},
+		{"already completed", []storeBufferEntry{{Addr: 0x1000, Size: 4, ReadyCycle: 2, CompleteCycle: 5, FastForwardEligible: true}}, load, true, loadForwarding{5, 0, 5, true}},
 		{"partial without covering store", []storeBufferEntry{{Addr: 0x1002, Size: 2, ReadyCycle: 8, CompleteCycle: 11, FastForwardEligible: true}}, load, true, loadForwarding{11, 0, 5, false}},
 		{"FP load", []storeBufferEntry{youngFast}, load, false, loadForwarding{11, 0, 5, true}},
 		{"multiple accesses retain conventional path", []storeBufferEntry{youngFast, {Addr: 0x1004, Size: 4, ReadyCycle: 12, CompleteCycle: 15, FastForwardEligible: true}}, []emu.MemAccess{{Addr: 0x1000, Size: 4}, {Addr: 0x1004, Size: 4}}, true, loadForwarding{15, 0, 5, true}},
@@ -98,63 +97,5 @@ func TestDirectGPRTransferEligibility(t *testing.T) {
 				t.Fatalf("%s: eligible=%v, want %v", decoded, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestCompletedStoreCannotHideLateCacheMiss(t *testing.T) {
-	cache := mem.NewCache(mem.DefaultCacheConfig())
-	p := reservationPipeline(t, []uint32{0xf9400020}, cache)
-	p.comp.State.Cycles = 10
-	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
-	p.comp.Resources.Emu.Mem.WriteU64(0x4000, 42)
-	// The line has since been evicted: timing cache is cold, while the
-	// functional value and a historical completed store remain available.
-	p.comp.State.StoreBuffer = []storeBufferEntry{{Addr: 0x4000, Size: 8, ReadyCycle: 2, CompleteCycle: 5, FastForwardEligible: true}}
-	p.fetchAndProcess()
-	want := uint64(10 + mem.DefaultCacheConfig().DRAMLatency)
-	if p.comp.State.GprReady[0] != want || cache.Stats().L2Misses != 1 || p.comp.State.MshrBusyUntil[0] != want {
-		t.Fatalf("late load ready%d cache%+v MSHR%d; want cache miss ready%d", p.comp.State.GprReady[0], cache.Stats(), p.comp.State.MshrBusyUntil[0], want)
-	}
-	if p.comp.Resources.Emu.Regs.ReadX(0) != 42 {
-		t.Fatal("functional value changed")
-	}
-}
-
-func TestForwardingFutureQueryDoesNotEraseEarlierVisibility(t *testing.T) {
-	p := &middleware{comp: &Comp{State: State{Cycles: 1, StoreBuffer: []storeBufferEntry{{Addr: 0x1000, Size: 8, ReadyCycle: 8, CompleteCycle: 11, FastForwardEligible: true}}}}}
-	access := []emu.MemAccess{{Addr: 0x1000, Size: 8}}
-	if got := p.forwardLoad(access, 100, true); got.forwarded {
-		t.Fatal("future load forwarded from drained store")
-	}
-	if got := p.forwardLoad(access, 5, true); !got.forwarded || got.dataReady != 8 || got.latency != 1 {
-		t.Fatalf("future query destroyed earlier dependency: %+v", got)
-	}
-	if len(p.comp.State.StoreBuffer) != 1 {
-		t.Fatal("query mutated store history")
-	}
-}
-
-func TestCompletedYoungerStoreStillShadowsPendingOlderStore(t *testing.T) {
-	p := &middleware{comp: &Comp{State: State{Cycles: 5, StoreBuffer: []storeBufferEntry{
-		{Addr: 0x1000, Size: 8, ReadyCycle: 90, CompleteCycle: 93, FastForwardEligible: true},
-		{Addr: 0x1000, Size: 8, ReadyCycle: 1, CompleteCycle: 4, FastForwardEligible: true},
-	}}}}
-	if got := p.forwardLoad([]emu.MemAccess{{Addr: 0x1000, Size: 8}}, 5, true); got.forwarded {
-		t.Fatalf("drained younger store exposed older forwarding: %+v", got)
-	}
-}
-
-func TestStorePruningUsesActualCycleAndPreservesShadowSuffix(t *testing.T) {
-	p := &middleware{comp: &Comp{State: State{Cycles: 5, StoreBuffer: []storeBufferEntry{
-		{Addr: 1, CompleteCycle: 3}, {Addr: 2, CompleteCycle: 100}, {Addr: 2, CompleteCycle: 4},
-	}}}}
-	p.pruneStores()
-	if len(p.comp.State.StoreBuffer) != 2 || p.comp.State.StoreBuffer[0].CompleteCycle != 100 || p.comp.State.StoreBuffer[1].CompleteCycle != 4 {
-		t.Fatal("pruned future work or shadow marker", p.comp.State.StoreBuffer)
-	}
-	p.comp.State.Cycles = 100
-	p.pruneStores()
-	if len(p.comp.State.StoreBuffer) != 0 {
-		t.Fatal("completed prefix did not drain")
 	}
 }

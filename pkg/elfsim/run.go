@@ -17,8 +17,7 @@ import (
 )
 
 type Options struct {
-	Model         string
-	TimingProfile *TimingProfile
+	Model string
 	// FrequencyHz is integer CPU Hz in [1 MHz, 1 THz]; zero selects 3.49 GHz.
 	FrequencyHz float64
 	Limits      linuxuser.RunOptions
@@ -53,19 +52,6 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 	if (o.Model != "ooo" && o.Model != "inorder") || math.IsNaN(o.FrequencyHz) || math.IsInf(o.FrequencyHz, 0) || o.FrequencyHz < 1e6 || o.FrequencyHz > 1e12 || math.Trunc(o.FrequencyHz) != o.FrequencyHz {
 		return r, fmt.Errorf("invalid timing model/frequency")
 	}
-	profile := DefaultTimingProfile(timing.Freq(o.FrequencyHz))
-	if o.TimingProfile != nil {
-		if o.Model != "ooo" {
-			return r, fmt.Errorf("timing profiles require the OoO model")
-		}
-		profile = *o.TimingProfile
-		if err := profile.Validate(); err != nil {
-			return r, err
-		}
-		if profile.Configuration.Freq != timing.Freq(o.FrequencyHz) {
-			return r, fmt.Errorf("timing profile frequency differs from requested CPU frequency")
-		}
-	}
 	x, err := p.NewExecution(ctx, o.Limits)
 	if err != nil {
 		return r, err
@@ -77,15 +63,12 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 			err = e
 		}
 	}()
-	cacheConfig := mem.DefaultCacheConfig()
-	if o.Model == "ooo" {
-		cacheConfig = profile.CacheConfig
-	}
-	cache := mem.NewCache(cacheConfig)
+	cache := mem.NewCache(mem.DefaultCacheConfig())
 	r.Timing = Statistics{Model: o.Model, AssumedHz: o.FrequencyHz, CacheConfig: cache.Config(), Policy: "whole ELF user execution; cold modeled cache; SVC serializes, counts as one user instruction; host syscall work and loader excluded; no kernel cache effects; not a validated hardware profile"}
 	var pipelineError string
 	if o.Model == "ooo" {
-		spec := profile.Configuration
+		spec := ooo.DefaultSpec()
+		spec.Freq = timing.Freq(o.FrequencyHz)
 		c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: cpu.NewELFTimingExecution(x), Cache: cache}).Build("CPU")
 		if err = s.Initialize(); err != nil {
 			return r, err

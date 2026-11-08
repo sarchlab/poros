@@ -33,11 +33,6 @@ func (p *middleware) forwardLoad(accesses []emu.MemAccess, issueCycle uint64, el
 			sb := &p.comp.State.StoreBuffer[i]
 			if acc.Addr < sb.Addr+uint64(sb.Size) && sb.Addr < acc.Addr+uint64(acc.Size) {
 				youngest = sb
-				// A query can be later than another already-booked query.
-				// Exclude drained entries without deleting shared history.
-				if sb.CompleteCycle <= issueCycle {
-					continue
-				}
 				if sb.CompleteCycle > result.issueCycle {
 					result.issueCycle = sb.CompleteCycle
 				}
@@ -45,11 +40,6 @@ func (p *middleware) forwardLoad(accesses []emu.MemAccess, issueCycle uint64, el
 					covered = true
 				}
 			}
-		}
-		// A drained younger store shadows older pending forwarding sources.
-		// Conservatively preserve outstanding overlap waits, then use cache.
-		if youngest != nil && youngest.CompleteCycle <= issueCycle {
-			covered = false
 		}
 		result.forwarded = result.forwarded && covered
 		if youngest == nil || !youngest.FastForwardEligible || youngest.Addr != acc.Addr ||
@@ -83,19 +73,4 @@ func directGPRTransfer(inst arm64asm.Inst) bool {
 	}
 	address, ok := inst.Args[1].(arm64asm.MemImmediate)
 	return ok && address.Mode == arm64asm.AddrOffset
-}
-
-// pruneStores removes only a completed program-order prefix at actual CPU time.
-// A completed younger entry behind pending older work still carries shadowing
-// information. Never prune at a speculative/future instruction issue time.
-func (p *middleware) pruneStores() {
-	s := &p.comp.State
-	n := 0
-	for n < len(s.StoreBuffer) && s.StoreBuffer[n].CompleteCycle <= s.Cycles {
-		n++
-	}
-	if n > 0 {
-		copy(s.StoreBuffer, s.StoreBuffer[n:])
-		s.StoreBuffer = s.StoreBuffer[:len(s.StoreBuffer)-n]
-	}
 }
