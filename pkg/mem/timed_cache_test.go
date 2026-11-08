@@ -5,7 +5,7 @@ import "testing"
 // The coordinator's early-fill counterexample: a demand miss at cycle 100
 // installs a 128 B L2 line arriving at 435; the adjacent 64 B L1 line must not
 // be usable before that fill, whether it is reached through the timed path or
-// through the untimed store path.
+// through the legacy untimed Lookup path.
 func TestAccessAdjacentLineWaitsForPendingFill(t *testing.T) {
 	c := NewCache(DefaultCacheConfig())
 	level, ready := c.Access(0x1000, 8, false, 100)
@@ -208,12 +208,10 @@ func TestLegacyLookupSemanticsUnchanged(t *testing.T) {
 	}
 }
 
-// The measured property behind the two transports (native strided-read probe
-// P1, one load per 64 B line): about 2.0 cycles per line from an L2-resident
-// buffer and 3.6 from a 64 MiB buffer. With the stream trained, the model's
-// saturating reader must sit at the L2-to-L1 bound (2 cycles/line) when
-// L2-resident and at the DRAM bound (4 cycles/line) when DRAM-resident, with no
-// exposed per-page miss on top.
+// Check that the two effective transport rates remain distinct: a saturated
+// L2-resident reader follows the 32 B/cycle fill channel, while cold streaming
+// follows the 16 B/cycle DRAM channel. This is a model behavior test, not a
+// hardware-cycle measurement; see evaluation/model-profile.md.
 func TestSaturatingStreamRatesFollowTheTwoTransports(t *testing.T) {
 	cfg := DefaultCacheConfig()
 	rate := func(prefill bool) float64 {

@@ -15,7 +15,7 @@ const (
 //
 // The first nine fields describe the legacy synchronous model. The remaining
 // fields configure the timed access path (Access): a finite fill transport, and
-// a trained, page-bounded sequential stream prefetcher. Zero values disable the
+// a trained, optionally page-bounded sequential stream prefetcher. Zero values disable the
 // corresponding mechanism, which makes Access behave like Lookup except that
 // every fill still carries an arrival time.
 type CacheConfig struct {
@@ -34,8 +34,8 @@ type CacheConfig struct {
 	FillBytesPerCycle int
 	// DRAMBytesPerCycle bounds the DRAM-to-L2 transport used by every timed L2
 	// line fill (demand or stream prefetch). 0 means unlimited. The two
-	// transports are separate resources: native streaming reads are equally
-	// fast from L2 and from DRAM, which a single shared channel cannot produce.
+	// transports are separate model resources; their rates are effective
+	// assumptions, not measured physical bus widths.
 	DRAMBytesPerCycle int
 	// PrefetchDistance is how many L2 lines ahead of the triggering demand line
 	// a trained stream may run. 0 disables stream prefetch.
@@ -65,23 +65,18 @@ func DefaultCacheConfig() CacheConfig {
 		L2Latency:   14,
 		DRAMLatency: 335,
 
-		// Evidence classes are recorded in .investigation/evidence-ledger.md
-		// (E1-E5). FillBytesPerCycle: native one-load-per-line strided read
-		// from an L2-resident buffer takes 2.0 cycles per 64 B line on the M2
-		// host (32 B/cycle). DRAMBytesPerCycle: the same probe from a 64 MiB
-		// buffer takes 3.6 cycles per 64 B line (17.8 B/cycle), rounded down.
-		// PrefetchDistance is an inferred lower bound on hardware lookahead;
-		// degree, training length and stream count are mechanism-compatible
-		// model choices.
+		// Effective model assumptions; see evaluation/model-profile.md for
+		// the diagnostic evidence, assumed-frequency conversion and limits.
+		// These values do not identify physical Apple M2 transport widths or
+		// prefetch structures.
 		FillBytesPerCycle:   32,
 		DRAMBytesPerCycle:   16,
 		PrefetchDistance:    48,
 		PrefetchDegree:      4,
 		PrefetchTrainMisses: 3,
 		PrefetchStreams:     16,
-		// A 16 KiB page bound was tried first; an exposed miss per page makes a
-		// saturating sequential read 30 % slower from DRAM than from L2, which
-		// the native read plateau (within 4 %) contradicts. Unbounded by default.
+		// No extra page-boundary penalty in this model. This does not assert
+		// that a physical prefetcher crosses virtual or physical boundaries.
 		PrefetchPageBytes: 0,
 	}
 }
@@ -93,7 +88,7 @@ type CacheStats struct {
 	L1Misses uint64
 	L2Hits   uint64
 	L2Misses uint64
-	// L1HitsInFlight counts L1 hits that had to wait for a pending fill.
+	// L1HitsInFlight counts accesses to L1 lines whose fill is still pending.
 	L1HitsInFlight uint64
 	// L2HitsInFlight counts L2 hits on a line whose DRAM fill was pending.
 	L2HitsInFlight uint64
@@ -105,8 +100,9 @@ type CacheStats struct {
 	StreamsTrained uint64
 	// StreamEvictions counts LRU replacements of a trained stream entry.
 	StreamEvictions uint64
-	// FillWaitCycles sums the cycles demand accesses waited beyond the level
-	// latency for a fill (pending line or transport).
+	// FillWaitCycles sums readiness beyond nominal latency for demand loads
+	// and store allocations. It is not a pipeline stall-cycle counter: stores
+	// may forward their data while their allocation remains outstanding.
 	FillWaitCycles uint64
 }
 
@@ -243,44 +239,41 @@ func (ch *fillChannel) prune(now uint64) {
 	if ch == nil {
 		return
 	}
-	n := 0
-	for n < len(ch.busy) && ch.busy[n].End <= now {
-		n++
-	}
-	if n > 0 {
-		copy(ch.busy, ch.busy[n:])
-		ch.busy = ch.busy[:len(ch.busy)-n]
-	}
+	n := sort.Search(len(ch.busy), func(i int) bool { return ch.busy[i].End > now })
+	// Drop the expired prefix without copying every surviving reservation.
+	ch.busy = ch.busy[n:]
 }
 
-// deliver books the transfer of bytes whose data can start arriving no earlier
-// than earliestStart and returns the cycle at which the transfer completes.
+// deliver books a transfer and coalesces adjacent occupied intervals. A packed
+// stream is one interval, not a growing list scanned for every cache line.
+// Gaps remain available to requests visited out of issue-time order.
 func (ch *fillChannel) deliver(earliestStart uint64, bytes int) uint64 {
 	occ := ch.occupancy(bytes)
 	if occ == 0 {
 		return earliestStart
 	}
 	start := earliestStart
-	if len(ch.busy) != 0 && ch.busy[len(ch.busy)-1].End > start {
-		for _, slot := range ch.busy {
-			if start+occ <= slot.Start {
-				break
-			}
-			if slot.End > start {
-				start = slot.End
-			}
-		}
+	pos := sort.Search(len(ch.busy), func(i int) bool { return ch.busy[i].End > start })
+	for pos < len(ch.busy) && start+occ > ch.busy[pos].Start {
+		start = ch.busy[pos].End
+		pos++
 	}
-	reservation := fillInterval{Start: start, End: start + occ}
-	if len(ch.busy) == 0 || ch.busy[len(ch.busy)-1].End <= start {
-		ch.busy = append(ch.busy, reservation)
+	end := start + occ
+	if pos > 0 && ch.busy[pos-1].End == start {
+		ch.busy[pos-1].End = end
+		if pos < len(ch.busy) && ch.busy[pos].Start == end {
+			ch.busy[pos-1].End = ch.busy[pos].End
+			copy(ch.busy[pos:], ch.busy[pos+1:])
+			ch.busy = ch.busy[:len(ch.busy)-1]
+		}
+	} else if pos < len(ch.busy) && ch.busy[pos].Start == end {
+		ch.busy[pos].Start = start
 	} else {
-		pos := sort.Search(len(ch.busy), func(i int) bool { return ch.busy[i].Start >= start })
 		ch.busy = append(ch.busy, fillInterval{})
 		copy(ch.busy[pos+1:], ch.busy[pos:])
-		ch.busy[pos] = reservation
+		ch.busy[pos] = fillInterval{Start: start, End: end}
 	}
-	return reservation.End
+	return end
 }
 
 // stream is one tracked sequential stream in units of L2 lines.
@@ -294,16 +287,22 @@ type stream struct {
 	lastUse    uint64
 }
 
-// Cache is a synchronous two-level cache model (L1D + L2).
+// Cache is an analytic two-level cache model (L1D + L2). Lookup is untimed;
+// Access tracks fill arrival and transport occupancy. Tags, replacement and
+// stream training evolve in caller/dispatch order, not chronological issue
+// order, retaining the legacy cache-residency approximation.
 type Cache struct {
-	l1      *cacheLevel
-	l2      *cacheLevel
-	cfg     CacheConfig
-	stats   CacheStats
-	channel *fillChannel // L2 -> L1 fills
-	dram    *fillChannel // DRAM -> L2 fills
-	streams []stream
-	useTick uint64
+	l1         *cacheLevel
+	l2         *cacheLevel
+	cfg        CacheConfig
+	stats      CacheStats
+	channel    *fillChannel // L2 -> L1 fills
+	dram       *fillChannel // DRAM -> L2 fills
+	streams    []stream
+	useTick    uint64
+	watermark  uint64
+	timingDone bool
+	shared     *SharedL2
 }
 
 // NewCache creates a cache hierarchy from the given configuration.
@@ -332,32 +331,102 @@ func (c *Cache) initTimed() {
 
 // SharedL2 is an L2 cache that can be shared across multiple cores.
 type SharedL2 struct {
-	level *cacheLevel
-	cfg   CacheConfig
+	level   *cacheLevel
+	cfg     CacheConfig
+	dram    *fillChannel
+	clients map[*Cache]uint64
+	started bool
 }
 
 // NewSharedL2 creates a shared L2 cache from the given config.
 // The L2 parameters (L2Size, L2Ways, L2LineSize) from cfg are used.
 func NewSharedL2(cfg CacheConfig) *SharedL2 {
-	return &SharedL2{
-		level: newCacheLevel(cfg.L2Size, cfg.L2Ways, cfg.L2LineSize),
-		cfg:   cfg,
+	s := &SharedL2{level: newCacheLevel(cfg.L2Size, cfg.L2Ways, cfg.L2LineSize), cfg: cfg, clients: make(map[*Cache]uint64)}
+	if cfg.DRAMBytesPerCycle > 0 {
+		s.dram = &fillChannel{bytesPerCycle: uint64(cfg.DRAMBytesPerCycle)}
 	}
+	return s
 }
 
 // NewPrivateL1WithSharedL2 creates a per-core cache with a private L1 and a
 // shared L2. Multiple caches created with the same SharedL2 will share L2
 // state, so a miss in one core's L1 that populates the shared L2 will be
-// visible as an L2 hit from another core. The fill transport and stream table
-// are private to each core.
+// visible as an L2 hit from another core. DRAM transport is shared; L2-to-L1
+// transport and stream training are private. Attach all clients before Advance.
+// Clients must use the same cycle domain and call FinishTiming when stopped.
 func NewPrivateL1WithSharedL2(cfg CacheConfig, shared *SharedL2) *Cache {
+	if shared.started {
+		panic("mem: cannot attach a cache after shared timing starts")
+	}
+	if cfg.L2Size != shared.cfg.L2Size || cfg.L2Ways != shared.cfg.L2Ways || cfg.L2LineSize != shared.cfg.L2LineSize || cfg.L2Latency != shared.cfg.L2Latency || cfg.DRAMLatency != shared.cfg.DRAMLatency || cfg.DRAMBytesPerCycle != shared.cfg.DRAMBytesPerCycle {
+		panic("mem: inconsistent shared L2 timing configuration")
+	}
 	c := &Cache{
-		l1:  newCacheLevel(cfg.L1Size, cfg.L1Ways, cfg.L1LineSize),
-		l2:  shared.level,
-		cfg: cfg,
+		l1: newCacheLevel(cfg.L1Size, cfg.L1Ways, cfg.L1LineSize),
+		l2: shared.level, cfg: cfg, shared: shared,
 	}
 	c.initTimed()
+	c.dram = shared.dram
+	shared.clients[c] = 0
 	return c
+}
+
+// Advance retires transport history only at an actual simulation-cycle
+// watermark. Access issue times may be in the future and must not retire it.
+// No later Access on this cache may have an issue time below this watermark.
+func (c *Cache) Advance(cycle uint64) {
+	if c.timingDone || cycle < c.watermark {
+		panic("mem: invalid cache timing watermark")
+	}
+	c.watermark = cycle
+	c.channel.prune(cycle)
+	if c.shared == nil {
+		c.dram.prune(cycle)
+		return
+	}
+	c.shared.started = true
+	c.shared.clients[c] = cycle
+	c.shared.retireTransport()
+}
+
+// FinishTiming removes a stopped client from the shared retirement watermark.
+// Its outstanding transfers remain booked for any still-running clients.
+// The caller must not issue any further timed access from this cache.
+func (c *Cache) FinishTiming() {
+	if c.timingDone {
+		return
+	}
+	c.timingDone = true
+	if c.shared != nil {
+		delete(c.shared.clients, c)
+		c.shared.retireTransport()
+	}
+}
+
+func (s *SharedL2) retireTransport() {
+	if len(s.clients) == 0 {
+		return
+	}
+	minimum := ^uint64(0)
+	for _, cycle := range s.clients {
+		if cycle < minimum {
+			minimum = cycle
+		}
+	}
+	s.dram.prune(minimum)
+}
+
+// Probe classifies current residency without changing tags, replacement,
+// statistics, streams, or transport reservations. A pending L1 fill is an L1
+// hit; Access still enforces its arrival time.
+func (c *Cache) Probe(addr uint64) HitLevel {
+	if c.l1.peek(addr) != nil {
+		return HitL1
+	}
+	if c.l2.peek(addr) != nil {
+		return HitL2
+	}
+	return HitDRAM
 }
 
 // Prefetch silently brings addr into L1 (legacy instant next-line prefetch).
@@ -409,14 +478,20 @@ func (c *Cache) Lookup(addr uint64, size int, isWrite bool) HitLevel {
 // is never earlier than now plus that level's latency and never earlier than
 // the arrival of the fill that supplies the line. Fills share the finite
 // transports. A demand load miss trains and triggers the stream prefetcher; a
-// store miss allocates its line through the same transports (one 128 B DRAM
-// transfer per newly allocated line, the lower bound of a write-allocate fetch
-// or a later writeback) but does not train streams. Callers decide whether the
-// returned readiness delays the instruction: OoO stores ignore it.
+// store miss allocates its line through the same transports and retains the
+// adjacent-line prefetch, but does not train streams. This charges allocation
+// traffic only; dirty writeback and coherence are not modeled. Callers decide whether the
+// returned readiness delays the instruction or holds a store allocation slot.
+// Residency/replacement/training remain in dispatch order, even when issue
+// times are not monotonic; this does not implement a chronological cache.
 func (c *Cache) Access(addr uint64, size int, isWrite bool, now uint64) (HitLevel, uint64) {
+	if c.timingDone || now < c.watermark {
+		panic("mem: access before watermark or after timing completion")
+	}
+	if c.shared != nil {
+		c.shared.started = true
+	}
 	c.useTick++
-	c.channel.prune(now)
-	c.dram.prune(now)
 
 	if line := c.l1.find(addr); line != nil {
 		c.stats.L1Hits++
@@ -452,7 +527,7 @@ func (c *Cache) Access(addr uint64, size int, isWrite bool, now uint64) (HitLeve
 	if level == HitDRAM {
 		// The demand fill delivers the critical line to L1 as the DRAM data
 		// arrives; its L1 transfer still occupies the L2-to-L1 transport.
-		ready = c.transferL1(l2Ready)
+		ready = c.transferL1(l2Ready, now)
 	} else {
 		ready = c.fillL1(l2Ready, now)
 	}
@@ -483,17 +558,21 @@ func (c *Cache) fillL1(l2Ready, now uint64) uint64 {
 	if l2Ready > start {
 		start = l2Ready
 	}
-	return c.transferL1(start + uint64(c.cfg.L2Latency))
+	return c.transferL1(start+uint64(c.cfg.L2Latency), start)
 }
 
 // transferL1 books the L2-to-L1 transfer of one L1 line whose data can finish
 // arriving at earliest and returns when it has arrived.
-func (c *Cache) transferL1(earliest uint64) uint64 {
+func (c *Cache) transferL1(earliest, notBefore uint64) uint64 {
 	occ := c.channel.occupancy(c.cfg.L1LineSize)
 	if occ == 0 {
 		return earliest
 	}
-	return c.channel.deliver(earliest-occ, c.cfg.L1LineSize)
+	start := notBefore
+	if earliest >= occ && earliest-occ > start {
+		start = earliest - occ
+	}
+	return c.channel.deliver(start, c.cfg.L1LineSize)
 }
 
 // fetchL2 books a DRAM fill of the L2 line holding addr, installs it with its
@@ -501,7 +580,11 @@ func (c *Cache) transferL1(earliest uint64) uint64 {
 func (c *Cache) fetchL2(addr uint64, now uint64, prefetched bool) uint64 {
 	arrival := now + uint64(c.cfg.DRAMLatency)
 	if occ := c.dram.occupancy(c.cfg.L2LineSize); occ > 0 {
-		arrival = c.dram.deliver(arrival-occ, c.cfg.L2LineSize)
+		start := now
+		if arrival >= occ && arrival-occ > start {
+			start = arrival - occ
+		}
+		arrival = c.dram.deliver(start, c.cfg.L2LineSize)
 	}
 	c.l2.installAt(addr, arrival, prefetched)
 	return arrival
@@ -518,7 +601,7 @@ func (c *Cache) prefetchAdjacent(addr uint64, now uint64, demandFill bool, deman
 		return // present (replacement state touched exactly as the legacy path does)
 	}
 	if demandFill && c.l2Line(next) == c.l2Line(addr) {
-		c.l1.installAt(next, c.transferL1(demandReady), false)
+		c.l1.installAt(next, c.transferL1(demandReady, now), false)
 		return
 	}
 	var l2Ready uint64
@@ -532,10 +615,11 @@ func (c *Cache) prefetchAdjacent(addr uint64, now uint64, demandFill bool, deman
 
 func (c *Cache) l2Line(addr uint64) uint64 { return addr / uint64(c.cfg.L2LineSize) }
 
-// trainAndPrefetch implements a trained, direction-aware, page-bounded stream
+// trainAndPrefetch implements a trained, direction-aware, optionally page-bounded stream
 // prefetcher in units of L2 lines. A demand L1 miss that continues a tracked
 // stream advances its frontier by at most PrefetchDegree lines, never more than
-// PrefetchDistance lines ahead of the demand line and never across a page.
+// PrefetchDistance lines ahead of demand. A nonzero PrefetchPageBytes also
+// restricts the frontier to that page; the default has no page bound.
 func (c *Cache) trainAndPrefetch(addr uint64, now uint64) {
 	if len(c.streams) == 0 {
 		return

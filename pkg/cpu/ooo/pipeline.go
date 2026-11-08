@@ -70,17 +70,21 @@ type State struct {
 	RobHead, RobTail, RobCount   int
 	FpInFlight                   int
 	StoreBuffer                  []storeBufferEntry
-	MshrBusyUntil                []uint64
-	FrontendReady                uint64
-	Predictor                    PredictorState
-	Cycles, InstDone             uint64
-	Done                         bool
-	Err                          string
+	// One finite allocation slot per store instruction. Paired accesses hold
+	// one slot until both fills finish; forwarding readiness is separate.
+	StoreDrainUntil  []uint64
+	MshrBusyUntil    []uint64
+	FrontendReady    uint64
+	Predictor        PredictorState
+	Cycles, InstDone uint64
+	Done             bool
+	Err              string
 }
 type storeBufferEntry struct {
 	Addr          uint64
 	Size          int
 	CompleteCycle uint64
+	DrainCycle    uint64 // allocation completion, independent of forwarding data
 	// ReadyCycle conservatively records when store address and data can issue.
 	// Missing fields in an older serialized state leave FastForwardEligible false, which
 	// preserves the conventional forwarding path for those entries.
@@ -112,6 +116,7 @@ func (s *State) Initialize(c *Comp) {
 	s.Rob = make([]uint64, v.ROBCapacity)
 	s.RobFPDests = make([]int, v.ROBCapacity)
 	s.StoreBuffer = make([]storeBufferEntry, 0, v.StoreBufferSize)
+	s.StoreDrainUntil = make([]uint64, v.StoreBufferSize)
 	s.MshrBusyUntil = make([]uint64, v.NumMSHREntries)
 	if v.BranchPrediction {
 		(&predictor{PredictorState: &s.Predictor, spec: v.Predictor}).init()
@@ -152,10 +157,16 @@ func (s *State) CPI() float64 {
 // Handle advances the pipeline by one cycle.
 func (p *middleware) Handle(_ timing.Event) bool {
 	if p.comp.State.Done {
+		if p.comp.Resources.Cache != nil {
+			p.comp.Resources.Cache.FinishTiming()
+		}
 		return false
 	}
 	p.comp.State.Cycles++
 	p.pruneUnitReservations()
+	if p.comp.Resources.Cache != nil {
+		p.comp.Resources.Cache.Advance(p.comp.State.Cycles)
+	}
 
 	// Phase 1: Retire completed instructions from ROB head.
 	p.retire()
@@ -163,11 +174,14 @@ func (p *middleware) Handle(_ timing.Event) bool {
 	// Phase 2: Fetch, decode, dispatch, issue new instructions.
 	p.fetchAndProcess()
 
-	// Check termination: ROB drained and emulator halted.
-	if p.comp.State.RobCount == 0 && (p.comp.Resources.backend().Stopped() || p.comp.State.Err != "") {
+	// Drain both retired stores and the ROB before normal termination.
+	if p.comp.State.RobCount == 0 && p.storesDrained() && (p.comp.Resources.backend().Stopped() || p.comp.State.Err != "") {
 		p.comp.State.Done = true
 	}
 
+	if p.comp.State.Done && p.comp.Resources.Cache != nil {
+		p.comp.Resources.Cache.FinishTiming()
+	}
 	return !p.comp.State.Done
 }
 
@@ -190,6 +204,7 @@ func (p *middleware) retire() {
 // fetchAndProcess fetches up to FetchWidth instructions, decodes, dispatches,
 // and functionally executes each one.
 func (p *middleware) fetchAndProcess() {
+	p.pruneStoreRecords()
 	if p.comp.State.Err != "" {
 		return
 	}
@@ -223,8 +238,19 @@ func (p *middleware) fetchAndProcess() {
 			}
 			return
 		}
-		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC && p.comp.State.RobCount != 0 {
+		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC && (p.comp.State.RobCount != 0 || !p.storesDrained()) {
 			return
+		}
+
+		// Allocate store capacity at actual dispatch, before functional effects
+		// or future cache reservations. Retired stores retain their slot until
+		// their allocation finishes; a full pool backpressures the frontend.
+		storeSlot := -1
+		if instinfo.IsStore(inst.Op) {
+			storeSlot = p.availableStoreSlot()
+			if storeSlot < 0 {
+				return
+			}
 		}
 
 		// 2. Compute source operand readiness.
@@ -281,31 +307,36 @@ func (p *middleware) fetchAndProcess() {
 			issueCycle = forwarding.issueCycle
 		}
 
-		// 6. Compute latency, then select a common execution-unit/MSHR time.
-		// Forwarding and MSHR waits may have invalidated the earlier unit
-		// candidate. Do not reserve either resource until both are available.
-		// A cached load also learns the absolute cycle at which its line's
-		// fill arrives; its result can never be used before that arrival.
+		// 6. Probe residency without side effects, choose MSHR/unit issue, then
+		// commit cache requests at that final time. Cache fills cannot start
+		// while the supplying instruction is still waiting for a resource.
+		miss := !forwarding.forwarded && instinfo.IsLoad(inst.Op) && p.loadMissesL1()
+		mshr := -1
+		if usesUnit {
+			issueCycle, mshr = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss)
+		}
 		var latency, dataReady uint64
-		var miss bool
 		if forwarding.forwarded {
 			latency = forwarding.latency
 		} else {
-			latency, miss, dataReady = p.instrLatencyWithPC(inst, pc, issueCycle)
-		}
-		holdLatency := latency
-		if dataReady > issueCycle+holdLatency {
-			holdLatency = dataReady - issueCycle
-		}
-		if usesUnit {
-			issueCycle = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss, holdLatency)
+			latency, _, dataReady = p.instrLatencyWithPC(inst, pc, issueCycle)
 		}
 		completeCycle := issueCycle + latency
-		if dataReady > completeCycle {
+		if !instinfo.IsStore(inst.Op) && dataReady > completeCycle {
 			completeCycle = dataReady
 		}
 		if forwarding.forwarded && forwarding.dataReady+latency > completeCycle {
 			completeCycle = forwarding.dataReady + latency
+		}
+		if mshr >= 0 {
+			p.comp.State.MshrBusyUntil[mshr] = completeCycle
+		}
+		if storeSlot >= 0 {
+			drain := completeCycle
+			if dataReady > drain {
+				drain = dataReady
+			}
+			p.comp.State.StoreDrainUntil[storeSlot] = drain
 		}
 
 		// 7. Update destination register readiness.
@@ -362,18 +393,11 @@ func (p *middleware) fetchAndProcess() {
 					Addr:                acc.Addr,
 					Size:                acc.Size,
 					CompleteCycle:       completeCycle,
+					DrainCycle:          p.comp.State.StoreDrainUntil[storeSlot],
 					ReadyCycle:          issueCycle,
 					FastForwardEligible: eligible,
 				}
-				if len(p.comp.State.StoreBuffer) >= p.comp.Spec.StoreBufferSize {
-					// Store buffer full — stall frontend until oldest
-					// store retires (its completeCycle).
-					stallUntil := p.comp.State.StoreBuffer[0].CompleteCycle + 1
-					if stallUntil > p.comp.State.FrontendReady {
-						p.comp.State.FrontendReady = stallUntil
-					}
-					p.comp.State.StoreBuffer = p.comp.State.StoreBuffer[1:]
-				}
+
 				p.comp.State.StoreBuffer = append(p.comp.State.StoreBuffer, entry)
 			}
 		}
@@ -474,9 +498,9 @@ func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycl
 // For loads, l1Miss indicates whether the load missed L1 (needs MSHR) and
 // dataReady is the absolute cycle at which the cache can deliver the data
 // (zero when the cache model is not timed or not present). Loads and stores
-// use the timed cache path issued at the instruction's earliest issue cycle;
-// a store's allocation occupies the fill transports but the store itself never
-// waits for its line (its latency stays 3 and its readiness is ignored).
+// use the timed cache path only after the final execution-resource selection.
+// A store's data latency stays 3; dataReady holds its allocation slot, rather
+// than delaying forwarding or architectural register readiness.
 func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latency uint64, l1Miss bool, dataReady uint64) {
 	if instinfo.IsLoad(inst.Op) {
 		if p.comp.Resources.Cache != nil {
@@ -509,12 +533,63 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 	if instinfo.IsStore(inst.Op) {
 		if p.comp.Resources.Cache != nil {
 			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
-				p.comp.Resources.Cache.Access(acc.Addr, acc.Size, true, issueCycle)
+				_, ready := p.comp.Resources.Cache.Access(acc.Addr, acc.Size, true, issueCycle)
+				if ready > dataReady {
+					dataReady = ready
+				}
 			}
 		}
-		return 3, false, 0
+		return 3, false, dataReady
 	}
 	return uint64(instinfo.ExecuteLatency(inst.Op)), false, 0
+}
+
+// loadMissesL1 only classifies current dispatch-order cache residency.
+func (p *middleware) loadMissesL1() bool {
+	if p.comp.Resources.Cache == nil {
+		return false
+	}
+	for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+		if p.comp.Resources.Cache.Probe(acc.Addr) != mem.HitL1 {
+			return true
+		}
+	}
+	return false
+}
+
+// Keep every still-pending forwarding record, including old future-ready
+// stores while younger independent stores drain. The finite instruction slots
+// bound this list; a supported paired store contributes at most two records.
+func (p *middleware) pruneStoreRecords() {
+	kept := p.comp.State.StoreBuffer[:0]
+	for _, entry := range p.comp.State.StoreBuffer {
+		until := entry.DrainCycle
+		if entry.CompleteCycle > until {
+			until = entry.CompleteCycle
+		}
+		if until > p.comp.State.Cycles {
+			kept = append(kept, entry)
+		}
+	}
+	p.comp.State.StoreBuffer = kept
+}
+
+func (p *middleware) availableStoreSlot() int {
+	for i, until := range p.comp.State.StoreDrainUntil {
+		if until <= p.comp.State.Cycles {
+			return i
+		}
+	}
+	return -1
+}
+
+func (p *middleware) storesDrained() bool {
+	for _, until := range p.comp.State.StoreDrainUntil {
+		if until > p.comp.State.Cycles {
+			return false
+		}
+	}
+	return true
 }
 
 // acquireMSHR finds the earliest-available MSHR slot. If all MSHRs are busy
