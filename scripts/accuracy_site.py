@@ -1299,8 +1299,8 @@ def live_progress(live):
     body += f'<progress id="case-progress" value="{completed}" max="{required}" aria-describedby="live-progress-context" style="display:block;width:100%;height:18px;margin-top:10px;accent-color:#006e75">{percentage:.1f}%</progress>'
     body += '<p id="live-progress-context">'
     body += f'{live["completed_shards"]} / {live["required_shards"]} shards. '
-    body += ('Complete validated bundle.' if validated else
-             'Live snapshot — not a publishable report. Partial results are not a final accuracy conclusion; the subset changes as work finishes.')
+    if validated:
+        body += "Complete validated bundle."
     body += ' Updated ' + esc(live["updated_at"]) + '.</p>'
     if live["errors"]:
         body += '<p>' + esc('; '.join(live["errors"])) + '</p>'
@@ -1322,40 +1322,12 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         else '<p><a href="../../index.html">← Report history</a></p>'
     ) + "</header>"
     native_reference = report.get("reference", {}).get("protocol") == performance.NATIVE_PROTOCOL
-    if native_reference:
-        environment = "Current reference is native macOS on Apple M2, using Mach-O executables with audited ELF-matched computation. Startup and runtime adapters are included; complete executable instruction streams and address layouts differ."
-    elif report.get("reference", {}).get("environment") == "virtualized":
-        environment = "Current reference is an Apple M2 host running a Linux ARM64 VM."
-    else:
-        environment = "Reference environment is unavailable for this report; no hardware environment is inferred."
-    body += '<div class="notice"><strong>Hardware accuracy: unverified.</strong> ' + environment + ' Core identity and instantaneous frequency are unknown. No accuracy threshold has been approved. A successful report is not a validated hardware model.</div>'
     cases = report.get("cases", [])
     benchmarks = [c for c in cases if not is_micro_case(c)]
     micros = [c for c in cases if is_micro_case(c)]
     declared = report_manifest(report)["cases"] if full_inventory else cases
     benchmark_ids = [c["id"] for c in declared if not is_micro_case(c)]
     micro_ids = [c["id"] for c in declared if is_micro_case(c)]
-    usable = sum(c.get("reference_quality") == "usable" for c in benchmarks)
-    body += (
-        '<div class="cards">'
-        + "".join(
-            '<div class="card">'
-            + esc(label)
-            + "<strong>"
-            + esc(value)
-            + "</strong></div>"
-            for label, value in [
-                ("Report artifact", report["artifact_status"]),
-                ("Full Evaluation", entry.get("evaluation_conclusion", "not checked")),
-                (
-                    "Usable benchmark references",
-                    f"{usable} / {len(benchmark_ids) if full_inventory else '—'}",
-                ),
-                ("Hardware accuracy", report["accuracy_status"]),
-            ]
-        )
-        + "</div>"
-    )
     if report["artifact_status"] == "fail" and not report.get("head", {}).get(
         "commit", report.get("head_commit")
     ):

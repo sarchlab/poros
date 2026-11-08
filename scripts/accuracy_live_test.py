@@ -82,7 +82,17 @@ class LiveReportTests(unittest.TestCase):
         self.assertIn('30 / 264 cases · 11.4%', page)
         self.assertNotIn('Active cases:', page)
         self.assertIn('active_cases', progress)
-        self.assertNotIn('id="case-progress"', site.detail(self.report, entry))
+        static = site.detail(self.report, entry)
+        self.assertNotIn('id="case-progress"', static)
+        for rendered in (page, static):
+            for removed in ("Live snapshot — not a publishable report.",
+                            "Partial results are not a final accuracy conclusion",
+                            "Hardware accuracy: unverified", "Core identity and instantaneous frequency",
+                            "Report artifact", "Full Evaluation", "Usable benchmark references",
+                            '<div class="cards">'):
+                self.assertNotIn(removed, rendered)
+            self.assertIn("Evidence and provenance", rendered)
+        self.assertEqual(self.report["accuracy_status"], "unverified")
         for state, validated, expected in (("failed", False, "Failed"),
                                             ("complete", False, "Cases finished · validation pending"),
                                             ("complete", True, "Complete validated bundle.")):
@@ -350,7 +360,7 @@ class LiveReportTests(unittest.TestCase):
         value = self.snapshot()
         view = self.view(value)
         page, assets = view.load()
-        self.assertIn(b'Live snapshot', page)
+        self.assertIn(b'id="case-progress"', page)
         self.assertIn(('Measurement completed (UTC): ' + value['report']['reference']['completed_at_utc']).encode(), page)
         self.assertNotIn(b'href="report.json"', page)
         self.assertNotIn(b'href="report.md"', page)
