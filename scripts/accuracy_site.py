@@ -23,6 +23,7 @@ import frontend_microbenchmark as probe
 import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
 import scheduling_microbenchmark as scheduling
+import memory_microbenchmark as memory
 import model_profiles
 from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
 
@@ -545,6 +546,9 @@ def bundle_compact(report_path, source, output, commit):
     if report["artifact_status"] == "pass":
         shutil.copyfile(source / performance.PATH, output / "reference.json")
         names.add("reference.json")
+        if memory.declared(report["head"]["files"]):
+            shutil.copyfile(source / memory.REFERENCE, output / "memory.json")
+            names.add("memory.json")
         if scheduling.declared(report["head"]["files"]):
             shutil.copyfile(source / scheduling.REFERENCE, output / "scheduling.json")
             names.add("scheduling.json")
@@ -561,13 +565,17 @@ def bundle_compact(report_path, source, output, commit):
           run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
           files={name: digest(output / name) for name in names}))
     validate_bundle(output, commit)
-    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None, forwarding_reference=read(output / "forwarding.json") if "forwarding.json" in names else None, scheduling_reference=read(output / "scheduling.json") if "scheduling.json" in names else None))
+    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None, forwarding_reference=read(output / "forwarding.json") if "forwarding.json" in names else None, scheduling_reference=read(output / "scheduling.json") if "scheduling.json" in names else None, memory_reference=read(output / "memory.json") if "memory.json" in names else None))
 
 
 def validate_compact_bundle(path, commit, manifest):
     report = read(regular(path / "report.json"))
     names = {"report.json", "report.md"} | ({"reference.json"} if report["artifact_status"] == "pass" else set())
     if report["artifact_status"] == "pass":
+        if memory.declared(report["head"]["files"]):
+            if digest(regular(path / "memory.json")) != report["head"]["files"].get(memory.REFERENCE):
+                raise ValueError("memory reference differs from tested source")
+            names.add("memory.json")
         if scheduling.declared(report["head"]["files"]):
             if digest(regular(path / "scheduling.json")) != report["head"]["files"].get(scheduling.REFERENCE):
                 raise ValueError("scheduling reference differs from tested source")
@@ -592,6 +600,11 @@ def validate_compact_bundle(path, commit, manifest):
     check_report(report, commit)
     if report["artifact_status"] != "pass":
         return report, manifest
+    if memory.declared(report["head"]["files"]):
+        native_memory = memory.validate_reference(read(path / "memory.json"), report["head"]["files"])
+        memory.validate_comparison(report.get("memory_simulation"), native_memory["cases"], report.get("memory_base_large_image_support"))
+    elif "memory_simulation" in report or "memory_base_large_image_support" in report:
+        raise ValueError("memory suite absent from tested source")
     if scheduling.declared(report["head"]["files"]):
         native_scheduling = scheduling.validate_reference(read(path / "scheduling.json"), report["head"]["files"])
         scheduling.validate_comparison(report.get("scheduling_simulation"), native_scheduling["cases"])
@@ -747,13 +760,13 @@ POINT_TIPS = """<div id="point-tip" role="tooltip" hidden></div><script>
 
 
 def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=None,
-          ideal=False, note="", y_bands=()):
+          ideal=False, note="", y_bands=(), y_ranges=()):
     """Plot the data domain; guide lines never contribute observations."""
     points = [(x, y) for _, values, _ in series for x, y, _ in values]
     if not points:
         return f"<figure><figcaption>{esc(title)}</figcaption><p>No comparable points available.</p></figure>"
     xmin, xmax = min(x for x, _ in points), max(x for x, _ in points)
-    ymin, ymax = (y_ticks[0][0], y_ticks[-1][0]) if y_ticks else (0, max(y for _, y in points) or 1)
+    ymin, ymax = (y_ticks[0][0], y_ticks[-1][0]) if y_ticks else (0, max([y for _, y in points] + [high for _, _, high, _ in y_ranges]) or 1)
 
     def px(x):
         return 72 + (x - xmin) / (xmax - xmin or 1) * 329
@@ -780,6 +793,10 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
     if ideal and xmin <= min(xmax, ymax):
         stop = min(xmax, ymax)
         body += f'<path d="M{px(xmin)} {py(xmin)} L{px(stop)} {py(stop)}" stroke="#899ea7" stroke-dasharray="4 3"/>'
+    for x, low, high, color in y_ranges:
+        body += (f'<path class="variability-range" d="M{px(x):.3f} {py(low):.3f}V{py(high):.3f}'
+                 f'M{px(x)-3:.3f} {py(low):.3f}h6M{px(x)-3:.3f} {py(high):.3f}h6" '
+                 f'fill="none" stroke="{color}" opacity="0.65"/>')
     marks = {}
     for name, values, color in series:
         if not scatter:
@@ -1068,6 +1085,113 @@ def scheduling_panels(reference, simulations, profiles):
     return graphs, table
 
 
+
+def memory_panels(reference, simulations, profiles, base_large_image_support):
+    """One canonical renderer for CI reports, live snapshots and diagnostic previews."""
+    memory.validate_reference(reference)
+    memory.validate_comparison(simulations, reference["cases"], base_large_image_support)
+    frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
+    if any(not memory.finite(hz) for hz in frequencies.values()):
+        raise ValueError("invalid memory model frequency")
+    rows = []
+    for index, case in enumerate(reference["cases"]):
+        chase = case["kind"] <= 5
+        native_seconds = {k: case[k + "_seconds"] / case["native_passes"] for k in ("p10", "median", "p90")}
+        predicted = {role: simulations[role][index]["cycles"] / frequencies[role] / case["passes"]
+                     for role in frequencies if "cycles" in simulations[role][index]}
+        def metric(seconds):
+            return seconds * 1e9 / case["operations_per_pass"] if chase else case["effective_bytes_per_pass"] / seconds / 1e9
+        native = {k: metric(v) for k, v in native_seconds.items()}
+        modeled = {k: metric(v) for k, v in predicted.items()}
+        unit = "ns/load" if chase else "GB/s"
+        size = case["working_set_bytes"]
+        label = f"{size // 1048576} MiB" if size >= 1048576 else f"{size // 1024} KiB"
+        low, high = sorted((native["p10"], native["p90"]))
+        tooltip = (f'{case["pattern"]} · {label} ({size:,} total resident bytes)\n'
+                   f'Native {native["median"]:.4f} {unit}; P10–P90 time-derived range {low:.4f}–{high:.4f} {unit}\n'
+                   f'Base {format(modeled["base"], ".4f") if "base" in modeled else "unsupported image capacity"}; head {modeled["head"]:.4f} {unit}\n'
+                   f'Native quality {case["quality"]}; paired-time spread {case["relative_spread"]:.2%}')
+        rows.append(dict(case=case, native=native, modeled=modeled, unit=unit, size_label=label, low=low, high=high, tooltip=tooltip))
+    usable = sum(row["case"]["quality"] == "usable" for row in rows)
+    graphs = ('<h3 id="memory-diagnostics">Memory latency, parallelism and bandwidth</h3>'
+              f'<p>{len(rows)} diagnostic points; {usable} usable native references. Single-core scalar assembly; '
+              'the same function instruction bytes run natively as Mach-O and in simulated ELF. '
+              'Each short and long execution follows initialization and two full warmup passes. '
+              'Native values use nine alternating long-minus-short thread CPU-time pairs. '
+              'Core identity and instantaneous frequency were unobserved. '
+              'The total working set stays fixed across chain counts; Copy includes both buffers. '
+              'These points do not enter application accuracy statistics.</p>'
+              '<p>One random chain measures dependent-load loop latency; multiple chains show aggregate time per load, '
+              'not individual access latency. Streaming plots show effective scalar bytes/s, not cache-line or DRAM-bus traffic '
+              'and not peak vector bandwidth. Sizes describe working sets, not verified physical cache levels. '
+              'Noisy native points remain visible and are identified in every tooltip. '
+              'Vertical ranges show native P10–P90 repeat variability, not confidence intervals or seed sensitivity. '
+              'Base points absent because of image capacity are explicitly marked in the table.</p><div class="charts">')
+    for pattern in memory.PATTERNS:
+        selected = [r for r in rows if r["case"]["pattern"] == pattern["id"]]
+        series = []
+        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
+            points = [(math.log2(r["case"]["working_set_bytes"]), r["native"]["median"] if role == "native" else r["modeled"][role], r["tooltip"]) for r in selected if role == 'native' or role in r['modeled']]
+            series.append((role, points, color))
+        # Anchor the full logarithmic range rather than indexing into a matrix
+        # whose transition samples may become denser over time.
+        tick_sizes = {selected[0]['case']['working_set_bytes'], selected[-1]['case']['working_set_bytes'],
+                      128 * 1024, 1024 * 1024, 16 * 1024 * 1024}
+        ticks = [(math.log2(r['case']['working_set_bytes']), r['size_label']) for r in selected
+                 if r['case']['working_set_bytes'] in tick_sizes]
+        title = (f'Random pointer chase · {pattern["chains"]} chain' + ('' if pattern['chains'] == 1 else 's')) if pattern['kind'] <= 5 else f'Sequential {pattern["id"].title()}'
+        ylabel = ('Dependent ns/load' if pattern['kind'] == 1 else 'Aggregate ns/load') if pattern['kind'] <= 5 else 'Effective GB/s'
+        ranges = [(math.log2(r['case']['working_set_bytes']), r['low'], r['high'], '#9a6a17') for r in selected]
+        graphs += chart(title, series, 'Total working set (log₂ spacing)', ylabel, x_ticks=ticks, y_ranges=ranges)
+    graphs += '</div>'
+    table = (f'<details id="memory-diagnostics-table"><summary>Memory diagnostics table · {len(rows)} points</summary>'
+             '<div class="table"><table><thead><tr><th>Pattern</th><th>Total working set</th><th>Unit</th><th>Native</th>'
+             '<th>P10–P90 time-derived range</th><th>Base</th><th>Head</th><th>Quality</th><th>Time spread</th></tr></thead><tbody>')
+    for row in rows:
+        c, n, m = row['case'], row['native'], row['modeled']
+        table += (f'<tr><td>{esc(c["pattern"])}</td><td>{esc(row["size_label"])}</td><td>{row["unit"]}</td>'
+                  f'<td>{n["median"]:.4f}</td><td>{row["low"]:.4f}–{row["high"]:.4f}</td>'
+                  f'<td>{format(m["base"], ".4f") if "base" in m else "Unsupported image capacity"}</td><td>{m["head"]:.4f}</td><td>{esc(c["quality"])}</td><td>{c["relative_spread"]:.2%}</td></tr>')
+    table += ('</tbody></table></div><p>P10/P90 summarize variability, not confidence intervals. '
+              'Native quality requires a ≥20 ms differential and (P90−P10)/median ≤10%. '
+              'Simulation differences cover complete passes with exact instruction counts and checked outputs. '
+              '<a href="memory.json">Native memory reference</a></p></details>')
+    return graphs, table
+
+
+def memory_preview(report_path, source, output):
+    """Render complete memory-only evidence without relabeling historical application data."""
+    report, source, output = read(report_path), Path(source), Path(output)
+    if (report.get("kind") != "poros-memory-diagnostics-v1" or report.get("schema") != 1
+            or report.get("artifact_status") != "pass" or report.get("accuracy_status") != "unverified"
+            or report.get("head", {}).get("dirty") is not False):
+        raise ValueError("invalid memory-only artifact")
+    sha(report['head']['commit']); sha(report['base_commit'])
+    for name in ('head_binary_sha256', 'base_binary_sha256', 'plan_id'):
+        if not memory.sha(report.get(name)):
+            raise ValueError("invalid memory-only execution identity")
+    reference_path = source / memory.REFERENCE
+    if digest(reference_path) != report.get('reference_sha256') or digest(reference_path) != report['head']['files'].get(memory.REFERENCE):
+        raise ValueError("memory-only reference identity mismatch")
+    reference = memory.load_reference(source)
+    memory.validate_reference(reference, report['head']['files'])
+    profiles = model_profiles.verify_source(source, report)
+    if report.get("memory_base_large_image_support") is not memory.supports_large_images(source, report["base_commit"]):
+        raise ValueError("memory-only base capability differs from source")
+    graphs, table = memory_panels(reference, report['memory_simulation'], profiles, report.get('memory_base_large_image_support'))
+    output.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(reference_path, output / 'memory.json')
+    shutil.copyfile(report_path, output / 'memory-report.json')
+    body = ('<header><div class="eyebrow">Poros / Memory diagnostics</div><h1>Memory microbenchmarks</h1>'
+            '<p>Local diagnostic preview · application accuracy was not rerun.</p>'
+            f'<p>Base <code>{esc(report["base_commit"])}</code><br>Head <code>{esc(report["head"]["commit"])}</code></p></header>'
+            '<div class="notice"><strong>Hardware accuracy: unverified.</strong> '
+            'This artifact covers the complete declared memory diagnostic set, not the application accuracy campaign.</div>'
+            '<section id="microbenchmarks">' + graphs + table + '</section>'
+            '<p><a href="memory-report.json">Simulation evidence</a> · <a href="memory.json">Native plotting reference</a></p>')
+    (output / 'index.html').write_text(page('Poros memory diagnostics', body, POINT_TIPS))
+
+
 def timing_curves(groups, cases):
     body = '<div class="charts">'
     for group in groups:
@@ -1164,7 +1288,7 @@ def timing_table(cases, ids):
     return body
 
 
-def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None):
+def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None):
     commit = entry["commit"]
     full_inventory = report["artifact_status"] == "pass" or live is not None
     body = (
@@ -1260,6 +1384,12 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     elif full_inventory:
         accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
         body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
+    memory_table = ""
+    if memory_reference is not None:
+        memory_charts, memory_table = memory_panels(memory_reference, report.get("memory_simulation"), model_profiles.validate(report), report.get("memory_base_large_image_support"))
+        body += memory_charts
+    elif full_inventory and memory.declared(report.get("head", {}).get("files", {})):
+        raise ValueError("memory reference required by tested source")
     scheduling_table = ""
     if scheduling_reference:
         scheduling_charts, scheduling_table = scheduling_panels(
@@ -1276,7 +1406,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     elif frontend:
         body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
                  + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
-    body += scheduling_table + forwarding_table
+    body += memory_table + scheduling_table + forwarding_table
     body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
              + timing_table(micros, micro_ids) + '</details></section>')
     replacement = report.get("reference", {}).get("streamcluster_replacement")
@@ -1584,7 +1714,8 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
         throughput_reference = read(p / "throughput.json") if "throughput.json" in retained_manifest["files"] else None
         forwarding_reference = read(p / "forwarding.json") if "forwarding.json" in retained_manifest["files"] else None
         scheduling_reference = read(p / "scheduling.json") if "scheduling.json" in retained_manifest["files"] else None
-        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference, scheduling_reference=scheduling_reference))
+        memory_reference = read(p / "memory.json") if "memory.json" in retained_manifest["files"] else None
+        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference, scheduling_reference=scheduling_reference, memory_reference=memory_reference))
     write(index_path, index)
     (root / "index.html").write_text(home(index))
     (site / ".nojekyll").touch()
@@ -1677,6 +1808,10 @@ def main():
     b.add_argument("--source", default=".")
     b.add_argument("--output", required=True)
     b.add_argument("--commit", required=True)
+    m = sub.add_parser("memory-preview")
+    m.add_argument("--report", required=True)
+    m.add_argument("--source", default=".")
+    m.add_argument("--output", required=True)
     f = sub.add_parser("failure")
     f.add_argument("--output", required=True)
     f.add_argument("--commit", required=True)
@@ -1689,6 +1824,9 @@ def main():
     serve.add_argument("--bundle", help="Optional complete validated bundle to transition to")
     serve.add_argument("--port", type=int, default=18763)
     a = p.parse_args()
+    if a.command == "memory-preview":
+        memory_preview(a.report, a.source, a.output)
+        return
     if a.command == "serve":
         import accuracy_live
         accuracy_live.serve(a.snapshot, a.bundle, a.port)

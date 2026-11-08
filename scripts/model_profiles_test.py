@@ -78,6 +78,15 @@ class ModelProfileTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "base model declaration.*Git"):
                 publisher.verify_source(self.source, self.bundle, self.head)
 
+    def test_modern_diagnostic_profile_does_not_require_application_manifest(self):
+        report = copy.deepcopy(self.report)
+        report.pop('workload_manifest')
+        self.assertEqual(models.validate(report), {'head': self.new, 'base': self.old})
+        report['head']['files'].pop(models.PATH)
+        report.pop('model_profiles')
+        with self.assertRaisesRegex(ValueError, 'missing legacy'):
+            models.validate(report)
+
     def test_missing_declaration_changed_profiles_and_both_hashes_fail(self):
         for mutate in (lambda r:r.pop("model_profiles"),
                        lambda r:r["model_profiles"]["base"]["profile"]["configuration"].update(fetch_width=99),

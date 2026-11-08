@@ -8,6 +8,9 @@ import json
 import math
 from pathlib import Path
 import tempfile
+import struct
+import shutil
+import subprocess
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -20,6 +23,7 @@ import frontend_microbenchmark as probe
 import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
 import model_profiles as models
+import memory_microbenchmark as memory
 import hashlib
 
 HEAD = "a" * 40
@@ -227,6 +231,173 @@ class ParallelAccuracyTests(unittest.TestCase):
         aggregated = parallel.read(self.root / "aggregate/report.json")
         self.assertEqual(serial, aggregated)
         site.check_report(aggregated, HEAD)
+
+    @contextlib.contextmanager
+    def memory_fixture(self):
+        """Small, non-power-of-two and head-only large cases plus unassigned shards."""
+        declared = memory.cases()
+        cases = [declared[0], next(c for c in declared if c["id"] == "chase16-98304"), declared[-1]]
+        state, plan = copy.deepcopy(self.state), copy.deepcopy(self.plan)
+        profile_hash = hashlib.sha256(models.encode(self.profile)).hexdigest()
+        state["files"].update({memory.ELF: "f" * 64, memory.REFERENCE: "e" * 64, memory.LARGE_ELF: "d" * 64,
+                               models.PATH: profile_hash})
+        declarations = {role: dict(commit=revision, path=models.PATH, sha256=profile_hash,
+                                   profile=self.profile) for role, revision in (("head", HEAD), ("base", BASE))}
+        plan.update(head=state, model_profiles=declarations,
+                    memory=dict(elfs={memory.ELF: "f" * 64, memory.LARGE_ELF: "d" * 64},
+                                base_large_image_support=False, reference_sha256="e" * 64,
+                                cases=cases, shards=parallel.partition(cases, 3)))
+        parallel.write(self.prepared / "plan.json", plan)
+        with patch.object(user, "source_state", return_value=state), \
+             patch.object(models, "resolve", return_value=declarations), \
+             patch.object(memory, "cases", return_value=cases), \
+             patch.object(memory, "supports_large_images", return_value=False), \
+             patch.object(memory, "load_reference", return_value={"cases": cases}):
+            yield plan
+
+    def memory_samples(self, binary, root, case, revision, profile):
+        samples = []
+        hz = profile["configuration"]["freq"]
+        for factor in (1, 2):
+            passes = case["passes"] * factor
+            instructions = 1000 + passes * case["instructions_per_pass"]
+            cycles = 2000 + instructions
+            samples.append(dict(termination="exit", exit_status=0, stderr_base64="",
+                                binary_sha256=("d" if memory.case_elf(case) == memory.LARGE_ELF else "f") * 64,
+                                max_image_bytes=case["max_image_bytes"], args=["program", *memory.arguments(case, passes)],
+                                env=[], instructions=instructions,
+                                stdout_base64=base64.b64encode(struct.pack("<Q", memory.expected(case, passes))).decode(),
+                                build={"vcs.revision": revision, "vcs.modified": "false"},
+                                timing=dict(model="ooo", user_cycles=cycles, retired_instructions=instructions,
+                                            assumed_hz=hz, predicted_user_seconds=cycles / hz, **profile)))
+        return samples
+
+    def live_result(self, binary, case, mode=None, **options):
+        role = "functional" if mode == "functional" else Path(binary).name
+        return self.result(case, role)
+
+    def test_memory_runs_in_assigned_shards_and_aggregate_only_consumes_records(self):
+        results, output = self.root / "memory-shards", self.root / "memory/report.json"
+        with self.memory_fixture() as plan, contextlib.redirect_stdout(io.StringIO()):
+            with patch.object(user, "execute", side_effect=self.live_result), \
+                 patch.object(memory, "measure_case", side_effect=self.memory_samples) as execute_memory:
+                for index in range(8):
+                    self.assertEqual(parallel.run_shard(self.prepared, "123", 1, index,
+                                                       results / str(index) / "shard.json"), 0)
+            self.assertEqual(execute_memory.call_count, 5)  # Two base/head cases and one head-only case.
+            shards = [parallel.read(results / str(i) / "shard.json") for i in range(8)]
+            self.assertEqual([len(s["memory_records"]) for s in shards], [1, 1, 1, 0, 0, 0, 0, 0])
+            expected = parallel.recorded_memory(plan, shards[:3], 1)
+            with patch.object(user, "execute", side_effect=AssertionError("aggregate executed app")), \
+                 patch.object(memory, "measure_case", side_effect=AssertionError("aggregate executed memory")), \
+                 patch.object(memory, "measure", side_effect=AssertionError("aggregate used serial fallback")), \
+                 patch.object(user, "compare", wraps=user.compare) as compare:
+                self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output), 0)
+                self.assertEqual(compare.call_args.kwargs["memory_simulation"], expected)
+                self.assertFalse(hasattr(compare.call_args.args[0], "memory_simulation"))
+                report = parallel.read(output)
+                self.assertEqual(report["artifact_status"], "pass")
+                self.assertEqual(report["memory_simulation"], expected)
+                self.assertIs(report["memory_base_large_image_support"], False)
+                self.assertEqual(report["memory_simulation"]["base"][-1], memory.unavailable(plan["memory"]["cases"][-1]))
+                self.assertEqual(len(report["cases"]), 264)
+                for index, records, reason in ((0, [], "coverage"),
+                                               (3, shards[0]["memory_records"], "unassigned")):
+                    changed = copy.deepcopy(shards[index]); changed["memory_records"] = records
+                    parallel.write(results / str(index) / "shard.json", changed)
+                    self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output), 1)
+                    self.assertIn(reason, parallel.read(output)["error"])
+                    parallel.write(results / str(index) / "shard.json", shards[index])
+
+    def test_compare_memory_explicit_rows_fail_closed_and_serial_path_announces_work(self):
+        args = SimpleNamespace(head=str(self.prepared / "head"), base=str(self.prepared / "base"),
+                               base_unavailable=False, base_commit=BASE,
+                               reference=str(parallel.ROOT / parallel.REFERENCE), output=str(self.root / "serial-memory.json"))
+        with self.memory_fixture() as plan, contextlib.redirect_stdout(io.StringIO()) as notices:
+            def measured(binary, root, revision, profile):
+                return [memory.unavailable(c) if revision == BASE and c["max_image_bytes"] > 268435456 else
+                        memory.summarize_samples(c, self.memory_samples(binary, root, c, revision, profile))
+                        for c in plan["memory"]["cases"]]
+            with patch.object(memory, "measure", side_effect=measured) as measure:
+                self.assertEqual(user.compare(args, self.live_result, memory_simulation={}, memory_base_large_image_support=False), 1)
+                measure.assert_not_called()
+                self.assertIn("both base and head", parallel.read(args.output)["error"])
+                self.assertEqual(user.compare(args, self.live_result), 0)
+                self.assertEqual(measure.call_count, 2)
+            self.assertIn("measuring the full memory suite serially", notices.getvalue())
+
+    def test_memory_only_roundtrip_with_real_source_metadata(self):
+        # Only simulator execution is synthetic. Git commits, source hashes,
+        # reference, model declarations and the complete 140-point transport are real.
+        source = self.root / "memory-source"
+        shutil.copytree(self.fixture.source, source)
+        for name in [*memory.INPUTS, memory.REFERENCE, models.PATH,
+                     "pkg/loader/elf.go", "pkg/linuxuser/run.go", "cmd/poros/elf.go"]:
+            target = source / name; target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(memory.ROOT / name, target)
+        def git(*args):
+            return subprocess.check_output(['git', '-C', str(source), *args], stderr=subprocess.DEVNULL, text=True).strip()
+        git('init'); git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.org')
+        cli = source / 'cmd/poros/elf.go'
+        current_cli = cli.read_bytes()
+        cli.write_bytes(subprocess.check_output(['git', '-C', str(memory.ROOT), 'show', BASE + ':cmd/poros/elf.go']))
+        git('add', '.'); git('commit', '-m', 'fixture base without extended image option')
+        base = git('rev-parse', 'HEAD')
+        cli.write_bytes(current_cli)
+        git('add', '.'); git('commit', '-m', 'fixture head with extended image option')
+        real_source_state = self.state_patch.temp_original
+        original_capability, original_cohort = parallel.compute.base_capability, parallel.compute.base_declares_cohort
+        with patch.object(parallel, 'ROOT', source), patch.object(user, 'ROOT', source), \
+             patch.object(user, 'source_state', side_effect=real_source_state), \
+             patch.object(parallel.compute, 'base_capability', side_effect=lambda rev: original_capability(rev, source)), \
+             patch.object(parallel.compute, 'base_declares_cohort', side_effect=lambda rev: original_cohort(rev, source)), \
+             contextlib.redirect_stdout(io.StringIO()):
+            state = user.source_state()
+            self.assertFalse(state['dirty'])
+            plan = copy.deepcopy(self.plan)
+            plan.update(head=state, base_commit=base, base_capability=original_capability(base, source),
+                        model_profiles=models.resolve(source, state, base),
+                        memory=parallel.memory_plan(state, len(plan['shards']), base))
+            parallel.write(self.prepared / 'plan.json', plan)
+            def simulate(binary, root, case, revision, profile):
+                samples = self.memory_samples(binary, root, case, revision, profile)
+                for sample in samples: sample['binary_sha256'] = state['files'][memory.case_elf(case)]
+                return samples
+            results = self.root / 'memory-only-shards'
+            with patch.object(memory, 'measure_case', side_effect=simulate):
+                for index in range(len(plan['memory']['shards'])):
+                    self.assertEqual(parallel.run_memory_shard(self.prepared, '123', 1, index,
+                                     results / str(index) / 'memory-shard.json'), 0)
+            output = self.root / 'memory-only.json'
+            with patch.object(memory, 'measure_case', side_effect=AssertionError('aggregate reran simulation')):
+                self.assertEqual(parallel.aggregate_memory(self.prepared, results, '123', 1, output), 0)
+            preview = self.root / 'memory-only-preview'
+            site.memory_preview(output, source, preview)
+            rendered = (preview / 'index.html').read_text()
+            self.assertIn('140 diagnostic points', rendered)
+            self.assertIn('application accuracy was not rerun', rendered)
+            self.assertEqual(parallel.read(preview / 'memory-report.json'), parallel.read(output))
+            # A syntactically valid unsupported-capability report cannot disagree
+            # with the supplied Git source (this base has no extended image flag).
+            altered = parallel.read(output); altered['memory_base_large_image_support'] = True
+            altered['memory_simulation']['base'] = copy.deepcopy(altered['memory_simulation']['head'])
+            memory.validate_comparison(altered['memory_simulation'], plan['memory']['cases'], True)
+            parallel.write(output, altered)
+            with self.assertRaisesRegex(ValueError, 'base capability differs from source'):
+                site.memory_preview(output, source, self.root / 'bad-preview')
+            shard = results / '0/memory-shard.json'
+            shard.rename(shard.with_name('wrong-name.json'))
+            with self.assertRaisesRegex(ValueError, 'missing required memory shards'):
+                parallel.aggregate_memory(self.prepared, results, '123', 1, output)
+
+    def test_memory_aggregate_rejects_unsupported_shard_status_option(self):
+        argv = ["accuracy_parallel.py", "memory-aggregate", "--prepared", "unused", "--run-id", "123",
+                "--attempt", "1", "--results", "unused", "--output", "unused", "--shard-status", "failure"]
+        with patch("sys.argv", argv), contextlib.redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaises(SystemExit) as failure:
+                parallel.main()
+        self.assertEqual(failure.exception.code, 2)
+        self.assertIn("unrecognized arguments: --shard-status failure", errors.getvalue())
 
     def test_upstream_failure_cannot_reuse_old_success_and_failure_bundle_is_valid(self):
         output = self.root / "failed/report.json"

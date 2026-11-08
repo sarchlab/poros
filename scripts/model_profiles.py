@@ -51,11 +51,13 @@ def resolve(root, state, base):
 
 def validate(report):
     """Offline archive validation. Publication additionally checks both Git revisions."""
-    legacy = report["workload_manifest"]["profile"]
+    legacy = report.get("workload_manifest", {}).get("profile")
     declarations = report.get("model_profiles")
     if PATH not in report["head"]["files"]:
         if declarations is not None:
             raise ValueError("model profiles absent from tested source")
+        if legacy is None:
+            raise ValueError("missing legacy model profile")
         return {"head": legacy, "base": legacy}
     if not isinstance(declarations, dict) or set(declarations) != {"head", "base"}:
         raise ValueError("missing head/base model declarations")

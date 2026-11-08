@@ -28,6 +28,7 @@ func (e *environmentFlags) Set(s string) error { *e = append(*e, s); return nil 
 func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	fs := flag.NewFlagSet("elf", flag.ContinueOnError)
 	fs.SetOutput(diagnostics)
+	imageLimit := fs.Uint64("max-image-bytes", loader.MaxELFImageBytes, "page-aligned ELF image budget, at most 512 MiB (default 256 MiB)")
 	mode := fs.String("mode", "functional", "functional, inorder or ooo")
 	hz := fs.Float64("frequency-hz", 3.49e9, "assumed integer CPU Hz (1 MHz to 1 THz), not measured")
 	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
@@ -37,6 +38,10 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	var env environmentFlags
 	fs.Var(&env, "env", "guest KEY=VALUE (repeatable; no inherited environment)")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *imageLimit == 0 {
+		fmt.Fprintln(diagnostics, "image budget must be positive")
 		return 2
 	}
 	if fs.NArg() < 1 {
@@ -62,7 +67,7 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 		fmt.Fprintln(diagnostics, err)
 		return 2
 	}
-	options := linuxuser.Options{Args: append([]string{*argv0}, fs.Args()[1:]...), Env: []string(env), ExecName: *argv0}
+	options := linuxuser.Options{MaxImageBytes: *imageLimit, Args: append([]string{*argv0}, fs.Args()[1:]...), Env: []string(env), ExecName: *argv0}
 	p, err := linuxuser.Parse(b, options)
 	if err != nil {
 		fmt.Fprintln(diagnostics, err)
@@ -86,14 +91,15 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	sum := sha256.Sum256(b)
 	build := buildMetadata()
 	report := struct {
-		Schema       int                `json:"schema"`
-		BinarySHA256 string             `json:"binary_sha256"`
-		Args         []string           `json:"args"`
-		Env          []string           `json:"env"`
-		Build        map[string]string  `json:"build"`
-		Timing       *elfsim.Statistics `json:"timing,omitempty"`
+		Schema        int                `json:"schema"`
+		MaxImageBytes uint64             `json:"max_image_bytes"`
+		BinarySHA256  string             `json:"binary_sha256"`
+		Args          []string           `json:"args"`
+		Env           []string           `json:"env"`
+		Build         map[string]string  `json:"build"`
+		Timing        *elfsim.Statistics `json:"timing,omitempty"`
 		linuxuser.Result
-	}{1, hex.EncodeToString(sum[:]), options.Args, append([]string{}, options.Env...), build, timingStats, result}
+	}{1, *imageLimit, hex.EncodeToString(sum[:]), options.Args, append([]string{}, options.Env...), build, timingStats, result}
 	if err := json.NewEncoder(out).Encode(report); err != nil {
 		fmt.Fprintln(diagnostics, err)
 		return 2

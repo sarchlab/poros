@@ -51,7 +51,9 @@ type Options struct {
 	Args, Env []string
 	ExecName  string
 	StackSize uint64
-	Random    [16]byte
+	// MaxImageBytes is a bounded loader budget; zero preserves the default.
+	MaxImageBytes uint64
+	Random        [16]byte
 }
 
 // Process owns the authoritative architectural state and checked address space.
@@ -71,7 +73,7 @@ func startupError(s string) error     { return &StartupError{s} }
 // Load opens and validates an ELF, then constructs fresh initial process state.
 // Errors return no partially initialized process. The path defaults ExecName.
 func Load(path string, o Options) (*Process, error) {
-	image, e := loader.LoadELF(path)
+	image, e := loader.LoadELFWithOptions(path, loader.ELFOptions{MaxImageBytes: o.MaxImageBytes})
 	if e != nil {
 		return nil, e
 	}
@@ -83,7 +85,7 @@ func Load(path string, o Options) (*Process, error) {
 
 // Parse is Load for caller-owned ELF bytes; ExecName defaults to "program".
 func Parse(b []byte, o Options) (*Process, error) {
-	image, e := loader.ParseELF(b)
+	image, e := loader.ParseELFWithOptions(b, loader.ELFOptions{MaxImageBytes: o.MaxImageBytes})
 	if e != nil {
 		return nil, e
 	}

@@ -311,3 +311,36 @@ func TestELFMappedImageBound(t *testing.T) {
 		})
 	}
 }
+
+func TestExplicitELFImageBudget(t *testing.T) {
+	for _, limit := range []uint64{1, ELFPageSize + 1, MaxELFImageLimit + ELFPageSize, ^uint64(0)} {
+		if _, err := ParseELFWithOptions(fixtureELF(t), ELFOptions{MaxImageBytes: limit}); err == nil {
+			t.Fatalf("invalid explicit image budget accepted: %d", limit)
+		}
+	}
+	// Three mapped pages: enforce the cumulative rounded total, not each segment.
+	for _, limit := range []uint64{0, 3 * ELFPageSize, MaxELFImageLimit} {
+		if _, err := ParseELFWithOptions(fixtureELF(t), ELFOptions{MaxImageBytes: limit}); err != nil {
+			t.Fatalf("valid image budget %d: %v", limit, err)
+		}
+	}
+	if _, err := ParseELFWithOptions(fixtureELF(t), ELFOptions{MaxImageBytes: 2 * ELFPageSize}); err == nil {
+		t.Fatal("cumulative image bound not enforced")
+	}
+	b := fixtureELF(t)
+	binary.LittleEndian.PutUint64(b[176+40:], MaxELFImageBytes)
+	if _, err := ParseELF(b); err == nil {
+		t.Fatal("default image limit changed")
+	}
+	image, err := ParseELFWithOptions(b, ELFOptions{MaxImageBytes: MaxELFImageLimit})
+	if err != nil || len(image.Segments[2].Data) != int(MaxELFImageBytes) {
+		t.Fatalf("expanded BSS: %v", err)
+	}
+	// Oversized/overflowing headers fail before allocating their claimed memory.
+	for _, size := range []uint64{MaxELFImageLimit, ^uint64(0)} {
+		binary.LittleEndian.PutUint64(b[176+40:], size)
+		if _, err := ParseELFWithOptions(b, ELFOptions{MaxImageBytes: MaxELFImageLimit}); err == nil {
+			t.Fatal("oversized image accepted")
+		}
+	}
+}

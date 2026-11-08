@@ -80,3 +80,24 @@ func TestELFTimingModesAndOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestELFImageBudgetCLI(t *testing.T) {
+	for _, limit := range []string{"0", "-1", "4097", "8192", "536875008", "18446744073709551616"} {
+		var out, diag bytes.Buffer
+		if runELF([]string{"--max-image-bytes", limit, "../../tests/elf/hello.elf"}, &out, &diag) != 2 || out.Len() != 0 {
+			t.Fatalf("invalid/insufficient image budget accepted: %s", limit)
+		}
+	}
+	for limit, expected := range map[string]uint64{"268435456": 268435456, "536870912": 536870912} {
+		var out, diag bytes.Buffer
+		if runELF([]string{"--max-image-bytes", limit, "../../tests/elf/hello.elf"}, &out, &diag) != 0 {
+			t.Fatal(diag.String())
+		}
+		var result struct {
+			MaxImageBytes uint64 `json:"max_image_bytes"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &result); err != nil || result.MaxImageBytes != expected {
+			t.Fatal("image budget provenance missing")
+		}
+	}
+}
