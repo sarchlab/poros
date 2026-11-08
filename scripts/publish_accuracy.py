@@ -25,6 +25,23 @@ def api(path, method="GET"):
     return json.loads(run("gh", "api", "--method", method, path).stdout)
 
 
+def verify_replacement_source(source, reference, commit):
+    replacement = reference["streamcluster_replacement"]
+    site.performance.require_collection_ancestor(source, replacement["base_commit"], commit)
+    original_bytes = subprocess.check_output(["git", "-C", str(source), "show",
+        replacement["base_commit"]+":"+site.performance.PATH])
+    original = json.loads(original_bytes)
+    replaced = set(replacement["case_ids"])
+    current_keys = {"cases", "input_sources", "inventory_sha256", "micro_manifest_sha256", "build_manifest_sha256"}
+    if any(reference.get(k) != v for k,v in original.items() if k not in current_keys):
+        raise ValueError("replacement altered original acquisition metadata")
+    if (hashlib.sha256(original_bytes).hexdigest() != replacement["original_reference_sha256"]
+            or reference["historical_input_sources"] != original["input_sources"]
+            or [r for r in reference["cases"] if r["id"] not in replaced]
+            != [r for r in original["cases"] if r["id"] not in replaced]):
+        raise ValueError("replacement differs from historical acquisition evidence")
+
+
 def verify_source(source, bundle, commit):
     report, manifest = site.validate_bundle(bundle, commit)
     if report["artifact_status"] != "pass":
@@ -56,7 +73,9 @@ def verify_source(source, bundle, commit):
             raise ValueError("compact reference differs from source commit")
         # Native capture tools were local, uncommitted experiment files. Their
         # hashes describe retained local evidence, not files at collection_commit.
-        sources = dict(reference["input_sources"])
+        sources = dict(reference["historical_input_sources"] if "streamcluster_replacement" in reference else reference["input_sources"])
+        if "streamcluster_replacement" in reference:
+            verify_replacement_source(source, reference, commit)
         if reference["protocol"] == site.performance.PROTOCOL:
             sources.update(reference["collector_sources"])
         for path, expected in sources.items():

@@ -12,7 +12,7 @@ import struct
 import shutil
 import subprocess
 import sys
-from workload_contract import mapped_image_bytes
+from workload_contract import mapped_image_bytes, instruction_budget
 
 EXPECTED = set("atax gemm 2mm 3mm bicg gesummv gemver doitgen trisolv durbin jacobi1d syrk syr2k trmm symm cholesky lu floydwarshall covariance correlation gramschmidt ludcmp nussinov adi fdtd2d heat3d jacobi2d seidel2d deriche swaptions blackscholes streamcluster canneal fluidanimate raytrace vips bodytrack facesim ferret x264".split())
 
@@ -173,12 +173,13 @@ def main():
                         raise ValueError("independent numerical output check failed")
                     record.update(status="pass", numerical_status="pass", numerical_check=kind, output_bytes=len(oracle.stdout), output_sha256=digest(oracle.stdout), qemu_sha256=digest(oracle.stdout))
                 else:
-                    simulated = subprocess.run([args.poros, "elf", "--max-instructions", "2000000000" if args.performance else "200000000", "--timeout", "45m" if args.performance else "5m", "--max-output", "67108864" if args.performance else "16777216", str(elf), *case["args"]], capture_output=True, timeout=2750 if args.performance else 360)
+                    limit = instruction_budget(dict(file=workload["binary"], args=["program", *case["args"]])) if args.performance else 200000000
+                    simulated = subprocess.run([args.poros, "elf", "--max-instructions", str(limit), "--timeout", "45m" if args.performance else "5m", "--max-output", "67108864" if args.performance else "16777216", str(elf), *case["args"]], capture_output=True, timeout=2750 if args.performance else 360)
                     result, actual = check_result(case, simulated, oracle.stdout)
                     check_build(result, state)
                     if result["args"] != ["program", *case["args"]] or result["env"] != []:
                         raise ValueError("Poros input provenance mismatch")
-                    if type(result["instructions"]) is not int or not 0 < result["instructions"] <= (2000000000 if args.performance else 200000000):
+                    if type(result["instructions"]) is not int or not 0 < result["instructions"] <= limit:
                         raise ValueError("invalid instruction count")
                     if result["binary_sha256"] != record["binary_sha256"]:
                         raise ValueError("Poros ran a different binary")

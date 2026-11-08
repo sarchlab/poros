@@ -402,7 +402,8 @@ def validate_bundle(path, commit):
 def measurement_completed(report, path):
     if report.get("schema") == 3:
         return report["compute_reference"]["completed_at_utc"]
-    return read(path / "reference.json").get("completed_at_utc")
+    reference = read(path / "reference.json")
+    return reference.get("streamcluster_replacement", {}).get("completed_at_utc", reference.get("completed_at_utc"))
 
 
 def nested_regular(root, name):
@@ -611,6 +612,8 @@ def validate_compact_bundle(path, commit, manifest):
         raise ValueError("compact input differs from tested source/ELF")
     profiles = model_profiles.validate(report)
     for row, observed, case in zip(report["cases"], measured["cases"], declared["cases"]):
+        if "streamcluster_replacement" in measured and row.get("reference_origin") != performance.reference_origin(measured, case):
+            raise ValueError("plotted native acquisition identity mismatch")
         if row["reference_quality"] != observed["quality"] or row["reference_user_seconds"] != observed["median_user_seconds"] or row.get("reference_p10_seconds") != observed["p10_user_seconds"] or row.get("reference_p90_seconds") != observed["p90_user_seconds"]:
             raise ValueError("compact plotted statistics mismatch")
         for label in ("head", "base"):
@@ -1204,6 +1207,11 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     body += forwarding_table
     body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
              + timing_table(micros, micro_ids) + '</details></section>')
+    replacement = report.get("reference", {}).get("streamcluster_replacement")
+    if replacement:
+        body += ('<p>Streamcluster uses 16 complete initialization/computation/output passes per process. '
+                 'Its six-point native acquisition is recorded separately in the plotting reference; '
+                 'the other 258 reference points retain their original acquisition.</p>')
     body += (
         "<h2>Evidence and provenance</h2><p>Measurement completed (UTC): "
         + esc(entry.get("measurement_completed_at") or "unavailable")

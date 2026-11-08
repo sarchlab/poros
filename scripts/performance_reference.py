@@ -71,6 +71,8 @@ def validate(reference, declared):
     if reference.get("collection_dirty") is not False or reference.get("oracle_commit") != reference.get("collection_commit") or not re.fullmatch(r"[0-9a-f]{40}", reference.get("collection_commit", "")):
         raise ValueError("compact reference requires one exact clean collection/oracle commit")
     is_native = reference["protocol"] == NATIVE_PROTOCOL
+    if not is_native and ("streamcluster_replacement" in reference or "historical_input_sources" in reference):
+        raise ValueError("replacement provenance requires native protocol")
     if is_native:
         import macho_reference
         macho_reference.validate_metadata(reference, declared)
@@ -124,6 +126,16 @@ def validate(reference, declared):
         if row.get("numerical_check") != numerical or type(row.get("output_bytes")) is not int or row["output_bytes"] != compute.expected_output_bytes(case) or not re.fullmatch(r"[0-9a-f]{64}", row.get("output_sha256", "")):
             raise ValueError("invalid complete-output oracle identity")
     return reference
+
+
+def reference_origin(reference, case):
+    """Resolve the actual measured native binary for a case in a mixed acquisition."""
+    replacement = reference.get("streamcluster_replacement")
+    if replacement and case["id"] in replacement["case_ids"]:
+        return dict(acquisition="streamcluster-16pass", native_sha256=replacement["native_sha256"],
+                    capture_sha256=replacement["capture_sha256"])
+    return dict(acquisition="original", native_sha256=reference["native_programs"][case["workload"]]["binary_sha256"],
+                capture_sha256=reference["capture_evidence"]["capture_sha256"])
 
 
 def load(root, *, require_native=False):

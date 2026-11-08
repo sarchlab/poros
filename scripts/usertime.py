@@ -13,7 +13,7 @@ import math
 import statistics
 import subprocess
 import native_usertime as native
-from workload_contract import case_ids, check_output
+from workload_contract import case_ids, check_output, instruction_budget
 from native_usertime import (
     ROOT,
     digest,
@@ -58,7 +58,7 @@ def execute(poros, case, mode=None, expected_output=None, expected_identity=None
         "--timeout",
         "45m",
         "--max-instructions",
-        "2000000000",
+        str(instruction_budget(case)),
         "--max-output",
         str(max(1 << 20, expected_identity.length if expected_identity is not None else len(expected_output) if expected_output is not None else 16 * int(case["args"][1]) if case.get("workload") == "mvt" else 8)),
         "--argv0",
@@ -89,7 +89,7 @@ def validate_execution(r, case, mode=None, expected_output=None, expected_identi
         raise ValueError("executed input provenance mismatch")
     if r["termination"] != "exit" or r["exit_status"] != 0 or r["stderr_base64"]:
         raise ValueError("timing correctness failed: " + case["id"])
-    if type(r["instructions"]) is not int or not 0 < r["instructions"] <= 2000000000:
+    if type(r["instructions"]) is not int or not 0 < r["instructions"] <= instruction_budget(case):
         raise ValueError("instruction count must be a positive integer")
     actual = base64.b64decode(r["stdout_base64"], validate=True)
     if expected_output is not None and expected_identity is not None:

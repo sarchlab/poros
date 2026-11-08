@@ -2,8 +2,9 @@
 
 Poros compares simulated AArch64 ELF whole-program user time with native macOS
 **Mach-O** measurements on Apple M2. Both use the same GCC computation assembly
-and linked musl math, checked by a 175-function instruction audit and exact
-complete-output comparisons for all 264 input points. macOS reserves x18, so
+and linked musl math, checked by the original 175-function audit plus the
+five-function Streamcluster repetition audit and exact complete-output
+comparisons for all 264 input points. macOS reserves x18, so
 14 workloads have documented register renaming; startup, argument/output
 adapters, addresses and page placement differ. The entire executable instruction
 stream is therefore not claimed to be identical.
@@ -15,7 +16,7 @@ unknown; hardware timing accuracy is **unverified**. Linux VM measurements are
 historical evidence only and cannot feed new active accuracy comparisons.
 
 The error is `100 * abs(simulated - reference) / min(simulated, reference)`.
-No offset fitting, repeated-kernel timing, or anchor removal is used. The CPU timing profile assumes 3.49 GHz.
+No offset fitting or anchor removal is used. The CPU timing profile assumes 3.49 GHz.
 
 ## Independent correctness and performance inventories
 
@@ -30,8 +31,13 @@ No offset fitting, repeated-kernel timing, or anchor removal is used. The CPU ti
 Manifest `reference_file` fields name local raw-capture or historical protocol files;
 the active committed plotting reference is `evaluation/usertime/performance-v1.json`.
 
-Both inventories execute the same rebuilt ELF files. There are no alternate
-algorithm implementations or outer repetition loops. PARSEC names still mean
+Both inventories execute the same rebuilt ELF files except Streamcluster's
+performance-only `streamcluster-repeat.elf`. Its six points use n = 160000,
+200000, 250000, 315000, 397000, 500000, dim = 32, and 16 whole-program
+passes per process. Every pass initializes, computes, and writes the complete
+output. The original computation assembly and the small correctness ELF are
+unchanged; an audited wrapper repeats the original guest entry. The two
+executables therefore represent different workload sizes, not a timing offset. PARSEC names still mean
 simplified compute kernels, not full applications. Tiled Facesim extends its
 valid mesh, x264 extends the padded search frame, and bodytrack bounds particle
 states to preserve meaningful likelihoods. All old small-case native outputs
@@ -44,16 +50,17 @@ split labels for reproducibility. All workloads may guide model tuning.
 
 ## Native evidence and quality
 
-Each formal case executes one warmup and 21 measured processes. A single complete
-264-point final campaign is used regardless of its qualification count. A case
+Each formal case executes one warmup and 21 measured processes. The original 264-point campaign is retained for 258 cases. Six Streamcluster
+points were replaced by one separately captured, predefined six-size campaign;
+all 21 trials of each selected case are retained. A case
 is excluded from error statistics, but remains visible, when any measured user
 time is nonpositive, the median is below 100 microseconds, or
 `(P90-P10)/median > 0.20` (the unchanged order-statistic definition). No sample is
 selected, retried, replaced by total CPU time, or selected by simulator error.
 
-The recorded final campaign has **260 qualified points and 4 noisy points**
-across all 44 workloads, with no nonpositive references. Application coverage is
-242/246; Streamcluster points 2, 4, 5 and 6 remain noisy. These are measurement
+The active reference has **264 qualified points**, across all 44 workloads,
+with no nonpositive references. Application coverage is 246/246. The six
+Streamcluster replacement points all pass the unchanged quality rule. These are measurement
 quality results, not a claim of improved simulator accuracy.
 
 Only compact plotting data is committed: `performance-v1.json` contains each
@@ -66,13 +73,16 @@ transient workflow artifacts. Superseded active references are removed, while
 previously published historical bundles remain readable.
 
 Complete output validation remains byte-exact: every decoded simulator byte
-contributes to the native/QEMU SHA256 comparison, with exact length, normal exit,
+contributes to the native-output SHA256 comparison, with exact length, normal exit,
 shape/finiteness checks and the existing microprogram analytic checks. A hash
 comparison replaces storage of the native byte sequence, not execution or output
 coverage. The report does not claim raw observations are publicly downloadable.
 
-The performance oracle runs identical ELFs natively and in QEMU, comparing every
-output byte. A clean, separately built Go checker supplies independent equations
+The original performance oracle ran identical ELFs natively and in QEMU,
+comparing every output byte. The six repeated Streamcluster replacements use
+verified native output blocks and full functional/timing simulator checks, plus
+the five-function ELF/Mach-O computation/wrapper audit; they were not rerun in
+QEMU. A clean, separately built Go checker supplies independent equations
 for QR, Black-Scholes, bodytrack, canneal, raytrace, Facesim, and x264. Other
 programs receive complete shape/finiteness and native/QEMU checks; they are not
 claimed to have a separate mathematical oracle. Every Facesim force and positive
@@ -80,12 +90,12 @@ deformation determinant is checked; energy gradients cover the original fixture,
 all seven deformation classes, and the partial final block. QEMU and semantic
 checks run outside the native timing phase.
 
-The frozen ELF/input source is commit `65a8fb82832720fc5f9f72303828da82c515a126`.
+The original frozen ELF/input source is commit `65a8fb82832720fc5f9f72303828da82c515a126`.
 Native capture used local experiment scripts, not a committed collector at that
 revision. The compact `performance-macho-summary-v1` protocol records this
 explicitly: collector, capture, build, smoke and instruction-audit hashes identify
 retained local evidence; publication verifies the ELF/input hashes against the
-real collection commit and current source. Native binary and assembly identities
+real historical collection commit and the current execution inventory. Native binary and assembly identities
 and register adaptations are recorded per workload. No container identity is
 invented for this native macOS campaign.
 
@@ -95,10 +105,12 @@ visible in the downloadable reference. The existing noise rule is unchanged.
 Hardware captures are reused; CI runs the simulator on Linux and does not need a
 Mac or recollect hardware measurements.
 
-To import an existing, locally retained capture without measuring again:
+To import the original locally retained capture against its original frozen
+input checkout, without measuring again:
 
 ```sh
-python3 scripts/macho_reference.py --evidence /path/to/capture-directory \
+python3 scripts/macho_reference.py --root /path/to/original-frozen-input-checkout \
+  --evidence /path/to/capture-directory \
   --output /path/to/new-compact-reference.json
 ```
 
@@ -110,7 +122,30 @@ unique successful audit records with matching instruction counts. It validates
 stored disassembly-audit evidence; it does not rerun the external disassembler.
 Original audit scripts and their external tools remain part of the retained
 local experiment. Import never overwrites an existing output. Commit only the
-compact plotting reference, not captures, executables or witnesses.
+compact plotting reference, not captures, native Mach-O executables or witnesses.
+
+The additive `streamcluster_replacement` record identifies the six newer rows,
+their raw capture and five-function instruction audit, the measured ELF/Mach-O
+hashes, and frozen assembly/wrapper sources. Its base commit is `d527552`, but
+the wrapper experiment was uncommitted at acquisition; new files are not claimed
+to exist at that historical commit. `historical_input_sources` preserves the
+original capture bindings while `input_sources` binds the current execution
+inventory. All other 258 compact rows are unchanged. No superseded timing rows
+or raw samples are added to Git.
+
+To import that retained six-point capture without executing a program:
+
+```sh
+python3 scripts/streamcluster_reference.py --evidence /path/to/scaling-experiment \
+  --output-blocks /path/to/verified-single-pass-blocks \
+  --output /path/to/new-compact-reference.json
+```
+
+The importer checks the full focused capture's trial/warmup census, timestamps,
+outputs, executable identities, frozen sources and stored five-function audit.
+Verified output blocks reconstruct the complete 16-pass output hashes. It does
+not use the experiment's stale expanded-C build inventory. The explicit frozen
+assembly recipe in `tests/benchmarks/build.sh` reproduces the measured ELF.
 
 ## Parallel CI and base compatibility
 
@@ -119,7 +154,8 @@ Evaluation builds head/base once and freezes the full 264-case plan. It then run
 Each case requires head functional and head OoO execution. Base OoO is required
 whenever the exact base can load that ELF and retain its complete output.
 
-Per-process bounds are 2 billion instructions and 45 minutes. Output is bounded by
+Per-process bounds are 2 billion instructions and 45 minutes, except the
+16-pass Streamcluster ELF's bounded 6-billion-instruction allowance. Output is bounded by
 the case's declared complete output size, with a minimum 1 MiB default. Shard jobs
 have a 300-minute ceiling covering two cases and their required executions. These
 are finite safety budgets, not performance targets. Actual shard durations are

@@ -82,6 +82,7 @@ def validate_metadata(reference, declared):
                 "missing native program audit")
     require(sum(p["audited_functions"] for p in programs.values()) == proof["audited_functions"],
             "native per-program audit coverage mismatch")
+    validate_streamcluster_replacement(reference, declared)
     for row in reference["cases"]:
         batches = row.get("batch_median_user_seconds")
         require(isinstance(batches, list) and len(batches) == 3
@@ -93,6 +94,70 @@ def validate_metadata(reference, declared):
                 and type(spread) in (int, float) and math.isfinite(spread)
                 and math.isclose(spread, (max(batches)-min(batches))/median, rel_tol=1e-12, abs_tol=1e-12),
                 "native batch spread mismatch")
+
+
+STREAMCLUSTER_SIZES = (160000, 200000, 250000, 315000, 397000, 500000)
+REPEAT_FILES = ("computation.S", "repeat.S", "start.S", "repeat.c")
+REPEAT_PREFIX = "tests/benchmarks/streamcluster-repeat/"
+
+
+def validate_streamcluster_replacement(reference, declared):
+    replacement = reference.get("streamcluster_replacement")
+    historical = reference.get("historical_input_sources")
+    if replacement is None:
+        require(historical is None, "historical inputs require explicit replacement provenance")
+        require(not any(c["file"] == "tests/benchmarks/streamcluster-repeat.elf" for c in declared["cases"]),
+                "repeat workload requires explicit replacement acquisition")
+        return
+    require(reference.get("protocol") == performance.NATIVE_PROTOCOL,
+            "replacement requires native reference")
+    ids = [f"streamcluster-{i}" for i in range(1, 7)]
+    require(replacement.get("case_ids") == ids and replacement.get("source_origin") == "local-uncommitted-experiment"
+            and replacement.get("collection_dirty") is True
+            and re.fullmatch(r"[0-9a-f]{40}", replacement.get("base_commit", "")),
+            "invalid Streamcluster acquisition identity")
+    require(isinstance(historical, dict) and historical and all(valid_sha(v) for v in historical.values()),
+            "missing historical input bindings")
+    for name in historical:
+        compute.relative(name)
+    require(replacement.get("samples") == 126 and replacement.get("warmups") == 6
+            and replacement.get("audited_functions") == 5 and replacement.get("passes") == 16
+            and replacement.get("page_size") == 16384 and replacement.get("hardware") == "Apple M2"
+            and replacement.get("metric") == "child_user_cpu_seconds"
+            and replacement.get("timer") == "wait4.ru_utime"
+            and replacement.get("startup_included") is True
+            and replacement.get("core_identity") == "unknown" and replacement.get("instantaneous_frequency") == "unknown",
+            "invalid Streamcluster measurement contract")
+    for key in ("capture_sha256", "inputs_sha256", "collector_sha256", "audit_sha256", "elf_sha256",
+                "native_sha256", "matched_assembly_sha256", "output_proof_sha256", "original_reference_sha256"):
+        require(valid_sha(replacement.get(key)), "missing Streamcluster evidence identity")
+    try:
+        start = datetime.fromisoformat(replacement["started_at_utc"])
+        end = datetime.fromisoformat(replacement["completed_at_utc"])
+    except (KeyError, ValueError):
+        raise ValueError("invalid Streamcluster acquisition timestamps") from None
+    require(start.tzinfo is not None and end.tzinfo is not None and end >= start,
+            "invalid Streamcluster acquisition timestamps")
+    sources = replacement.get("input_sources", {})
+    expected_names = {REPEAT_PREFIX+n for n in REPEAT_FILES}
+    require(set(sources) == expected_names and all(valid_sha(v) for v in sources.values())
+            and all(reference["input_sources"].get(k) == v for k, v in sources.items()),
+            "Streamcluster frozen input binding mismatch")
+    require(sources[REPEAT_PREFIX+"computation.S"] == reference["native_programs"]["streamcluster"]["linux_assembly_sha256"],
+            "Streamcluster computation assembly changed")
+    selected = [r for r in reference["cases"] if r["id"] in ids]
+    retained = [r for r in reference["cases"] if r["id"] not in ids]
+    require(compute.object_digest(selected) == replacement.get("rows_sha256")
+            and compute.object_digest(retained) == replacement.get("retained_rows_sha256"),
+            "replacement/retained reference rows changed")
+    cases = {c["id"]: c for c in declared["cases"]}
+    for ident, n in zip(ids, STREAMCLUSTER_SIZES):
+        c = cases[ident]
+        require(c["args"] == ["program", str(n), "32", "16"]
+                and c["sha256"] == replacement["elf_sha256"]
+                and c["file"] == "tests/benchmarks/streamcluster-repeat.elf"
+                and compute.expected_output_bytes(c) == n*32*4,
+                "Streamcluster repeat execution identity mismatch")
 
 
 def export(root, evidence, output):

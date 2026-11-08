@@ -55,6 +55,8 @@ def compare(args, executor):
                        reference_user_seconds=native["median_user_seconds"], reference_quality=native["quality"],
                        reference_p10_seconds=native["p10_user_seconds"], reference_p90_seconds=native["p90_user_seconds"],
                        reason="Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved")
+            if "streamcluster_replacement" in measured:
+                row["reference_origin"] = reference.reference_origin(measured, case)
             functional = executor(args.head, case, mode="functional", expected_identity=expected)
             for label, binary, revision in (("head", args.head, state["commit"]), ("base", args.base, args.base_commit)):
                 if label == "base" and row["base_status"] != "available":

@@ -19,6 +19,27 @@ spec.loader.exec_module(gate)
 
 class UserTimeTests(unittest.TestCase):
 
+    def test_repeat_workload_instruction_budget_is_bounded_and_specific(self):
+        case=dict(file='tests/benchmarks/streamcluster-repeat.elf',args=['program','500000','32','16'])
+        self.assertEqual(gate.instruction_budget(case),6_000_000_000)
+        for changed in (dict(file='tests/benchmarks/streamcluster.elf'),dict(args=['program','500000','32','64'])):
+            self.assertEqual(gate.instruction_budget(dict(case,**changed)),2_000_000_000)
+
+    def test_repeat_execution_accepts_large_count_but_retains_upper_bound(self):
+        raw=bytes(128)
+        case=dict(id='streamcluster-test',file='tests/benchmarks/streamcluster-repeat.elf',
+                  args=['program','1','32','16'],sha256='1'*64,env=[],frequency_hz=3490000000,
+                  model='ooo',outputs=[dict(type='double',count=16)])
+        result=dict(binary_sha256='1'*64,args=case['args'],env=[],termination='exit',exit_status=0,
+                    stderr_base64='',stdout_base64=base64.b64encode(raw).decode(),instructions=4_944_000_000)
+        with patch.object(gate.subprocess,'run',return_value=SimpleNamespace(returncode=0,stderr=b'',stdout=json.dumps(result).encode())) as run:
+            gate.execute('synthetic-only',case,mode='functional',expected_output=raw)
+        argv=run.call_args.args[0]
+        self.assertEqual(argv[argv.index('--max-instructions')+1],'6000000000')
+        for instructions in (0,6_000_000_001):
+            with self.assertRaises(ValueError):
+                gate.validate_execution(dict(result,instructions=instructions),case,mode='functional',expected_output=raw)
+
     def test_symmetric_error(self):
         self.assertEqual(gate.error_percent(2, 1), 100)
         self.assertEqual(gate.error_percent(0.5, 1), 100)

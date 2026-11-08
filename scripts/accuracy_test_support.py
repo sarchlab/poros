@@ -40,6 +40,8 @@ def small_source(root, destination):
     small = compute.read(destination/'tests/benchmarks/manifest.json')
     for workload, small_workload in zip(performance['workloads'],small['workloads']):
         workload['cases'] = small_workload['cases']
+        workload['dimensions'] = small_workload['dimensions']
+        workload['binary'] = small_workload['binary']
     path = destination/'tests/benchmarks/performance.json'
     compute.write(path,performance)
     build = compute.read(destination/'tests/benchmarks/provenance.json')

@@ -13,6 +13,7 @@ import accuracy_test_support as fixtures
 import accuracy_site as site
 import compute_usertime as compute
 import macho_reference as macho
+import streamcluster_reference as repeated
 import performance_reference as performance
 import publish_accuracy as publisher
 
@@ -33,10 +34,68 @@ class NativeReferenceTests(unittest.TestCase):
         self.assertEqual(len(measured['native_programs']), 44)
         self.assertEqual(measured['capture_evidence']['samples'], 5544)
         self.assertEqual({r['id'] for r in measured['cases'] if r['quality'] != 'usable'},
-                         {'streamcluster-2', 'streamcluster-4', 'streamcluster-5', 'streamcluster-6'})
-        self.assertEqual(sum(r['quality']=='usable' for r in measured['cases']),260)
+                         set())
+        self.assertEqual(sum(r['quality']=='usable' for r in measured['cases']),264)
         self.assertEqual(sum(p['reserved_register_rename'] is not None for p in measured['native_programs'].values()),14)
         self.assertLess((ROOT/performance.PATH).stat().st_size,300000)
+
+    def test_streamcluster_replacement_binding_and_unchanged_rows(self):
+        declared, measured = performance.load(ROOT, require_native=True)
+        replacement = measured['streamcluster_replacement']
+        previous = json.loads(subprocess.check_output(['git','-C',str(ROOT),'show',
+            replacement['base_commit']+':'+performance.PATH]))
+        ids = set(replacement['case_ids'])
+        self.assertEqual([r for r in measured['cases'] if r['id'] not in ids],
+                         [r for r in previous['cases'] if r['id'] not in ids])
+        mutations = [lambda r:r.pop('streamcluster_replacement'), lambda r:r.pop('historical_input_sources'),
+            lambda r:r['streamcluster_replacement'].update(collection_dirty=False),
+            lambda r:r['streamcluster_replacement'].update(samples=125),
+            lambda r:r['streamcluster_replacement'].update(elf_sha256='0'*64),
+            lambda r:r['streamcluster_replacement'].update(rows_sha256='0'*64),
+            lambda r:r['streamcluster_replacement']['input_sources'].update({macho.REPEAT_PREFIX+'repeat.S':'0'*64}),
+            lambda r:r['streamcluster_replacement'].update(case_ids=['streamcluster-1'])]
+        for i,mutate in enumerate(mutations):
+            bad=copy.deepcopy(measured);mutate(bad)
+            with self.subTest(mutation=i),self.assertRaises(ValueError):performance.validate(bad,declared)
+
+    def test_replacement_history_cannot_be_rehashed_to_hide_other_changes(self):
+        _, measured = performance.load(ROOT, require_native=True)
+        head = subprocess.check_output(['git','-C',str(ROOT),'rev-parse','HEAD'],text=True).strip()
+        publisher.verify_replacement_source(ROOT, measured, head)
+        bad = copy.deepcopy(measured)
+        bad['historical_input_sources']['tests/benchmarks/build.sh'] = '0'*64
+        with self.assertRaisesRegex(ValueError,'historical acquisition'):
+            publisher.verify_replacement_source(ROOT,bad,head)
+        bad = copy.deepcopy(measured)
+        bad['cases'][0]['median_user_seconds'] *= 2
+        ids = set(bad['streamcluster_replacement']['case_ids'])
+        bad['streamcluster_replacement']['retained_rows_sha256'] = compute.object_digest([r for r in bad['cases'] if r['id'] not in ids])
+        with self.assertRaisesRegex(ValueError,'historical acquisition'):
+            publisher.verify_replacement_source(ROOT,bad,head)
+        declared = performance.inventory(ROOT)
+        for c in declared['cases']:
+            origin = performance.reference_origin(measured,c)
+            wanted = measured['streamcluster_replacement']['native_sha256'] if c['workload']=='streamcluster' else measured['native_programs'][c['workload']]['binary_sha256']
+            self.assertEqual(origin['native_sha256'],wanted)
+
+    def test_repeat_capture_rejects_missing_duplicate_and_mislabeled_trials(self):
+        configs=[dict(id=str(i),n=i+1,k=16) for i in range(18)]
+        inputs=dict(configs=configs,expected={str(i+1):dict(bytes=(i+1)*8,sha256='1'*64) for i in range(18)})
+        def sample(c,t):
+            return dict(id=c['id'],n=c['n'],k=16,trial=t,batch=t//7 if t>=0 else -1,exit=0,
+                all_repetitions_match=True,output_block_sha256='1'*64,output_bytes=c['n']*8*16,
+                unix_time=1767225610,user_seconds=.1,system_seconds=.01,wall_seconds=.12)
+        raw=dict(configs=configs,started_at='2026-01-01T00:00:00+00:00',completed_at='2026-01-01T00:01:00+00:00',
+                 samples=[sample(c,t) for c in configs for t in range(21)],warmups=[sample(c,-1) for c in configs])
+        repeated.validate_samples(raw,inputs)
+        mutations=[lambda r:r['samples'].pop(),lambda r:r['samples'].__setitem__(1,r['samples'][0]),
+                   lambda r:r['warmups'][0].update(trial=0,batch=0),lambda r:r['configs'][0].update(k=32),
+                   lambda r:r['samples'][0].update(output_block_sha256='0'*64),
+                   lambda r:r['samples'][0].update(user_seconds=float('nan')),
+                   lambda r:r['samples'][0].update(unix_time=0)]
+        for i,mutate in enumerate(mutations):
+            bad=copy.deepcopy(raw);mutate(bad)
+            with self.subTest(mutation=i),self.assertRaises(ValueError):repeated.validate_samples(bad,inputs)
 
     def test_native_metadata_and_statistics_fail_closed(self):
         mutations = [lambda r:r.update(environment='virtualized'), lambda r:r.update(protocol=performance.PROTOCOL),
