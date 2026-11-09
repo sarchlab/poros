@@ -15,7 +15,10 @@ type writeAllocation struct {
 // latency); drained is when allocation/write traffic completes. This is distinct
 // from Access, whose return value always means data readiness.
 //
-// Resident L1 stores retain the ordinary Access completion. Pending stores to
+// Resident L1 stores retain the ordinary Access completion as acceptance. A
+// miss/merge can be accepted earlier, when its pending-line slot is available;
+// the CPU still retains its instruction slot through execution completion.
+// This deliberate asymmetry preserves existing hit timing. Pending stores to
 // the same resident allocation share a bounded line entry, without making the
 // fill instantaneous. Queue capacity is reserved conservatively in dispatch
 // order: an earlier-issuing younger request may wait for a future reservation,
@@ -107,13 +110,6 @@ func (c *Cache) DrainUntil() uint64 {
 	return until
 }
 
-func later(a, b uint64) uint64 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func (cl *cacheLevel) victim(addr uint64) *cacheLine {
 	set := cl.sets[cl.setIndex(addr)]
 	var victim *cacheLine
@@ -130,16 +126,16 @@ func (cl *cacheLevel) victim(addr uint64) *cacheLine {
 
 func (c *Cache) installL1(addr, ready uint64, prefetched bool, now uint64) *cacheLine {
 	if victim := c.l1.victim(addr); victim != nil && victim.dirty {
-		ready = later(ready, c.writebackL1(*victim, now))
+		ready = max(ready, c.writebackL1(*victim, now))
 	}
 	return c.l1.installAt(addr, ready, prefetched)
 }
 
 func (c *Cache) installL2(addr, ready uint64, prefetched bool, now uint64) *cacheLine {
 	if victim := c.l2.victim(addr); victim != nil && victim.dirty {
-		admitted, end := reserveWriteback(c.l2Writebacks, c.dram, now, later(victim.readyAt, victim.dirtyAt), c.cfg.L2LineSize)
-		ready = later(ready, admitted)
-		c.writebackUntil = later(c.writebackUntil, end)
+		admitted, end := reserveWriteback(c.l2Writebacks, c.dram, now, max(victim.readyAt, victim.dirtyAt), c.cfg.L2LineSize)
+		ready = max(ready, admitted)
+		c.writebackUntil = max(c.writebackUntil, end)
 		c.stats.L2Writebacks++
 		c.stats.WritebackBytes += uint64(c.cfg.L2LineSize)
 	}
@@ -148,7 +144,7 @@ func (c *Cache) installL2(addr, ready uint64, prefetched bool, now uint64) *cach
 
 func (c *Cache) writebackL1(victim cacheLine, now uint64) uint64 {
 	addr := victim.tag * uint64(c.cfg.L1LineSize)
-	start := later(now, later(victim.readyAt, victim.dirtyAt))
+	start := max(now, victim.readyAt, victim.dirtyAt)
 	line := c.l2.find(addr)
 	if line == nil {
 		// Preserve the other L1-sized portion(s) of this L2 line. A partial
@@ -156,12 +152,12 @@ func (c *Cache) writebackL1(victim cacheLine, now uint64) uint64 {
 		c.fetchL2(addr, start, false)
 		line = c.l2.peek(addr)
 	}
-	start = later(start, line.readyAt)
+	start = max(start, line.readyAt)
 	admitted, end := reserveWriteback(c.l1Writebacks, c.channel, now, start, c.cfg.L1LineSize)
 	line.dirty = true
-	line.dirtyAt = later(line.dirtyAt, end)
-	line.readyAt = later(line.readyAt, end)
-	c.writebackUntil = later(c.writebackUntil, end)
+	line.dirtyAt = max(line.dirtyAt, end)
+	line.readyAt = max(line.readyAt, end)
+	c.writebackUntil = max(c.writebackUntil, end)
 	c.stats.L1Writebacks++
 	c.stats.WritebackBytes += uint64(c.cfg.L1LineSize)
 	return admitted
@@ -180,8 +176,8 @@ func reserveWriteback(slots []uint64, channel *fillChannel, now, dataReady uint6
 			slot = i
 		}
 	}
-	admitted = later(now, slots[slot])
-	end = channel.deliver(later(admitted, dataReady), bytes)
+	admitted = max(now, slots[slot])
+	end = channel.deliver(max(admitted, dataReady), bytes)
 	slots[slot] = end
 	return
 }

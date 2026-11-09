@@ -72,6 +72,39 @@ def validate_boundary(value, sources):
     return value
 
 
+def infer_transition(boundary_data):
+    """Post-acquisition analysis of validated boundary data; no samples change.
+
+    For each gate, qualified counts <=356 define the low-count plateau. Compare
+    each later qualified median to 1.15 times the median of plateau medians, and
+    its P10 to the maximum plateau P90. The bracket is (last qualified non-rise,
+    first qualified rise]. Unqualified rows neither establish nor narrow it.
+    A missing plateau or rise yields no bracket, never an invented capacity.
+    """
+    result = {}
+    for gate in (64, 96):
+        rows = sorted((dict(row, count=int(row["id"].split("_n")[1]))
+                       for row in boundary_data["cases"] if row["id"].startswith(f"fp_g{gate}_")),
+                      key=lambda row: row["count"])
+        plateau = [row for row in rows if row["qualified"] and row["count"] <= 356]
+        median = statistics.median(row["median_ratio"] for row in plateau) if plateau else None
+        p90 = max((row["p90_ratio"] for row in plateau), default=None)
+        lower, upper = None, None
+        if plateau:
+            lower = plateau[-1]["count"]
+            for row in rows:
+                if row["count"] <= 356 or not row["qualified"]:
+                    continue
+                if row["median_ratio"] > 1.15 * median and row["p10_ratio"] > p90:
+                    upper = row["count"]
+                    break
+                lower = row["count"]
+        result[gate] = dict(plateau_counts=[row["count"] for row in plateau],
+                            plateau_median=median, plateau_p90=p90,
+                            bracket=[lower, upper] if upper is not None else None)
+    return result
+
+
 def validate_reference(reference, files=None):
     shared.validate_reference(reference, files, SUITE)
     validate_boundary(reference.get("boundary", {}), reference["sources"])

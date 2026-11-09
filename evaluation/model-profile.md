@@ -129,7 +129,11 @@ acquires one of `WriteBufferEntries` pending line slots; subsequent stores to
 that same still-resident allocation share it. The fill retains its actual
 arrival and full read-for-ownership traffic: partial stores never eliminate
 unwritten-byte fetches. A generation check prevents merging into an evicted
-allocation. Resident L1 stores retain ordinary L1 completion timing. A full
+allocation. Resident L1 stores retain ordinary L1 completion timing for acceptance,
+while a miss or merge is accepted as soon as its pending-line slot is available.
+Thus a default hit holds the instruction slot for five cycles, whereas an
+immediately accepted miss holds it through the three-cycle CPU completion. This
+intentional asymmetry preserves hit timing; it is not a measured hardware rule. A full
 stage delays admission and holds CPU instruction slots, backpressuring dispatch.
 The default 56 line entries reuses the existing store-capacity scale as an
 explicit model assumption; it is not a measured M2 combining-buffer size.
@@ -158,7 +162,11 @@ Coherence and a full DRAM controller remain unmodeled.
 state, preserving its data-readiness return contract. Callers requiring finite
 write admission use `Store`. Zero `WriteBufferEntries` disables the new stage
 and dirty-eviction accounting for legacy configurations. `Lookup` remains the
-legacy synchronous path. Neither API provides chronological cache replacement.
+legacy synchronous path. `Lookup` and `Prefetch` bypass dirty-eviction accounting;
+when used with timed stores, they are limited to pre-run warming and must not be
+interleaved with timed writes. Neither API provides chronological cache replacement.
+Timed hit/miss counters count each covered L1 line segment, so a cross-line access
+can increment them more than once; the previous first-line-only path did not.
 
 The sequential stream model trains on three same-direction demand L1 misses,
 then advances by at most four L2 lines per trigger, no farther than 48 lines
@@ -199,7 +207,16 @@ Scalar FMADD/FMSUB/FNMADD/FNMSUB have four-cycle result latency and one-cycle
 issue occupancy. The existing M2 scheduling chain directly supports FMADD;
 other fused variants are same-family inference. FNMSUB was previously unsupported
 and defaulted to one-cycle timing; it now executes product minus accumulator,
-with fused binary64 rounding. This does not add FPCR/exception emulation.
+with fused binary64 and correctly rounded binary32 round-to-nearest-even results.
+The preexisting binary32 FMADD/FMSUB/FNMADD paths still use Go expressions whose
+fusion can depend on the host compiler; repairing those older paths is deferred
+separate ISA work. This does not add FPCR/exception emulation.
+
+The result-latency table is shared with the in-order model, so these changes
+also retime its scalar fused/divide/sqrt instructions. In-order regression tests
+cover the shared change; native capacity and divider-throughput calibration here
+is for the OoO model. Checked ELF execution rejects vector FDIV/FSQRT forms;
+this work does not add or calibrate SIMD divide/sqrt support.
 
 FDIV result latency is 10 cycles; FSQRT is 13. Divide/sqrt use only the first
 `NumFPDiv` FP pipes (default one), with occupancies one/two cycles respectively.
@@ -224,8 +241,13 @@ Two integer dependency gates surround an FP-destination sweep. Matching NOP,
 changed gate-length and ungated FP controls distinguish dependency, ROB and
 port limits. An interleaved ABBA measurement finds an effective transition around
 366–370 FP destinations; variable/noisy rows remain in the reference. Both gate
-lengths meet the preregistered 15% rise and nonoverlapping plateau-band criterion
-at 370. The model uses a rounded conservative lower-bound **360** based on that
+lengths meet the 15% rise and nonoverlapping plateau-band criterion at 370.
+An initial exploratory sweep informed the dense confirmation sweep; the quality
+and rise criteria were fixed before that second acquisition, not before the entire
+sequential study. Post-acquisition `infer_transition` makes the plateau choice
+explicit: qualified counts ≤356, their median of medians and maximum P90. It
+returns (366,370] for gate64 and (366,368] for gate96; the report shows all paired
+ratios and their dispersion, including noisy rows. The model uses a rounded conservative lower-bound **360** based on that
 measurement uncertainty, without fitting application error. It counts in-flight
 FP destinations, **not total physical registers**: no architectural-register
 reservation is subtracted again. The published external FP32 breakpoint is not
@@ -247,7 +269,11 @@ latency or workload-specific compensation is applied.
 tagged table (1–64, default 32). Every selected bit is XOR-folded into the actual
 index width. Previously folding to 32 then indexing 11 bits discarded history.
 The tag mixes the full instruction PC with the configured history, preventing
-low-address code from receiving all-zero tags. This is a generic anti-aliasing
+low-address code from receiving all-zero tags. Tags are stored at full 64-bit
+width: with default 32-bit history and PCs below 2^34, this is an exact PC/history
+context match. Noisy histories can therefore fall back to bimodal more often;
+branch-direction hit rates and application effects require paired evaluation.
+This is a generic anti-aliasing
 model correction, not a reconstruction of Apple's predictor geometry. Outcomes
 outside the configured history do not participate. All mutable predictor and
 execution-unit state remains in component State and is serialization-tested.

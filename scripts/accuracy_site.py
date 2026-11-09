@@ -1291,7 +1291,37 @@ def capacity_panels(reference, simulations, profiles):
             series.append((role, points, color))
         graphs += chart(title, series, xlabel, "ns/iteration", scatter=True,
                         x_ticks=[(n, str(n)) for n in (1, 4, 16)] if separator == "lanes" else None)
-    graphs += '</div>'
+    inference = capacity.infer_transition(reference["boundary"])
+    boundary_series, boundary_ranges = [], []
+    boundary_table = ('<details id="capacity-boundary-table"><summary>Paired capacity boundary · 34 rows</summary>'
+                      '<div class="table"><table><thead><tr><th>Gate</th><th>FP destinations</th><th>Median ratio</th>'
+                      '<th>P10–P90</th><th>Quality</th></tr></thead><tbody>')
+    brackets = []
+    for gate, color in ((64, "#9a6a17"), (96, "#087e8b")):
+        boundary_rows = sorted((row for row in reference["boundary"]["cases"] if row["id"].startswith(f"fp_g{gate}_")),
+                               key=lambda row: int(row["id"].split("_n")[1]))
+        points = []
+        for row in boundary_rows:
+            count = int(row["id"].split("_n")[1])
+            quality = "qualified" if row["qualified"] else "noisy (retained)"
+            tip = f'gate {gate}, {count} destinations: {row["median_ratio"]:.4f}; P10–P90 {row["p10_ratio"]:.4f}–{row["p90_ratio"]:.4f}; {quality}'
+            points.append((count, row["median_ratio"], tip))
+            boundary_ranges.append((count, row["p10_ratio"], row["p90_ratio"], color))
+            boundary_table += (f'<tr><td>{gate}</td><td>{count}</td><td>{row["median_ratio"]:.4f}</td>'
+                               f'<td>{row["p10_ratio"]:.4f}–{row["p90_ratio"]:.4f}</td><td>{quality}</td></tr>')
+        boundary_series.append((f"gate {gate}", points, color))
+        inferred = inference[gate]
+        bracket = inferred["bracket"]
+        brackets.append(f'gate {gate}: ({bracket[0]}, {bracket[1]}]' if bracket else f'gate {gate}: no qualified bracket')
+    graphs += chart("Paired capacity boundary (ABBA)", boundary_series, "Independent FP destinations",
+                    "Target / matching NOP time", scatter=True, y_ranges=boundary_ranges)
+    graphs += ('</div><p>Post-acquisition deterministic analysis: ' + esc("; ".join(brackets)) +
+               '. Qualified counts ≤356 define each plateau: median of medians and maximum P90. '
+               'A rise requires >15% above that median and P10 above the plateau maximum P90. '
+               'Brackets run from the last qualified non-rise to the first qualified rise; noisy rows remain visible. '
+               'The initial survey informed a dense confirmation sweep; quality and rise criteria were fixed before that second acquisition. '
+               'Bars show sample P10–P90 dispersion, not confidence intervals.</p>')
+    boundary_table += '</tbody></table></div></details>'
     table = (f'<details id="capacity-table"><summary>FP capacity and divider table · {len(rows)} probes</summary>'
              '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/iteration</th><th>P10–P90</th><th>Spread</th><th>Quality</th>'
              '<th>Base ns/iteration</th><th>Head ns/iteration</th></tr></thead><tbody>')
@@ -1301,7 +1331,7 @@ def capacity_panels(reference, simulations, profiles):
                   f'<td>{r["spread"]:.1f}%</td><td>{"noisy" if r["spread"] > 20 else "usable"}</td><td>{m["base"]:.3f}</td><td>{m["head"]:.3f}</td></tr>')
     table += ('</tbody></table></div><p>Raw spread is not a confidence interval. Capacity inference uses additional interleaved ABBA controls, '
               'retained with the <a href="capacity.json">native reference and provenance</a>. No samples are dropped.</p></details>')
-    return graphs, table
+    return graphs, table + boundary_table
 
 
 def memory_panels(reference, simulations, profiles, base_large_image_support):

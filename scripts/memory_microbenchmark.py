@@ -243,7 +243,6 @@ def smoke(binary, root=ROOT, qemu=None):
     # All patterns, two small power-of-two footprints and the new 96 KiB chase shape.
     declared = [c for c in cases(root) if c['working_set_bytes'] in (8192, 32768, 98304)]
     for case in declared:
-        samples = []
         for passes in (1, 2):
             actual = execute(binary, root, case, passes, 'functional')
             timed = execute(binary, root, case, passes)
@@ -251,9 +250,12 @@ def smoke(binary, root=ROOT, qemu=None):
             if qemu is not None:
                 p = subprocess.run([str(qemu), str(Path(root) / case_elf(case)), *arguments(case, passes)], capture_output=True, timeout=30)
                 require(p.returncode == 0 and not p.stderr and p.stdout == base64.b64decode(actual['stdout_base64']), 'memory QEMU differential failed')
-            samples.append(timed)
-        trial_case = dict(case, passes=1)
-        summarize_samples(trial_case, samples)
+        # Tiny functional cases can complete inside a fixed initialization
+        # allocation/drain tail. Their whole-process cycle delta may validly be
+        # zero. Keep the strict timing validator and use a longer timing-only
+        # pair, without changing official measurement cases or native inputs.
+        samples = [execute(binary, root, case, passes) for passes in (16, 32)]
+        summarize_samples(dict(case, passes=16), samples)
         print(case['id'], 'functional/timing/checksum/instruction delta' + ('/QEMU' if qemu else ''), 'pass', flush=True)
 
 

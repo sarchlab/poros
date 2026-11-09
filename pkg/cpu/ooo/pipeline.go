@@ -527,10 +527,9 @@ func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycl
 
 // instrLatency computes the execution latency for an instruction.
 // dataReady is the absolute cycle at which the cache can deliver the data
-// (zero when the cache model is not timed or not present). Loads and stores
-// use the timed cache path only after the final execution-resource selection.
-// A store's data latency stays 3; dataReady holds its allocation slot, rather
-// than delaying forwarding or architectural register readiness.
+// (zero when the cache model is not timed or not present). Loads use the timed
+// cache path only after final execution-resource selection. Stores instead use
+// storeTiming, which owns their separate cache admission/drain contract.
 func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latency uint64, dataReady uint64) {
 	if instinfo.IsLoad(inst.Op) {
 		if p.comp.Resources.Cache != nil {
@@ -559,17 +558,6 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 			}
 		}
 		return uint64(p.comp.Spec.LoadLatency), 0
-	}
-	if instinfo.IsStore(inst.Op) {
-		if p.comp.Resources.Cache != nil {
-			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
-				_, ready := p.comp.Resources.Cache.Access(acc.Addr, acc.Size, true, issueCycle)
-				if ready > dataReady {
-					dataReady = ready
-				}
-			}
-		}
-		return 3, dataReady
 	}
 	return uint64(instinfo.ExecuteLatency(inst.Op)), 0
 }

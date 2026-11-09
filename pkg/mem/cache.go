@@ -86,8 +86,9 @@ func DefaultCacheConfig() CacheConfig {
 	}
 }
 
-// CacheStats tracks hit/miss counters. The prefetch and in-flight counters are
-// only advanced by the timed Access path.
+// CacheStats tracks hit/miss counters per L1 line segment, so a cross-line
+// Access or Store can count more than once. The prefetch and in-flight counters are
+// only advanced by the timed Access/Store paths.
 type CacheStats struct {
 	WriteAllocations, WriteMerges              uint64
 	L1Writebacks, L2Writebacks, WritebackBytes uint64
@@ -327,6 +328,7 @@ func NewCache(cfg CacheConfig) *Cache {
 		cfg: cfg,
 	}
 	c.initTimed()
+	c.l2Writebacks = make([]uint64, cfg.WriteBufferEntries)
 	return c
 }
 
@@ -336,7 +338,6 @@ func (c *Cache) initTimed() {
 	}
 	c.writes = make([]writeAllocation, c.cfg.WriteBufferEntries)
 	c.l1Writebacks = make([]uint64, c.cfg.WriteBufferEntries)
-	c.l2Writebacks = make([]uint64, c.cfg.WriteBufferEntries)
 	if c.cfg.FillBytesPerCycle > 0 {
 		c.channel = &fillChannel{bytesPerCycle: uint64(c.cfg.FillBytesPerCycle)}
 	}
@@ -451,6 +452,8 @@ func (c *Cache) Probe(addr uint64) HitLevel {
 }
 
 // Prefetch silently brings addr into L1 (legacy instant next-line prefetch).
+// It does not account for dirty evictions: use only for pre-run warming when
+// combined with timed stores, never interleave it with the timed write path.
 // An L1 line copied from an L2 line whose timed fill is still pending inherits
 // that arrival cycle, so the untimed path can never expose data earlier than
 // the timed path would.
@@ -470,7 +473,9 @@ func (c *Cache) Prefetch(addr uint64) {
 // was satisfied. This is the legacy synchronous path: fills are instantaneous
 // and the adjacent L1 line is prefetched for free on a miss. Lines it installs
 // are immediately ready for the timed path as well, except that a copy of a
-// pending L2 line inherits the pending arrival.
+// pending L2 line inherits the pending arrival. Like Prefetch, this path does
+// not account for dirty evictions; mixing with timed stores is limited to
+// pre-run warming before any timed writes.
 func (c *Cache) Lookup(addr uint64, size int, isWrite bool) HitLevel {
 	if c.l1.lookup(addr) {
 		c.stats.L1Hits++
@@ -522,7 +527,7 @@ func (c *Cache) Access(addr uint64, size int, isWrite bool, now uint64) (HitLeve
 		if level > worst {
 			worst = level
 		}
-		ready = later(ready, arrival)
+		ready = max(ready, arrival)
 		addr += uint64(n)
 		size -= n
 	}
@@ -541,7 +546,7 @@ func (c *Cache) accessLine(addr uint64, size int, isWrite bool, now uint64) (Hit
 	if line := c.l1.find(addr); line != nil {
 		if isWrite && c.cfg.WriteBufferEntries > 0 {
 			line.dirty = true
-			line.dirtyAt = later(line.dirtyAt, now)
+			line.dirtyAt = max(line.dirtyAt, now)
 		}
 		c.stats.L1Hits++
 		ready := now + uint64(c.cfg.L1Latency)

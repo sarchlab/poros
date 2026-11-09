@@ -239,3 +239,37 @@ func TestCheckedFetchFaultDrainsPriorStoreAllocations(t *testing.T) {
 		t.Fatalf("done=%v cycles=%d drain=%d records=%d err=%s", p.comp.State.Done, p.comp.State.Cycles, drain, len(p.comp.State.StoreBuffer), p.comp.State.Err)
 	}
 }
+
+// Extra useful work can overlap a fixed pending allocation tail. Whole-program
+// time need not increase for every tiny instruction-count increment, even though
+// larger workloads expose a positive execution slope. Memory smoke therefore
+// separates tiny functional checks from its longer timing differential.
+func TestUsefulWorkCanOverlapFixedStoreDrain(t *testing.T) {
+	type result struct{ cycles, drain, retired uint64 }
+	run := func(work int) result {
+		words := make([]uint32, work+1)
+		words[0] = 0xf9000020 // STR X0,[X1]
+		for i := 1; i < len(words); i++ {
+			words[i] = 0x91000442
+		} // ADD X2,X2,#1
+		cache := mem.NewCache(mem.DefaultCacheConfig())
+		p := reservationPipeline(t, words, cache)
+		p.comp.Spec.FetchWidth = 8
+		p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
+		p.comp.Resources.Emu.SetHaltPC(0x1000 + uint64(len(words))*4)
+		for !p.comp.State.Done && p.comp.State.Cycles < 10000 {
+			p.Handle(nil)
+		}
+		if !p.comp.State.Done || p.comp.State.Err != "" || p.comp.State.InstDone != uint64(len(words)) {
+			t.Fatalf("incomplete work=%d state=%+v", work, p.comp.State)
+		}
+		return result{p.comp.State.Cycles, cache.DrainUntil(), p.comp.State.InstDone}
+	}
+	short, twice, long := run(16), run(32), run(1024)
+	if short.cycles != twice.cycles || short.drain != twice.drain || twice.retired-short.retired != 16 {
+		t.Fatalf("expected fixed-drain overlap: short=%+v twice=%+v", short, twice)
+	}
+	if short.cycles < short.drain || long.cycles <= twice.cycles || long.drain != short.drain {
+		t.Fatalf("drain or exposed-work timing incorrect: short=%+v long=%+v", short, long)
+	}
+}

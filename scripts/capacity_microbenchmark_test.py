@@ -64,12 +64,46 @@ class CapacityTests(unittest.TestCase):
         profiles = {role: {"configuration": {"freq": 3490000000}} for role in ("base", "head")}
         with patch.object(site, "chart", return_value="chart") as chart:
             site.capacity_panels(self.reference, self.comparison, profiles)
-        self.assertEqual(chart.call_count, 9)
+        self.assertEqual(chart.call_count, 10)
         for call in chart.call_args_list:
             xs = [p[0] for p in call.args[1][0][1]]
             self.assertEqual(xs, sorted(xs))
-        for call in chart.call_args_list[-4:]:
+        for call in chart.call_args_list[5:9]:
             self.assertEqual([p[0] for p in call.args[1][0][1]], [1, 4, 16])
+        boundary = chart.call_args_list[-1]
+        self.assertEqual(len(boundary.kwargs["y_ranges"]), 34)
+        self.assertEqual([series[0] for series in boundary.args[1]], ["gate 64", "gate 96"])
+        for series in boundary.args[1]:
+            self.assertEqual(len(series[1]), 17)  # Noisy rows remain plotted.
+
+
+    def test_frozen_boundary_inference_is_explicit_and_deterministic(self):
+        result = suite.infer_transition(self.reference["boundary"])
+        self.assertEqual(result[64]["bracket"], [366, 370])
+        self.assertEqual(result[96]["bracket"], [366, 368])
+        self.assertEqual(result[64]["plateau_counts"], [336, 344, 348, 350, 352, 354, 356])
+        self.assertEqual(result[96]["plateau_counts"], [320, 336, 344, 348, 352, 354, 356])
+        self.assertAlmostEqual(result[64]["plateau_median"], 1.099645720442374)
+        self.assertAlmostEqual(result[96]["plateau_p90"], 1.1619777848371406)
+        # Analysis is order independent and must not mutate frozen evidence.
+        original = copy.deepcopy(self.reference["boundary"])
+        shuffled = copy.deepcopy(original)
+        shuffled["cases"].reverse()
+        self.assertEqual(suite.infer_transition(shuffled), result)
+        self.assertEqual(self.reference["boundary"], original)
+        # An unqualified apparent early rise cannot narrow the bracket.
+        for row in shuffled["cases"]:
+            if row["id"] == "fp_g64_n368":
+                row.update(median_ratio=10, p10_ratio=9, p90_ratio=13, qualified=False)
+        self.assertEqual(suite.infer_transition(shuffled)[64]["bracket"], [366, 370])
+        # Without a qualified rise or plateau, report no bracket.
+        for row in shuffled["cases"]:
+            if row["id"].startswith("fp_g64_") and int(row["id"].split("_n")[1]) > 356:
+                row["qualified"] = False
+            if row["id"].startswith("fp_g96_") and int(row["id"].split("_n")[1]) <= 356:
+                row["qualified"] = False
+        self.assertIsNone(suite.infer_transition(shuffled)[64]["bracket"])
+        self.assertIsNone(suite.infer_transition(shuffled)[96]["bracket"])
 
     def test_bundle_and_archive_keep_capacity_separate_and_fail_closed(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -96,6 +130,11 @@ class CapacityTests(unittest.TestCase):
             self.assertIn("FP capacity and divider controls", micro)
             self.assertIn("ns/iteration", micro)
             self.assertIn('<details id="capacity-table">', micro)
+            self.assertIn('Paired capacity boundary (ABBA)', micro)
+            self.assertIn('<details id="capacity-boundary-table">', micro)
+            self.assertIn('gate 64: (366, 370]', micro)
+            self.assertIn('gate 96: (366, 368]', micro)
+            self.assertNotIn('Paired capacity boundary', overall)
             self.assertLess(micro.index("FP capacity and divider controls"), micro.index('id="capacity-table"'))
             self.assertIn("capacity.json", manifest["files"])
             url = "https://github.com/sarchlab/poros/actions/runs/1/attempts/1"

@@ -27,9 +27,20 @@ use NOP 352 with the same gate length: they normalize scheduling/frequency drift
 while keeping the long gate constant. The broader NOP sweep and ungated FP sweep
 independently check instruction-footprint and throughput effects.
 
-The predeclared boundary quality rule is `(p90-p10)/median <= 20%` for paired
+An initial exploratory acquisition informed the dense confirmation sweep. The
+quality and rise criteria below were fixed before that second acquisition; the
+whole sequential study was not preregistered. The boundary quality rule is `(p90-p10)/median <= 20%` for paired
 ratios. The rise criterion is at least 15% above the low-count plateau with
-nonoverlapping p10/p90 bands at both gate lengths. Nine-sample bands use sorted
+nonoverlapping p10/p90 bands at both gate lengths. Post-acquisition analysis in
+`scripts/capacity_microbenchmark.py::infer_transition` specifies the plateau as
+qualified counts ≤356 for each gate, summarized by the median of their medians
+and maximum P90. A later qualified row must exceed 1.15 times that median and
+have P10 above the plateau maximum P90. The bracket runs from the last qualified
+non-rise to the first qualified rise: (366,370] for gate64 and (366,368] for gate96.
+This deterministic interpretation is tested against the frozen data; it is not
+represented as analysis code fixed before collection. Unqualified rows neither
+establish nor narrow a bracket, and missing evidence yields no bracket.
+Nine-sample bands use sorted
 indices 0/4/7 for p10/median/p90; all samples are retained, including unqualified
 rows. Bands describe dispersion, not confidence intervals. The local effective
 transition is approximately 366–370 FP destinations. 360 is the rounded conservative
