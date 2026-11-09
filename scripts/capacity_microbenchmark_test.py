@@ -40,6 +40,10 @@ class CapacityTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 suite.validate_reference(bad)
 
+    def test_committed_binaries_match_acquisition_provenance(self):
+        self.assertEqual(suite.digest(suite.ROOT / suite.ELF), self.reference["sources"][suite.ELF])
+        self.assertEqual(self.reference["boundary"]["native_binary_sha256"], self.reference["native_binary_sha256"])
+
     def test_comparison_requires_both_roles_and_exact_instruction_counts(self):
         suite.validate_comparison(self.comparison, self.cases)
         for mutation in (lambda r: r.pop("base"), lambda r: r["base"].pop(),

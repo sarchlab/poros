@@ -257,7 +257,10 @@ reservation is subtracted again. The published external FP32 breakpoint is not
 substituted for this local FP64 evidence.
 
 The ROB remains **256**. Thus the default FP cap is nonbinding for instructions
-with at most one FP destination; paired FP loads can still consume it. The
+with at most one FP destination; paired FP loads can still consume it.
+`FpPhysLimit` must be at least **2**, the maximum destination count of a supported
+single instruction. Smaller custom configurations are rejected at initialization,
+because a paired FP load could otherwise wait forever even with an empty ROB. The
 default simulator cannot reproduce a hardware knee above its own ROB limit.
 This known distinct ROB approximation is retained rather than silently changing
 another structure or claiming that the native measurement identifies a complete

@@ -73,17 +73,51 @@ and both simulated series. The common renderer shows the scheduling graphs
 and default-collapsed table only in the separate microbenchmark section; these
 points do not enter application error or correlation summaries.
 
+A head declaring the capacity suite (any measurement input, ELF fixture or
+reference under `evaluation/microbenchmarks/capacity/` in `report.head.files`)
+requires all three capacity fields below. Historical heads without the suite
+omit them; stray capacity evidence on an undeclaring head is rejected.
+
+- `capacity_reference_text`: the exact UTF-8 contents of committed
+  `evaluation/microbenchmarks/capacity/m2.json`, including its embedded `boundary`
+  block, transported as one JSON string. Its SHA-256 must match the corresponding
+  `report.head.files` entry. Preserve whitespace and the final newline; do not
+  parse and reserialize the reference. A parsed `capacity_reference` is rejected.
+- `report.capacity_simulation`: exactly `base` and `head`, each an ordered list
+  of all **73** declared cases in reference order. Each row contains `id`,
+  `instructions`, and positive integer `cycles`, with no `updates` field.
+  Counts subtract 1,024 from 2,048 iterations (`capacity.ITERATIONS`): instructions
+  equal 1,024 times that case's declared per-iteration count. Both binaries run
+  the head-declared capacity ELF and must pass analytic checksum, instruction
+  count, exact binary revision, and role-specific model-profile validation,
+  including when the base revision predates the suite.
+- `capacity_provenance`: exactly `head_commit`, `base_commit`,
+  `head_binary_sha256`, `base_binary_sha256`, and `model_profiles`.
+  `head_commit` equals `report.head.commit`; all other values equal their named
+  fields in `report`, retaining both complete profile declarations.
+
+The final bundle retains the exact reference bytes as `capacity.json` and both
+simulated series. The shared renderer shows native capacity/divider controls,
+paired boundary ratios with P10/P90 dispersion, and collapsed tables only in
+the microbenchmark section. These points never enter application accuracy,
+S-curves, CDFs, or correlations.
+
 For a live campaign, prepare the clean base/head binaries and profiles, then
-execute and validate **both roles of every declared forwarding and scheduling suite before starting
-the 264-point campaign (246 application points and 18 legacy microbenchmark points)**. The first live snapshot can therefore carry the
-mandatory microbenchmark evidence and exact reference bytes. If those checks
-fail, resolve the failure before launching application shards; do not publish
-placeholder measurements or relax the snapshot validator. This is producer
-sequencing, not a second renderer or hardware collection step. The producer then
-exports validated completed application rows atomically as the shards finish.
-The final bundle carries the same reference bytes as `forwarding.json` and both
-simulation series, and the existing renderer shows them only in the separate
-microbenchmark section.
+execute and validate **both roles of every declared forwarding, scheduling, and
+capacity suite before starting the 264-point campaign (246 application points
+and 18 legacy microbenchmark points)**. If those prelaunch checks fail, resolve
+the failure before launching application shards; do not publish placeholder
+measurements or relax the snapshot validator. This is producer sequencing, not a
+second renderer or hardware collection step.
+
+The first valid live snapshot must carry all mandatory microbenchmark evidence
+and exact reference bytes, including the capacity boundary block and provenance.
+Required memory evidence must also be available before that snapshot (see Memory
+diagnostics below). The producer exports validated completed application rows
+atomically as the shards finish. The final bundle carries the same reference
+bytes as `forwarding.json`, `scheduling.json`, and `capacity.json`, and both
+simulation series for each suite. The existing renderer shows them only in the
+separate microbenchmark section.
 
 Snapshots remain unpublishable even when all cases have finished. Only an
 existing bundle that passes the normal archive validator and matches the

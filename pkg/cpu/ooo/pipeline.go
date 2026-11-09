@@ -33,6 +33,7 @@ type Spec struct {
 	BranchPenalty int `json:"branch_penalty"`
 	LoadLatency   int `json:"load_latency"`
 	// FpPhysLimit bounds speculative destinations, not total physical registers.
+	// At least two are required so a supported paired FP load can dispatch.
 	FpPhysLimit      int           `json:"fp_phys_limit"`
 	StoreBufferSize  int           `json:"store_buffer_size"`
 	NumMSHREntries   int           `json:"num_mshr_entries"`
@@ -116,7 +117,10 @@ func (s *State) Initialize(c *Comp) {
 		panic("ooo: enable emulator memory access tracking before Build")
 	}
 	v := c.Spec
-	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumFPDiv < 1 || v.NumFPDiv > v.NumFP || v.NumLDST < 1 || v.LoadLatency < 1 || v.FpPhysLimit < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
+	if v.FpPhysLimit < 2 {
+		panic("ooo: FP destination capacity must be at least 2 for paired loads")
+	}
+	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumFPDiv < 1 || v.NumFPDiv > v.NumFP || v.NumLDST < 1 || v.LoadLatency < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
 	}
 	s.IntUnits = make([][]UnitReservation, v.NumINT)

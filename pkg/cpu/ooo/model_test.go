@@ -68,6 +68,8 @@ func TestInvalidConfigurationRejectedAtInitialize(t *testing.T) {
 		"empty units":       func(s *Spec) { s.NumINT = 0 },
 		"empty divider":     func(s *Spec) { s.NumFPDiv = 0 },
 		"divider subset":    func(s *Spec) { s.NumFPDiv = s.NumFP + 1 },
+		"empty FP window":   func(s *Spec) { s.FpPhysLimit = 0 },
+		"unusable FP pair":  func(s *Spec) { s.FpPhysLimit = 1 },
 		"empty MSHRs":       func(s *Spec) { s.NumMSHREntries = 0 },
 		"invalid predictor": func(s *Spec) { s.Predictor.TaggedHistLen = 0 },
 		"duplicate hooks":   func(s *Spec) { s.FuncHookCycles = []HookCycles{{1, 2}, {1, 3}} },
@@ -185,5 +187,36 @@ func TestSyntheticPeekCanChangeOperandsAtSamePC(t *testing.T) {
 		if err != nil || !slices.Equal(gprs, []int{int(reg - arm64asm.X0), 3}) || len(fps) != 0 {
 			t.Fatalf("wrong dependencies for %v: GPR %v, FP %v, err %v", x.inst, gprs, fps, err)
 		}
+	}
+}
+
+func TestMinimumFPWindowMakesPairedLoadProgress(t *testing.T) {
+	s := sim.MakeBuilder().Build()
+	defer func() {
+		if err := s.Terminate(); err != nil {
+			t.Error(err)
+		}
+	}()
+	spec := DefaultSpec()
+	spec.FpPhysLimit = 2
+	em := emu.NewEmulator()
+	em.Mem.TrackAccesses = true
+	em.Regs.PC = 0x1000
+	em.Regs.WriteX(2, 0x4000)
+	em.Mem.WriteU32(0x1000, 0x6d400440) // LDP D0,D1,[X2]
+	em.Mem.WriteU32(0x1004, 0x6d400440)
+	em.SetHaltPC(0x1008)
+	core := modeling.MakeBuilder[*Comp](spec).WithSimulation(s).WithResources(Resources{Emu: em}).Build("CPU")
+	if err := s.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	for !core.State.Done && core.State.Cycles < 100 {
+		core.Middlewares.Pipeline.Handle(nil)
+		if core.State.FpInFlight > 2 {
+			t.Fatal("paired loads exceeded minimum capacity")
+		}
+	}
+	if !core.State.Done || core.State.InstDone != 2 || em.InstCount != 2 || core.State.FpInFlight != 0 {
+		t.Fatalf("minimum capacity failed to drain paired loads: %+v", core.State)
 	}
 }

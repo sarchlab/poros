@@ -253,3 +253,22 @@ func TestNegativeWriteCapacityDiagnosticMatchesSharedCache(t *testing.T) {
 		}()
 	}
 }
+
+func TestStoreAdoptsLoadCreatedPendingLine(t *testing.T) {
+	cfg := DefaultCacheConfig()
+	cfg.WriteBufferEntries = 1
+	cache := NewCache(cfg)
+	_, arrival := cache.Access(0x1000, 8, false, 1)
+	generation := cache.l1.peek(0x1000).generation
+	accepted, drained := cache.Store(0x1000, 8, 2)
+	if accepted != 2 || drained != arrival || cache.stats.WriteAllocations != 1 || cache.stats.WriteMerges != 0 {
+		t.Fatalf("pending load was not adopted: accepted=%d drained=%d arrival=%d stats=%+v", accepted, drained, arrival, cache.stats)
+	}
+	if len(cache.writes) != 1 || cache.writes[0].Generation != generation || cache.writes[0].Line != 0x1000/uint64(cfg.L1LineSize) {
+		t.Fatalf("bounded slot does not own load generation: %+v", cache.writes)
+	}
+	accepted, drained = cache.Store(0x1008, 8, 3)
+	if accepted != 3 || drained != arrival || cache.stats.WriteAllocations != 1 || cache.stats.WriteMerges != 1 || cache.writes[0].Generation != generation {
+		t.Fatalf("subsequent store did not merge: accepted=%d drained=%d stats=%+v", accepted, drained, cache.stats)
+	}
+}
