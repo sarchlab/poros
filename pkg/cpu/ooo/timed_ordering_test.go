@@ -21,12 +21,41 @@ func TestMSHRWaitPrecedesSupplyingFill(t *testing.T) {
 	t.Logf("supplier=%d adjacent=%d MSHR=%d", first, second, p.comp.State.MshrBusyUntil[0])
 }
 
+func TestCrossLineLoadWaitsForMSHRBeforeMissingTailFill(t *testing.T) {
+	cfg := mem.DefaultCacheConfig()
+	cache := mem.NewCache(cfg)
+	cache.Prefetch(0x4040) // First L1 line resident; second crosses into a missing L2 line.
+	if cache.Probe(0x407c) != mem.HitL1 || cache.Probe(0x4080) != mem.HitDRAM {
+		t.Fatal("test requires a resident first line and missing second line")
+	}
+	p := reservationPipeline(t, []uint32{0xf9400020}, cache) // LDR X0,[X1], unaligned across two lines
+	p.comp.Resources.Emu.Regs.WriteX(1, 0x407c)
+	p.comp.State.MshrBusyUntil[0] = 1000
+	p.fetchAndProcess()
+	if p.comp.State.Err != "" {
+		t.Fatal(p.comp.State.Err)
+	}
+	if got := p.comp.State.LdstUnits[0][0].Start; got != 1000 {
+		t.Fatalf("cross-line load issued at %d before its MSHR was available", got)
+	}
+	// Independently schedule the same request at the granted issue time. A
+	// subsequent hit on the tail must retain that fill's arrival, not an early
+	// reservation made while the load was still waiting for the MSHR.
+	control := mem.NewCache(cfg)
+	control.Prefetch(0x4040)
+	_, want := control.Access(0x407c, 8, false, 1000)
+	_, tailReady := cache.Access(0x4080, 4, false, 1)
+	if tailReady != want || p.comp.State.Rob[0] != want || p.comp.State.MshrBusyUntil[0] != want {
+		t.Fatalf("tail=%d completion=%d MSHR=%d want=%d", tailReady, p.comp.State.Rob[0], p.comp.State.MshrBusyUntil[0], want)
+	}
+}
+
 func TestStoreFillUsesFinalUnitIssueAndIndependentDrain(t *testing.T) {
 	p := reservationPipeline(t, []uint32{0xf9000020}, mem.NewCache(mem.DefaultCacheConfig())) // STR X0,[X1]
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.comp.State.LdstUnits[0] = []UnitReservation{{1, 1000}}
 	p.fetchAndProcess()
-	if p.comp.State.Rob[0] != 1003 || p.comp.State.StoreDrainUntil[0] != 1335 {
+	if p.comp.State.Rob[0] != 1003 || p.comp.State.StoreDrainUntil[0] != 1003 || p.comp.Resources.Cache.DrainUntil() != 1335 {
 		t.Fatalf("data=%d allocation=%d", p.comp.State.Rob[0], p.comp.State.StoreDrainUntil[0])
 	}
 	_, ready := p.comp.Resources.Cache.Access(0x4040, 8, false, 1)
@@ -44,7 +73,9 @@ func TestStoreAllocationPoolBoundsStreamAndDrainsTerminalStores(t *testing.T) {
 	for i := range words {
 		words[i] = 0xf9000020
 	} // STR X0,[X1]
-	p := reservationPipeline(t, words, mem.NewCache(mem.DefaultCacheConfig()))
+	cfg := mem.DefaultCacheConfig()
+	cfg.WriteBufferEntries = 2
+	p := reservationPipeline(t, words, mem.NewCache(cfg))
 	p.comp.Spec.FetchWidth = 1
 	p.comp.Spec.StoreBufferSize = 2
 	p.comp.State.StoreDrainUntil = make([]uint64, 2)
@@ -64,12 +95,13 @@ func TestStoreAllocationPoolBoundsStreamAndDrainsTerminalStores(t *testing.T) {
 				finalDrain = until
 			}
 		}
-		if active > 2 || len(p.comp.State.StoreBuffer) > 2 {
+		if active > 2 || len(p.comp.State.StoreBuffer) > p.forwardingCapacity() {
 			t.Fatalf("unbounded allocation records: active=%d records=%d", active, len(p.comp.State.StoreBuffer))
 		}
 		if before < stores && before == p.comp.Resources.Emu.InstCount && active == 2 {
 			sawBackpressure = true
 		}
+		finalDrain = max(finalDrain, p.comp.Resources.Cache.DrainUntil())
 		if p.comp.State.Done && p.comp.State.Cycles < finalDrain {
 			t.Fatal("terminated before final allocation drained")
 		}
@@ -87,7 +119,7 @@ func TestPairedStoreHoldsAllocationUntilBothFills(t *testing.T) {
 	if len(p.comp.State.StoreBuffer) != 2 {
 		t.Fatalf("pair accesses=%d", len(p.comp.State.StoreBuffer))
 	}
-	if p.comp.State.StoreDrainUntil[0] != 338 {
+	if p.comp.State.StoreDrainUntil[0] != 4 || p.comp.Resources.Cache.DrainUntil() != 338 {
 		t.Fatalf("pair drain=%d", p.comp.State.StoreDrainUntil[0])
 	}
 	for _, entry := range p.comp.State.StoreBuffer {
@@ -133,7 +165,7 @@ func TestAllocationDoesNotDelayExactGPRForwarding(t *testing.T) {
 	p := reservationPipeline(t, []uint32{0xf9000020, 0xf9400022}, mem.NewCache(mem.DefaultCacheConfig()))
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.fetchAndProcess()
-	if p.comp.State.Rob[0] != 4 || p.comp.State.Rob[1] != 3 || p.comp.State.StoreDrainUntil[0] != 336 {
+	if p.comp.State.Rob[0] != 4 || p.comp.State.Rob[1] != 3 || p.comp.State.StoreDrainUntil[0] != 4 || p.comp.Resources.Cache.DrainUntil() != 336 {
 		t.Fatalf("store=%d load=%d drain=%d", p.comp.State.Rob[0], p.comp.State.Rob[1], p.comp.State.StoreDrainUntil[0])
 	}
 }
@@ -193,7 +225,7 @@ func TestCheckedFetchFaultDrainsPriorStoreAllocations(t *testing.T) {
 	p.comp.Resources.Emu = nil
 	p.comp.Spec.FetchWidth = 1
 	p.Handle(nil)
-	drain := p.comp.State.StoreDrainUntil[0]
+	drain := max(p.comp.State.StoreDrainUntil[0], p.comp.Resources.Cache.DrainUntil())
 	if drain <= p.comp.State.Cycles {
 		t.Fatal("store did not leave an allocation")
 	}
@@ -205,5 +237,39 @@ func TestCheckedFetchFaultDrainsPriorStoreAllocations(t *testing.T) {
 	}
 	if !p.comp.State.Done || !strings.Contains(p.comp.State.Err, "fetch:") || p.comp.State.Cycles != drain || len(p.comp.State.StoreBuffer) != 0 {
 		t.Fatalf("done=%v cycles=%d drain=%d records=%d err=%s", p.comp.State.Done, p.comp.State.Cycles, drain, len(p.comp.State.StoreBuffer), p.comp.State.Err)
+	}
+}
+
+// Extra useful work can overlap a fixed pending allocation tail. Whole-program
+// time need not increase for every tiny instruction-count increment, even though
+// larger workloads expose a positive execution slope. Memory smoke therefore
+// separates tiny functional checks from its longer timing differential.
+func TestUsefulWorkCanOverlapFixedStoreDrain(t *testing.T) {
+	type result struct{ cycles, drain, retired uint64 }
+	run := func(work int) result {
+		words := make([]uint32, work+1)
+		words[0] = 0xf9000020 // STR X0,[X1]
+		for i := 1; i < len(words); i++ {
+			words[i] = 0x91000442
+		} // ADD X2,X2,#1
+		cache := mem.NewCache(mem.DefaultCacheConfig())
+		p := reservationPipeline(t, words, cache)
+		p.comp.Spec.FetchWidth = 8
+		p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
+		p.comp.Resources.Emu.SetHaltPC(0x1000 + uint64(len(words))*4)
+		for !p.comp.State.Done && p.comp.State.Cycles < 10000 {
+			p.Handle(nil)
+		}
+		if !p.comp.State.Done || p.comp.State.Err != "" || p.comp.State.InstDone != uint64(len(words)) {
+			t.Fatalf("incomplete work=%d state=%+v", work, p.comp.State)
+		}
+		return result{p.comp.State.Cycles, cache.DrainUntil(), p.comp.State.InstDone}
+	}
+	short, twice, long := run(16), run(32), run(1024)
+	if short.cycles != twice.cycles || short.drain != twice.drain || twice.retired-short.retired != 16 {
+		t.Fatalf("expected fixed-drain overlap: short=%+v twice=%+v", short, twice)
+	}
+	if short.cycles < short.drain || long.cycles <= twice.cycles || long.drain != short.drain {
+		t.Fatalf("drain or exposed-work timing incorrect: short=%+v long=%+v", short, long)
 	}
 }

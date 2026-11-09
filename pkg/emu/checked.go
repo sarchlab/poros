@@ -174,7 +174,7 @@ func checkedFPRegisterSupported(op arm64asm.Op, r arm64asm.Reg) bool {
 		return sRegIndex(r) >= 0 || dRegIndex(r) >= 0 || qRegIndex(r) >= 0
 	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FMUL, arm64asm.FDIV,
 		arm64asm.FMADD, arm64asm.FMSUB, arm64asm.FSQRT, arm64asm.FNEG,
-		arm64asm.FABS, arm64asm.FNMUL, arm64asm.FNMADD, arm64asm.MOVI,
+		arm64asm.FABS, arm64asm.FNMUL, arm64asm.FNMADD, arm64asm.FNMSUB, arm64asm.MOVI,
 		arm64asm.FMOV, arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCCMP, arm64asm.FMAXNM,
 		arm64asm.FMINNM, arm64asm.FCSEL, arm64asm.SCVTF, arm64asm.UCVTF,
 		arm64asm.FCVT, arm64asm.FCVTZS, arm64asm.FCVTZU:

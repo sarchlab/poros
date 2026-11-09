@@ -58,13 +58,17 @@ class LiveReportTests(unittest.TestCase):
         report["artifact_status"] = "partial"
         if not complete:
             report["cases"] = report["cases"][:30]
+        report["summary"] = site.compute.summaries(report["cases"], True)
+        provenance = {key: report[key] for key in ("base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")}
+        provenance["head_commit"] = report["head"]["commit"]
         return dict(kind=live.KIND, report=report,
+                    reference_text=(self.source / site.performance.PATH).read_text(),
                     progress=dict(state="complete" if complete else "running", completed_cases=len(report["cases"]),
                                   required_cases=264, completed_shards=132 if complete else 15, required_shards=132,
                                   active_cases=[] if complete else [report["workload_manifest"]["cases"][30]["id"]], errors=[],
                                   updated_at=datetime.now(timezone.utc).isoformat()),
-                    throughput_reference=self.reference,
-                    throughput_provenance=dict(commit=report["head"]["commit"], binary_sha256=report["head_binary_sha256"], model_profile=report["model_profiles"]["head"]))
+                    throughput_reference_text=(self.source / site.throughput.REFERENCE).read_text(),
+                    throughput_provenance=provenance)
 
     def view(self, value, bundle=None):
         path = self.folder / self.id().split('.')[-1] / 'snapshot.json'
@@ -75,19 +79,19 @@ class LiveReportTests(unittest.TestCase):
         value = self.snapshot()
         progress = value["progress"]
         entry = dict(commit=self.report["head"]["commit"])
-        page = site.detail(self.report, entry, live=progress)
+        page = site.detail(value["report"], entry, live=progress, throughput_reference=self.reference)
         self.assertLess(page.index('</header>'), page.index('id="case-progress"'))
         self.assertLess(page.index('id="case-progress"'), page.index('<nav'))
         self.assertIn('role="progressbar"', page)
-        self.assertIn('aria-valuenow="30" aria-valuemax="264"', page)
-        self.assertIn('aria-valuetext="Completed: 30; In progress: 1; Not started: 233"', page)
+        self.assertIn('aria-valuenow="47" aria-valuemax="281"', page)
+        self.assertIn('aria-valuetext="Completed: 47; In progress: 1; Not started: 233"', page)
         for segment in ("completed", "active", "remaining"):
             self.assertIn(f'data-progress-state="{segment}"', page)
-        self.assertIn('30 / 264 cases · 11.4%', page)
+        self.assertIn('47 / 281 points · 16.7%', page)
         self.assertNotIn('Active cases:', page)
         self.assertIn('active_cases', progress)
         static = site.detail(self.report, entry)
-        self.assertNotIn('id="case-progress"', static)
+        self.assertIn('281 / 281 points · 100.0%', static)
         for rendered in (page, static):
             for removed in ("Live snapshot — not a publishable report.",
                             "Partial results are not a final accuracy conclusion",
@@ -98,7 +102,7 @@ class LiveReportTests(unittest.TestCase):
             self.assertIn("Evidence and provenance", rendered)
         self.assertEqual(self.report["accuracy_status"], "unverified")
         for state, validated, expected in (("failed", False, "Failed"),
-                                            ("complete", False, "Cases finished · validation pending"),
+                                            ("complete", False, "Points finished · validation pending"),
                                             ("complete", True, "Complete validated bundle.")):
             with self.subTest(state=state, validated=validated):
                 current = dict(progress, state=state, completed_cases=264,
@@ -107,7 +111,7 @@ class LiveReportTests(unittest.TestCase):
                     current["errors"] = ["bundle <validation> failed"]
                 rendered = site.detail(self.report, entry, live=current)
                 self.assertIn(expected, rendered)
-                self.assertIn('264 / 264 cases · 100.0%', rendered)
+                self.assertIn('281 / 281 points · 100.0%', rendered)
                 if not validated:
                     self.assertNotIn('Complete validated bundle.', rendered)
                 if state == "failed":
@@ -169,6 +173,7 @@ class LiveReportTests(unittest.TestCase):
             with self.assertRaises((ValueError, KeyError)): live.validate_snapshot(bad)
         complete = copy.deepcopy(value)
         complete['report']['cases'] = copy.deepcopy(self.report['cases'])
+        complete['report']['summary'] = copy.deepcopy(self.report['summary'])
         complete['progress'].update(state='complete', completed_cases=264, completed_shards=132, active_cases=[])
         report = copy.deepcopy(complete['report']); report['artifact_status'] = 'pass'
         folder = self.folder / 'memory-complete'
@@ -241,6 +246,7 @@ class LiveReportTests(unittest.TestCase):
         # The completed CI bundle must retain the same renderer and exact asset.
         complete=copy.deepcopy(value)
         complete['report']['cases']=copy.deepcopy(self.report['cases'])
+        complete['report']['summary']=copy.deepcopy(self.report['summary'])
         complete['progress'].update(state='complete',completed_cases=264,completed_shards=132,active_cases=[])
         for name in [*suite.INPUTS,suite.REFERENCE]:
             target=self.source/name;target.parent.mkdir(parents=True,exist_ok=True)
@@ -294,6 +300,7 @@ class LiveReportTests(unittest.TestCase):
         # The completed CI bundle must retain the same renderer and exact asset.
         complete=copy.deepcopy(value)
         complete['report']['cases']=copy.deepcopy(self.report['cases'])
+        complete['report']['summary']=copy.deepcopy(self.report['summary'])
         complete['progress'].update(state='complete',completed_cases=264,completed_shards=132,active_cases=[])
         for name in [*suite.INPUTS,suite.REFERENCE]:
             target=self.source/name;target.parent.mkdir(parents=True,exist_ok=True)
@@ -391,7 +398,7 @@ class LiveReportTests(unittest.TestCase):
         self.assertNotIn(b'href="report.json"', page)
         self.assertNotIn(b'href="report.md"', page)
         self.assertNotIn(b'href="bundle.json"', page)
-        self.assertEqual(set(assets), {'snapshot.json', 'throughput.json'})
+        self.assertEqual(set(assets), {'snapshot.json', 'reference.json', 'throughput.json'})
         for value in (value['report'], value):
             with self.assertRaises(ValueError):
                 site.check_report(value, self.report['head']['commit'])
@@ -428,7 +435,7 @@ class LiveReportTests(unittest.TestCase):
         entry = dict(commit=self.report['head']['commit'])
         value = self.snapshot()
         def identity(report, progress):
-            page = site.detail(report, entry, live=progress)
+            page = site.detail(report, entry, live=progress, throughput_reference=self.reference)
             return page.split('data-report-identity="')[1].split('"')[0]
         initial = identity(value['report'], value['progress'])
         complete = self.snapshot(True)
@@ -514,6 +521,176 @@ class LiveReportTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 404)
             error.exception.close()
 
+    def test_capacity_snapshot_requires_both_revision_provenance_and_one_renderer(self):
+        value=self.snapshot()
+        report=value['report']
+        suite=site.capacity
+        reference=suite.load_reference(ROOT)
+        for name in [*suite.MEASUREMENT_INPUTS,suite.ELF,suite.REFERENCE]:
+            report['head']['files'][name]=suite.digest(ROOT/name)
+        rows=[dict(id=c['id'],instructions=c['instructions_per_iteration']*1024,cycles=100000)
+              for c in reference['cases']]
+        report['capacity_simulation']=dict(base=copy.deepcopy(rows),head=copy.deepcopy(rows))
+        value['capacity_reference_text']=(ROOT/suite.REFERENCE).read_text()
+        provenance={key:report[key] for key in ('base_commit','head_binary_sha256','base_binary_sha256','model_profiles')}
+        provenance['head_commit']=report['head']['commit']
+        value['capacity_provenance']=copy.deepcopy(provenance)
+        live.validate_snapshot(value)
+        rendered,assets=self.view(value).load()
+        self.assertIn('capacity.json',assets)
+        self.assertEqual(hashlib.sha256(assets['capacity.json']).hexdigest(), report['head']['files'][suite.REFERENCE])
+        def tamper_native(v):
+            changed=json.loads(v['capacity_reference_text'])
+            for key in ('p10_seconds','median_seconds','p90_seconds'):
+                changed['cases'][0][key] *= 2
+            v['capacity_reference_text']=json.dumps(changed)
+        page=rendered.decode();micro=page.split('<section id="microbenchmarks">')[1]
+        self.assertLess(micro.index('FP capacity and divider controls'),micro.index('<details id="throughput-table">'))
+        self.assertIn('<details id="capacity-table">',micro)
+        for mutate in (tamper_native, lambda v:v.pop('capacity_reference_text'),
+                       lambda v:v['report']['capacity_simulation'].pop('base'),
+                       lambda v:v['capacity_provenance'].update(base_binary_sha256='0'*64),
+                       lambda v:v['capacity_provenance'].update(head_commit='0'*40),
+                       lambda v:v['report']['head']['files'].pop(suite.ELF),
+                       lambda v:v['report']['head']['files'].pop(suite.REFERENCE),
+                       lambda v:v.update(capacity_reference_text=v['capacity_reference_text'].replace('median_seconds', 'altered_seconds'))):
+            bad=copy.deepcopy(value);mutate(bad)
+            with self.assertRaises((ValueError,KeyError)):
+                live.validate_snapshot(bad)
+
+        # The completed CI bundle must retain the same renderer and exact asset.
+        complete=copy.deepcopy(value)
+        complete['report']['cases']=copy.deepcopy(self.report['cases'])
+        complete['report']['summary']=copy.deepcopy(self.report['summary'])
+        complete['progress'].update(state='complete',completed_cases=264,completed_shards=132,active_cases=[])
+        for name in [*suite.INPUTS,suite.REFERENCE]:
+            target=self.source/name;target.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(ROOT/name,target)
+        final=copy.deepcopy(complete['report']);final['artifact_status']='pass'
+        folder=self.folder/'capacity-complete';folder.mkdir()
+        raw=folder/'report.json';site.write(raw,final);raw.with_suffix('.md').write_text('Synthetic complete fixture')
+        bundle=folder/'bundle';site.bundle(raw,self.source,bundle,final['head']['commit'])
+        rendered,assets=self.view(complete,bundle).load()
+        self.assertIn(b'Complete validated bundle.',rendered)
+        self.assertEqual(assets['capacity.json'],(ROOT/suite.REFERENCE).read_bytes())
+        self.assertIn(b'<details id="capacity-table">',rendered)
+
+    def all_pending(self):
+        value = self.snapshot()
+        report = value["report"]
+        report["cases"] = []
+        report["summary"] = site.compute.summaries([], True)
+        value["progress"].update(completed_cases=0, completed_shards=0, active_cases=[])
+        for name, suite in site.DIAGNOSTIC_SUITES.items():
+            for source in [*suite.MEASUREMENT_INPUTS, suite.ELF, suite.REFERENCE]:
+                report["head"]["files"][source] = site.digest(ROOT / source)
+            if name == "memory":
+                for source in suite.INPUTS:
+                    report["head"]["files"][source] = site.digest(ROOT / source)
+                report["memory_base_large_image_support"] = True
+            report[name + "_simulation"] = [] if name == "throughput" else {"head": [], "base": []}
+            value[name + "_reference_text"] = (ROOT / suite.REFERENCE).read_text()
+            value[name + "_provenance"] = copy.deepcopy(value["throughput_provenance"])
+        return value
+
+    def test_all_pending_and_unequal_subsets_use_native_panels(self):
+        value = self.all_pending()
+        live.validate_snapshot(value)
+        page, assets = self.view(value).load()
+        for name in site.DIAGNOSTIC_SUITES:
+            self.assertIn(('id="' + name + '-progress"').encode(), page)
+            self.assertIn(name + '.json', assets)
+        self.assertIn(b'pending', page)
+        suite = site.forwarding
+        cases = suite.cases(ROOT)
+        def row(case, cycles):
+            return dict(id=case["id"], instructions=case["instructions_per_iteration"] * 1024,
+                        cycles=cycles, updates=suite.UPDATES_PER_ITERATION * 1024)
+        value["report"]["forwarding_simulation"] = {"head": [row(cases[2], 3000)], "base": [row(cases[0], 1000)]}
+        value["report"]["diagnostic_progress"] = {"forwarding": dict(state="running", active=[dict(role="head", id=cases[3]["id"])], errors=[])}
+        live.validate_snapshot(value)
+        self.view(value).load()
+        for mutate in (lambda v: v["report"]["forwarding_simulation"]["head"].append(row(cases[2], 3000)),
+                       lambda v: v["report"]["forwarding_simulation"]["head"][0].update(id="unknown"),
+                       lambda v: v["report"]["diagnostic_progress"]["forwarding"].update(state="complete"),
+                       lambda v: v.update(capacity_reference_text=v["capacity_reference_text"] + " "),
+                       lambda v: v["capacity_provenance"].update(head_commit="f" * 40)):
+            bad = copy.deepcopy(value); mutate(bad)
+            with self.assertRaises((ValueError, KeyError)):
+                live.validate_snapshot(bad)
+        with self.assertRaises(ValueError):
+            site.check_report(value["report"], value["report"]["head"]["commit"])
+        # All applications finished is still not completion of the diagnostic suites.
+        value["report"]["cases"] = copy.deepcopy(self.report["cases"])
+        value["report"]["summary"] = copy.deepcopy(self.report["summary"])
+        value["progress"].update(state="complete", completed_cases=264, completed_shards=132)
+        with self.assertRaises(ValueError):
+            live.validate_snapshot(value)
+
+    def test_global_progress_includes_all_points_and_mixed_role_pairs(self):
+        value=self.all_pending();report=value['report'];progress=value['progress']
+        refs={name:json.loads(value[name+'_reference_text']) for name in site.DIAGNOSTIC_SUITES}
+        self.assertEqual(site.overall_progress(report,refs,progress),dict(required=511,completed=0,active=0,remaining=511))
+        report['cases']=copy.deepcopy(self.report['cases'][:262])
+        progress['active_cases']=[case['id'] for case in self.report['cases'][262:]]
+        memory=refs['memory']['cases']
+        rows=[dict(id=c['id'],instructions=c['passes']*c['instructions_per_pass'],cycles=1000) for c in memory]
+        report['memory_simulation']={role:copy.deepcopy(rows[:139]) for role in ('head','base')}
+        report['diagnostic_progress']={'memory':dict(state='running',errors=[],active=[dict(role=role,id=memory[-1]['id']) for role in ('head','base')])}
+        totals=site.overall_progress(report,refs,progress)
+        self.assertEqual(totals,dict(required=511,completed=401,active=3,remaining=107))
+        # Completing head alone does not finish this paired point.
+        report['memory_simulation']['head'].append(rows[-1])
+        report['diagnostic_progress']['memory']['active']=[dict(role='base',id=memory[-1]['id'])]
+        self.assertEqual(site.overall_progress(report,refs,progress),totals)
+        # An explicitly unsupported base is resolved evidence, not a missing role.
+        report['memory_simulation']['base'].append(site.memory.unavailable(memory[-1]))
+        report['diagnostic_progress']['memory']['active']=[]
+        self.assertEqual(site.overall_progress(report,refs,progress),dict(required=511,completed=402,active=2,remaining=107))
+        report['cases']=copy.deepcopy(self.report['cases']);progress['active_cases']=[]
+        totals=site.overall_progress(report,refs,progress)
+        self.assertEqual(totals,dict(required=511,completed=404,active=0,remaining=107))
+        self.assertNotIn('100.0%',site.live_progress(dict(progress,completed_cases=264),totals))
+        with self.assertRaisesRegex(ValueError,'unfinished'):
+            site.live_progress(dict(progress,state='complete',completed_cases=264),totals)
+        scheduling=refs['scheduling']['cases'][0]
+        row=dict(id=scheduling['id'],instructions=scheduling['instructions_per_iteration']*1024,cycles=1000)
+        report['scheduling_simulation']['base']=[row]
+        # Half-complete, between execution callbacks: still in progress.
+        self.assertEqual(site.overall_progress(report,refs,progress)['active'],1)
+        report['scheduling_simulation']['head']=[row]
+        self.assertEqual(site.overall_progress(report,refs,progress)['completed'],405)
+        report['scheduling_simulation']['head'].append(row)
+        with self.assertRaises(ValueError):site.overall_progress(report,refs,progress)
+
+    def test_complete_partial_and_ci_panels_are_identical_for_all_suites(self):
+        value=self.all_pending();report=value['report']
+        report['cases']=copy.deepcopy(self.report['cases'])
+        report['summary']=copy.deepcopy(self.report['summary'])
+        refs={}
+        for name,suite in site.DIAGNOSTIC_SUITES.items():
+            ref=json.loads(value[name+'_reference_text']);refs[name+'_reference']=ref
+            rows=[]
+            for case in ref['cases']:
+                instructions=(case['passes']*case['instructions_per_pass'] if name=='memory'
+                              else (suite.ITERATIONS[1]-suite.ITERATIONS[0])*case['instructions_per_iteration'])
+                row=dict(id=case['id'],instructions=instructions,cycles=1000000)
+                if name=='forwarding':row['updates']=65536
+                rows.append(row)
+            report[name+'_simulation']=rows if name=='throughput' else dict(head=rows,base=copy.deepcopy(rows))
+        value['progress'].update(state='complete',completed_cases=264,completed_shards=132)
+        live.validate_snapshot(value)
+        complete=copy.deepcopy(report);complete['artifact_status']='pass'
+        site.validate_compact_evidence(complete,live.snapshot_references(value))
+        entry=dict(commit=report['head']['commit'])
+        def panels(value):
+            return site.detail(value,entry,live=value_progress,**refs).split('<section id="microbenchmarks">',1)[1].split('</section>',1)[0]
+        value_progress=value['progress']
+        self.assertEqual(panels(complete),panels(report))
+        references={name:refs[name+'_reference'] for name in site.DIAGNOSTIC_SUITES}
+        self.assertEqual(site.overall_progress(report,references,value_progress),dict(required=511,completed=511,active=0,remaining=0))
+        for page in (site.detail(report,entry,live=value_progress,**refs),site.detail(complete,entry,**refs)):
+            self.assertIn('511 / 511 points · 100.0%',page)
 
 if __name__ == '__main__':
     unittest.main()

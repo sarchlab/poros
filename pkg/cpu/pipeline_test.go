@@ -221,8 +221,12 @@ func TestLatency_KnownOps(t *testing.T) {
 		{arm64asm.SDIV, 10},
 		{arm64asm.FADD, 3},
 		{arm64asm.FMUL, 4},
-		{arm64asm.FDIV, 22},
-		{arm64asm.FSQRT, 12},
+		{arm64asm.FMADD, 4},
+		{arm64asm.FMSUB, 4},
+		{arm64asm.FNMADD, 4},
+		{arm64asm.FNMSUB, 4},
+		{arm64asm.FDIV, 10},
+		{arm64asm.FSQRT, 13},
 		{arm64asm.B, 1},
 		{arm64asm.LDR, 1}, // execute latency; load latency is in Memory stage
 	}

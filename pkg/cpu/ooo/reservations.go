@@ -20,6 +20,8 @@ func (p *middleware) units(ut unitType) [][]UnitReservation {
 		return p.comp.State.IntUnits
 	case unitFP:
 		return p.comp.State.FpUnits
+	case unitFPDiv:
+		return p.comp.State.FpUnits[:p.comp.Spec.NumFPDiv]
 	default:
 		return p.comp.State.LdstUnits
 	}
@@ -105,9 +107,9 @@ func unitOccupancy(op arm64asm.Op) uint64 {
 	case arm64asm.SDIV, arm64asm.UDIV:
 		return uint64(instinfo.ExecuteLatency(op))
 	case arm64asm.FDIV:
-		return 10
+		return 1
 	case arm64asm.FSQRT:
-		return 6
+		return 2
 	default:
 		return 1
 	}

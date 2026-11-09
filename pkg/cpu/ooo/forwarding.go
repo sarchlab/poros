@@ -33,9 +33,7 @@ func (p *middleware) forwardLoad(accesses []emu.MemAccess, issueCycle uint64, el
 			sb := &p.comp.State.StoreBuffer[i]
 			if acc.Addr < sb.Addr+uint64(sb.Size) && sb.Addr < acc.Addr+uint64(acc.Size) {
 				youngest = sb
-				if sb.CompleteCycle > result.issueCycle {
-					result.issueCycle = sb.CompleteCycle
-				}
+				result.issueCycle = max(result.issueCycle, sb.CompleteCycle, sb.PriorCompleteCycle)
 				if sb.Addr <= acc.Addr && acc.Addr+uint64(acc.Size) <= sb.Addr+uint64(sb.Size) {
 					covered = true
 				}
@@ -73,4 +71,43 @@ func directGPRTransfer(inst arm64asm.Inst) bool {
 	}
 	address, ok := inst.Args[1].(arm64asm.MemImmediate)
 	return ok && address.Mode == arm64asm.AddrOffset
+}
+
+// Forwarding records and write allocation ownership have different lifetimes.
+// This pool is explicitly capped from instruction-pair and queued-line-byte
+// scales; dispatch stalls when full. Fully shadowed records are compacted, but
+// records covered only by several partial stores remain until they drain. The
+// cap, not a one-owner-per-byte invariant, bounds future-ready record history.
+func (p *middleware) forwardingCapacity() int {
+	capacity := 2 * p.comp.Spec.StoreBufferSize
+	if cache := p.comp.Resources.Cache; cache != nil {
+		cfg := cache.Config()
+		capacity += cfg.WriteBufferEntries * cfg.L1LineSize
+	}
+	return capacity
+}
+
+func (p *middleware) appendStoreRecord(entry storeBufferEntry) {
+	kept := p.comp.State.StoreBuffer[:0]
+	for _, old := range p.comp.State.StoreBuffer {
+		if entry.Addr <= old.Addr && old.Addr+uint64(old.Size) <= entry.Addr+uint64(entry.Size) {
+			// Preserve conservative ordering for partial/FP forwarding. The exact
+			// youngest GPR bypass still uses only the latest producer's readiness.
+			entry.PriorCompleteCycle = max(entry.PriorCompleteCycle, old.CompleteCycle, old.PriorCompleteCycle)
+			entry.DrainCycle = max(entry.DrainCycle, old.DrainCycle, old.CompleteCycle, old.PriorCompleteCycle)
+		} else {
+			kept = append(kept, old)
+		}
+	}
+	p.comp.State.StoreBuffer = append(kept, entry)
+}
+
+func (p *middleware) storeTiming(issue uint64) (accepted, drained uint64) {
+	if cache := p.comp.Resources.Cache; cache != nil {
+		for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+			a, d := cache.Store(acc.Addr, acc.Size, issue)
+			accepted, drained = max(accepted, a), max(drained, d)
+		}
+	}
+	return
 }

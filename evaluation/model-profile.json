@@ -15,17 +15,19 @@
     "PrefetchDistance": 48,
     "PrefetchPageBytes": 0,
     "PrefetchStreams": 16,
-    "PrefetchTrainMisses": 3
+    "PrefetchTrainMisses": 3,
+    "WriteBufferEntries": 56
   },
   "configuration": {
     "branch_penalty": 17,
     "branch_prediction": true,
     "fetch_width": 8,
-    "fp_phys_limit": 72,
+    "fp_phys_limit": 360,
     "freq": 3490000000,
     "func_hook_cycles": null,
     "load_latency": 5,
     "num_fp": 4,
+    "num_fp_div": 1,
     "num_int": 6,
     "num_ldst": 4,
     "num_mshr_entries": 12,

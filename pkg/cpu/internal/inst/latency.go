@@ -27,17 +27,18 @@ func ExecuteLatency(op arm64asm.Op) int {
 	case arm64asm.FMUL, arm64asm.FNMUL:
 		return 4
 
-	// FP multiply-accumulate (FMADD/FMSUB/FNMADD: multiply + accumulate pipeline stages)
-	case arm64asm.FMADD, arm64asm.FMSUB, arm64asm.FNMADD:
-		return 7
+	// Scalar fused arithmetic has one result latency, not multiply plus add.
+	// See evaluation/model-profile.md for native M2 evidence and inference.
+	case arm64asm.FMADD, arm64asm.FMSUB, arm64asm.FNMADD, arm64asm.FNMSUB:
+		return 4
 
-	// FP divide (M2 double-precision: ~22 cycles)
+	// Scalar FP division; throughput is constrained separately by the OoO unit.
 	case arm64asm.FDIV:
-		return 22
+		return 10
 
 	// FP square root
 	case arm64asm.FSQRT:
-		return 12
+		return 13
 
 	default:
 		// Simple INT (ADD, SUB, AND, ORR, MOV, CMP, LSL, LSR, CSEL, etc.)

@@ -9,6 +9,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import memory_microbenchmark as memory
 import accuracy_parallel as parallel
@@ -23,6 +24,28 @@ class MemoryTests(unittest.TestCase):
         cls.cases = memory.cases()
         cls.reference = memory.load_reference()
         cls.profile = memory.read(memory.ROOT / model_profiles.PATH)
+
+    def test_smoke_keeps_tiny_functional_checks_and_longer_strict_timing(self):
+        case = next(c for c in self.cases if c['id'] == 'chase4-8192')
+        calls = []
+        def execute(binary, root, declared, passes, mode='ooo'):
+            calls.append((declared['elf'], passes, mode))
+            # Tiny pairs have a valid fixed drain plateau; the longer pair
+            # exposes work. The timing validator itself must stay strict.
+            return dict(instructions=1000 + passes * case['instructions_per_pass'],
+                        stdout_base64='', timing=dict(user_cycles=max(2586, 2300 + 80 * passes)))
+        with patch.object(memory, 'cases', return_value=[case]), patch.object(memory, 'execute', side_effect=execute), \
+             patch.object(memory.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')) as qemu:
+            memory.smoke(Path('/synthetic/poros'), qemu=Path('/synthetic/qemu'))
+        self.assertEqual(calls, [(memory.ELF, 1, 'functional'), (memory.ELF, 1, 'ooo'),
+                                 (memory.ELF, 2, 'functional'), (memory.ELF, 2, 'ooo'),
+                                 (memory.ELF, 16, 'ooo'), (memory.ELF, 32, 'ooo'),
+                                 (memory.LARGE_ELF, 1, 'functional')])
+        self.assertEqual([call.args[0][-1] for call in qemu.call_args_list], ['00000001', '00000002', '00000001'])
+        tiny = [execute(None, None, case, n) for n in (1, 2)]
+        with self.assertRaisesRegex(ValueError, 'invalid memory differential counters'):
+            memory.summarize_samples(dict(case, passes=1), tiny)
+        self.assertEqual(case['passes'], 1024)  # Official measurement remains unchanged.
 
     def test_matrix_residency_and_load_counts(self):
         self.assertEqual(len(self.cases), 140)

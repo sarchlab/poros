@@ -155,6 +155,7 @@ func TestAccessWithoutTimedMechanismsMatchesLookupLevels(t *testing.T) {
 	cfg.FillBytesPerCycle = 0
 	cfg.DRAMBytesPerCycle = 0
 	cfg.PrefetchDistance = 0
+	cfg.WriteBufferEntries = 0
 	legacy := NewCache(cfg)
 	timed := NewCache(cfg)
 	x := uint64(12345)
@@ -166,6 +167,9 @@ func TestAccessWithoutTimedMechanismsMatchesLookupLevels(t *testing.T) {
 		} else {
 			addr = uint64(i) * 8 // sequential
 		}
+		// This comparison covers one-line accesses. Timed cross-line requests
+		// now visit both lines; legacy Lookup deliberately keeps its old scope.
+		addr &^= 7
 		want := legacy.Lookup(addr, 8, false)
 		now := uint64(i) * 1000 // far apart: every fill has arrived
 		got, ready := timed.Access(addr, 8, false, now)

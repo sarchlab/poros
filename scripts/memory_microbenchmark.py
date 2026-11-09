@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Source-bound single-core memory latency/parallelism/bandwidth diagnostics."""
+from report_records import covered_cases
+
 import argparse
 import base64
 from datetime import datetime, timezone
@@ -203,8 +205,8 @@ def summarize_samples(case, samples):
     return row
 
 
-def validate_rows(rows, declared):
-    require(isinstance(rows, list) and [r.get('id') for r in rows] == [c['id'] for c in declared], 'memory simulation case coverage mismatch')
+def validate_rows(rows, declared, *, partial=False):
+    declared = covered_cases(rows, declared, partial=partial)
     for row, case in zip(rows, declared):
         require(type(row.get('instructions')) is int and row['instructions'] == case['passes'] * case['instructions_per_pass']
                 and positive(row.get('cycles')), 'invalid memory differential counters')
@@ -226,12 +228,12 @@ def declared(files):
     return any(name in files for name in [*MEASUREMENT_INPUTS, ELF, REFERENCE])
 
 
-def validate_comparison(simulations, declared_cases, base_large_image_support):
+def validate_comparison(simulations, declared_cases, base_large_image_support, *, partial=False):
     require(type(base_large_image_support) is bool, 'memory base image capability must be a boolean')
     require(isinstance(simulations, dict) and set(simulations) == {'base', 'head'}, 'memory requires both base and head simulation')
     for role, rows in simulations.items():
-        require(isinstance(rows, list) and [r.get('id') for r in rows] == [c['id'] for c in declared_cases], 'memory simulation case coverage mismatch')
-        for row, case in zip(rows, declared_cases):
+        selected = covered_cases(rows, declared_cases, partial=partial)
+        for row, case in zip(rows, selected):
             unsupported = role == 'base' and case['max_image_bytes'] > 256 * 1024 * 1024 and not base_large_image_support
             if unsupported:
                 require(row == unavailable(case), 'memory unsupported base row must match declared capability')
@@ -243,7 +245,6 @@ def smoke(binary, root=ROOT, qemu=None):
     # All patterns, two small power-of-two footprints and the new 96 KiB chase shape.
     declared = [c for c in cases(root) if c['working_set_bytes'] in (8192, 32768, 98304)]
     for case in declared:
-        samples = []
         for passes in (1, 2):
             actual = execute(binary, root, case, passes, 'functional')
             timed = execute(binary, root, case, passes)
@@ -251,9 +252,12 @@ def smoke(binary, root=ROOT, qemu=None):
             if qemu is not None:
                 p = subprocess.run([str(qemu), str(Path(root) / case_elf(case)), *arguments(case, passes)], capture_output=True, timeout=30)
                 require(p.returncode == 0 and not p.stderr and p.stdout == base64.b64decode(actual['stdout_base64']), 'memory QEMU differential failed')
-            samples.append(timed)
-        trial_case = dict(case, passes=1)
-        summarize_samples(trial_case, samples)
+        # Tiny functional cases can complete inside a fixed initialization
+        # allocation/drain tail. Their whole-process cycle delta may validly be
+        # zero. Keep the strict timing validator and use a longer timing-only
+        # pair, without changing official measurement cases or native inputs.
+        samples = [execute(binary, root, case, passes) for passes in (16, 32)]
+        summarize_samples(dict(case, passes=16), samples)
         print(case['id'], 'functional/timing/checksum/instruction delta' + ('/QEMU' if qemu else ''), 'pass', flush=True)
 
 

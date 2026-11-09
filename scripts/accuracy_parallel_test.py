@@ -22,6 +22,7 @@ import accuracy_test_support as fixtures
 import frontend_microbenchmark as probe
 import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
+import capacity_microbenchmark as capacity
 import model_profiles as models
 import memory_microbenchmark as memory
 import hashlib
@@ -52,6 +53,13 @@ class ParallelAccuracyTests(unittest.TestCase):
         git_patch = patch.object(parallel, "git", return_value=HEAD)
         git_patch.start()
         cls.addClassCleanup(git_patch.stop)
+        # Fixture workloads live outside Git; capability evidence is read from
+        # the real repository, while execution/source manifests remain synthetic.
+        for name in ("base_capability", "base_declares_cohort"):
+            original = getattr(parallel.compute, name)
+            patcher = patch.object(parallel.compute, name,
+                side_effect=lambda revision, root=None, original=original: original(revision, root) if root is not None and (Path(root)/".git").exists() else original(revision))
+            patcher.start(); cls.addClassCleanup(patcher.stop)
         cls.cases, cls.witnesses = parallel.inputs()
         original = parallel.read(cls.fixture.source / "evaluation/usertime/m2-linuxvm-performance-v1.json")
         cls.outputs = {r["id"]: base64.b64decode(r["samples"][0]["stdout_base64"]) for r in original["cases"]}
@@ -102,6 +110,114 @@ class ParallelAccuracyTests(unittest.TestCase):
         for i, shard in enumerate(shards):
             parallel.write(root / str(i) / "shard.json", shard)
         return root
+
+    def declarations(self):
+        profile_hash = hashlib.sha256(models.encode(self.profile)).hexdigest()
+        self.plan["head"] = copy.deepcopy(self.plan["head"])
+        self.plan["head"]["files"] = {name: user.digest(self.fixture.source / name) for name in self.plan["head"]["files"]}
+        self.plan["head"]["files"][models.PATH] = profile_hash
+        self.plan["model_profiles"] = {
+            "head": dict(commit=HEAD, path=models.PATH, sha256=profile_hash, profile=copy.deepcopy(self.profile)),
+            "base": models.revision(Path(__file__).resolve().parents[1], BASE)}
+        parallel.write(self.prepared / "plan.json", self.plan)
+
+    def test_compressed_partial_exporter_caches_validated_rows_and_rejects_mutation(self):
+        import gzip
+        import accuracy_progress as progress
+        self.declarations()
+        shards=self.shards()
+        root=self.root/'delivered';folder=root/'0';folder.mkdir(parents=True)
+        path=folder/'shard.json.gz'
+        raw=json.dumps(shards[0]).encode()
+        path.write_bytes(gzip.compress(raw))
+        receipt=dict(shard_sha256=hashlib.sha256(raw).hexdigest(), head=HEAD, binaries=self.plan['binaries'],returncode=0)
+        parallel.write(folder/'receipt.json',receipt)
+        with patch.object(parallel,'load_plan',return_value=(self.plan,self.witnesses)):
+            exporter=progress.SnapshotExporter(self.prepared,self.fixture.source,root,'123',1)
+        value=exporter.export()
+        self.assertEqual(value['progress']['completed_cases'],33)
+        self.assertEqual(value['report']['head'],self.plan['head'])
+        self.assertEqual(value['report']['cases'][0]['head']['instructions'],100)
+        with patch.object(parallel,'recorded_executor',side_effect=AssertionError('raw revalidated')):
+            self.assertEqual(exporter.export()['report'],value['report'])
+        # In-flight gzip delivery has no receipt and must remain pending.
+        pending=root/'1';pending.mkdir();(pending/'shard.json.gz').write_bytes(b'incomplete')
+        self.assertEqual(exporter.export()['progress']['completed_shards'],1)
+        status_path=self.root/'status.json'
+        status=dict(head=HEAD,base=BASE,run_id='123',completed=[0],active={},failed=[dict(index=1,error='worker failed')],phase='failed')
+        parallel.write(status_path,status);exporter.status=status_path
+        failed=exporter.export()
+        self.assertEqual(failed['progress']['state'],'failed')
+        self.assertEqual(failed['progress']['errors'],['Shard 1: worker failed'])
+        for invalid in ('-1','unknown','1000'):
+            changed=copy.deepcopy(status);changed['active']={invalid:{}}
+            parallel.write(status_path,changed)
+            with self.assertRaisesRegex(ValueError,'index'):exporter.export()
+        exporter.status=None
+        path.write_bytes(gzip.compress(raw+b' '))
+        with self.assertRaisesRegex(ValueError,'receipt'):
+            exporter.export()
+        path.write_bytes(gzip.compress(raw))
+        duplicate=root/'duplicate';duplicate.mkdir()
+        (duplicate/'shard.json.gz').write_bytes(gzip.compress(raw));parallel.write(duplicate/'receipt.json',receipt)
+        with self.assertRaisesRegex(ValueError,'duplicate'):
+            exporter.export()
+
+    def test_aggregate_explicit_source_emits_validated_partial_progress(self):
+        import accuracy_live as live
+        self.declarations()
+        results=self.write_shards(self.shards())
+        output=self.root/'progress/report.json';progress=self.root/'snapshot.json'
+        with patch.object(parallel,'load_plan',return_value=(self.plan,self.witnesses)), \
+             patch.object(site,'git',return_value=HEAD), \
+             patch.object(user,'source_state',return_value=self.plan['head']), \
+             patch.object(models,'resolve',return_value=self.plan['model_profiles']), \
+             patch.object(parallel.compute,'base_declares_cohort',return_value=True), \
+             patch.object(parallel.compute,'base_capability',return_value=self.plan['base_capability']), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(parallel.aggregate(self.prepared,results,'123',1,output,source=self.fixture.source,progress=progress),0)
+        snapshot=live.validate_snapshot(parallel.read(progress))
+        report=parallel.read(output)
+        self.assertEqual(snapshot['report']['cases'],report['cases'])
+        self.assertEqual(snapshot['report']['head'],self.plan['head'])
+        self.assertEqual(snapshot['report']['artifact_status'],'partial')
+
+    def test_progress_early_header_failure_and_late_bad_probe_preserve_evidence(self):
+        import accuracy_live as live
+        self.declarations()
+        progress=self.root/'last-good.json';progress.write_text('previous validated snapshot')
+        args=SimpleNamespace(head=str(self.prepared/'head'),base=str(self.prepared/'base'),base_unavailable=False,
+            base_commit=BASE,reference=str(self.fixture.source/parallel.REFERENCE),output=str(self.root/'early.json'))
+        with patch.object(user,'source_state',return_value=self.plan['head']), \
+             patch.object(models,'resolve',side_effect=ValueError('bad model declaration')):
+            self.assertEqual(user.compare(args,lambda *a,**kw: self.fail('executed before header'),progress_path=progress),1)
+        self.assertEqual(parallel.read(args.output)['error'],'bad model declaration')
+        self.assertEqual(progress.read_text(),'previous validated snapshot')
+        for source in [*throughput.MEASUREMENT_INPUTS,throughput.ELF,throughput.REFERENCE]:
+            target=self.fixture.source/source;target.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(Path(__file__).resolve().parents[1]/source,target)
+            self.plan['head']['files'][source]=user.digest(target)
+        parallel.write(self.prepared/'plan.json',self.plan)
+        results=self.write_shards(self.shards())
+        cases=throughput.cases(self.fixture.source)
+        row=dict(id=cases[0]['id'],instructions=1024*cases[0]['instructions_per_iteration'],cycles=1000)
+        def corrupt(*args,**options):
+            options['progress']([row],cases[1]['id'])
+            bad=dict(id=cases[1]['id'],instructions=1024*cases[1]['instructions_per_iteration'],cycles=-1)
+            options['progress']([row,bad],None)
+            self.fail('invalid progress accepted')
+        output=self.root/'late/report.json'
+        with patch.object(user,'source_state',return_value=self.plan['head']), \
+             patch.object(models,'resolve',return_value=self.plan['model_profiles']), \
+             patch.object(throughput,'measure',side_effect=corrupt), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(parallel.aggregate(self.prepared,results,'123',1,output,progress=progress),1)
+        saved=live.validate_snapshot(parallel.read(progress))
+        self.assertEqual(saved['report']['throughput_simulation'],[row])
+        self.assertEqual(saved['progress']['state'],'failed')
+        self.assertEqual(saved['report']['diagnostic_progress']['throughput']['state'],'failed')
+        self.assertEqual(len(saved['report']['cases']),264)
+        self.assertIn('counters',parallel.read(output)['error'])
 
     def test_plan_covers_all_264_once(self):
         ids = [ident for shard in self.plan["shards"] for ident in shard]
@@ -276,6 +392,19 @@ class ParallelAccuracyTests(unittest.TestCase):
         role = "functional" if mode == "functional" else Path(binary).name
         return self.result(case, role)
 
+    def test_active_shard_memory_assignments_are_unique_and_role_aware(self):
+        import accuracy_progress as progress
+        with self.memory_fixture() as plan:
+            cases=plan['memory']['cases']
+            report={'memory_simulation':{role:[dict(id=cases[0]['id'])] for role in ('head','base')}}
+            progress.active_memory_progress(plan,report,[0,1,1,2,7])
+            item=report['diagnostic_progress']['memory']
+            self.assertEqual(item['state'],'running')
+            self.assertEqual(item['active'],[dict(role='head',id=cases[1]['id']),dict(role='base',id=cases[1]['id']),dict(role='head',id=cases[2]['id'])])
+            report['memory_simulation']={role:[dict(id=c['id']) for c in cases] for role in ('head','base')}
+            progress.active_memory_progress(plan,report,[])
+            self.assertEqual(report['diagnostic_progress']['memory'],dict(state='complete',active=[],errors=[]))
+
     def test_memory_runs_in_assigned_shards_and_aggregate_only_consumes_records(self):
         results, output = self.root / "memory-shards", self.root / "memory/report.json"
         with self.memory_fixture() as plan, contextlib.redirect_stdout(io.StringIO()):
@@ -349,8 +478,8 @@ class ParallelAccuracyTests(unittest.TestCase):
         original_capability, original_cohort = parallel.compute.base_capability, parallel.compute.base_declares_cohort
         with patch.object(parallel, 'ROOT', source), patch.object(user, 'ROOT', source), \
              patch.object(user, 'source_state', side_effect=real_source_state), \
-             patch.object(parallel.compute, 'base_capability', side_effect=lambda rev: original_capability(rev, source)), \
-             patch.object(parallel.compute, 'base_declares_cohort', side_effect=lambda rev: original_cohort(rev, source)), \
+             patch.object(parallel.compute, 'base_capability', side_effect=lambda rev, root=None: original_capability(rev, source)), \
+             patch.object(parallel.compute, 'base_declares_cohort', side_effect=lambda rev, root=None: original_cohort(rev, source)), \
              contextlib.redirect_stdout(io.StringIO()):
             state = user.source_state()
             self.assertFalse(state['dirty'])
@@ -564,6 +693,33 @@ class ParallelAccuracyTests(unittest.TestCase):
             self.assertEqual(report["artifact_status"], "fail")
             self.assertEqual(report["head_commit"], HEAD)
 
+    def test_aggregation_runs_capacity_on_both_revision_binaries(self):
+        state=copy.deepcopy(self.state)
+        state['files'][capacity.ELF]='f'*64
+        plan=copy.deepcopy(self.plan);plan['head']=state
+        parallel.write(self.prepared/'plan.json',plan)
+        shards=self.shards()
+        for shard in shards:shard['plan_id']=parallel.identity(plan)
+        results=self.write_shards(shards)
+        rows=[dict(id=c['id'],instructions=c['instructions_per_iteration']*1024,cycles=100000,updates=65536)
+              for c in capacity.cases()]
+        output=self.root/'capacity/report.json'
+        for error in (None,PermissionError('base capacity execution unavailable')):
+            with patch.object(user,'source_state',return_value=state), \
+                 patch.object(capacity,'load_reference',return_value={}), \
+                 patch.object(capacity,'measure',side_effect=[rows,error if error else rows]) as measure, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                status=parallel.aggregate(self.prepared,results,'123',1,output)
+            self.assertEqual(measure.call_count,2)
+            calls=measure.call_args_list
+            self.assertEqual(calls[0].args[2],state['commit'])
+            self.assertEqual(calls[1].args[2],plan['base_commit'])
+            self.assertEqual(calls[0].args[3],self.profile)
+            self.assertEqual(calls[1].args[3],self.profile)
+            report=parallel.read(output)
+            self.assertEqual(status,int(error is not None))
+            if error:self.assertIn('unavailable',report['error'])
+            else:self.assertEqual(report['capacity_simulation'],dict(base=rows,head=rows))
 
 if __name__ == "__main__":
     unittest.main()

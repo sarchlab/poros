@@ -20,15 +20,20 @@ type HookCycles struct {
 
 // Spec contains immutable structural and timing parameters.
 type Spec struct {
-	Freq             timing.Freq   `json:"freq"`
-	FetchWidth       int           `json:"fetch_width"`
-	RetireWidth      int           `json:"retire_width"`
-	ROBCapacity      int           `json:"rob_capacity"`
-	NumINT           int           `json:"num_int"`
-	NumFP            int           `json:"num_fp"`
-	NumLDST          int           `json:"num_ldst"`
-	BranchPenalty    int           `json:"branch_penalty"`
-	LoadLatency      int           `json:"load_latency"`
+	Freq        timing.Freq `json:"freq"`
+	FetchWidth  int         `json:"fetch_width"`
+	RetireWidth int         `json:"retire_width"`
+	ROBCapacity int         `json:"rob_capacity"`
+	NumINT      int         `json:"num_int"`
+	NumFP       int         `json:"num_fp"`
+	// NumFPDiv is the number of FP pipes eligible for scalar divide/sqrt.
+	// These are a subset of NumFP, so ordinary arithmetic shares their capacity.
+	NumFPDiv      int `json:"num_fp_div"`
+	NumLDST       int `json:"num_ldst"`
+	BranchPenalty int `json:"branch_penalty"`
+	LoadLatency   int `json:"load_latency"`
+	// FpPhysLimit bounds speculative destinations, not total physical registers.
+	// At least two are required so a supported paired FP load can dispatch.
 	FpPhysLimit      int           `json:"fp_phys_limit"`
 	StoreBufferSize  int           `json:"store_buffer_size"`
 	NumMSHREntries   int           `json:"num_mshr_entries"`
@@ -40,8 +45,8 @@ type Spec struct {
 func DefaultSpec() Spec {
 	return Spec{
 		Freq: 3490 * timing.MHz, FetchWidth: 8, RetireWidth: 8, ROBCapacity: 256,
-		NumINT: 6, NumFP: 4, NumLDST: 4, BranchPenalty: 17, LoadLatency: 5,
-		FpPhysLimit: 72, StoreBufferSize: 56, NumMSHREntries: 12, BranchPrediction: true,
+		NumINT: 6, NumFP: 4, NumFPDiv: 1, NumLDST: 4, BranchPenalty: 17, LoadLatency: 5,
+		FpPhysLimit: 360, StoreBufferSize: 56, NumMSHREntries: 12, BranchPrediction: true,
 		Predictor: PredictorSpec{BimodalSize: 4096, TaggedTableSize: 2048, BTBSize: 2048, BTBWays: 4, RASSize: 32, TaggedHistLen: 32},
 	}
 }
@@ -73,8 +78,8 @@ type State struct {
 	RobHead, RobTail, RobCount   int
 	FpInFlight                   int
 	StoreBuffer                  []storeBufferEntry
-	// One finite allocation slot per store instruction. Paired accesses hold
-	// one slot until both fills finish; forwarding readiness is separate.
+	// One finite instruction slot per store until the cache accepts its bytes.
+	// Pending write allocations are separately bounded and owned by Cache.
 	StoreDrainUntil  []uint64
 	MshrBusyUntil    []uint64
 	FrontendReady    uint64
@@ -84,10 +89,11 @@ type State struct {
 	Err              string
 }
 type storeBufferEntry struct {
-	Addr          uint64
-	Size          int
-	CompleteCycle uint64
-	DrainCycle    uint64 // allocation completion, independent of forwarding data
+	Addr               uint64
+	Size               int
+	CompleteCycle      uint64
+	PriorCompleteCycle uint64 // ordering inherited from fully shadowed older stores
+	DrainCycle         uint64 // allocation completion, independent of forwarding data
 	// ReadyCycle conservatively records when store address and data can issue.
 	// Missing fields in an older serialized state leave FastForwardEligible false, which
 	// preserves the conventional forwarding path for those entries.
@@ -99,6 +105,7 @@ type unitType int
 const (
 	unitINT unitType = iota
 	unitFP
+	unitFPDiv
 	unitLDST
 )
 
@@ -110,7 +117,10 @@ func (s *State) Initialize(c *Comp) {
 		panic("ooo: enable emulator memory access tracking before Build")
 	}
 	v := c.Spec
-	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumLDST < 1 || v.LoadLatency < 1 || v.FpPhysLimit < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
+	if v.FpPhysLimit < 2 {
+		panic("ooo: FP destination capacity must be at least 2 for paired loads")
+	}
+	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumFPDiv < 1 || v.NumFPDiv > v.NumFP || v.NumLDST < 1 || v.LoadLatency < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
 	}
 	s.IntUnits = make([][]UnitReservation, v.NumINT)
@@ -225,8 +235,7 @@ func (p *middleware) fetchAndProcess() {
 	}
 
 	fetched := 0
-	for fetched < p.comp.Spec.FetchWidth && p.comp.State.RobCount < p.comp.Spec.ROBCapacity &&
-		p.comp.State.FpInFlight < p.comp.Spec.FpPhysLimit && !p.comp.Resources.backend().Stopped() {
+	for fetched < p.comp.Spec.FetchWidth && p.comp.State.RobCount < p.comp.Spec.ROBCapacity && !p.comp.Resources.backend().Stopped() {
 		// 1. Peek at instruction at emulator's current PC.
 		pc := p.comp.Resources.backend().CPURegisters().PC
 		inst, gprs, fps, err := p.comp.Resources.peekSources(pc)
@@ -249,13 +258,28 @@ func (p *middleware) fetchAndProcess() {
 			return
 		}
 
+		// Admit the actual destination count, including both halves of LDP.
+		// A full FP window does not prevent integer or store-only progress.
+		_, fpFirst := instinfo.DestRegs(inst)
+		_, fpSecond := instinfo.DestRegs2(inst)
+		neededFP := 0
+		if fpFirst >= 0 {
+			neededFP++
+		}
+		if fpSecond >= 0 {
+			neededFP++
+		}
+		if p.comp.State.FpInFlight+neededFP > p.comp.Spec.FpPhysLimit {
+			return
+		}
+
 		// Allocate store capacity at actual dispatch, before functional effects
-		// or future cache reservations. Retired stores retain their slot until
-		// their allocation finishes; a full pool backpressures the frontend.
+		// or future cache reservations. Stores retain their instruction slot until
+		// cache acceptance; a full pool backpressures the frontend.
 		storeSlot := -1
 		if instinfo.IsStore(inst.Op) {
 			storeSlot = p.availableStoreSlot()
-			if storeSlot < 0 {
+			if storeSlot < 0 || len(p.comp.State.StoreBuffer)+2 > p.forwardingCapacity() {
 				return
 			}
 		}
@@ -322,8 +346,11 @@ func (p *middleware) fetchAndProcess() {
 		if usesUnit {
 			issueCycle, mshr = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss)
 		}
-		var latency, dataReady uint64
-		if forwarding.forwarded {
+		var latency, dataReady, storeDrain uint64
+		if instinfo.IsStore(inst.Op) {
+			latency = 3
+			dataReady, storeDrain = p.storeTiming(issueCycle)
+		} else if forwarding.forwarded {
 			latency = forwarding.latency
 		} else {
 			latency, dataReady = p.instrLatencyWithPC(inst, pc, issueCycle)
@@ -400,12 +427,12 @@ func (p *middleware) fetchAndProcess() {
 					Addr:                acc.Addr,
 					Size:                acc.Size,
 					CompleteCycle:       completeCycle,
-					DrainCycle:          p.comp.State.StoreDrainUntil[storeSlot],
+					DrainCycle:          max(storeDrain, p.comp.State.StoreDrainUntil[storeSlot]),
 					ReadyCycle:          issueCycle,
 					FastForwardEligible: eligible,
 				}
 
-				p.comp.State.StoreBuffer = append(p.comp.State.StoreBuffer, entry)
+				p.appendStoreRecord(entry)
 			}
 		}
 
@@ -472,10 +499,11 @@ func classifyUnit(instruction arm64asm.Inst) unitType {
 		return unitLDST
 	}
 	switch op {
+	case arm64asm.FDIV, arm64asm.FSQRT:
+		return unitFPDiv
 	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FMUL,
 		arm64asm.FMADD, arm64asm.FMSUB,
-		arm64asm.FNMUL, arm64asm.FNMADD,
-		arm64asm.FDIV, arm64asm.FSQRT,
+		arm64asm.FNMUL, arm64asm.FNMADD, arm64asm.FNMSUB,
 		arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FMOV, arm64asm.FCSEL,
 		arm64asm.SCVTF, arm64asm.UCVTF,
 		arm64asm.FCVTZS, arm64asm.FCVTZU,
@@ -503,10 +531,9 @@ func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycl
 
 // instrLatency computes the execution latency for an instruction.
 // dataReady is the absolute cycle at which the cache can deliver the data
-// (zero when the cache model is not timed or not present). Loads and stores
-// use the timed cache path only after the final execution-resource selection.
-// A store's data latency stays 3; dataReady holds its allocation slot, rather
-// than delaying forwarding or architectural register readiness.
+// (zero when the cache model is not timed or not present). Loads use the timed
+// cache path only after final execution-resource selection. Stores instead use
+// storeTiming, which owns their separate cache admission/drain contract.
 func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latency uint64, dataReady uint64) {
 	if instinfo.IsLoad(inst.Op) {
 		if p.comp.Resources.Cache != nil {
@@ -536,17 +563,6 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 		}
 		return uint64(p.comp.Spec.LoadLatency), 0
 	}
-	if instinfo.IsStore(inst.Op) {
-		if p.comp.Resources.Cache != nil {
-			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
-				_, ready := p.comp.Resources.Cache.Access(acc.Addr, acc.Size, true, issueCycle)
-				if ready > dataReady {
-					dataReady = ready
-				}
-			}
-		}
-		return 3, dataReady
-	}
 	return uint64(instinfo.ExecuteLatency(inst.Op)), 0
 }
 
@@ -555,17 +571,23 @@ func (p *middleware) loadMissesL1() bool {
 	if p.comp.Resources.Cache == nil {
 		return false
 	}
+	lineSize := p.comp.Resources.Cache.Config().L1LineSize
 	for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
-		if p.comp.Resources.Cache.Probe(acc.Addr) != mem.HitL1 {
-			return true
+		for addr, remaining := acc.Addr, acc.Size; remaining > 0; {
+			if p.comp.Resources.Cache.Probe(addr) != mem.HitL1 {
+				return true
+			}
+			n := min(remaining, lineSize-int(addr%uint64(lineSize)))
+			addr += uint64(n)
+			remaining -= n
 		}
 	}
 	return false
 }
 
 // Keep every still-pending forwarding record, including old future-ready
-// stores while younger independent stores drain. The finite instruction slots
-// bound this list; a supported paired store contributes at most two records.
+// stores while younger independent stores drain. Cache combining can outlive
+// instruction slots; dispatch enforces the separate forwardingCapacity bound.
 func (p *middleware) pruneStoreRecords() {
 	kept := p.comp.State.StoreBuffer[:0]
 	for _, entry := range p.comp.State.StoreBuffer {
@@ -590,6 +612,9 @@ func (p *middleware) availableStoreSlot() int {
 }
 
 func (p *middleware) storesDrained() bool {
+	if c := p.comp.Resources.Cache; c != nil && c.DrainUntil() > p.comp.State.Cycles {
+		return false
+	}
 	for _, until := range p.comp.State.StoreDrainUntil {
 		if until > p.comp.State.Cycles {
 			return false

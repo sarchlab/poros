@@ -135,3 +135,14 @@ ranking and error summaries. Archived reports without this suite remain readable
 reports declaring it must contain complete matching evidence. The
 `accuracy_site.py memory-preview` command renders a complete memory-only artifact
 through the same plotting implementation, with an explicit diagnostic-only label.
+
+### Smoke timing and fixed drain tails
+
+CI retains 1/2-pass functional, timed-output, and QEMU checks. Its separate
+strict timing differential uses 16/32 passes. With bounded write allocation,
+additional useful work can overlap an unchanged initialization/fill drain tail:
+for example, 1/2-pass chase4 at 8 KiB can have equal whole-process cycles while
+retiring exactly 96 additional instructions. Such tiny pairs do not identify a
+steady timing slope. The longer smoke pair avoids that plateau without relaxing
+the positive-cycle validator or changing official passes, native inputs, or
+hardware references.

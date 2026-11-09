@@ -320,3 +320,37 @@ func NewBranchPredictor() *predictor {
 	p.init()
 	return p
 }
+
+func TestConfiguredHistoryReachesActualIndexAndTags(t *testing.T) {
+	bp := &predictor{PredictorState: &PredictorState{}, spec: DefaultSpec().Predictor}
+	bp.init()
+	pc := uint64(0x400234)
+	base := bp.taggedIndex(pc)
+	for bit := 0; bit < bp.spec.TaggedHistLen; bit++ {
+		bp.Ghr = 1 << uint(bit)
+		if bp.taggedIndex(pc) == base {
+			t.Fatalf("history bit %d lost from index", bit)
+		}
+	}
+	bp.Ghr = 0
+	tag := bp.taggedTag(pc)
+	if tag == 0 || tag == bp.taggedTag(pc+uint64(bp.spec.TaggedTableSize)*4) {
+		t.Fatal("ordinary PCs alias to zero tags")
+	}
+	bp.Ghr = uint64(1) << 40
+	if bp.taggedIndex(pc) != base || bp.taggedTag(pc) != tag {
+		t.Fatal("history outside configured window participates")
+	}
+	bp.spec.TaggedHistLen = 64
+	if bp.taggedIndex(pc) == base || bp.taggedTag(pc) == tag {
+		t.Fatal("64-bit history not honored")
+	}
+	bp.spec.TaggedTableSize = 1
+	if bp.taggedIndex(pc) != 0 {
+		t.Fatal("single-entry table index")
+	}
+	bp.spec.TaggedTableSize = 13
+	if got := bp.taggedIndex(pc); got < 0 || got >= 13 {
+		t.Fatal("non-power-of-two table index")
+	}
+}
