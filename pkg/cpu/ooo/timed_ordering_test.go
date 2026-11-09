@@ -21,6 +21,35 @@ func TestMSHRWaitPrecedesSupplyingFill(t *testing.T) {
 	t.Logf("supplier=%d adjacent=%d MSHR=%d", first, second, p.comp.State.MshrBusyUntil[0])
 }
 
+func TestCrossLineLoadWaitsForMSHRBeforeMissingTailFill(t *testing.T) {
+	cfg := mem.DefaultCacheConfig()
+	cache := mem.NewCache(cfg)
+	cache.Prefetch(0x4040) // First L1 line resident; second crosses into a missing L2 line.
+	if cache.Probe(0x407c) != mem.HitL1 || cache.Probe(0x4080) != mem.HitDRAM {
+		t.Fatal("test requires a resident first line and missing second line")
+	}
+	p := reservationPipeline(t, []uint32{0xf9400020}, cache) // LDR X0,[X1], unaligned across two lines
+	p.comp.Resources.Emu.Regs.WriteX(1, 0x407c)
+	p.comp.State.MshrBusyUntil[0] = 1000
+	p.fetchAndProcess()
+	if p.comp.State.Err != "" {
+		t.Fatal(p.comp.State.Err)
+	}
+	if got := p.comp.State.LdstUnits[0][0].Start; got != 1000 {
+		t.Fatalf("cross-line load issued at %d before its MSHR was available", got)
+	}
+	// Independently schedule the same request at the granted issue time. A
+	// subsequent hit on the tail must retain that fill's arrival, not an early
+	// reservation made while the load was still waiting for the MSHR.
+	control := mem.NewCache(cfg)
+	control.Prefetch(0x4040)
+	_, want := control.Access(0x407c, 8, false, 1000)
+	_, tailReady := cache.Access(0x4080, 4, false, 1)
+	if tailReady != want || p.comp.State.Rob[0] != want || p.comp.State.MshrBusyUntil[0] != want {
+		t.Fatalf("tail=%d completion=%d MSHR=%d want=%d", tailReady, p.comp.State.Rob[0], p.comp.State.MshrBusyUntil[0], want)
+	}
+}
+
 func TestStoreFillUsesFinalUnitIssueAndIndependentDrain(t *testing.T) {
 	p := reservationPipeline(t, []uint32{0xf9000020}, mem.NewCache(mem.DefaultCacheConfig())) // STR X0,[X1]
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)

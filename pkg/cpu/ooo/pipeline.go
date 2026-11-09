@@ -579,17 +579,23 @@ func (p *middleware) loadMissesL1() bool {
 	if p.comp.Resources.Cache == nil {
 		return false
 	}
+	lineSize := p.comp.Resources.Cache.Config().L1LineSize
 	for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
-		if p.comp.Resources.Cache.Probe(acc.Addr) != mem.HitL1 {
-			return true
+		for addr, remaining := acc.Addr, acc.Size; remaining > 0; {
+			if p.comp.Resources.Cache.Probe(addr) != mem.HitL1 {
+				return true
+			}
+			n := min(remaining, lineSize-int(addr%uint64(lineSize)))
+			addr += uint64(n)
+			remaining -= n
 		}
 	}
 	return false
 }
 
 // Keep every still-pending forwarding record, including old future-ready
-// stores while younger independent stores drain. The finite instruction slots
-// bound this list; a supported paired store contributes at most two records.
+// stores while younger independent stores drain. Cache combining can outlive
+// instruction slots; dispatch enforces the separate forwardingCapacity bound.
 func (p *middleware) pruneStoreRecords() {
 	kept := p.comp.State.StoreBuffer[:0]
 	for _, entry := range p.comp.State.StoreBuffer {
