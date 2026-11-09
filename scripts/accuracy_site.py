@@ -708,6 +708,7 @@ def number(value, suffix=""):
 
 CSS = """
 :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172b35;background:#f5f7f7;font-size:15px}body{margin:0}main{max-width:1180px;margin:auto;padding:40px 24px 64px}a{color:#006e75;text-underline-offset:3px}header{border-bottom:1px solid #cedbde;padding-bottom:25px;margin-bottom:24px}.eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;color:#49717a}h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.04em;margin:12px 0}h2{font-size:22px;margin:32px 0 14px}p{line-height:1.6}.muted{color:#58707a}.notice{border-left:4px solid #b77a13;background:#fff7df;padding:13px 18px;margin:18px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.card,figure{background:white;border:1px solid #d7e1e4;border-radius:9px;padding:18px;margin:0}.card strong{display:block;font-size:26px;margin-top:6px}.table{overflow:auto;border:1px solid #d7e1e4;border-radius:9px;background:white}table{border-collapse:collapse;width:100%;white-space:nowrap}td,th{padding:12px 14px;text-align:left;border-bottom:1px solid #e5ecee;font-variant-numeric:tabular-nums}th{background:#edf3f3;font-size:12px;text-transform:uppercase;color:#49616b}tr:last-child td{border-bottom:0}.badge{font-size:12px;padding:4px 8px;border-radius:20px;background:#edf1f2}.pass{background:#e1f3e9;color:#15523b}.fail{background:#fbe6df;color:#8f321b}.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}svg{width:100%;height:auto}svg text{font:11px system-ui;fill:#526a75}figcaption{font-weight:650;margin-bottom:10px}.band-key{display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;padding:0;font-size:13px}.band-key li{white-space:nowrap}.band-key span{display:inline-block;width:12px;height:12px;margin-right:5px;border:1px solid #0002;vertical-align:-2px}#point-tip{position:fixed;z-index:10;pointer-events:none;background:#18343e;color:white;border-radius:5px;padding:8px 11px;max-width:min(380px,85vw);font-size:13px;line-height:1.4;white-space:pre-line}circle[data-tip]{cursor:crosshair}circle[data-tip]:focus{outline:none;stroke:#2c5059;stroke-width:2}details{margin:20px 0}pre{overflow:auto;background:#edf3f3;padding:16px;font-size:12px}.downloads{display:flex;flex-wrap:wrap;gap:16px}footer{margin-top:35px;color:#617780;font-size:12px}code{font-size:12px;overflow-wrap:anywhere}@media(max-width:500px){main{padding:24px 12px}.charts{grid-template-columns:1fr}td,th{padding:10px}.card{padding:13px}}
+.cdf-percentiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;list-style:none;padding:0;font-size:13px}.cdf-percentiles li{border-left:3px solid;padding-left:8px}.cdf-percentiles strong{white-space:nowrap}
 """
 
 
@@ -760,8 +761,90 @@ POINT_TIPS = """<div id="point-tip" role="tooltip" hidden></div><script>
 </script>"""
 
 
+LIVE_REFRESH = """<script>
+(() => {
+  const root = document.getElementById('accuracy-report');
+  const identity = root.dataset.reportIdentity;
+  root.style.overflowAnchor = 'none'; // Scroll anchoring is restored explicitly below.
+  // Semantic keys survive newly inserted charts and changing table row order.
+  function key(node) {
+    if (node === root) return 'report';
+    if (node.id) return 'id:' + node.id;
+    const tag = node.localName;
+    if (tag === 'figure') return 'figure:' + node.querySelector('figcaption').textContent;
+    if (tag === 'details') return 'details:' + node.querySelector('summary').textContent.split('·')[0].trim();
+    if (/^h[123]$/.test(tag)) return tag + ':' + node.textContent;
+    const parent = node.parentElement;
+    if (!parent || !root.contains(parent)) return null;
+    const prefix = key(parent);
+    if (tag === 'tr' && node.querySelector('td')) return prefix + '/row:' +
+      (node.dataset.rowKey || node.querySelector('td').textContent);
+    if (node.dataset.pointKey) return prefix + '/point:' + node.dataset.pointKey;
+    if (tag === 'a') return prefix + '/link:' + node.getAttribute('href');
+    return prefix + '/' + tag + ':' + [...parent.children].filter(n => n.localName === tag).indexOf(node);
+  }
+  function apply(next) {
+    const oldNodes = [...root.querySelectorAll('*')];
+    const states = oldNodes.filter(n => n.localName === 'details' || n.scrollLeft || n.scrollTop)
+      .map(n => ({key:key(n), open:n.localName === 'details' ? n.open : null, x:n.scrollLeft, y:n.scrollTop}));
+    const focused = root.contains(document.activeElement) ? key(document.activeElement) : null;
+    const anchors = [...root.querySelectorAll('figure,figcaption,details,summary,tr,h2,h3,pre')]
+      .map(n => ({key:key(n), box:n.getBoundingClientRect()}))
+      .filter(a => a.box.height && a.box.bottom > 0 && a.box.top < innerHeight)
+      .sort((a,b) => Math.abs(a.box.top)-Math.abs(b.box.top));
+    const x = scrollX, y = scrollY;
+    document.getElementById('point-tip').hidden = true;
+    root.replaceChildren(...next.childNodes);
+    root.dataset.liveState = next.dataset.liveState;
+    const nodes = new Map([...root.querySelectorAll('*')].map(n => [key(n), n]));
+    // Reopen every disclosure before scroll writes force layout. Replacing
+    // long open tables with collapsed ones can temporarily clamp window scroll.
+    for (const saved of states) {
+      const node = nodes.get(saved.key);
+      if (node && saved.open !== null) node.open = saved.open;
+    }
+    for (const saved of states) {
+      const node = nodes.get(saved.key);
+      if (!node) continue;
+      node.scrollLeft = saved.x; node.scrollTop = saved.y;
+    }
+    const focus = nodes.get(focused);
+    if (focus) focus.focus({preventScroll:true});
+    const anchor = anchors.find(a => nodes.has(a.key));
+    const delta = anchor ? nodes.get(anchor.key).getBoundingClientRect().top - anchor.box.top : 0;
+    window.scrollTo(x, anchor ? scrollY + delta : y);
+  }
+  async function refresh() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(location.href, {cache:'no-store', signal:controller.signal});
+      if (!response.ok) throw new Error('Report unavailable');
+      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const next = doc.getElementById('accuracy-report');
+      if (!next || next.dataset.reportIdentity !== identity ||
+          !['polling','validated'].includes(next.dataset.liveState) ||
+          !next.querySelector('#case-progress') || !next.querySelector('header') ||
+          next.lastElementChild?.dataset.reportEnd !== identity) {
+        throw new Error('Invalid or different report');
+      }
+      apply(next);
+    } catch (_) {
+      // Keep the last good view on transient HTTP, network or snapshot errors.
+    } finally {
+      clearTimeout(timeout);
+      // Schedule only after this request finishes; never overlap requests.
+      if (root.dataset.liveState !== 'validated') setTimeout(refresh, 15000);
+    }
+  }
+  setTimeout(refresh, 15000);
+})();
+</script>"""
+
+
 def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=None,
-          ideal=False, note="", y_bands=(), y_ranges=(), x_domain=None, step_start=None):
+          ideal=False, note="", y_bands=(), y_ranges=(), x_domain=None, step_start=None,
+          percentile_guides=()):
     """Plot the data domain; guide lines never contribute observations."""
     points = [(x, y) for _, values, _ in series for x, y, _ in values]
     if not points:
@@ -801,6 +884,9 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
     marks = {}
     for name, values, color in series:
         if not scatter:
+            # Partial/live observations can arrive out of x order. Sort a copy
+            # of complete observations so coordinates and labels stay paired.
+            values = sorted(values, key=lambda point: point[0])
             line = [(x, y) for x, y, _ in values]
             if step_start is not None:
                 line, previous = [], step_start
@@ -814,8 +900,27 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
             marks.setdefault((x, y), []).append((color, name + ": " + label))
     for (x, y), entries in marks.items():
         tip = esc(chr(10).join(label for _, label in entries))
-        body += (f'<circle cx="{px(x):.3f}" cy="{py(y):.3f}" r="3.2" fill="{entries[-1][0]}" '
+        keys = []
+        for _, label in entries:
+            role, _, observation = label.partition(': ')
+            observation = re.sub(r'^rank [0-9]+ · ', '', observation)
+            case = re.split(r'[:\n]| · ', observation, maxsplit=1)[0]
+            ranked = title.startswith('S-curve:') or title == 'Absolute error distribution (CDF)'
+            keys.append([role, case] if ranked else [role, case, x])
+        point_key = esc(json.dumps(keys))
+        body += (f'<circle data-point-key="{point_key}" cx="{px(x):.3f}" cy="{py(y):.3f}" r="3.2" fill="{entries[-1][0]}" '
                  f'stroke="transparent" stroke-width="4" tabindex="0" aria-label="{tip}" data-tip="{tip}"/>')
+    for fraction, value, label, color in percentile_guides:
+        x = px(fraction)
+        # Zero error has no finite log-axis ordinate. Its exact label remains
+        # below the chart, but no positive marker is substituted for it.
+        body += (f'<g class="percentile-guide" aria-label="{esc(label)}" pointer-events="none">'
+                 f'<path d="M{x:.3f} 20V235" fill="none" stroke="{color}" stroke-dasharray="3 4" opacity="0.65"/>')
+        if value is not None:
+            y = py(value)
+            body += (f'<path class="percentile-marker" d="M{x:.3f} {y-4:.3f}l4 4-4 4-4-4Z" '
+                     f'fill="white" stroke="{color}" stroke-width="2"/>')
+        body += '</g>'
     body += f'<text x="235" y="279" text-anchor="middle">{esc(xlabel)}</text><text x="6" y="12">{esc(ylabel)}</text>'
     legend = " · ".join(f'<span style="color:{color}">{esc(name)}</span>' for name, _, color in series)
     if ideal:
@@ -883,11 +988,22 @@ def absolute_error_cdf(points):
     n = len(ranked)
     if not n:
         return chart(title, [], "Cumulative fraction of cases", "Absolute error (%) · log scale")
+    guides, labels = [], []
+    for percentile, color in ((50, '#5a519e'), (75, '#2273a3'), (90, '#ad5700'), (95, '#a83163')):
+        error = ranked[(percentile*n + 99)//100 - 1][0]
+        value = '0' if error == 0 else f'{error:.2f}' if error >= .005 else f'{error:.3g}'
+        label = f'P{percentile}: {value}%'
+        labels.append(f'<li style="border-color:{color}">P{percentile}: <strong>{value}%</strong></li>')
+        guides.append((percentile/100, math.log10(error) if error > 0 else None, label, color))
+    percentiles = ('<ul class="cdf-percentiles" aria-label="Absolute error percentiles">' + ''.join(labels)
+                   + '</ul><p class="muted">P90: at least 90% of cases have error at or below this value. '
+                   'Nearest-rank percentiles; no interpolation.</p>')
     zeros = sum(error == 0 for error, _, _, _ in ranked)
     note = f'<p class="muted">Exact zero error: {zeros} / {n} ({zeros/n:.2%}).'
     if zeros == n:
-        return f'<figure><figcaption>{title}</figcaption>{note} No positive errors to plot on a log axis.</p></figure>'
+        return f'<figure><figcaption>{title}</figcaption>{percentiles}{note} No positive errors to plot on a log axis.</p></figure>'
     note += ' Zero-error points are omitted from the log axis.</p>' if zeros else '</p>'
+    note = percentiles + note
     values = []
     for i, (error, name, ref, pred) in enumerate(ranked, 1):
         if error == 0:
@@ -902,7 +1018,7 @@ def absolute_error_cdf(points):
     return chart(title, [("head", values, "#087e8b")], "Cumulative fraction of cases",
                  "Absolute error (%) · log scale", x_domain=(0, 1),
                  x_ticks=[(x/4, f'{x/4:g}') for x in range(5)], y_ticks=ticks,
-                 step_start=zeros/n, note=note)
+                 step_start=zeros/n, note=note, percentile_guides=guides)
 
 
 def overview_charts(cases):
@@ -1187,7 +1303,7 @@ def memory_panels(reference, simulations, profiles, base_large_image_support):
              '<th>P10–P90 time-derived range</th><th>Base</th><th>Head</th><th>Quality</th><th>Time spread</th></tr></thead><tbody>')
     for row in rows:
         c, n, m = row['case'], row['native'], row['modeled']
-        table += (f'<tr><td>{esc(c["pattern"])}</td><td>{esc(row["size_label"])}</td><td>{row["unit"]}</td>'
+        table += (f'<tr data-row-key="{esc(c["id"])}"><td>{esc(c["pattern"])}</td><td>{esc(row["size_label"])}</td><td>{row["unit"]}</td>'
                   f'<td>{n["median"]:.4f}</td><td>{row["low"]:.4f}–{row["high"]:.4f}</td>'
                   f'<td>{format(m["base"], ".4f") if "base" in m else "Unsupported image capacity"}</td><td>{m["head"]:.4f}</td><td>{esc(c["quality"])}</td><td>{c["relative_spread"]:.2%}</td></tr>')
     table += ('</tbody></table></div><p>P10/P90 summarize variability, not confidence intervals. '
@@ -1522,21 +1638,13 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     )
     if live is not None:
         body += '<p><a href="snapshot.json">Live snapshot JSON</a></p>'
-    refresh = ""
-    if live is not None:
-        # Consume the state only on the next automatic reload. A fresh visit
-        # defaults to closed; the final bundle transition restores it too.
-        refresh = """<script>(()=>{
-const key="poros-report-open:"+location.pathname;
-try{const saved=sessionStorage.getItem(key);sessionStorage.removeItem(key);
-for(const id of JSON.parse(saved||"[]")){const node=document.getElementById(id);if(node&&node.tagName==="DETAILS")node.open=true;}}catch(e){}
-"""
-        if not live.get("validated_bundle"):
-            refresh += """setTimeout(()=>{
-try{sessionStorage.setItem(key,JSON.stringify([...document.querySelectorAll("details[id][open]")].map(node=>node.id)));}catch(e){}
-location.reload();},15000);
-"""
-        refresh += "})();</script>"
+    identity = hashlib.sha256(json.dumps(dict(commit=commit, **{name: report.get(name) for name in (
+        'base_commit', 'reference_sha256', 'workload_manifest', 'model_profiles',
+        'head_binary_sha256', 'base_binary_sha256')}), sort_keys=True).encode()).hexdigest()
+    state = 'static' if live is None else 'validated' if live.get('validated_bundle') else 'polling'
+    body = (f'<div id="accuracy-report" data-report-identity="{identity}" data-live-state="{state}">'
+            + body + f'<span hidden data-report-end="{identity}"></span></div>')
+    refresh = LIVE_REFRESH if state == 'polling' else ''
     return page("Poros accuracy · " + commit[:12], body, POINT_TIPS + refresh)
 
 

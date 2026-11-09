@@ -2,6 +2,7 @@
 """Archive retention, provenance, failure visibility and publisher boundary tests."""
 
 import copy
+from html.parser import HTMLParser
 import accuracy_test_support as fixtures
 import json
 import os
@@ -391,6 +392,44 @@ class AccuracySiteTest(unittest.TestCase):
         )
         self.assertNotIn("polyline", scatter)
 
+    def test_line_series_sort_observations_without_mutating_inputs(self):
+        class Plot(HTMLParser):
+            def __init__(self, page):
+                super().__init__()
+                self.lines, self.dots = [], []
+                self.feed(page)
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'polyline':
+                    self.lines.append([tuple(map(float, p.split(','))) for p in attrs['points'].split()])
+                if tag == 'circle':
+                    self.dots.append((float(attrs['cx']), float(attrs['cy']), attrs['data-tip']))
+        values = [(x, x*x, f'case-{x}') for x in (5, 6, 1, 2, 3, 4)]
+        for tied in (False, True):
+            observations = values + ([(3, 20, 'case-3-tie')] if tied else [])
+            series = [('head', observations, '#000')]
+            before = copy.deepcopy(series)
+            ordered = sorted(observations, key=lambda p: p[0])
+            for step in (None, 1):
+                with self.subTest(tied=tied, step=step):
+                    plot = Plot(site.chart('line', series, 'x', 'y', step_start=step))
+                    expected = []
+                    previous = 1
+                    for x, y, label in ordered:
+                        px, py = 72+(x-1)*329/5, 235-y*215/36
+                        if step is not None:
+                            expected.append((72+(previous-1)*329/5, py))
+                        expected.append((px, py))
+                        previous = x
+                    self.assertEqual(plot.lines, [[(round(x, 2), round(y, 2)) for x, y in expected]])
+                    self.assertEqual(plot.dots, [(round(72+(x-1)*329/5, 3), round(235-y*215/36, 3), 'head: '+label)
+                                                for x, y, label in ordered])
+                    self.assertEqual(series, before)
+            scatter = Plot(site.chart('scatter', series, 'x', 'y', scatter=True))
+            self.assertFalse(scatter.lines)
+            self.assertEqual([tip for _, _, tip in scatter.dots], ['head: '+label for _, _, label in observations])
+            self.assertEqual(series, before)
+
     def test_overview_ties_quality_and_rank_direction(self):
         def row(name, x, y, quality="usable"):
             return dict(id=name, reference_quality=quality, reference_user_seconds=x,
@@ -444,15 +483,46 @@ class AccuracySiteTest(unittest.TestCase):
         zeros = site.absolute_error_cdf([(1, 1, "a"), (2, 2, "b")])
         self.assertIn("2 / 2 (100.00%)", zeros)
         self.assertNotIn("<circle", zeros)
+        for percentile in (50, 75, 90, 95):
+            self.assertIn(f'P{percentile}: <strong>0%</strong>', zeros)
+        self.assertNotIn('percentile-guide', empty)
+        self.assertNotIn('percentile-marker', zeros)
         single = site.absolute_error_cdf([(100, 125, "single")])
         self.assertIn('cx="401.000"', single)
         self.assertIn("cumulative fraction 1/1 = 1", single)
+        for percentile in (50, 75, 90, 95):
+            self.assertIn(f'P{percentile}: <strong>25.00%</strong>', single)
+        self.assertEqual(single.count('class="percentile-marker"'), 4)
         tiny = site.absolute_error_cdf([(1, 1.000000001, "tiny")])
         for page in (empty, zeros, single, tiny):
             self.assertNotIn("nan", page.lower())
             self.assertNotIn("infinity", page.lower())
         self.assertIn("Absolute error (%) · log scale", single)
         self.assertIn("Cumulative fraction of cases", single)
+
+    def test_error_cdf_percentiles_use_nearest_rank_without_extra_observations(self):
+        points = [(100, 100+error, str(i)) for i, error in enumerate((0, 10, 20, 30, 100, 200))]
+        before = copy.deepcopy(points)
+        with patch.object(site, 'chart', wraps=site.chart) as render:
+            page = site.absolute_error_cdf(points)
+        guides = render.call_args.kwargs['percentile_guides']
+        self.assertEqual([g[0] for g in guides], [.5, .75, .9, .95])
+        self.assertEqual([g[2] for g in guides], ['P50: 20.00%', 'P75: 100.00%', 'P90: 200.00%', 'P95: 200.00%'])
+        for guide, error in zip(guides, (20, 100, 200, 200)):
+            self.assertAlmostEqual(guide[1], site.math.log10(error))
+        self.assertEqual(len(render.call_args.args[1][0][1]), 5)  # Five positive observations, not nine.
+        self.assertEqual(page.count('<circle '), 5)
+        self.assertIn('Nearest-rank percentiles; no interpolation.', page)
+        self.assertEqual(points, before)
+        with patch.object(site, 'chart', wraps=site.chart) as render:
+            tied = site.absolute_error_cdf([(100, value, str(i)) for i, value in enumerate((100, 100, 100, 100, 200, 200))])
+        self.assertIsNone(render.call_args.kwargs['percentile_guides'][0][1])
+        self.assertIn('P50: <strong>0%</strong>', tied)
+        self.assertEqual(tied.count('class="percentile-marker"'), 3)
+        self.assertEqual(tied.count('<circle '), 2)
+        other = site.chart('ordinary', [('head', [(1, 2, 'one')], '#000')], 'x', 'y')
+        self.assertNotIn('percentile-guide', other)
+        self.assertNotIn('cdf-percentiles', other)
 
     def test_overview_cdf_shares_application_sample_and_row(self):
         def row(name, quality="usable", head=True):
@@ -464,6 +534,8 @@ class AccuracySiteTest(unittest.TestCase):
             page = site.overview_charts(rows)
         self.assertEqual(render.call_args.args[0], [(1000, 1250, "app-1")])
         self.assertIn("Absolute error across 1 qualified cases", page)
+        for percentile in (50, 75, 90, 95):
+            self.assertIn(f'P{percentile}: <strong>25.00%</strong>', page)
         self.assertLess(page.index("S-curve:"), page.index("Absolute error distribution (CDF)"))
         self.assertLess(page.index("Absolute error distribution (CDF)"), page.index("Qualified reference vs. prediction"))
         self.assertIn('</div><div class="charts" style="margin-top:16px"><figure><figcaption>Qualified reference vs. prediction', page)

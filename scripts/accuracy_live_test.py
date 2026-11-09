@@ -317,6 +317,7 @@ class LiveReportTests(unittest.TestCase):
         self.assertEqual(content(page), content(static))
         self.assertIn('Base and head comparison', page)
         self.assertNotIn('sessionStorage', static)
+        self.assertNotIn('async function refresh', static)
         for case in self.reference['cases']:
             self.assertIn('<td>' + case['id'] + '</td>', page)
         self.assertLess(page.index('Overall benchmark accuracy'), page.index('Benchmark timing curves'))
@@ -402,15 +403,19 @@ class LiveReportTests(unittest.TestCase):
         view = self.view(self.snapshot(), self.bundle)
         partial, _ = view.load()
         self.assertIn(b'setTimeout', partial)
-        self.assertIn(b'sessionStorage.setItem', partial)
-        self.assertIn(b'details[id][open]', partial)
+        self.assertIn(b"fetch(location.href, {cache:'no-store'", partial)
+        self.assertNotIn(b'location.reload', partial)
+        self.assertNotIn(b'sessionStorage', partial)
+        self.assertIn(b'data-live-state="polling"', partial)
         site.write(view.snapshot, self.snapshot(True))
         completed, assets = view.load()
         self.assertIn(b'Complete validated bundle', completed)
         self.assertIn(b'href="bundle.json"', completed)
         self.assertNotIn(b'setTimeout', completed)
-        self.assertIn(b'sessionStorage.getItem', completed)
-        self.assertIn(b'sessionStorage.removeItem', completed)
+        self.assertIn(b'data-live-state="validated"', completed)
+        def identity(page):
+            return page.split(b'data-report-identity="')[1].split(b'"')[0]
+        self.assertEqual(identity(partial), identity(completed))
         self.assertIn('report.json', assets)
         waiting, _ = self.view(self.snapshot(True)).load()
         self.assertIn(b'setTimeout', waiting)
@@ -418,6 +423,41 @@ class LiveReportTests(unittest.TestCase):
         self.assertIn(b'Final bundle validation failed', broken)
         self.assertNotIn(b'Complete validated bundle', broken)
         self.assertIn(b'setTimeout', broken)
+
+    def test_refresh_identity_is_stable_across_progress_but_not_other_campaigns(self):
+        entry = dict(commit=self.report['head']['commit'])
+        value = self.snapshot()
+        def identity(report, progress):
+            page = site.detail(report, entry, live=progress)
+            return page.split('data-report-identity="')[1].split('"')[0]
+        initial = identity(value['report'], value['progress'])
+        complete = self.snapshot(True)
+        self.assertEqual(initial, identity(complete['report'], complete['progress']))
+        for field in ('reference_sha256', 'base_commit', 'head_binary_sha256'):
+            changed = copy.deepcopy(value['report'])
+            changed[field] = 'different'
+            self.assertNotEqual(initial, identity(changed, value['progress']))
+
+    def test_ranked_point_focus_identity_survives_inserted_cases(self):
+        class Points(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.points = {}
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'circle':
+                    self.points[attrs['data-point-key']] = attrs['cx']
+        def render(values):
+            parser = Points()
+            parser.feed(site.chart('S-curve: predicted time relative to measured time',
+                                  [('head', values, '#087e8b')], 'rank', 'ratio'))
+            return parser.points
+        before = render([(1, 1, 'rank 1 · atax-1 · measured 10 ms')])
+        after = render([(1, 0, 'rank 1 · bicg-1 · measured 10 ms'),
+                        (2, 1, 'rank 2 · atax-1 · measured 10 ms')])
+        self.assertEqual(set(before) & set(after), set(before))
+        key = next(iter(before))
+        self.assertNotEqual(before[key], after[key])
 
     def test_same_commit_bundle_must_match_campaign_identity(self):
         for field in ("head_binary_sha256", "base_binary_sha256", "reference_sha256", "model_profiles", "workload_manifest"):

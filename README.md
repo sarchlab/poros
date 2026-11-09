@@ -95,6 +95,9 @@ go test -v -run '^TestBenchmarkELF$/^atax$' ./pkg/elfsim -timeout 10m
 - L2: 16 MB, 16-way, 128B lines, 14-cycle latency
 - DRAM: 335-cycle latency
 - LRU replacement policy
+- OoO uses timed fills, finite L2/DRAM transports and trained stream prefetch;
+  in-order uses the legacy untimed cache path. See the
+  [timing model and its limitations](evaluation/model-profile.md#timed-fills-fill-transport-and-stream-prefetch).
 
 ### Multi-Core Support
 
@@ -134,9 +137,10 @@ cmd/disasm/    — ARM64 disassembler tool
 ## Akita v5 integration
 
 Poros pins **Akita v5.0.0** and requires **Go 1.27.0 or newer**. The migration
-preserves the M2 timing parameters, functional emulator, synchronous cache model,
-the existing pipeline semantics and stored native measurements. It does not introduce new CPU
-models, asynchronous memory, or CPU–GPU offload.
+preserved the then-existing M2 timing parameters, functional emulator, synchronous
+cache model, pipeline semantics and stored native measurements. Subsequent OoO
+changes add analytic fill timing as described above; the Akita migration itself
+did not introduce new CPU models, asynchronous memory, or CPU–GPU offload.
 
 The in-order, OoO, and demo components each use the v5
 `Spec` / `State` / `Resources` / `Ports` / `Middlewares` model and declare
@@ -176,6 +180,9 @@ The imports are `context`, `os`, `github.com/sarchlab/poros/pkg/linuxuser`,
 `github.com/sarchlab/akita/v5/sim`, `.../sim/modeling`, and Poros's
 `pkg/cpu/ooo` and `pkg/mem`. Initialize once after all components have been built,
 and terminate afterwards. `elfsim.Run` owns this lifecycle for normal callers.
+Each OoO run owns one timed cache client: the core advances and finalizes the
+supplied cache. Warm it with `Lookup` before starting, and construct a new cache
+for a second timed run. Untimed `Lookup` remains available after finalization.
 Multicore assembly accepts distinct execution resources, private L1 caches and a
 modeled shared L2; process deadlines remain owned and closed by its caller.
 These are independent process copies, not Linux threads or validated physical
@@ -189,8 +196,9 @@ the cycle-based comparison with stored native times.
 The component State is serializable, including in-flight fetched instruction
 encodings and branch-predictor tables. **Whole-system checkpoint/resume is not
 supported by this migration:** functional emulator registers/memory/hooks and the
-synchronous cache hierarchy remain external live Resources and are not saved by
-component checkpoints. Restoring pipeline State alone cannot resume a workload.
+cache hierarchy remain external live Resources and are not saved by component
+checkpoints. A restored State with missing/incompatible allocation slots is
+rejected explicitly. Restoring pipeline State alone cannot resume a workload.
 
 `go test ./... -timeout 45m` requires all six new input points in all three
 execution modes. `go test -short ./...` covers every name at a nontrivial small

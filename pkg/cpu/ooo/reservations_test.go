@@ -144,7 +144,7 @@ func TestUnitReservationsUseWholeOccupancyAndEarliestAvailableUnit(t *testing.T)
 	if unit, start := p.findUnit(unitINT, 8, 4); unit != 1 || start != 8 {
 		t.Fatalf("unit=%d start=%d", unit, start)
 	}
-	if got := p.reserveIssue(unitINT, 8, unitOccupancy(arm64asm.SDIV), false, 12); got != 20 {
+	if got, _ := p.reserveIssue(unitINT, 8, unitOccupancy(arm64asm.SDIV), false); got != 20 {
 		t.Fatalf("nonpipelined reservation starts %d", got)
 	}
 	if unitOccupancy(arm64asm.FDIV) != 10 || unitOccupancy(arm64asm.FSQRT) != 6 || unitOccupancy(arm64asm.FADD) != 1 {
@@ -162,7 +162,7 @@ func TestUnitReservationFastPathsKeepFirstUnitOnTies(t *testing.T) {
 	if unit, issue := p.findUnit(unitINT, 30, 4); unit != 0 || issue != 30 {
 		t.Fatalf("tail tie: unit=%d issue=%d", unit, issue)
 	}
-	if got := p.reserveIssue(unitINT, 30, 4, false, 4); got != 30 {
+	if got, _ := p.reserveIssue(unitINT, 30, 4, false); got != 30 {
 		t.Fatal(got)
 	}
 	if want := []UnitReservation{{10, 20}, {30, 34}}; !reflect.DeepEqual(p.comp.State.IntUnits[0], want) {
@@ -198,7 +198,7 @@ func TestUnitReservationSearchMatchesDiscreteResourceOracle(t *testing.T) {
 			expected++
 		}
 		unit, _ := p.findUnit(unitINT, ready, duration)
-		got := p.reserveIssue(unitINT, ready, duration, false, 1)
+		got, _ := p.reserveIssue(unitINT, ready, duration, false)
 		if got != expected {
 			t.Fatalf("request %d: got %d want %d", n, got, expected)
 		}
@@ -226,10 +226,10 @@ func TestReservationCheckpointPreservesGapsAndPrunesOnlyPast(t *testing.T) {
 	}
 	p := &middleware{comp: &Comp{State: restored}}
 	p.pruneUnitReservations()
-	if got := p.reserveIssue(unitINT, 50, 1, false, 1); got != 50 {
+	if got, _ := p.reserveIssue(unitINT, 50, 1, false); got != 50 {
 		t.Fatal(got)
 	}
-	if got := p.reserveIssue(unitINT, 5, 1, false, 1); got != 5 {
+	if got, _ := p.reserveIssue(unitINT, 5, 1, false); got != 5 {
 		t.Fatal(got)
 	}
 	want := []UnitReservation{{5, 6}, {10, 12}, {50, 51}, {100, 101}}
@@ -259,6 +259,6 @@ func BenchmarkUnitReservations(b *testing.B) {
 			p.pruneUnitReservations()
 		}
 		ready := p.comp.State.Cycles + uint64(i%31)
-		p.reserveIssue(unitINT, ready, 1, false, 1)
+		p.reserveIssue(unitINT, ready, 1, false)
 	}
 }

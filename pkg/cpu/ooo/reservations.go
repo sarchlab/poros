@@ -74,11 +74,11 @@ func (p *middleware) findUnit(ut unitType, earliest, occupancy uint64) (int, uin
 	return best, start
 }
 
-// reserveIssue commits one unit interval and, for a miss, one MSHR. MSHRs
-// retain the existing busy-until policy: once the earliest slot is available,
-// it stays available at any later unit-selected time. No tentative reservation
-// or iterative release/rebook operation is needed.
-func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64, miss bool, latency uint64) uint64 {
+// reserveIssue commits a unit interval and selects an MSHR index (-1 for a
+// hit). The caller commits the cache at this final issue time, then holds the
+// selected MSHR until the resulting completion. No other instruction can
+// intervene between selection and that commitment in the serial pipeline.
+func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64, miss bool) (uint64, int) {
 	mshr := -1
 	if miss {
 		mshr, earliest = p.acquireMSHR(earliest)
@@ -96,10 +96,7 @@ func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64, miss 
 		list[pos] = reservation
 	}
 	units[unit] = list
-	if mshr >= 0 {
-		p.comp.State.MshrBusyUntil[mshr] = issue + latency
-	}
-	return issue
+	return issue, mshr
 }
 
 // Occupancy controls issue throughput; it is independent of result latency.

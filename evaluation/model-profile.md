@@ -38,8 +38,8 @@ The default OoO model has a one-cycle effective forwarding path for scalar
 both producer and consumer. Its single access must exactly match the youngest
 overlapping, still-in-flight eligible store in address and width. The load
 result waits for both its own address/unit readiness and the store's recorded
-address/data issue cycle. Store completion and buffer-capacity accounting remain
-unchanged. Register-offset addressing, pairs, byte/halfword transfers, unscaled
+address/data issue cycle. Store data completion remains separate from allocation
+capacity and drain timing (see the timed-fill section below). Register-offset addressing, pairs, byte/halfword transfers, unscaled
 `LDUR`/`STUR`, pre/post-index writeback, FP/SIMD, zero-register transfers, partial
 overlap, mismatched widths and completed stores retain conventional timing.
 
@@ -56,9 +56,10 @@ unobserved; the same instruction class
 can behave differently in longer application dependency graphs. The unchanged
 FP path can still contain compensating errors. Full application accuracy remains
 a separate check. Existing application and instruction-throughput hardware
-references, benchmark inputs, frequency and cache defaults remain unchanged.
+references, benchmark inputs, frequency and cache defaults were unchanged by
+that forwarding correction; the later timed-fill defaults are described below.
 
-This change adds no configurable default, so `model-profile.json` is unchanged.
+The forwarding rule itself adds no configurable default.
 Hardcoded timing/dependency behavior is identified by the exact source revision
 and binary hashes already bound into each plan and report; equal configuration
 JSON does not imply equal simulator behavior. The source revision must therefore
@@ -93,3 +94,84 @@ The [scheduling probes](microbenchmarks/scheduling/README.md) contrast dependent
 MADD/FMADD chains with added independent work. They support mechanism-level
 checks, while the full application comparison must disclose regressions as well
 as improvements. Fewer modeled cycles alone do not establish better accuracy.
+
+## Timed fills, fill transport and stream prefetch
+
+OoO loads and stores use `mem.Cache.Access`; the in-order model and `Lookup`
+retain their untimed behavior. Each timed line carries its fill arrival cycle.
+Loads cannot complete before the supplying fill arrives, including hits on
+pending lines and the adjacent 64 B half of a 128 B L2 line. The OoO pipeline
+probes residency without mutation, selects the execution unit and MSHR, and
+only then commits the access at its final issue cycle. A demand miss holds its
+MSHR until the actual modeled load completion. Prefetches do not occupy demand
+MSHRs; the stream table and distance bound their lookahead. A hit on a pending
+L1 fill waits for that arrival without reserving another demand MSHR. This is a
+merged-request approximation; the ROB bounds the number of waiting loads.
+
+Timed fills use two finite transports: every 64 B L1 fill occupies 2 cycles on
+the L2-to-L1 transport (`FillBytesPerCycle` = 32), and every 128 B DRAM fill
+occupies 8 cycles on the DRAM-to-L2 transport (`DRAMBytesPerCycle` = 16).
+Non-overlapping reservations retain earlier gaps for out-of-order issue times.
+Adjacent occupied intervals are coalesced to avoid scanning a growing packed
+backlog. History is retired at the actual pipeline-cycle watermark, never at
+a future request's issue cycle. A transfer cannot start before its request,
+even when a configured latency is shorter than the transfer occupancy.
+
+Store data completion remains three cycles, with unchanged exact-GPR forwarding
+eligibility. Separately, each store instruction holds one allocation slot until
+the later of data completion and its allocation-fill readiness. A paired store
+holds its slot until both accesses are ready. The allocation pool uses the
+existing `StoreBufferSize` (56) as a capacity assumption, not a measured M2
+structure. A full pool backpressures dispatch before functional store execution.
+Forwarding records are released at the later of allocation-fill readiness and
+store-data completion, rather than retained in a lingering FIFO. Subsequent
+loads consult the cache after that record has drained.
+Normal program termination and serialized process syscalls wait for these
+allocations to drain, so a terminal store stream cannot escape its outstanding
+cost. Stores use the same allocation transports and adjacent-line prefetch as
+loads, but do not train stream prefetching. An odd-half store miss can therefore
+also fetch the adjacent L2 line. Dirty writeback traffic, coherence and a full
+DRAM controller are not modeled.
+
+Known write-accuracy limitation: stores to the same pending cache line still
+occupy separate instruction allocation slots, and stores do not train streams.
+Dense DRAM-resident writes can therefore be limited by allocation capacity and
+fill latency well below the configured transport bandwidth. This can overpredict
+write-heavy execution and initialization; it is not evidence of a physical M2
+bottleneck. Store combining and dirty writeback are unmodeled, so enabling store
+prefetch alone would not establish an accurate write path. This PR retains and
+discloses that limitation. Write-accuracy improvements and discrimination among
+these mechanisms are deferred to a separate PR.
+
+The sequential stream model trains on three same-direction demand L1 misses,
+then advances by at most four L2 lines per trigger, no farther than 48 lines
+ahead of demand. Sixteen entries are replaced LRU. `PrefetchPageBytes` is an
+optional boundary and is off by default. Disabling it avoids one modeled
+exposed-miss penalty per page; it does not establish the physical M2 page-crossing
+policy. Tags, replacement and stream training still evolve in caller/dispatch
+order, even for non-monotonic issue times. This is the legacy cache-residency
+approximation, not chronological memory scheduling: a later-time access visited
+first can replace a line needed by an earlier-time access visited afterwards.
+Arrival checks prevent the latter from consuming a pending fill early; they do
+not correct residency or replacement order.
+
+The 32/16 B-per-cycle rates are effective model choices inferred from a local,
+uncommitted strided-read diagnostic. Its observed times were converted using the
+model's assumed 3.49 GHz, yielding about 2.0 and 3.45 assumed cycles per 64 B line
+for the smaller and 64 MiB working sets. These are not measured hardware cycles,
+physical bus widths, or independently reproducible committed microbenchmark
+results. The 48-line distance is a latency-throughput inference; degree, training
+length and stream count are modeling hypotheses informed by general stream
+prefetch behavior, not measured Apple structures. A scalar read plateau can be
+core-bound, so it does not by itself determine memory bandwidth or prefetch
+page behavior. Existing committed application/microbenchmark references remain
+unchanged, and corrected full application accuracy must be evaluated separately.
+
+Multicore OoO runs share L2 tags, fill readiness and one DRAM-to-L2 transport.
+Each core has a private L2-to-L1 transport and stream table. All cores use the
+same cycle domain; shared transport history is retired at the minimum actual
+cycle of attached, still-running clients. A stopped core deregisters without
+cancelling its already-booked transfers. All clients must attach before timed
+access/advancement. The model remains a single-thread-calibrated, unvalidated
+multicore extension without coherence or chronological cross-core residency.
+Cache objects are live resources, not part of the component JSON checkpoint.
