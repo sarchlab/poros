@@ -1,0 +1,145 @@
+{
+  "protocol": "assembly-forwarding-v1",
+  "hardware": "Apple M2",
+  "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+  "collected_at_utc": "2026-11-07T18:25:45.588819+00:00",
+  "timer": "CLOCK_THREAD_CPUTIME_ID",
+  "core_identity": "unknown",
+  "instantaneous_frequency": "unknown",
+  "assumed_hz": 3490000000,
+  "trials": 9,
+  "compiler": "Apple clang version 21.0.0 (clang-2100.4.1.1)",
+  "sources": {
+    "evaluation/microbenchmarks/forwarding/cases.def": "eae34a77ed3fe5e01093bb63cd07f77549ad065c923cb722ce4cf4c4ffd983f2",
+    "evaluation/microbenchmarks/forwarding/loops.S": "4a0242c37c4840cca0a669fbb29cda7b3280bd3247765fea8ed50bdae6461288",
+    "evaluation/microbenchmarks/forwarding/driver.h": "1cecfc69de5eeeb592c75b52a22422c606b0383abb52ea3d1f2d8837724edc79",
+    "evaluation/microbenchmarks/forwarding/native.c": "2ed54372e420feb50e6939fc03334029b2560ac6c143a08c74f1f88b366d27d0",
+    "evaluation/microbenchmarks/forwarding/linux.c": "100fa52b6ba395a8daec39d0c02a98d026fefe40d53dca75f3823c83e97f5061",
+    "evaluation/microbenchmarks/forwarding/entry.S": "03f3675c20c9d31a0d753cf881de80f258de4e27cd40e7dd6914ac594e69ed23",
+    "evaluation/microbenchmarks/forwarding/build.sh": "e09a7a31be41830ec0a0d0b07c3b20b13a2d2812391e22f2b73193bfddfa91fd",
+    "evaluation/microbenchmarks/forwarding/forwarding.elf": "93a40d853cc629c529561854eff4dd6fbfc09bb97b1b67b733102e99edda3f63",
+    "scripts/forwarding_microbenchmark.py": "f8c14a2b9a5ed213b4c5240ea630c987a4e4ec2b94a4df60714209c893a8bf5f",
+    "tests/usertime/layout.ld": "9d942ff9006b4a5269475b6a0b455837d1c82c8b2bd5d5ee8f898f782129b5e9"
+  },
+  "definition": "PROBE(gpr64_register, 66, gpr)\nPROBE(gpr64_same, 194, gpr)\nPROBE(gpr64_disjoint, 258, gpr)\nPROBE(gpr32_register, 66, gpr32)\nPROBE(gpr32_same, 194, gpr32)\nPROBE(gpr64_indexed, 194, gpr)\nPROBE(select_register, 194, select)\nPROBE(select_same, 322, select)\nPROBE(fp_register, 66, fp)\nPROBE(fp_same, 194, fp)\nPROBE(fp_disjoint, 258, fp)\nPROBE(gpr64_indexed_load, 194, gpr)\nPROBE(gpr64_indexed_store, 194, gpr)\n",
+  "cases": [
+    {
+      "id": "gpr64_register",
+      "instructions_per_iteration": 66,
+      "kind": "gpr",
+      "iterations": 7575757,
+      "p10_seconds": 0.13862225,
+      "median_seconds": 0.141354583,
+      "p90_seconds": 0.144026709
+    },
+    {
+      "id": "gpr64_same",
+      "instructions_per_iteration": 194,
+      "kind": "gpr",
+      "iterations": 2577319,
+      "p10_seconds": 0.082620083,
+      "median_seconds": 0.083012332,
+      "p90_seconds": 0.083568
+    },
+    {
+      "id": "gpr64_disjoint",
+      "instructions_per_iteration": 258,
+      "kind": "gpr",
+      "iterations": 1937984,
+      "p10_seconds": 0.035028083,
+      "median_seconds": 0.036299083,
+      "p90_seconds": 0.036696876
+    },
+    {
+      "id": "gpr32_register",
+      "instructions_per_iteration": 66,
+      "kind": "gpr32",
+      "iterations": 7575757,
+      "p10_seconds": 0.138022417,
+      "median_seconds": 0.141621166,
+      "p90_seconds": 0.142418916
+    },
+    {
+      "id": "gpr32_same",
+      "instructions_per_iteration": 194,
+      "kind": "gpr32",
+      "iterations": 2577319,
+      "p10_seconds": 0.083608083,
+      "median_seconds": 0.083929583,
+      "p90_seconds": 0.085361834
+    },
+    {
+      "id": "gpr64_indexed",
+      "instructions_per_iteration": 194,
+      "kind": "gpr",
+      "iterations": 2577319,
+      "p10_seconds": 0.296202791,
+      "median_seconds": 0.316388708,
+      "p90_seconds": 0.332374416
+    },
+    {
+      "id": "select_register",
+      "instructions_per_iteration": 194,
+      "kind": "select",
+      "iterations": 2577319,
+      "p10_seconds": 0.141766874,
+      "median_seconds": 0.142597958,
+      "p90_seconds": 0.145400667
+    },
+    {
+      "id": "select_same",
+      "instructions_per_iteration": 322,
+      "kind": "select",
+      "iterations": 1552795,
+      "p10_seconds": 0.107064708,
+      "median_seconds": 0.108630083,
+      "p90_seconds": 0.109550416
+    },
+    {
+      "id": "fp_register",
+      "instructions_per_iteration": 66,
+      "kind": "fp",
+      "iterations": 7575757,
+      "p10_seconds": 0.405580208,
+      "median_seconds": 0.418668625,
+      "p90_seconds": 0.42085775
+    },
+    {
+      "id": "fp_same",
+      "instructions_per_iteration": 194,
+      "kind": "fp",
+      "iterations": 2577319,
+      "p10_seconds": 0.556988959,
+      "median_seconds": 0.575878917,
+      "p90_seconds": 0.584957459
+    },
+    {
+      "id": "fp_disjoint",
+      "instructions_per_iteration": 258,
+      "kind": "fp",
+      "iterations": 1937984,
+      "p10_seconds": 0.102575167,
+      "median_seconds": 0.109941334,
+      "p90_seconds": 0.111934166
+    },
+    {
+      "id": "gpr64_indexed_load",
+      "instructions_per_iteration": 194,
+      "kind": "gpr",
+      "iterations": 2577319,
+      "p10_seconds": 0.279836208,
+      "median_seconds": 0.312042333,
+      "p90_seconds": 0.3220665
+    },
+    {
+      "id": "gpr64_indexed_store",
+      "instructions_per_iteration": 194,
+      "kind": "gpr",
+      "iterations": 2577319,
+      "p10_seconds": 0.302474083,
+      "median_seconds": 0.308761125,
+      "p90_seconds": 0.317345457
+    }
+  ],
+  "native_binary_sha256": "a89fce113f3111daa7cf92b97001e7b717f3cb385a6961210073f9cf985e7951"
+}

@@ -1,0 +1,65 @@
+{
+  "protocol": "assembly-scheduling-v1",
+  "hardware": "Apple M2",
+  "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+  "collected_at_utc": "2026-11-08T03:37:04.810379+00:00",
+  "timer": "CLOCK_THREAD_CPUTIME_ID",
+  "core_identity": "unknown",
+  "instantaneous_frequency": "unknown",
+  "assumed_hz": 3490000000,
+  "trials": 9,
+  "compiler": "Apple clang version 21.0.0 (clang-2100.4.1.1)",
+  "sources": {
+    "evaluation/microbenchmarks/scheduling/cases.def": "3d830dfe03cd8540d5540fd80802b417795c851aae06b393a94687d39aaffdc3",
+    "evaluation/microbenchmarks/scheduling/loops.S": "dc15e9d00747c7786bffad2541a39539294331397e4a21ea91d0eb4c8fe363d2",
+    "evaluation/microbenchmarks/scheduling/driver.h": "5b282bf56339d72668f03c8e562841f1d6a42075e9a92be772ffc88c0b5c3b65",
+    "evaluation/microbenchmarks/scheduling/native.c": "2ed54372e420feb50e6939fc03334029b2560ac6c143a08c74f1f88b366d27d0",
+    "evaluation/microbenchmarks/scheduling/linux.c": "100fa52b6ba395a8daec39d0c02a98d026fefe40d53dca75f3823c83e97f5061",
+    "evaluation/microbenchmarks/scheduling/entry.S": "03f3675c20c9d31a0d753cf881de80f258de4e27cd40e7dd6914ac594e69ed23",
+    "evaluation/microbenchmarks/scheduling/build.sh": "267ed429425aaa6cbdeaa06bfe5cd2766c4dd5453a98221c90071aa6fea2f9ca",
+    "evaluation/microbenchmarks/scheduling/scheduling.elf": "09d0eb0569fe7eaa7d2d6fff3f7c693ea1e0dc1ee11eed8f67a524090d099e08",
+    "scripts/throughput_microbenchmark.py": "116e63f55e017f05b9a32ef6c6740420425926fa7256bd34eea261d55b613a14",
+    "scripts/scheduling_microbenchmark.py": "c8d1bd9576fe8d2553d0b97f67b8ffa6f947ae114325fb6b1c9f7cf9a3c1afeb",
+    "tests/usertime/layout.ld": "9d942ff9006b4a5269475b6a0b455837d1c82c8b2bd5d5ee8f898f782129b5e9"
+  },
+  "definition": "PROBE(int_chain, 130, int_chain)\nPROBE(int_interleaved, 194, int_interleaved)\nPROBE(fp_chain, 114, fp_chain)\nPROBE(fp_interleaved, 178, fp_interleaved)\n",
+  "cases": [
+    {
+      "id": "int_chain",
+      "instructions_per_iteration": 130,
+      "kind": "int_chain",
+      "iterations": 3846153,
+      "p10_seconds": 0.229516917,
+      "median_seconds": 0.234328876,
+      "p90_seconds": 0.238043126
+    },
+    {
+      "id": "int_interleaved",
+      "instructions_per_iteration": 194,
+      "kind": "int_interleaved",
+      "iterations": 2577319,
+      "p10_seconds": 0.150994792,
+      "median_seconds": 0.15285525,
+      "p90_seconds": 0.153413791
+    },
+    {
+      "id": "fp_chain",
+      "instructions_per_iteration": 114,
+      "kind": "fp_chain",
+      "iterations": 4385964,
+      "p10_seconds": 0.353806209,
+      "median_seconds": 0.354707125,
+      "p90_seconds": 0.355336833
+    },
+    {
+      "id": "fp_interleaved",
+      "instructions_per_iteration": 178,
+      "kind": "fp_interleaved",
+      "iterations": 2808988,
+      "p10_seconds": 0.227922333,
+      "median_seconds": 0.228920375,
+      "p90_seconds": 0.22931725
+    }
+  ],
+  "native_binary_sha256": "78268b4be7812a997a537d454204165548b45582804c8c33cf5ff925cfbac906"
+}
