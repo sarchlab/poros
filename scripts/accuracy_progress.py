@@ -73,6 +73,27 @@ def snapshot(report, source, progress):
     return live.validate_snapshot(result)
 
 
+def active_memory_progress(plan, report, active_shards):
+    """Expose memory points assigned to active workers, without new measurements."""
+    if "memory" not in plan:
+        return
+    rows = report["memory_simulation"]
+    done = {role: {row["id"] for row in values} for role, values in rows.items()}
+    cases = {case["id"]: case for case in plan["memory"]["cases"]}
+    active = []
+    for index in sorted(set(active_shards)):
+        if index >= len(plan["memory"]["shards"]):
+            continue
+        for ident in plan["memory"]["shards"][index]:
+            for role in parallel.memory_roles(plan, cases[ident]):
+                if ident not in done[role]:
+                    active.append(dict(role=role, id=ident))
+    complete = all(len(values) == len(cases) for values in done.values())
+    report.setdefault("diagnostic_progress", {})["memory"] = dict(
+        state="running" if active else "complete" if complete else "partial" if any(done.values()) else "pending",
+        active=active, errors=[])
+
+
 class SnapshotExporter:
     """Keep only validated compact rows in memory, not multi-GB raw shard trees.
 
@@ -192,6 +213,7 @@ class SnapshotExporter:
                     active.extend(self.plan["shards"][int(index)])
             errors.extend(str(e) for e in status.get("errors", []))
             errors.extend("Shard " + str(item["index"]) + ": " + item["error"] for item in status.get("failed", []))
+        active_memory_progress(self.plan, report, [int(index) for index in (status or {}).get("active", {}) if int(index) not in selected])
         progress = dict(state="failed" if errors else "running", completed_cases=len(report["cases"]),
                         required_cases=len(self.plan["cases"]), completed_shards=len(selected),
                         required_shards=len(self.plan["shards"]), errors=errors, active_cases=active,

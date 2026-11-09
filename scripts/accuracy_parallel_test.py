@@ -392,6 +392,19 @@ class ParallelAccuracyTests(unittest.TestCase):
         role = "functional" if mode == "functional" else Path(binary).name
         return self.result(case, role)
 
+    def test_active_shard_memory_assignments_are_unique_and_role_aware(self):
+        import accuracy_progress as progress
+        with self.memory_fixture() as plan:
+            cases=plan['memory']['cases']
+            report={'memory_simulation':{role:[dict(id=cases[0]['id'])] for role in ('head','base')}}
+            progress.active_memory_progress(plan,report,[0,1,1,2,7])
+            item=report['diagnostic_progress']['memory']
+            self.assertEqual(item['state'],'running')
+            self.assertEqual(item['active'],[dict(role='head',id=cases[1]['id']),dict(role='base',id=cases[1]['id']),dict(role='head',id=cases[2]['id'])])
+            report['memory_simulation']={role:[dict(id=c['id']) for c in cases] for role in ('head','base')}
+            progress.active_memory_progress(plan,report,[])
+            self.assertEqual(report['diagnostic_progress']['memory'],dict(state='complete',active=[],errors=[]))
+
     def test_memory_runs_in_assigned_shards_and_aggregate_only_consumes_records(self):
         results, output = self.root / "memory-shards", self.root / "memory/report.json"
         with self.memory_fixture() as plan, contextlib.redirect_stdout(io.StringIO()):

@@ -1639,25 +1639,90 @@ def timing_table(cases, ids):
     return body
 
 
-def live_progress(live):
+def overall_progress(report, references, live=None):
+    """Count measurement points, resolving a paired diagnostic only once.
+
+    Whole-program points already include their functional/head/base evidence.
+    Diagnostic IDs are namespaced by suite; legacy18 are not counted again.
+    A half-finished pair is in progress even between active execution callbacks.
+    """
+    declared = report_manifest(report)["cases"]
+    covered_cases(report["cases"], declared, partial=report["artifact_status"] == "partial")
+    known = {case["id"] for case in declared}
+    completed = {("whole-program", row["id"]) for row in report["cases"]}
+    required = {("whole-program", ident) for ident in known}
+    active_ids = (live or {}).get("active_cases", [])
+    if len(set(active_ids)) != len(active_ids) or any(ident not in known or ("whole-program", ident) in completed for ident in active_ids):
+        raise ValueError("invalid overall active cases")
+    active = {("whole-program", ident) for ident in active_ids}
+    for name in declared_diagnostics(report):
+        simulations = report[name + "_simulation"]
+        rows = {"head": simulations} if name == "throughput" else simulations
+        if not isinstance(rows, dict) or set(rows) != ({"head"} if name == "throughput" else {"head", "base"}):
+            raise ValueError("overall progress requires every diagnostic role")
+        native = references.get(name)
+        if native is None:
+            # Complete historical callers may omit reference assets. Their rows
+            # have already passed strict coverage validation, so are the inventory.
+            if report["artifact_status"] != "pass":
+                raise ValueError("overall progress needs the declared " + name + " reference")
+            cases = rows["head"]
+        else:
+            cases = native["cases"]
+        ids = {case["id"] for case in cases}
+        if len(ids) != len(cases):
+            raise ValueError("duplicate overall diagnostic inventory")
+        done = {}
+        for role, values in rows.items():
+            covered_cases(values, cases, partial=report["artifact_status"] == "partial")
+            done[role] = {row["id"] for row in values}
+        resolved = set.intersection(*done.values())
+        started = set.union(*done.values())
+        seen_active = set()
+        for item in report.get("diagnostic_progress", {}).get(name, {}).get("active", []):
+            if item["role"] not in done or item["id"] not in ids or item["id"] in done[item["role"]]:
+                raise ValueError("invalid overall active diagnostic")
+            key = (item["role"], item["id"])
+            if key in seen_active:
+                raise ValueError("duplicate overall active diagnostic")
+            seen_active.add(key)
+            started.add(item["id"])
+        required.update((name, ident) for ident in ids)
+        completed.update((name, ident) for ident in resolved)
+        active.update((name, ident) for ident in started - resolved)
+    if "throughput" not in declared_diagnostics(report) and probe.ELF in report["head"]["files"]:
+        # The superseded two-loop frontend suite remains readable historically.
+        required.update(("frontend", ident) for ident in ("nop", "add"))
+        completed.update(("frontend", ident) for ident in report.get("frontend_simulation", {}))
+    if completed & active or not (completed | active) <= required:
+        raise ValueError("invalid overall progress coverage")
+    return dict(required=len(required), completed=len(completed), active=len(active),
+                remaining=len(required - completed - active))
+
+
+def live_progress(live, totals=None):
     completed, required = live["completed_cases"], live["required_cases"]
     # Snapshot validation rejects unknown/completed active IDs. Count unique IDs
     # so repeated worker observations cannot inflate the in-progress segment.
     active = len(set(live["active_cases"]))
+    if totals is not None:
+        completed, required, active = (totals[key] for key in ("completed", "required", "active"))
     remaining = required - completed - active
     if required <= 0 or completed < 0 or remaining < 0:
         raise ValueError("invalid live progress counts")
+    if totals is not None and live["state"] == "complete" and completed != required:
+        raise ValueError("unfinished measurements marked complete")
     percentage = 100 * completed / required
     validated = live.get("validated_bundle", False)
-    state = ("Complete" if validated else "Cases finished · validation pending") if live["state"] == "complete" else live["state"].title()
+    state = ("Complete" if validated else "Points finished · validation pending") if live["state"] == "complete" else live["state"].title()
     body = '<section class="notice" aria-labelledby="live-progress-label">'
     body += '<div id="live-progress-label"><strong>' + esc(state) + '</strong> · '
-    body += f'{completed} / {required} cases · {percentage:.1f}%</div>'
+    body += f'{completed} / {required} points · {percentage:.1f}%</div>'
     segments = (("completed", "Completed", completed, "#168574"),
                 ("active", "In progress", active, "#4e87d4"),
                 ("remaining", "Not started", remaining, "#d7e1e4"))
     description = "; ".join(f"{label}: {count}" for _, label, count, _ in segments)
-    body += f'<div id="case-progress" role="progressbar" aria-label="Case progress" aria-valuemin="0" aria-valuenow="{completed}" aria-valuemax="{required}" aria-valuetext="{description}" aria-describedby="live-progress-context" style="display:flex;height:18px;margin-top:10px;border-radius:4px;overflow:hidden">'
+    body += f'<div id="case-progress" role="progressbar" aria-label="Overall measurement progress" aria-valuemin="0" aria-valuenow="{completed}" aria-valuemax="{required}" aria-valuetext="{description}" aria-describedby="live-progress-context" style="display:flex;height:18px;margin-top:10px;border-radius:4px;overflow:hidden">'
     for key, _, count, color in segments:
         body += f'<span data-progress-state="{key}" aria-hidden="true" style="width:{100 * count / required:.8f}%;background:{color}"></span>'
     body += '</div><p style="display:flex;gap:16px;flex-wrap:wrap">'
@@ -1665,12 +1730,16 @@ def live_progress(live):
         body += f'<span><span aria-hidden="true" style="display:inline-block;width:10px;height:10px;background:{color};margin-right:5px"></span>{label}: {count}</span>'
     body += '</p>'
     body += '<p id="live-progress-context">'
-    body += f'{live["completed_shards"]} / {live["required_shards"]} shards. '
-    if completed == required and live["state"] != "complete":
-        body += "Whole-program cases complete; diagnostic suites and final validation remain. "
+    body += "A whole-program point includes its required checks and model roles; a paired diagnostic point completes when both roles are resolved. In progress includes partial pairs and points assigned to active workers. "
+    if "required_shards" in live:
+        body += f'{live["completed_cases"]} / {live["required_cases"]} whole-program cases; {live["completed_shards"]} / {live["required_shards"]} shards. '
+    if live["completed_cases"] == live["required_cases"] and completed < required:
+        body += "Whole-program cases complete; diagnostics remain. "
     if validated:
         body += "Complete validated bundle."
-    body += ' Updated ' + esc(live["updated_at"]) + '.</p>'
+    if live.get("updated_at"):
+        body += ' Updated ' + esc(live["updated_at"]) + "."
+    body += "</p>"
     if live["errors"]:
         body += '<p>' + esc('; '.join(live["errors"])) + '</p>'
     return body + '</section>'
@@ -1692,8 +1761,14 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     if report.get("reporting"):
         rendering = report["reporting"]
         body += '<p class="muted">Measured simulator: <code>' + esc(commit) + '</code>; reporting implementation: <code>' + esc(rendering["commit"]) + '</code>' + (" (working tree edits; file hashes recorded)" if rendering["dirty"] else "") + ".</p>"
-    if live is not None:
-        body += live_progress(live)
+    if live is not None or (report.get("schema") == 4 and report["artifact_status"] == "pass"):
+        references = dict(throughput=throughput_reference, forwarding=forwarding_reference,
+                          scheduling=scheduling_reference, capacity=capacity_reference, memory=memory_reference)
+        totals = overall_progress(report, references, live)
+        progress = live if live is not None else dict(state="complete", validated_bundle=True,
+            completed_cases=len(report["cases"]), required_cases=len(report_manifest(report)["cases"]),
+            active_cases=[], errors=[])
+        body += live_progress(progress, totals)
     native_reference = report.get("reference", {}).get("protocol") == performance.NATIVE_PROTOCOL
     cases = report.get("cases", [])
     benchmarks = [c for c in cases if not is_micro_case(c)]

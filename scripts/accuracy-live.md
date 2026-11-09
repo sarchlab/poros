@@ -38,6 +38,24 @@ validates raw execution identities, full outputs, counts and profiles before
 constructing the same application rows as the serial comparator. The renderer
 never runs simulations or collects hardware measurements.
 
+The top three-segment bar counts **measurement points**, not simulator executions.
+For the current declaration it covers 511 points: 264 whole-program points
+(including the 18 legacy microbenchmark points once), 17 head-only throughput
+points, and 13 forwarding + 4 scheduling + 73 capacity + 140 memory paired points.
+A whole-program point includes its required functional and model-role evidence;
+a paired diagnostic point completes only when both role rows are present. An
+explicitly validated unsupported-base row resolves that role. A partial pair or
+a point assigned to an active worker is in progress; neither can inflate the
+completed segment. IDs are namespaced by suite, so the legacy memory group and
+memory diagnostics are distinct. Complete CI pages use the same calculation.
+
+The exporter derives memory activity from the prepared plan's memory assignments
+for active shards and emits it through the existing `diagnostic_progress` role/ID
+field. These are active-worker assignments, not a claim that every assigned point
+is simultaneously executing. Role activity and partial pairs collapse to one
+point. The existing 264-case and shard transport counters remain supporting
+subtotals; the global denominator is derived from the declared reference cases.
+
 All declared suites and subgroups remain visible while pending, running, partial,
 failed or complete. Available native points remain visible with missing predicted
 points labeled pending. Optional `report.diagnostic_progress` maps suite names to
@@ -151,7 +169,7 @@ The optional campaign status file binds `head`, `base`, `run_id`, completed shar
 indices and active shard indices (`active` object). It supplies activity only;
 completed results still require raw validation. `phase: complete` is accepted only
 when strict validation confirms every application and diagnostic result. A full
-264/264 bar alone never means the diagnostic campaign is finished. The exporter
+264/264 whole-program subtotal alone never means the diagnostic campaign is finished. The exporter
 retries transient failures without replacing its last good atomic snapshot.
 
 The aggregate's optional checkpoint directory records each short/long probe
