@@ -26,7 +26,7 @@ func TestStoreFillUsesFinalUnitIssueAndIndependentDrain(t *testing.T) {
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.comp.State.LdstUnits[0] = []UnitReservation{{1, 1000}}
 	p.fetchAndProcess()
-	if p.comp.State.Rob[0] != 1003 || p.comp.State.StoreDrainUntil[0] != 1335 {
+	if p.comp.State.Rob[0] != 1003 || p.comp.State.StoreDrainUntil[0] != 1003 || p.comp.Resources.Cache.DrainUntil() != 1335 {
 		t.Fatalf("data=%d allocation=%d", p.comp.State.Rob[0], p.comp.State.StoreDrainUntil[0])
 	}
 	_, ready := p.comp.Resources.Cache.Access(0x4040, 8, false, 1)
@@ -44,7 +44,9 @@ func TestStoreAllocationPoolBoundsStreamAndDrainsTerminalStores(t *testing.T) {
 	for i := range words {
 		words[i] = 0xf9000020
 	} // STR X0,[X1]
-	p := reservationPipeline(t, words, mem.NewCache(mem.DefaultCacheConfig()))
+	cfg := mem.DefaultCacheConfig()
+	cfg.WriteBufferEntries = 2
+	p := reservationPipeline(t, words, mem.NewCache(cfg))
 	p.comp.Spec.FetchWidth = 1
 	p.comp.Spec.StoreBufferSize = 2
 	p.comp.State.StoreDrainUntil = make([]uint64, 2)
@@ -64,12 +66,13 @@ func TestStoreAllocationPoolBoundsStreamAndDrainsTerminalStores(t *testing.T) {
 				finalDrain = until
 			}
 		}
-		if active > 2 || len(p.comp.State.StoreBuffer) > 2 {
+		if active > 2 || len(p.comp.State.StoreBuffer) > p.forwardingCapacity() {
 			t.Fatalf("unbounded allocation records: active=%d records=%d", active, len(p.comp.State.StoreBuffer))
 		}
 		if before < stores && before == p.comp.Resources.Emu.InstCount && active == 2 {
 			sawBackpressure = true
 		}
+		finalDrain = max(finalDrain, p.comp.Resources.Cache.DrainUntil())
 		if p.comp.State.Done && p.comp.State.Cycles < finalDrain {
 			t.Fatal("terminated before final allocation drained")
 		}
@@ -87,7 +90,7 @@ func TestPairedStoreHoldsAllocationUntilBothFills(t *testing.T) {
 	if len(p.comp.State.StoreBuffer) != 2 {
 		t.Fatalf("pair accesses=%d", len(p.comp.State.StoreBuffer))
 	}
-	if p.comp.State.StoreDrainUntil[0] != 338 {
+	if p.comp.State.StoreDrainUntil[0] != 4 || p.comp.Resources.Cache.DrainUntil() != 338 {
 		t.Fatalf("pair drain=%d", p.comp.State.StoreDrainUntil[0])
 	}
 	for _, entry := range p.comp.State.StoreBuffer {
@@ -133,7 +136,7 @@ func TestAllocationDoesNotDelayExactGPRForwarding(t *testing.T) {
 	p := reservationPipeline(t, []uint32{0xf9000020, 0xf9400022}, mem.NewCache(mem.DefaultCacheConfig()))
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.fetchAndProcess()
-	if p.comp.State.Rob[0] != 4 || p.comp.State.Rob[1] != 3 || p.comp.State.StoreDrainUntil[0] != 336 {
+	if p.comp.State.Rob[0] != 4 || p.comp.State.Rob[1] != 3 || p.comp.State.StoreDrainUntil[0] != 4 || p.comp.Resources.Cache.DrainUntil() != 336 {
 		t.Fatalf("store=%d load=%d drain=%d", p.comp.State.Rob[0], p.comp.State.Rob[1], p.comp.State.StoreDrainUntil[0])
 	}
 }
@@ -193,7 +196,7 @@ func TestCheckedFetchFaultDrainsPriorStoreAllocations(t *testing.T) {
 	p.comp.Resources.Emu = nil
 	p.comp.Spec.FetchWidth = 1
 	p.Handle(nil)
-	drain := p.comp.State.StoreDrainUntil[0]
+	drain := max(p.comp.State.StoreDrainUntil[0], p.comp.Resources.Cache.DrainUntil())
 	if drain <= p.comp.State.Cycles {
 		t.Fatal("store did not leave an allocation")
 	}

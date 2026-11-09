@@ -1,5 +1,7 @@
 package ooo
 
+import "math/bits"
+
 // PredictorSpec is the immutable predictor geometry.
 type PredictorSpec struct {
 	BimodalSize     int `json:"bimodal_size"`
@@ -7,7 +9,8 @@ type PredictorSpec struct {
 	BTBSize         int `json:"btb_size"`
 	BTBWays         int `json:"btb_ways"`
 	RASSize         int `json:"ras_size"`
-	TaggedHistLen   int `json:"tagged_hist_len"`
+	// TaggedHistLen is the number of most recent outcomes used by this table.
+	TaggedHistLen int `json:"tagged_hist_len"`
 }
 
 // PredictorState keeps all predictor runtime data checkpointable.
@@ -37,7 +40,7 @@ type predictor struct {
 
 func (bp *predictor) init() {
 	v := bp.spec
-	if v.BimodalSize < 1 || v.TaggedTableSize < 1 || v.BTBSize < 1 || v.BTBWays < 1 || v.BTBSize%v.BTBWays != 0 || v.RASSize < 1 || v.TaggedHistLen < 1 || v.TaggedHistLen > 63 {
+	if v.BimodalSize < 1 || v.TaggedTableSize < 1 || v.BTBSize < 1 || v.BTBWays < 1 || v.BTBSize%v.BTBWays != 0 || v.RASSize < 1 || v.TaggedHistLen < 1 || v.TaggedHistLen > 64 {
 		panic("ooo: invalid predictor configuration")
 	}
 
@@ -69,19 +72,31 @@ func (bp *predictor) taggedIndex(pc uint64) int {
 	return int(((pc >> 2) ^ folded) % uint64(bp.spec.TaggedTableSize))
 }
 
-// taggedTag computes the tag for the tagged table from the upper bits of PC.
+// A full PC and independently mixed history identify the indexed context.
+// Shifting PC by the history length made ordinary low-address tags all zero.
 func (bp *predictor) taggedTag(pc uint64) uint64 {
-	return (pc >> 2) >> uint(bp.spec.TaggedHistLen)
+	return (pc >> 2) ^ bits.RotateLeft64(bp.history(), 32)
 }
 
-// foldHistory XOR-folds the global history register to TaggedHistLen bits.
+func (bp *predictor) history() uint64 {
+	if bp.spec.TaggedHistLen == 64 {
+		return bp.Ghr
+	}
+	return bp.Ghr & ((uint64(1) << uint(bp.spec.TaggedHistLen)) - 1)
+}
+
+// Fold every configured history bit into the actual index width. Folding to
+// 32 bits before taking an 11-bit index silently discarded most history.
 func (bp *predictor) foldHistory() uint64 {
-	h := bp.Ghr
-	folded := uint64(0)
-	bits := bp.spec.TaggedHistLen
+	width := bits.Len(uint(bp.spec.TaggedTableSize - 1))
+	if width == 0 {
+		return 0
+	}
+	mask := (uint64(1) << uint(width)) - 1
+	h, folded := bp.history(), uint64(0)
 	for h != 0 {
-		folded ^= h & ((1 << uint(bits)) - 1)
-		h >>= uint(bits)
+		folded ^= h & mask
+		h >>= uint(width)
 	}
 	return folded
 }

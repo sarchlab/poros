@@ -66,6 +66,8 @@ func TestInvalidConfigurationRejectedAtInitialize(t *testing.T) {
 	tests := map[string]func(*Spec){
 		"empty ROB":         func(s *Spec) { s.ROBCapacity = 0 },
 		"empty units":       func(s *Spec) { s.NumINT = 0 },
+		"empty divider":     func(s *Spec) { s.NumFPDiv = 0 },
+		"divider subset":    func(s *Spec) { s.NumFPDiv = s.NumFP + 1 },
 		"empty MSHRs":       func(s *Spec) { s.NumMSHREntries = 0 },
 		"invalid predictor": func(s *Spec) { s.Predictor.TaggedHistLen = 0 },
 		"duplicate hooks":   func(s *Spec) { s.FuncHookCycles = []HookCycles{{1, 2}, {1, 3}} },

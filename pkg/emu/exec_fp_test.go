@@ -383,6 +383,7 @@ func TestFusedDoubleRounding(t *testing.T) {
 			{"FMADD", 0x1f420c20, c.a, c.add},
 			{"FMSUB", 0x1f428c20, -c.a, c.sub},
 			{"FNMADD", 0x1f620c20, c.a, c.neg},
+			{"FNMSUB", 0x1f628c20, -c.a, c.add},
 		} {
 			t.Run(c.name+"/"+op.name, func(t *testing.T) {
 				em := newTestEmulator(op.enc)
@@ -395,5 +396,81 @@ func TestFusedDoubleRounding(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestFNMSUBSingleAndSignedZero(t *testing.T) {
+	for _, tc := range []struct {
+		enc    uint32
+		single bool
+	}{{0x1f228c20, true}, {0x1f628c20, false}} {
+		verifyDecode(t, tc.enc, arm64asm.FNMSUB)
+		em := newTestEmulator(tc.enc)
+		if tc.single {
+			em.Regs.WriteS(1, 2)
+			em.Regs.WriteS(2, 3)
+			em.Regs.WriteS(3, 4)
+		} else {
+			em.Regs.WriteD(1, 2)
+			em.Regs.WriteD(2, 3)
+			em.Regs.WriteD(3, 4)
+		}
+		stepN(t, em, 1)
+		if tc.single && em.Regs.ReadS(0) != 2 || !tc.single && em.Regs.ReadD(0) != 2 {
+			t.Fatal("FNMSUB must compute product minus accumulator")
+		}
+	}
+	em := newTestEmulator(0x1f628c20)
+	em.Regs.WriteD(1, math.Copysign(0, -1))
+	em.Regs.WriteD(2, 1)
+	em.Regs.WriteD(3, 0)
+	stepN(t, em, 1)
+	if got := math.Float64bits(em.Regs.ReadD(0)); got != 0x8000000000000000 {
+		t.Fatalf("signed zero: %x", got)
+	}
+}
+
+func TestFNMSUBSingleAvoidsDoubleRounding(t *testing.T) {
+	em := newTestEmulator(0x1f228c20)
+	// (1+2^-12)^2 is exactly halfway between adjacent binary32 values;
+	// subtracting -2^-100 nudges it above the tie, which binary64 rounding loses.
+	em.Regs.WriteS(1, 0x1.001p0)
+	em.Regs.WriteS(2, 0x1.001p0)
+	em.Regs.WriteS(3, -0x1p-100)
+	stepN(t, em, 1)
+	if got := math.Float32bits(em.Regs.ReadS(0)); got != 0x3f801001 {
+		t.Fatalf("double rounded %08x", got)
+	}
+}
+
+func TestFNMSUBSingleSpecialValues(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		n, m, a float32
+		bits    uint32
+		nan     bool
+	}{
+		{"negative zero", math.Float32frombits(0x80000000), 1, 0, 0x80000000, false},
+		{"positive zero", 0, 1, math.Float32frombits(0x80000000), 0, false},
+		{"infinity", float32(math.Inf(1)), 2, 1, 0x7f800000, false},
+		{"infinity cancellation", float32(math.Inf(1)), 1, float32(math.Inf(1)), 0, true},
+		{"zero times infinity", 0, float32(math.Inf(1)), 1, 0, true},
+		{"nan", float32(math.NaN()), 1, 1, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			em := newTestEmulator(0x1f228c20)
+			em.Regs.WriteS(1, tc.n)
+			em.Regs.WriteS(2, tc.m)
+			em.Regs.WriteS(3, tc.a)
+			stepN(t, em, 1)
+			got := em.Regs.ReadS(0)
+			if tc.nan {
+				if !math.IsNaN(float64(got)) {
+					t.Fatalf("expected NaN, got %g", got)
+				}
+			} else if math.Float32bits(got) != tc.bits {
+				t.Fatalf("got %08x want %08x", math.Float32bits(got), tc.bits)
+			}
+		})
 	}
 }

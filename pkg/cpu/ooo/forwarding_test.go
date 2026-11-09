@@ -99,3 +99,34 @@ func TestDirectGPRTransferEligibility(t *testing.T) {
 		})
 	}
 }
+
+func TestCompactedStoresRetainYoungestBypassAndOlderOrdering(t *testing.T) {
+	p := &middleware{comp: &Comp{State: State{StoreBuffer: []storeBufferEntry{
+		{Addr: 0x1000, Size: 8, ReadyCycle: 100, CompleteCycle: 103, DrainCycle: 400, FastForwardEligible: true},
+	}}}}
+	p.appendStoreRecord(storeBufferEntry{Addr: 0x1000, Size: 8, ReadyCycle: 8, CompleteCycle: 11, DrainCycle: 50, FastForwardEligible: true})
+	if len(p.comp.State.StoreBuffer) != 1 || p.comp.State.StoreBuffer[0].PriorCompleteCycle != 103 || p.comp.State.StoreBuffer[0].DrainCycle != 400 {
+		t.Fatal("compaction lost ordering/drain")
+	}
+	exact := p.forwardLoad([]emu.MemAccess{{Addr: 0x1000, Size: 8}}, 5, true)
+	if exact.dataReady != 8 || exact.issueCycle != 5 || exact.latency != 1 {
+		t.Fatal("youngest exact bypass changed", exact)
+	}
+	partial := p.forwardLoad([]emu.MemAccess{{Addr: 0x1002, Size: 2}}, 5, true)
+	if partial.issueCycle != 103 || partial.latency != 5 {
+		t.Fatal("partial ordering lost", partial)
+	}
+	p.appendStoreRecord(storeBufferEntry{Addr: 0x1002, Size: 2, CompleteCycle: 15, DrainCycle: 50})
+	if len(p.comp.State.StoreBuffer) != 2 {
+		t.Fatal("partial shadow erased unowned bytes")
+	}
+	partial = p.forwardLoad([]emu.MemAccess{{Addr: 0x1000, Size: 8}}, 5, true)
+	if partial.issueCycle != 103 || partial.latency != 5 {
+		t.Fatal("young partial store incorrectly took exact bypass")
+	}
+	raw, _ := json.Marshal(p.comp.State)
+	var restored State
+	if err := json.Unmarshal(raw, &restored); err != nil || !reflect.DeepEqual(restored, p.comp.State) {
+		t.Fatal("forwarding state did not round trip", err)
+	}
+}

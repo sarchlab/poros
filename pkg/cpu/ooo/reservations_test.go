@@ -147,7 +147,7 @@ func TestUnitReservationsUseWholeOccupancyAndEarliestAvailableUnit(t *testing.T)
 	if got, _ := p.reserveIssue(unitINT, 8, unitOccupancy(arm64asm.SDIV), false); got != 20 {
 		t.Fatalf("nonpipelined reservation starts %d", got)
 	}
-	if unitOccupancy(arm64asm.FDIV) != 10 || unitOccupancy(arm64asm.FSQRT) != 6 || unitOccupancy(arm64asm.FADD) != 1 {
+	if unitOccupancy(arm64asm.FDIV) != 1 || unitOccupancy(arm64asm.FSQRT) != 2 || unitOccupancy(arm64asm.FADD) != 1 {
 		t.Fatal("occupancy changed")
 	}
 }
@@ -260,5 +260,74 @@ func BenchmarkUnitReservations(b *testing.B) {
 		}
 		ready := p.comp.State.Cycles + uint64(i%31)
 		p.reserveIssue(unitINT, ready, 1, false)
+	}
+}
+
+func TestSharedDividerCapacityAndOrdinaryFPPipeCompetition(t *testing.T) {
+	spec := DefaultSpec()
+	p := &middleware{comp: &Comp{Spec: spec, State: State{FpUnits: make([][]UnitReservation, spec.NumFP)}}}
+	// All divisions share the eligible subset, not four independent one-cycle dividers.
+	for i := uint64(0); i < 4; i++ {
+		got, _ := p.reserveIssue(unitFPDiv, 10, unitOccupancy(arm64asm.FDIV), false)
+		if got != 10+i {
+			t.Fatalf("divide %d issued at %d", i, got)
+		}
+	}
+	if got, _ := p.reserveIssue(unitFP, 10, 1, false); got != 10 {
+		t.Fatal("unrelated FP pipe needlessly blocked")
+	}
+	if got, _ := p.reserveIssue(unitFPDiv, 8, 2, false); got != 8 {
+		t.Fatal("future divide reservation erased earlier sqrt gap")
+	}
+	if got, _ := p.reserveIssue(unitFPDiv, 9, 2, false); got != 14 {
+		t.Fatalf("sqrt interval overlap: %d", got)
+	}
+	if !reflect.DeepEqual(p.comp.State.FpUnits[0], []UnitReservation{{8, 10}, {10, 11}, {11, 12}, {12, 13}, {13, 14}, {14, 16}}) {
+		t.Fatal(p.comp.State.FpUnits)
+	}
+	raw, _ := json.Marshal(p.comp.State)
+	var restored State
+	if err := json.Unmarshal(raw, &restored); err != nil {
+		t.Fatal(err)
+	}
+	p.comp.State = restored
+	if got, _ := p.reserveIssue(unitFPDiv, 15, 1, false); got != 16 {
+		t.Fatal("checkpoint lost shared divider")
+	}
+}
+
+func TestFusedAndDivideDependencyResultLatency(t *testing.T) {
+	for _, tc := range []struct {
+		word    uint32
+		latency uint64
+		unit    unitType
+	}{
+		{0x1f420c20, 4, unitFP}, {0x1f428c20, 4, unitFP}, {0x1f620c20, 4, unitFP}, {0x1f628c20, 4, unitFP},
+		{0x1e621820, 10, unitFPDiv}, {0x1e61c020, 13, unitFPDiv},
+	} {
+		p := reservationPipeline(t, []uint32{tc.word}, nil)
+		p.comp.State.FpReady[1] = 100
+		p.fetchAndProcess()
+		if p.comp.State.Err != "" || p.comp.State.Rob[0] != 100+tc.latency {
+			t.Fatalf("%08x result %d error %s", tc.word, p.comp.State.Rob[0], p.comp.State.Err)
+		}
+	}
+}
+
+func TestFPWindowCountsPairedDestinationsAndAllowsNonFP(t *testing.T) {
+	p := reservationPipeline(t, []uint32{0x91000422, 0x6d400440}, nil) // ADD X2,X1,#1; LDP D0,D1,[X2]
+	p.comp.Spec.FpPhysLimit = 360
+	p.comp.State.FpInFlight = 359
+	p.fetchAndProcess()
+	if p.comp.Resources.Emu.InstCount != 1 {
+		t.Fatal("paired FP load overallocated final single slot")
+	}
+	p.comp.State.FpInFlight = 358
+	p.fetchAndProcess()
+	if p.comp.Resources.Emu.InstCount != 2 || p.comp.State.FpInFlight != 360 {
+		t.Fatal("paired FP destination count")
+	}
+	if DefaultSpec().ROBCapacity >= DefaultSpec().FpPhysLimit {
+		t.Fatal("default ROB masking must remain explicit")
 	}
 }

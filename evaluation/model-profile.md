@@ -97,7 +97,7 @@ as improvements. Fewer modeled cycles alone do not establish better accuracy.
 
 ## Timed fills, fill transport and stream prefetch
 
-OoO loads and stores use `mem.Cache.Access`; the in-order model and `Lookup`
+OoO loads use `mem.Cache.Access` and stores use its explicit `Store` admission API; the in-order model and `Lookup`
 retain their untimed behavior. Each timed line carries its fill arrival cycle.
 Loads cannot complete before the supplying fill arrives, including hits on
 pending lines and the adjacent 64 B half of a 128 B L2 line. The OoO pipeline
@@ -117,31 +117,48 @@ backlog. History is retired at the actual pipeline-cycle watermark, never at
 a future request's issue cycle. A transfer cannot start before its request,
 even when a configured latency is shorter than the transfer occupancy.
 
-Store data completion remains three cycles, with unchanged exact-GPR forwarding
-eligibility. Separately, each store instruction holds one allocation slot until
-the later of data completion and its allocation-fill readiness. A paired store
-holds its slot until both accesses are ready. The allocation pool uses the
-existing `StoreBufferSize` (56) as a capacity assumption, not a measured M2
-structure. A full pool backpressures dispatch before functional store execution.
-Forwarding records are released at the later of allocation-fill readiness and
-store-data completion, rather than retained in a lingering FIFO. Subsequent
-loads consult the cache after that record has drained.
-Normal program termination and serialized process syscalls wait for these
-allocations to drain, so a terminal store stream cannot escape its outstanding
-cost. Stores use the same allocation transports and adjacent-line prefetch as
-loads, but do not train stream prefetching. An odd-half store miss can therefore
-also fetch the adjacent L2 line. Dirty writeback traffic, coherence and a full
-DRAM controller are not modeled.
+Store address/data availability is the execution issue cycle; the three-cycle
+CPU store completion is separate execution/retirement bookkeeping. Exact GPR
+forwarding still uses the youngest store's issue/data readiness plus its one-cycle
+bypass latency. Each instruction holds a finite `StoreBufferSize` slot until
+its execution completes and the cache accepts all its bytes. A pair cannot free
+its instruction slot until both accesses are accepted.
 
-Known write-accuracy limitation: stores to the same pending cache line still
-occupy separate instruction allocation slots, and stores do not train streams.
-Dense DRAM-resident writes can therefore be limited by allocation capacity and
-fill latency well below the configured transport bandwidth. This can overpredict
-write-heavy execution and initialization; it is not evidence of a physical M2
-bottleneck. Store combining and dirty writeback are unmodeled, so enabling store
-prefetch alone would not establish an accurate write path. This PR retains and
-discloses that limitation. Write-accuracy improvements and discrimination among
-these mechanisms are deferred to a separate PR.
+`Cache.Store` returns **acceptance** and **allocation drain** separately. A miss
+acquires one of `WriteBufferEntries` pending line slots; subsequent stores to
+that same still-resident allocation share it. The fill retains its actual
+arrival and full read-for-ownership traffic: partial stores never eliminate
+unwritten-byte fetches. A generation check prevents merging into an evicted
+allocation. Resident L1 stores retain ordinary L1 completion timing. A full
+stage delays admission and holds CPU instruction slots, backpressuring dispatch.
+The default 56 line entries reuses the existing store-capacity scale as an
+explicit model assumption; it is not a measured M2 combining-buffer size.
+
+Forwarding still owns exact per-store address/width/readiness records, separate
+from cache allocation ownership. Only a fully covered older record is compacted;
+its conventional ordering and drain constraints survive on the newest record.
+Partial shadows and pairs retain their byte ranges. The record pool has a hard
+internal bound derived from instruction slots and pending line bytes, and stalls
+dispatch when full. Program exit, serialized syscalls and fetch-fault completion
+wait for instruction slots, pending write allocations and dirty eviction traffic.
+
+Dirty L1 evictions transfer a full L1 line to L2, allocating/fetching any missing
+L2 bytes. Dirty L2 evictions transfer a full L2 line to memory. Each eviction
+stage has 56 entries (the same explicit `WriteBufferEntries` setting), and queue
+admission delays replacement readiness when full. Its timestamps retain future
+reservations; dirty bytes cannot transfer before their producing data or fill
+arrives. L1 evictions share the existing 32 B/cycle L1/L2 transport with fills;
+L2 evictions share the existing 16 B/cycle DRAM transport. These are conservative
+shared-direction bandwidth assumptions, not measured bidirectional bus widths.
+Private L1 eviction slots are private; L2 eviction slots and DRAM transport are
+shared across attached cores. The initiating cache owns final-drain bookkeeping.
+Coherence and a full DRAM controller remain unmodeled.
+
+`Access(isWrite=true)` records an already-admitted transaction and its dirty
+state, preserving its data-readiness return contract. Callers requiring finite
+write admission use `Store`. Zero `WriteBufferEntries` disables the new stage
+and dirty-eviction accounting for legacy configurations. `Lookup` remains the
+legacy synchronous path. Neither API provides chronological cache replacement.
 
 The sequential stream model trains on three same-direction demand L1 misses,
 then advances by at most four L2 lines per trigger, no farther than 48 lines
@@ -175,3 +192,62 @@ cancelling its already-booked transfers. All clients must attach before timed
 access/advancement. The model remains a single-thread-calibrated, unvalidated
 multicore extension without coherence or chronological cross-core residency.
 Cache objects are live resources, not part of the component JSON checkpoint.
+
+## Scalar FP timing and measured destination capacity
+
+Scalar FMADD/FMSUB/FNMADD/FNMSUB have four-cycle result latency and one-cycle
+issue occupancy. The existing M2 scheduling chain directly supports FMADD;
+other fused variants are same-family inference. FNMSUB was previously unsupported
+and defaulted to one-cycle timing; it now executes product minus accumulator,
+with fused binary64 rounding. This does not add FPCR/exception emulation.
+
+FDIV result latency is 10 cycles; FSQRT is 13. Divide/sqrt use only the first
+`NumFPDiv` FP pipes (default one), with occupancies one/two cycles respectively.
+Ordinary FP operations share those same reservation calendars and can also use
+the other FP pipes. Four generic FP pipes therefore cannot issue four divides
+per cycle. `NumFPDiv` must be positive and no larger than `NumFP`; start custom
+configurations from `DefaultSpec`, or add this field explicitly when migrating
+old complete Spec literals. Old timing checkpoints/configuration fingerprints
+must be rebuilt; whole-system cache checkpoint/resume remains unsupported.
+
+The new [capacity/divider suite](microbenchmarks/capacity/README.md) keeps native
+ns/iteration primary and records the assumed 3.49 GHz only for model conversion.
+Core and instantaneous frequency were unobserved. Nontrivial FDIV uses the
+bounded reciprocal recurrence 2/x around 1.5; FSQRT uses sqrt(x+1), converging
+to an irrational fixed point. Separate one/four/sixteen-lane controls distinguish
+result latency and issue throughput. The FSQRT normal recurrence includes one
+FADD per square root, whose latency/port demand must be included in comparisons.
+These controls and [direct M2 measurements](https://jia.je/hardware/2026/07/06/apple-m2/)
+support effective timing choices, not exact instantaneous hardware cycle counts.
+
+Two integer dependency gates surround an FP-destination sweep. Matching NOP,
+changed gate-length and ungated FP controls distinguish dependency, ROB and
+port limits. An interleaved ABBA measurement finds an effective transition around
+366–370 FP destinations; variable/noisy rows remain in the reference. Both gate
+lengths meet the preregistered 15% rise and nonoverlapping plateau-band criterion
+at 370. The model uses a rounded conservative lower-bound **360** based on that
+measurement uncertainty, without fitting application error. It counts in-flight
+FP destinations, **not total physical registers**: no architectural-register
+reservation is subtracted again. The published external FP32 breakpoint is not
+substituted for this local FP64 evidence.
+
+The ROB remains **256**. Thus the default FP cap is nonbinding for instructions
+with at most one FP destination; paired FP loads can still consume it. The
+default simulator cannot reproduce a hardware knee above its own ROB limit.
+This known distinct ROB approximation is retained rather than silently changing
+another structure or claiming that the native measurement identifies a complete
+physical window. Pair admission now checks both destinations before execution;
+integer/store progress is allowed when FP destination capacity is exhausted.
+New or aggravated application underpredictions must be reported; no artificial
+latency or workload-specific compensation is applied.
+
+## Predictor history semantics
+
+`TaggedHistLen` now means the number of most recent branch outcomes used by the
+tagged table (1–64, default 32). Every selected bit is XOR-folded into the actual
+index width. Previously folding to 32 then indexing 11 bits discarded history.
+The tag mixes the full instruction PC with the configured history, preventing
+low-address code from receiving all-zero tags. This is a generic anti-aliasing
+model correction, not a reconstruction of Apple's predictor geometry. Outcomes
+outside the configured history do not participate. All mutable predictor and
+execution-unit state remains in component State and is serialization-tested.

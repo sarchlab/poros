@@ -74,7 +74,7 @@ def validate_snapshot(value):
                 or provenance["binary_sha256"] != report["head_binary_sha256"]
                 or provenance["model_profile"] != report["model_profiles"]["head"]):
             raise ValueError("snapshot throughput revision mismatch")
-    for name, suite in (("forwarding", site.forwarding), ("scheduling", site.scheduling), ("memory", site.memory)):
+    for name, suite in (("forwarding", site.forwarding), ("scheduling", site.scheduling), ("capacity", site.capacity), ("memory", site.memory)):
         if name + "_reference" in value:
             raise ValueError(name + " reference must use the exact byte-bound text transport")
         reference_text = value.get(name + "_reference_text")
@@ -123,6 +123,9 @@ class SnapshotView:
         frontend = None
         forwarding = json.loads(value["forwarding_reference_text"]) if "forwarding_reference_text" in value else None
         scheduling = json.loads(value["scheduling_reference_text"]) if "scheduling_reference_text" in value else None
+        capacity = json.loads(value["capacity_reference_text"]) if "capacity_reference_text" in value else None
+        if capacity is not None:
+            assets["capacity.json"] = value["capacity_reference_text"].encode()
         memory = json.loads(value["memory_reference_text"]) if "memory_reference_text" in value else None
         if memory is not None:
             assets["memory.json"] = value["memory_reference_text"].encode()
@@ -147,6 +150,7 @@ class SnapshotView:
                 completed_throughput = json.loads(completed_assets["throughput.json"]) if "throughput.json" in completed_assets else None
                 completed_forwarding = json.loads(completed_assets["forwarding.json"]) if "forwarding.json" in completed_assets else None
                 completed_scheduling = json.loads(completed_assets["scheduling.json"]) if "scheduling.json" in completed_assets else None
+                completed_capacity = json.loads(completed_assets["capacity.json"]) if "capacity.json" in completed_assets else None
                 completed_memory = json.loads(completed_assets["memory.json"]) if "memory.json" in completed_assets else None
                 completed_frontend = json.loads(completed_assets["frontend.json"]) if "frontend.json" in completed_assets else None
                 # Commit the transition only after all verified assets are ready.
@@ -154,10 +158,11 @@ class SnapshotView:
                 live["validated_bundle"] = True
                 entry.update(evidence_files=sorted(manifest["files"]), measurement_completed_at=measurement_completed)
                 assets = {"snapshot.json": assets["snapshot.json"], **completed_assets}
+                capacity = completed_capacity
                 throughput, frontend, forwarding, scheduling, memory = completed_throughput, completed_frontend, completed_forwarding, completed_scheduling, completed_memory
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
                 live.update(state="failed", errors=["Final bundle validation failed: " + str(error)])
-        return site.detail(report, entry, preview=True, frontend=frontend, throughput_reference=throughput, live=live, forwarding_reference=forwarding, scheduling_reference=scheduling, memory_reference=memory).encode(), assets
+        return site.detail(report, entry, preview=True, frontend=frontend, throughput_reference=throughput, live=live, forwarding_reference=forwarding, scheduling_reference=scheduling, memory_reference=memory, capacity_reference=capacity).encode(), assets
 
 
 def handler(view):

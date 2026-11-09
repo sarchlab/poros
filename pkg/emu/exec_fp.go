@@ -192,6 +192,45 @@ func (e *executor) execFNMADD(inst arm64asm.Inst) error {
 	return nil
 }
 
+// FNMSUB computes n*m-a, with the negation applied before fused rounding.
+func (e *executor) execFNMSUB(inst arm64asm.Inst) error {
+	if isFPDouble(inst.Args[0]) {
+		n := e.regs.ReadD(dRegIndex(inst.Args[1].(arm64asm.Reg)))
+		m := e.regs.ReadD(dRegIndex(inst.Args[2].(arm64asm.Reg)))
+		a := e.regs.ReadD(dRegIndex(inst.Args[3].(arm64asm.Reg)))
+		e.regs.WriteD(dRegIndex(inst.Args[0].(arm64asm.Reg)), math.FMA(n, m, -a))
+	} else {
+		n := e.regs.ReadS(sRegIndex(inst.Args[1].(arm64asm.Reg)))
+		m := e.regs.ReadS(sRegIndex(inst.Args[2].(arm64asm.Reg)))
+		a := e.regs.ReadS(sRegIndex(inst.Args[3].(arm64asm.Reg)))
+		e.regs.WriteS(sRegIndex(inst.Args[0].(arm64asm.Reg)), fusedSingle(n, m, -a))
+	}
+	return nil
+}
+
+// A binary32 product is exact in binary64. Preserve the sum's rounding residue
+// with round-to-odd before narrowing, avoiding double rounding when a tiny
+// addend nudges an exact binary32 halfway product to one side of the tie.
+// TwoSum below gives sum+residue equal to the exact product+addend: all finite
+// binary32 products fit binary64 without overflow or underflow. If rounding was
+// inexact, forcing the low binary64 bit odd preserves which side of a binary32
+// midpoint the exact sum occupied. With 53 versus 24 significand bits, this
+// perturbation cannot cross another binary32 rounding boundary. This implements
+// round-to-nearest-even only; it does not model FPCR modes or NaN payload rules.
+func fusedSingle(n, m, a float32) float32 {
+	product := float64(n) * float64(m)
+	sum := product + float64(a)
+	if math.IsNaN(sum) || math.IsInf(sum, 0) {
+		return float32(math.FMA(float64(n), float64(m), float64(a)))
+	}
+	b := sum - product
+	residue := (product - (sum - b)) + (float64(a) - b)
+	if residue != 0 && math.Float64bits(sum)&1 == 0 {
+		sum = math.Nextafter(sum, math.Copysign(math.Inf(1), residue))
+	}
+	return float32(sum)
+}
+
 func (e *executor) execFMOV(inst arm64asm.Inst) error {
 	dst := inst.Args[0]
 	src := inst.Args[1]

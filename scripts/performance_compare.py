@@ -8,6 +8,7 @@ import frontend_microbenchmark as frontend
 import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
 import scheduling_microbenchmark as scheduling
+import capacity_microbenchmark as capacity
 import memory_microbenchmark as memory
 import model_profiles
 
@@ -99,6 +100,13 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
             scheduling.load_reference(user.ROOT)
             report["scheduling_simulation"] = {
                 label: scheduling.measure(binary, user.ROOT, revision, profiles[label])
+                for label, binary, revision in (("head", args.head, state["commit"]),
+                                                ("base", args.base, args.base_commit))
+            }
+        if capacity.declared(state["files"]):
+            capacity.load_reference(user.ROOT)
+            report["capacity_simulation"] = {
+                label: capacity.measure(binary, user.ROOT, revision, profiles[label])
                 for label, binary, revision in (("head", args.head, state["commit"]),
                                                 ("base", args.base, args.base_commit))
             }

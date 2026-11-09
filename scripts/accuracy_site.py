@@ -23,6 +23,7 @@ import frontend_microbenchmark as probe
 import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
 import scheduling_microbenchmark as scheduling
+import capacity_microbenchmark as capacity
 import memory_microbenchmark as memory
 import model_profiles
 from usertime import error_percent
@@ -553,6 +554,9 @@ def bundle_compact(report_path, source, output, commit):
         if scheduling.declared(report["head"]["files"]):
             shutil.copyfile(source / scheduling.REFERENCE, output / "scheduling.json")
             names.add("scheduling.json")
+        if capacity.declared(report["head"]["files"]):
+            shutil.copyfile(source / capacity.REFERENCE, output / "capacity.json")
+            names.add("capacity.json")
         if forwarding.declared(report["head"]["files"]):
             shutil.copyfile(source / forwarding.REFERENCE, output / "forwarding.json")
             names.add("forwarding.json")
@@ -566,7 +570,7 @@ def bundle_compact(report_path, source, output, commit):
           run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
           files={name: digest(output / name) for name in names}))
     validate_bundle(output, commit)
-    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None, forwarding_reference=read(output / "forwarding.json") if "forwarding.json" in names else None, scheduling_reference=read(output / "scheduling.json") if "scheduling.json" in names else None, memory_reference=read(output / "memory.json") if "memory.json" in names else None))
+    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None, forwarding_reference=read(output / "forwarding.json") if "forwarding.json" in names else None, scheduling_reference=read(output / "scheduling.json") if "scheduling.json" in names else None, memory_reference=read(output / "memory.json") if "memory.json" in names else None, capacity_reference=read(output / "capacity.json") if "capacity.json" in names else None))
 
 
 def validate_compact_bundle(path, commit, manifest):
@@ -581,6 +585,10 @@ def validate_compact_bundle(path, commit, manifest):
             if digest(regular(path / "scheduling.json")) != report["head"]["files"].get(scheduling.REFERENCE):
                 raise ValueError("scheduling reference differs from tested source")
             names.add("scheduling.json")
+        if capacity.declared(report["head"]["files"]):
+            if digest(regular(path / "capacity.json")) != report["head"]["files"].get(capacity.REFERENCE):
+                raise ValueError("capacity reference differs from tested source")
+            names.add("capacity.json")
         if forwarding.declared(report["head"]["files"]):
             if digest(regular(path / "forwarding.json")) != report["head"]["files"].get(forwarding.REFERENCE):
                 raise ValueError("forwarding reference differs from tested source")
@@ -611,6 +619,11 @@ def validate_compact_bundle(path, commit, manifest):
         scheduling.validate_comparison(report.get("scheduling_simulation"), native_scheduling["cases"])
     elif "scheduling_simulation" in report:
         raise ValueError("scheduling suite absent from tested source")
+    if capacity.declared(report["head"]["files"]):
+        native_capacity = capacity.validate_reference(read(path / "capacity.json"), report["head"]["files"])
+        capacity.validate_comparison(report.get("capacity_simulation"), native_capacity["cases"])
+    elif "capacity_simulation" in report:
+        raise ValueError("capacity suite absent from tested source")
     if forwarding.declared(report["head"]["files"]):
         native_forwarding = forwarding.validate_reference(read(path / "forwarding.json"), report["head"]["files"])
         forwarding.validate_comparison(report.get("forwarding_simulation"), native_forwarding["cases"])
@@ -1240,6 +1253,57 @@ def scheduling_panels(reference, simulations, profiles):
 
 
 
+def capacity_panels(reference, simulations, profiles):
+    """Capacity controls and divider probes never enter application summaries."""
+    capacity.validate_reference(reference)
+    capacity.validate_comparison(simulations, reference["cases"])
+    frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
+    if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
+        raise ValueError("invalid capacity model frequency")
+    rows = []
+    for index, case in enumerate(reference["cases"]):
+        native = {key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")}
+        modeled = {role: simulations[role][index]["cycles"] * 1e9 / 1024 / frequencies[role] for role in ("base", "head")}
+        spread = 100 * (native["p90"] - native["p10"]) / native["median"]
+        tip = f'{case["id"]}: native {native["median"]:.3f} ns/iteration; P10-P90 {native["p10"]:.3f}-{native["p90"]:.3f}; base {modeled["base"]:.3f}, head {modeled["head"]:.3f}'
+        rows.append(dict(case=case, native=native, modeled=modeled, spread=spread, tooltip=tip))
+    graphs = ('<h3>FP capacity and divider controls</h3><p>Two independent integer dependency gates surround independent FP destinations. '
+              'Gate lengths, NOP fillers and ungated FP throughput distinguish rename pressure from ROB, dependency and execution-port limits. '
+              'Native ns are thread CPU-time differences; core and instantaneous frequency were unobserved. '
+              'Model ns use each profile’s assumed frequency to convert simulated cycles. '
+              'The model FP destination cap is separate from its ROB capacity and is not a physical register-file size. '
+              'Divider controls include trivial fixed points and normal reciprocal / sqrt(x+1) recurrences. '
+              'All results remain separate from application accuracy statistics.</p><div class="charts">')
+    groups = [(f"FP destinations, gate {gate}", [r for r in rows if r["case"]["id"].startswith(f"fp_g{gate}_")], "Independent FP destinations", "_n") for gate in (64, 96)]
+    groups += [(f"NOP / ROB control, gate {gate}", [r for r in rows if r["case"]["id"].startswith(f"nop_g{gate}_")], "NOP fillers", "_n") for gate in (64, 96)]
+    groups += [("Ungated FP ports", [r for r in rows if r["case"]["kind"] == "ports"], "Independent FP destinations", "_n")]
+    for op in ("fdiv", "fsqrt"):
+        for normal in (False, True):
+            groups.append((op.upper() + (" normal operands" if normal else " trivial operand control"),
+                           [r for r in rows if r["case"]["kind"] == op and ("normal" in r["case"]["id"]) == normal],
+                           "Independent active lanes", "lanes"))
+    for title, selected, xlabel, separator in groups:
+        selected.sort(key=lambda r: int(r["case"]["id"].split(separator)[1]))
+        series = []
+        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
+            points = [(int(r["case"]["id"].split(separator)[1]),
+                       r["native"]["median"] if role == "native" else r["modeled"][role], r["tooltip"]) for r in selected]
+            series.append((role, points, color))
+        graphs += chart(title, series, xlabel, "ns/iteration", scatter=True,
+                        x_ticks=[(n, str(n)) for n in (1, 4, 16)] if separator == "lanes" else None)
+    graphs += '</div>'
+    table = (f'<details id="capacity-table"><summary>FP capacity and divider table · {len(rows)} probes</summary>'
+             '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/iteration</th><th>P10–P90</th><th>Spread</th><th>Quality</th>'
+             '<th>Base ns/iteration</th><th>Head ns/iteration</th></tr></thead><tbody>')
+    for r in rows:
+        n, m = r["native"], r["modeled"]
+        table += (f'<tr><td>{esc(r["case"]["id"])}</td><td>{n["median"]:.3f}</td><td>{n["p10"]:.3f}–{n["p90"]:.3f}</td>'
+                  f'<td>{r["spread"]:.1f}%</td><td>{"noisy" if r["spread"] > 20 else "usable"}</td><td>{m["base"]:.3f}</td><td>{m["head"]:.3f}</td></tr>')
+    table += ('</tbody></table></div><p>Raw spread is not a confidence interval. Capacity inference uses additional interleaved ABBA controls, '
+              'retained with the <a href="capacity.json">native reference and provenance</a>. No samples are dropped.</p></details>')
+    return graphs, table
+
+
 def memory_panels(reference, simulations, profiles, base_large_image_support):
     """One canonical renderer for CI reports, live snapshots and diagnostic previews."""
     memory.validate_reference(reference)
@@ -1477,7 +1541,7 @@ def live_progress(live):
     return body + '</section>'
 
 
-def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None):
+def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None, capacity_reference=None):
     commit = entry["commit"]
     full_inventory = report["artifact_status"] == "pass" or live is not None
     body = (
@@ -1549,6 +1613,10 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         scheduling_charts, scheduling_table = scheduling_panels(
             scheduling_reference, report.get("scheduling_simulation"), model_profiles.validate(report))
         body += scheduling_charts
+    capacity_table = ""
+    if capacity_reference:
+        capacity_charts, capacity_table = capacity_panels(capacity_reference, report.get("capacity_simulation"), model_profiles.validate(report))
+        body += capacity_charts
     forwarding_table = ""
     if forwarding_reference:
         forwarding_charts, forwarding_table = forwarding_panels(
@@ -1560,7 +1628,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     elif frontend:
         body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
                  + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
-    body += memory_table + scheduling_table + forwarding_table
+    body += memory_table + scheduling_table + forwarding_table + capacity_table
     body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
              + timing_table(micros, micro_ids) + '</details></section>')
     replacement = report.get("reference", {}).get("streamcluster_replacement")
@@ -1860,8 +1928,9 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
         throughput_reference = read(p / "throughput.json") if "throughput.json" in retained_manifest["files"] else None
         forwarding_reference = read(p / "forwarding.json") if "forwarding.json" in retained_manifest["files"] else None
         scheduling_reference = read(p / "scheduling.json") if "scheduling.json" in retained_manifest["files"] else None
+        capacity_reference = read(p / "capacity.json") if "capacity.json" in retained_manifest["files"] else None
         memory_reference = read(p / "memory.json") if "memory.json" in retained_manifest["files"] else None
-        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference, scheduling_reference=scheduling_reference, memory_reference=memory_reference))
+        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference, scheduling_reference=scheduling_reference, memory_reference=memory_reference, capacity_reference=capacity_reference))
     write(index_path, index)
     (root / "index.html").write_text(home(index))
     (site / ".nojekyll").touch()

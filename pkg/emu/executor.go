@@ -235,6 +235,8 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execFNMUL(inst)
 	case arm64asm.FNMADD:
 		return false, e.execFNMADD(inst)
+	case arm64asm.FNMSUB:
+		return false, e.execFNMSUB(inst)
 
 	// SIMD scalar move / widen
 	case arm64asm.MOVI:
