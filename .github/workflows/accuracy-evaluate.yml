@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       plan_id: ${{ steps.prepare.outputs.plan_id }}
+      diagnostics: ${{ steps.prepare.outputs.diagnostics }}
       artifact: accuracy-prepared-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +35,10 @@ jobs:
           python3 scripts/accuracy_parallel.py prepare --base "${BASE_REVISION:-HEAD^}" \
             --prepared "$RUNNER_TEMP/prepared" --shards 132 \
             --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+          diagnostics=$(python3 scripts/accuracy_parallel.py diagnostic-tasks \
+            --prepared "$RUNNER_TEMP/prepared" --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" --output "$RUNNER_TEMP/prepared/diagnostics.json")
+          echo "diagnostics=$diagnostics" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: accuracy-prepared-${{ github.run_attempt }}
@@ -80,9 +85,42 @@ jobs:
           path: ${{ runner.temp }}/shard/
           retention-days: 30
           if-no-files-found: warn
+  accuracy-diagnostics:
+    name: Accuracy diagnostic ${{ matrix.point }}
+    needs: accuracy-prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        point: ${{ fromJSON(needs.accuracy-prepare.outputs.diagnostics) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.target }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.accuracy-prepare.outputs.artifact }}
+          path: ${{ runner.temp }}/prepared/
+      - name: Execute one diagnostic point with the prepared binaries
+        run: |
+          chmod +x "$RUNNER_TEMP/prepared/head" "$RUNNER_TEMP/prepared/base"
+          python3 scripts/accuracy_parallel.py diagnostic --prepared "$RUNNER_TEMP/prepared" \
+            --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --diagnostic-index '${{ matrix.point }}' --checkpoints "$RUNNER_TEMP/diagnostic" \
+            --output "$RUNNER_TEMP/diagnostic/diagnostic.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: accuracy-diagnostic-${{ needs.accuracy-prepare.outputs.plan_id }}-${{ matrix.point }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/diagnostic/
+          retention-days: 30
+          if-no-files-found: warn
   user-time-accuracy:
     name: User-time accuracy report
-    needs: [accuracy-prepare, accuracy-shards]
+    needs: [accuracy-prepare, accuracy-shards, accuracy-diagnostics]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -101,20 +139,24 @@ jobs:
         with:
           pattern: accuracy-shard-${{ needs.accuracy-prepare.outputs.plan_id }}-*
           path: ${{ runner.temp }}/shards/
+      - uses: actions/download-artifact@v4
+        if: always() && needs.accuracy-prepare.result == 'success'
+        with:
+          pattern: accuracy-diagnostic-${{ needs.accuracy-prepare.outputs.plan_id }}-*
+          path: ${{ runner.temp }}/diagnostics/
       - name: Validate complete shard coverage and build the report
         if: always()
         env:
           SHARD_STATUS: ${{ needs.accuracy-shards.result }}
+          DIAGNOSTIC_STATUS: ${{ needs.accuracy-diagnostics.result }}
         run: |
-          # Downloaded artifacts lose executable permissions; aggregation probes both revisions.
-          for binary in head base; do
-            if [ -f "$RUNNER_TEMP/prepared/$binary" ]; then
-              chmod +x "$RUNNER_TEMP/prepared/$binary"
-            fi
-          done
+          if [ "$DIAGNOSTIC_STATUS" != success ]; then
+            SHARD_STATUS="diagnostics-$DIAGNOSTIC_STATUS"
+          fi
           python3 scripts/accuracy_parallel.py aggregate --prepared "$RUNNER_TEMP/prepared" \
             --results "$RUNNER_TEMP/shards" --shard-status "$SHARD_STATUS" \
             --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" \
+            --checkpoints "$RUNNER_TEMP/diagnostics" \
             --output evaluation-results/usertime/report.json
       - name: Build browsable evidence bundle
         if: always()

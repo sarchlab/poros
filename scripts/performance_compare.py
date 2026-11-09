@@ -63,8 +63,8 @@ def application_row(case, native, measured, report, head, base, executor):
     return row
 
 
-def compare(args, executor, *, memory_simulation=None, memory_base_large_image_support=None, source=None, checkpoints=None, progress_path=None):
-    """Optional memory_simulation consumes validated rows; None requests serial measurement."""
+def compare(args, executor, *, memory_simulation=None, memory_base_large_image_support=None, source=None, checkpoints=None, progress_path=None, diagnostic_simulation=None, replay_only=False):
+    """Consume supplied rows; replay_only forbids all diagnostic execution fallbacks."""
     import usertime as user
     root = Path(source) if source is not None else Path(user.ROOT)
     output = Path(args.output)
@@ -120,6 +120,11 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
         import accuracy_site as site
         report["reporting"] = reporting_identity()
         report["diagnostic_progress"] = {}
+        diagnostics = {name: suite for name, suite in site.declared_diagnostics(report).items() if name != "memory"}
+        if diagnostic_simulation is not None and set(diagnostic_simulation) != set(diagnostics):
+            raise ValueError("recorded diagnostic suite coverage mismatch")
+        if replay_only and diagnostic_simulation is None:
+            raise ValueError("aggregation requires recorded diagnostic evidence")
         for name in site.declared_diagnostics(report):
             report[name + "_simulation"] = [] if name == "throughput" else {"head": [], "base": []}
         if memory.declared(state["files"]):
@@ -137,6 +142,16 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
             if name == "memory":
                 continue
             suite.load_reference(root)
+            if diagnostic_simulation is not None:
+                rows = diagnostic_simulation[name]
+                if name == "throughput":
+                    suite.validate_simulation(rows, suite.cases(root))
+                else:
+                    suite.validate_comparison(rows, suite.cases(root))
+                report[name + "_simulation"] = rows
+                report["diagnostic_progress"][name] = dict(state="complete", active=[], errors=[])
+                publish()
+                continue
             for label in (("head",) if name == "throughput" else ("head", "base")):
                 binary = args.head if label == "head" else args.base
                 revision = state["commit"] if label == "head" else args.base_commit
@@ -166,6 +181,8 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
                 else:
                     report[name + "_simulation"][label] = rows
         if throughput.ELF not in state["files"] and frontend.ELF in state["files"]:
+            if replay_only:
+                raise ValueError("aggregation requires recorded legacy frontend evidence")
             report["frontend_simulation"] = frontend.measure(args.head, root, state["commit"], profiles["head"])
         if (memory_simulation is not None or memory_base_large_image_support is not None) and not memory.declared(state["files"]):
             raise ValueError("recorded memory rows supplied without a declared suite")
@@ -178,6 +195,8 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
                     raise ValueError("recorded memory base capability differs from source")
                 report["memory_simulation"] = memory_simulation
             else:
+                if replay_only:
+                    raise ValueError("aggregation requires recorded memory evidence")
                 print("accuracy memory: measuring the full memory suite serially for both revisions; use accuracy_parallel.py for sharded execution", flush=True)
                 report["memory_simulation"] = {
                     label: memory.measure(binary, root, revision, profiles[label])

@@ -33,6 +33,7 @@ jobs:
       - run: python3 scripts/accuracy_live_test.py
       - run: python3 scripts/compute_usertime_test.py
       - run: python3 scripts/accuracy_parallel_test.py
+      - run: python3 scripts/accuracy_diagnostics_test.py
       - run: python3 scripts/probe_checkpoint_test.py
       - run: python3 scripts/frontend_microbenchmark_test.py
       - run: python3 scripts/throughput_microbenchmark_test.py

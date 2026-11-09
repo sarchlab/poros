@@ -387,6 +387,142 @@ def aggregate_memory(directory, results, run_id, attempt, output):
     return 0
 
 
+def diagnostic_tasks(plan, source):
+    """Stable point ownership derived from the unchanged measured-source plan."""
+    tasks = []
+    for name, suite in site.declared_diagnostics({"head": plan["head"]}).items():
+        if name == "memory":
+            continue
+        suite.load_reference(source)
+        for index, case in enumerate(suite.cases(source), 1):
+            tasks.append(dict(diagnostic_index=len(tasks), suite=name, index=index, case=case,
+                              roles=["head"] if name == "throughput" else ["head", "base"]))
+    return tasks
+
+
+def diagnostic_checkpoint(plan, directory, checkpoints, name, role):
+    from probe_checkpoint import Checkpoint, digest
+    suite = site.DIAGNOSTIC_SUITES[name]
+    state = plan["head"]
+    revision = state["commit"] if role == "head" else plan["base_commit"]
+    return Checkpoint(checkpoints, name, role,
+                      dict(commit=state["commit"], files_sha256=digest(state["files"])),
+                      Path(directory) / role, revision, plan["model_profiles"][role]["profile"],
+                      state["files"][suite.ELF])
+
+
+def diagnostic_inventory(directory, run_id, attempt, source, output):
+    source = ROOT if source is None else Path(source)
+    plan, _ = load_plan(directory, run_id, attempt, source)
+    inventory = dict(schema=1, plan_id=identity(plan), run_id=run_id, head=plan["head"]["commit"],
+                     base=plan["base_commit"], tasks=diagnostic_tasks(plan, source))
+    write(output, inventory)
+    return inventory
+
+
+def run_diagnostic_point(directory, run_id, attempt, index, checkpoints, output, *, source=None):
+    """One scheduler-owned point per worker; short/long raw writes are atomic."""
+    from accuracy_progress import atomic_write, reporting_identity
+    source = ROOT if source is None else Path(source)
+    plan, _ = load_plan(directory, run_id, attempt, source)
+    tasks = diagnostic_tasks(plan, source)
+    if type(index) is not int or not 0 <= index < len(tasks):
+        raise ValueError("unknown diagnostic point")
+    task = tasks[index]
+    checkpoints = Path(checkpoints)
+    checkpoints.mkdir(parents=True, exist_ok=True)
+    # The scheduler assigns each point once. This also rejects duplicate local
+    # writers sharing a task directory; retries reuse completed raw executions.
+    lock = checkpoints / ".diagnostic.lock"
+    with lock.open("x") as stream:
+        stream.write(str(os.getpid()))
+    report = dict(schema=1, plan_id=identity(plan), run_id=run_id, attempt=attempt,
+                  task=task, status="running", completed_roles=[], errors=[],
+                  reporting=reporting_identity(), started_at=time.time())
+    try:
+        expected = {f"{task['suite']}-{role}-{task['index']}-{n}.json"
+                    for role in task["roles"] for n in site.DIAGNOSTIC_SUITES[task["suite"]].ITERATIONS}
+        if any(path.name not in expected | {"diagnostic.json", "receipt.json", "started.json"}
+               for path in checkpoints.glob("*.json")):
+            raise ValueError("diagnostic directory belongs to another point")
+        atomic_write(output, report)
+        suite = site.DIAGNOSTIC_SUITES[task["suite"]]
+        for role in task["roles"]:
+            checkpoint = diagnostic_checkpoint(plan, directory, checkpoints, task["suite"], role)
+            suite.measure_case(Path(directory) / role, source, task["case"], task["index"],
+                               checkpoint.identity["revision"], checkpoint.identity["profile"], checkpoint=checkpoint)
+            report["completed_roles"].append(role)
+            atomic_write(output, report)
+        load_plan(directory, run_id, attempt, source)
+        report["status"] = "pass"
+    except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
+        report.update(status="fail", errors=[str(error)])
+    finally:
+        report["completed_at"] = time.time()
+        try:
+            atomic_write(output, report)
+        finally:
+            lock.unlink()
+    print("diagnostic", index, task["suite"], task["case"]["id"], report["status"], flush=True)
+    return 0 if report["status"] == "pass" else 1
+
+
+def recorded_diagnostics(plan, directory, source, checkpoints, *, partial=False):
+    """Read raw checkpoints only. Missing pairs may remain pending in live views."""
+    tasks = diagnostic_tasks(plan, source)
+    expected = {}
+    simulations, progress = {}, {}
+    for task in tasks:
+        name, index = task["suite"], task["index"]
+        simulations.setdefault(name, [] if name == "throughput" else {"head": [], "base": []})
+        progress.setdefault(name, dict(state="pending", active=[], errors=[]))
+        for role in task["roles"]:
+            for n in site.DIAGNOSTIC_SUITES[name].ITERATIONS:
+                expected[f"{name}-{role}-{index}-{n}.json"] = (task, role, n)
+    paths = {}
+    if checkpoints is not None:
+        for path in sorted(Path(checkpoints).rglob("*.json")):
+            if path.name in ("diagnostic.json", "receipt.json", "started.json"):
+                continue # worker/transport status is not measurement evidence
+            if path.name not in expected:
+                raise ValueError("unexpected diagnostic checkpoint: " + str(path))
+            if path.name in paths:
+                raise ValueError("duplicate diagnostic checkpoint: " + path.name)
+            paths[path.name] = path
+    saved_roles = {}
+    for task in tasks:
+        name, index, case = task["suite"], task["index"], task["case"]
+        suite = site.DIAGNOSTIC_SUITES[name]
+        for role in task["roles"]:
+            if (name, role) not in saved_roles:
+                saved_roles[name, role] = diagnostic_checkpoint(plan, directory, checkpoints or directory, name, role)
+            saved = saved_roles[name, role]
+            samples = []
+            for n in suite.ITERATIONS:
+                filename = saved.filename(index, n)
+                if filename not in paths:
+                    if not partial:
+                        raise ValueError("missing diagnostic checkpoint: " + filename)
+                    continue
+                validate = lambda row: suite.validate_execution(row, source, case, index, n, "ooo", saved.identity["revision"], saved.identity["profile"])
+                samples.append(saved.read(case, index, n, validate, path=paths[filename]))
+            if len(samples) == 2:
+                row = suite.summarize_samples(case, samples)
+                rows = simulations[name] if name == "throughput" else simulations[name][role]
+                rows.append(row)
+            elif samples:
+                progress[name]["active"].append(dict(role=role, id=case["id"]))
+    for name, rows in simulations.items():
+        suite = site.DIAGNOSTIC_SUITES[name]
+        roles = {"head": rows} if name == "throughput" else rows
+        declared = suite.cases(source)
+        for values in roles.values():
+            suite.validate_simulation(values, declared, partial=partial)
+        complete = all(len(values) == len(declared) for values in roles.values())
+        progress[name]["state"] = "complete" if complete else "running" if progress[name]["active"] else "partial" if any(roles.values()) else "pending"
+    return simulations, progress
+
+
 def aggregate(directory, results, run_id, attempt, output, shard_status="success", *, source=None, checkpoints=None, progress=None):
     root = ROOT if source is None else Path(source)
     output = Path(output)
@@ -418,8 +554,10 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
             memory_reports = [selected[i] for i in range(len(plan["memory"]["shards"]))]
             memory_simulation = recorded_memory(plan, memory_reports, attempt)
             memory_base_large_image_support = plan["memory"]["base_large_image_support"]
+        diagnostic_simulation, _ = recorded_diagnostics(plan, directory, root, checkpoints)
         status = user.compare(args, executor, memory_simulation=memory_simulation,
-                              memory_base_large_image_support=memory_base_large_image_support, source=source, checkpoints=checkpoints, progress_path=progress)
+                              memory_base_large_image_support=memory_base_large_image_support, source=source,
+                              diagnostic_simulation=diagnostic_simulation, replay_only=True, progress_path=progress)
         if status:
             # The shared comparator already wrote its detailed failure report.
             return status
@@ -439,7 +577,7 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("prepare", "shard", "aggregate", "memory-shard", "memory-aggregate"):
+    for name in ("prepare", "shard", "aggregate", "memory-shard", "memory-aggregate", "diagnostic-tasks", "diagnostic"):
         p = sub.add_parser(name)
         p.add_argument("--prepared", required=True)
         p.add_argument("--run-id", required=True)
@@ -458,6 +596,11 @@ def main():
             p.add_argument("--source", type=Path)
             p.add_argument("--checkpoints", type=Path)
             p.add_argument("--progress", type=Path)
+        if name in ("diagnostic-tasks", "diagnostic"):
+            p.add_argument("--source", type=Path)
+        if name == "diagnostic":
+            p.add_argument("--diagnostic-index", type=int, required=True)
+            p.add_argument("--checkpoints", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "prepare":
         plan_id = prepare(args.base, args.prepared, args.run_id, args.attempt, args.shards)
@@ -470,6 +613,13 @@ def main():
         return run_memory_shard(args.prepared, args.run_id, args.attempt, args.index, args.output)
     if args.command == "memory-aggregate":
         return aggregate_memory(args.prepared, args.results, args.run_id, args.attempt, args.output)
+    if args.command == "diagnostic-tasks":
+        inventory = diagnostic_inventory(args.prepared, args.run_id, args.attempt, args.source, args.output)
+        print(json.dumps([task["diagnostic_index"] for task in inventory["tasks"]]))
+        return 0
+    if args.command == "diagnostic":
+        return run_diagnostic_point(args.prepared, args.run_id, args.attempt, args.diagnostic_index,
+                                    args.checkpoints, args.output, source=args.source)
     if args.command == "shard":
         return run_shard(args.prepared, args.run_id, args.attempt, args.index, args.output)
     return aggregate(args.prepared, args.results, args.run_id, args.attempt, args.output, args.shard_status, source=args.source, checkpoints=args.checkpoints, progress=args.progress)
