@@ -49,8 +49,9 @@ def git(*args):
     return subprocess.check_output(["git", "-C", str(ROOT), *args], text=True).strip()
 
 
-def inputs():
-    declared, measured = reference.load(ROOT, require_native=True)
+def inputs(root=None):
+    root = ROOT if root is None else Path(root)
+    declared, measured = reference.load(root, require_native=True)
     cases = declared["cases"]
     identities = {r["id"]: user.OutputIdentity(r["output_bytes"], r["output_sha256"]) for r in measured["cases"]}
     return cases, identities
@@ -107,32 +108,33 @@ def prepare(base, directory, run_id, attempt, shards):
     return identity(plan)
 
 
-def load_plan(directory, run_id, attempt):
+def load_plan(directory, run_id, attempt, source=None):
+    root = ROOT if source is None else Path(source)
     directory = Path(directory)
     plan = read(directory / "plan.json")
     if plan["schema"] != SCHEMA or plan["run_id"] != str(run_id):
         raise ValueError("plan schema/run mismatch")
     if positive(plan["prepared_attempt"]) > positive(attempt):
         raise ValueError("plan belongs to a future attempt")
-    state = user.source_state()
+    state = user.source_state(root)
     if state["dirty"] or plan["head"] != state:
         raise ValueError("plan source mismatch")
     site.sha(plan["base_commit"])
-    if plan.get("model_profiles") != model_profiles.resolve(ROOT, state, plan["base_commit"]):
+    if plan.get("model_profiles") != model_profiles.resolve(root, state, plan["base_commit"]):
         raise ValueError("plan model declarations differ from source")
     if memory.declared(state["files"]):
-        if plan.get("memory") != memory_plan(state, len(plan["shards"]), plan["base_commit"]):
+        if plan.get("memory") != memory_plan(state, len(plan["shards"]), plan["base_commit"], root):
             raise ValueError("memory plan source/coverage mismatch")
     elif "memory" in plan:
         raise ValueError("memory plan absent from source")
-    cases, witnesses = inputs()
+    cases, witnesses = inputs(root)
     if plan["cases"] != cases or plan["shards"] != partition(cases, len(plan["shards"])):
         raise ValueError("plan coverage/partition mismatch")
-    if plan["base_capability"] != compute.base_capability(plan["base_commit"]):
+    if plan["base_capability"] != compute.base_capability(plan["base_commit"], root):
         raise ValueError("plan base image capability mismatch")
-    if plan["compute_base_available"] is not compute.base_declares_cohort(plan["base_commit"]):
+    if plan["compute_base_available"] is not compute.base_declares_cohort(plan["base_commit"], root):
         raise ValueError("plan base capability mismatch")
-    if plan["references"] != {"performance264": user.digest(ROOT / REFERENCE)}:
+    if plan["references"] != {"performance264": user.digest(root / REFERENCE)}:
         raise ValueError("plan reference mismatch")
     if set(plan["binaries"]) != {"head", "base"}:
         raise ValueError("plan binaries missing")
@@ -200,7 +202,7 @@ def run_shard(directory, run_id, attempt, index, output):
     return 0 if report["status"] == "pass" else 1
 
 
-def select_shards(plan, reports, attempt):
+def select_shards(plan, reports, attempt, *, partial=False):
     """A failed-job rerun can reuse older successful shards of this exact plan.
 
     A newer failure supersedes an older success. Whole reruns create a new plan
@@ -220,7 +222,7 @@ def select_shards(plan, reports, attempt):
         seen.add((index, recorded_attempt))
         if index not in selected or selected[index]["attempt"] < recorded_attempt:
             selected[index] = report
-    if set(selected) != set(range(len(plan["shards"]))):
+    if not partial and set(selected) != set(range(len(plan["shards"]))):
         raise ValueError("missing required shards")
     for index, report in selected.items():
         if report["status"] != "pass" or report["errors"] or not report.get("completed_at"):
@@ -264,15 +266,16 @@ def recorded_executor(plan, selected, witnesses, directory):
 
 
 
-def memory_plan(state, shards, base):
+def memory_plan(state, shards, base, root=None):
     """Memory cases partitioned across existing workers, with explicit source binding."""
-    memory.load_reference(ROOT)
-    declared = memory.cases(ROOT)
+    root = ROOT if root is None else Path(root)
+    memory.load_reference(root)
+    declared = memory.cases(root)
     result = dict(reference_sha256=state["files"][memory.REFERENCE],
                 cases=declared,
                 shards=partition(declared, min(shards, len(declared))))
     result["elfs"] = {name: state["files"][name] for name in {memory.case_elf(c) for c in declared}}
-    result["base_large_image_support"] = memory.supports_large_images(ROOT, base)
+    result["base_large_image_support"] = memory.supports_large_images(root, base)
     return result
 
 
@@ -320,7 +323,7 @@ def run_memory_shard(directory, run_id, attempt, index, output):
     return 0 if report["status"] == "pass" else 1
 
 
-def recorded_memory(plan, reports, attempt):
+def recorded_memory(plan, reports, attempt, *, partial=False):
     """Validate raw role/length executions before deriving compact memory rows."""
     partitions = plan["memory"]["shards"]
     selected, seen = {}, set()
@@ -337,7 +340,7 @@ def recorded_memory(plan, reports, attempt):
         seen.add((index, recorded_attempt))
         if index not in selected or selected[index]["attempt"] < recorded_attempt:
             selected[index] = report
-    if set(selected) != set(range(len(partitions))):
+    if not partial and set(selected) != set(range(len(partitions))):
         raise ValueError("missing required memory shards")
     declared = {c["id"]: c for c in plan["memory"]["cases"]}
     result = {role: {} for role in ("head", "base")}
@@ -364,8 +367,8 @@ def recorded_memory(plan, reports, attempt):
                 result[role][case["id"]] = memory.summarize_samples(case, samples)
             if "base" not in memory_roles(plan, case):
                 result["base"][case["id"]] = memory.unavailable(case)
-    result = {role: [rows[c["id"]] for c in plan["memory"]["cases"]] for role, rows in result.items()}
-    memory.validate_comparison(result, plan["memory"]["cases"], plan["memory"]["base_large_image_support"])
+    result = {role: [rows[c["id"]] for c in plan["memory"]["cases"] if c["id"] in rows] for role, rows in result.items()}
+    memory.validate_comparison(result, plan["memory"]["cases"], plan["memory"]["base_large_image_support"], partial=partial)
     return result
 
 
@@ -384,20 +387,28 @@ def aggregate_memory(directory, results, run_id, attempt, output):
     return 0
 
 
-def aggregate(directory, results, run_id, attempt, output, shard_status="success"):
+def aggregate(directory, results, run_id, attempt, output, shard_status="success", *, source=None, checkpoints=None, progress=None):
+    root = ROOT if source is None else Path(source)
     output = Path(output)
-    # Create a valid failure artifact even when prepare/download was unavailable.
-    site.failure(output.parent, git("rev-parse", "HEAD"), "Parallel accuracy aggregation incomplete")
+    # A reporting-only checkout never relabels the measured target on failure.
+    target = site.git(root, "rev-parse", "HEAD") if source is not None else git("rev-parse", "HEAD")
+    def failure(message):
+        from accuracy_progress import reporting_identity
+        site.failure(output.parent, target, message)
+        failed = read(output.parent / "report.json")
+        failed["reporting"] = reporting_identity()
+        write(output.parent / "report.json", failed)
+    failure("Parallel accuracy aggregation incomplete")
     try:
         if shard_status != "success":
             raise ValueError("upstream shard jobs did not succeed: " + shard_status)
-        plan, witnesses = load_plan(directory, run_id, attempt)
+        plan, witnesses = load_plan(directory, run_id, attempt, source)
         paths = sorted(Path(results).rglob("shard.json"))
         selected = select_shards(plan, [read(path) for path in paths], attempt)
         executor, remaining = recorded_executor(plan, selected, witnesses, directory)
         args = SimpleNamespace(head=str(Path(directory) / "head"), base=str(Path(directory) / "base"),
                                base_unavailable=False, base_commit=plan["base_commit"],
-                               reference=str(ROOT / REFERENCE),
+                               reference=str(root / REFERENCE),
                                output=str(output))
         memory_simulation = None
         memory_base_large_image_support = None
@@ -408,20 +419,20 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
             memory_simulation = recorded_memory(plan, memory_reports, attempt)
             memory_base_large_image_support = plan["memory"]["base_large_image_support"]
         status = user.compare(args, executor, memory_simulation=memory_simulation,
-                              memory_base_large_image_support=memory_base_large_image_support)
+                              memory_base_large_image_support=memory_base_large_image_support, source=source, checkpoints=checkpoints, progress_path=progress)
         if status:
             # The shared comparator already wrote its detailed failure report.
             return status
         if remaining:
             raise ValueError("executions remained unused")
-        load_plan(directory, run_id, attempt)
+        load_plan(directory, run_id, attempt, source)
         write(output.parent / "shard-summary.json", dict(plan_id=identity(plan), run_id=run_id, attempt=attempt,
               shards=[dict(shard=i, attempt=r["attempt"], cases=len(r["records"]),
                            elapsed_seconds=r["completed_at"] - r["started_at"])
                       for i, r in sorted(selected.items())]))
         return 0
     except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as exc:
-        site.failure(output.parent, git("rev-parse", "HEAD"), "Parallel accuracy aggregation failed: " + str(exc))
+        failure("Parallel accuracy aggregation failed: " + str(exc))
         return 1
 
 
@@ -444,6 +455,9 @@ def main():
             p.add_argument("--results", required=True)
         if name == "aggregate":
             p.add_argument("--shard-status", default="success")
+            p.add_argument("--source", type=Path)
+            p.add_argument("--checkpoints", type=Path)
+            p.add_argument("--progress", type=Path)
     args = parser.parse_args()
     if args.command == "prepare":
         plan_id = prepare(args.base, args.prepared, args.run_id, args.attempt, args.shards)
@@ -458,7 +472,7 @@ def main():
         return aggregate_memory(args.prepared, args.results, args.run_id, args.attempt, args.output)
     if args.command == "shard":
         return run_shard(args.prepared, args.run_id, args.attempt, args.index, args.output)
-    return aggregate(args.prepared, args.results, args.run_id, args.attempt, args.output, args.shard_status)
+    return aggregate(args.prepared, args.results, args.run_id, args.attempt, args.output, args.shard_status, source=args.source, checkpoints=args.checkpoints, progress=args.progress)
 
 
 if __name__ == "__main__":

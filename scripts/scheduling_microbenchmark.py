@@ -40,11 +40,11 @@ def declared(files):
     return any(name in files for name in [*MEASUREMENT_INPUTS, ELF, REFERENCE])
 
 
-def validate_comparison(simulations, declared_cases):
+def validate_comparison(simulations, declared_cases, *, partial=False):
     if not isinstance(simulations, dict) or set(simulations) != {"base", "head"}:
         raise ValueError("scheduling requires both base and head simulation")
     for rows in simulations.values():
-        validate_simulation(rows, declared_cases)
+        validate_simulation(rows, declared_cases, partial=partial)
 
 
 def main():

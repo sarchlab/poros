@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Shared assembly throughput probes: functional CI, native reference, simulation."""
+from report_records import covered_cases
+
 import argparse
 import base64
 from datetime import datetime, timezone
@@ -93,7 +95,13 @@ def execute(binary, root, case, index, iterations, mode, revision=None, profile=
             str(Path(root) / suite.elf), str(index), str(iterations)]
     process = subprocess.run(args, capture_output=True, check=True, timeout=100)
     row = json.loads(process.stdout)
-    if (process.stderr or row["termination"] != "exit" or row["exit_status"] != 0 or row["stderr_base64"]
+    if process.stderr:
+        raise ValueError("probe process wrote stderr")
+    return validate_execution(row, root, case, index, iterations, mode, revision, profile, suite)
+
+
+def validate_execution(row, root, case, index, iterations, mode, revision=None, profile=None, suite=THROUGHPUT):
+    if (row["termination"] != "exit" or row["exit_status"] != 0 or row["stderr_base64"]
             or row["binary_sha256"] != digest(Path(root) / suite.elf)
             or row["args"] != ["program", str(index), str(iterations)] or row["env"]
             or base64.b64decode(row["stdout_base64"], validate=True) != struct.pack("<Q", suite.checksum(case, iterations))
@@ -125,21 +133,29 @@ def smoke(binary, root=ROOT, suite=THROUGHPUT):
         print(case["id"], "functional + ooo checksum passed", flush=True)
 
 
-def measure(binary, root, revision, profile, suite=THROUGHPUT):
+def measure(binary, root, revision, profile, suite=THROUGHPUT, *, checkpoint=None, progress=None):
     declared = cases(root, suite)
     rows = []
     for index, case in enumerate(declared, 1):
-        samples = [execute(binary, root, case, index, n, "ooo", revision, profile, suite) for n in ITERATIONS]
+        if progress:
+            progress(rows, case["id"])
+        samples = []
+        for n in ITERATIONS:
+            collect = lambda: execute(binary, root, case, index, n, "ooo", revision, profile, suite)
+            validate = lambda row: validate_execution(row, root, case, index, n, "ooo", revision, profile, suite)
+            samples.append(checkpoint(case, index, n, collect, validate) if checkpoint else collect())
         instructions = samples[1]["instructions"] - samples[0]["instructions"]
         cycles = samples[1]["timing"]["user_cycles"] - samples[0]["timing"]["user_cycles"]
         rows.append(dict(id=case["id"], instructions=instructions, cycles=cycles))
+        validate_simulation(rows, declared, partial=True)
+        if progress:
+            progress(rows, None)
     validate_simulation(rows, declared)
     return rows
 
 
-def validate_simulation(rows, declared):
-    if not isinstance(rows, list) or [r.get("id") for r in rows] != [c["id"] for c in declared]:
-        raise ValueError("missing/duplicate/reordered assembly probe simulations")
+def validate_simulation(rows, declared, *, partial=False):
+    declared = covered_cases(rows, declared, partial=partial)
     for row, case in zip(rows, declared):
         if (type(row.get("instructions")) is not int or row["instructions"] != (ITERATIONS[1] - ITERATIONS[0]) * case["instructions_per_iteration"]
                 or type(row.get("cycles")) is not int or row["cycles"] <= 0):

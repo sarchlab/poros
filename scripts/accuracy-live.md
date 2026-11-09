@@ -12,16 +12,40 @@ python3 scripts/accuracy_site.py serve --snapshot /path/live-snapshot.json --bun
 ```
 
 The server binds only to `127.0.0.1`. A producer writes the snapshot JSON atomically
-(rename a temporary file), with `kind: poros-accuracy-snapshot-v1`, a schema-4
+(rename a temporary file), with `kind: poros-accuracy-snapshot-v2`, a schema-4
 `report` whose artifact status is **partial**, and `progress` containing state,
 completed/required case and shard counts, active case IDs, errors and an ISO
 8601 timestamp with timezone. The report carries the declared inventory,
-completed validated rows and revision-specific profiles. Optional throughput
-reference/provenance data binds the 17 simulated probes to the same head binary
-and profile. `accuracy_live.validate_snapshot` specifies the input contract;
-the unit test includes a complete synthetic example. Producers must validate
-shard execution identities and outputs before exporting compact rows; the
-renderer never runs simulations or collects hardware measurements.
+completed validated rows and revision-specific profiles. `reference_text` carries
+exact UTF-8 application reference bytes, including whitespace and the final
+newline, bound to the measured head's file manifest. Every declared suite also
+requires exact `<suite>_reference_text` and `<suite>_provenance`; the latter has
+exactly `head_commit`, `base_commit`, `head_binary_sha256`,
+`base_binary_sha256`, and `model_profiles`, all matching the report.
+Throughput uses `report.throughput_simulation` (17 head-only cases); the other
+suites use objects with exactly `base` and `head` lists. Empty lists are pending,
+never zero-cycle predictions. Each list may be an **ordered subset** of its
+reference cases, and base/head subsets may differ. Unknown, duplicate, reordered,
+invalid-count and nonpositive-cycle rows are rejected. All native references and
+profiles are checked even when no simulations have finished.
+
+The schema-4 report and `accuracy_site.validate_compact_evidence` are shared by
+live and CI. Only the snapshot wrapper is version2; existing complete schema-4
+bundles retain their strict coverage and archive validation. Snapshot-v1 producers
+must migrate to exact reference text and the five-key throughput provenance.
+`accuracy_live.validate_snapshot` specifies the wrapper contract. The exporter
+validates raw execution identities, full outputs, counts and profiles before
+constructing the same application rows as the serial comparator. The renderer
+never runs simulations or collects hardware measurements.
+
+All declared suites and subgroups remain visible while pending, running, partial,
+failed or complete. Available native points remain visible with missing predicted
+points labeled pending. Optional `report.diagnostic_progress` maps suite names to
+`{state, active, errors}`; `active` contains `{role, id}` objects, and errors are
+strings. Active IDs must be declared, distinct and absent from completed rows.
+Complete means every required role/case is present. The three legacy whole-program
+microbenchmark groups retain their own panels and 18 points within the existing
+264-point inventory. None of the diagnostic suites enter application statistics.
 
 For a head that declares the forwarding suite (any of its measurement inputs,
 ELF fixture or reference in `report.head.files`), the snapshot must also contain
@@ -35,7 +59,7 @@ fields; stray forwarding evidence on an undeclaring head is rejected.
   parsing. Preserve the file's whitespace and final newline; do not parse and
   reserialize it. A separate parsed `forwarding_reference` payload is rejected.
 - `report.forwarding_simulation`: an object with exactly `base` and `head`, each
-  an ordered list of the 13 declared probes. Every row contains `id`,
+  an ordered subset of the 13 declared probes (all 13 for a complete report). Every row contains `id`,
   `instructions`, `cycles` and `updates`. Counts are differences between 1,024
   and 2,048 iterations: `updates` is 65,536, and `instructions` must equal 1,024
   times the probe's declared instructions per iteration. Cycles must be a
@@ -58,7 +82,7 @@ suite omit them, and stray scheduling evidence is rejected.
   Its SHA-256 must match the corresponding `report.head.files` entry, including
   whitespace and the final newline. Parsed `scheduling_reference` is rejected.
 - `report.scheduling_simulation`: exactly `base` and `head`, each an ordered
-  list matching the four reference cases. Each row contains `id`, `instructions`
+  subset of the four reference cases (all four for a complete report). Each row contains `id`, `instructions`
   and positive integer `cycles`. Counts subtract 1,024 from 2,048 iterations;
   instructions must equal 1,024 times the case's declared per-iteration count.
   Both roles execute the head-declared scheduling ELF and pass analytic output,
@@ -84,7 +108,7 @@ omit them; stray capacity evidence on an undeclaring head is rejected.
   `report.head.files` entry. Preserve whitespace and the final newline; do not
   parse and reserialize the reference. A parsed `capacity_reference` is rejected.
 - `report.capacity_simulation`: exactly `base` and `head`, each an ordered list
-  of all **73** declared cases in reference order. Each row contains `id`,
+  of the **73** declared cases in reference order (all 73 for a complete report). Each row contains `id`,
   `instructions`, and positive integer `cycles`, with no `updates` field.
   Counts subtract 1,024 from 2,048 iterations (`capacity.ITERATIONS`): instructions
   equal 1,024 times that case's declared per-iteration count. Both binaries run
@@ -102,26 +126,55 @@ paired boundary ratios with P10/P90 dispersion, and collapsed tables only in
 the microbenchmark section. These points never enter application accuracy,
 S-curves, CDFs, or correlations.
 
-For a live campaign, prepare the clean base/head binaries and profiles, then
-execute and validate **both roles of every declared forwarding, scheduling, and
-capacity suite before starting the 264-point campaign (246 application points
-and 18 legacy microbenchmark points)**. If those prelaunch checks fail, resolve
-the failure before launching application shards; do not publish placeholder
-measurements or relax the snapshot validator. This is producer sequencing, not a
-second renderer or hardware collection step.
+For a live campaign, prepare the clean base/head binaries, profiles and committed
+references first. The first snapshot may have no results; it still carries all
+mandatory references, including the capacity boundary block. Run the ordinary
+source-bound shards, then aggregate their already completed raw records. No
+prelaunch simulation barrier is necessary. The exporter reads `shard.json` or
+`shard.json.gz`; compressed deliveries need a matching `receipt.json` with the
+uncompressed SHA-256, head commit, both binary digests and returncode0. It never
+expands the entire campaign locally. Its process cache retains only validated
+canonical rows, keyed by immutable file metadata and receipt digest; a changed
+file is revalidated. New incomplete downloads without receipts remain pending.
 
-The first valid live snapshot must carry all mandatory microbenchmark evidence
-and exact reference bytes, including the capacity boundary block and provenance.
-Required memory evidence must also be available before that snapshot (see Memory
-diagnostics below). The producer exports validated completed application rows
-atomically as the shards finish. The final bundle carries the same reference
-bytes as `forwarding.json`, `scheduling.json`, and `capacity.json`, and both
-simulation series for each suite. The existing renderer shows them only in the
-separate microbenchmark section.
+```sh
+python3 NEW/scripts/accuracy_progress.py --prepared RUN/prepared --source FROZEN_SOURCE \
+  --results RUN/shards --run-id RUN_ID --attempt 1 --status RUN/status.json \
+  --probe-progress RUN/probe-progress.json --output RUN/snapshot.json --interval 15
+python3 NEW/scripts/accuracy_parallel.py aggregate --prepared RUN/prepared \
+  --source FROZEN_SOURCE --results RAW_SHARDS --run-id RUN_ID --attempt 1 \
+  --output RUN/final/report.json --checkpoints RUN/probe-checkpoints \
+  --progress RUN/probe-progress.json
+```
+
+The optional campaign status file binds `head`, `base`, `run_id`, completed shard
+indices and active shard indices (`active` object). It supplies activity only;
+completed results still require raw validation. `phase: complete` is accepted only
+when strict validation confirms every application and diagnostic result. A full
+264/264 bar alone never means the diagnostic campaign is finished. The exporter
+retries transient failures without replacing its last good atomic snapshot.
+
+The aggregate's optional checkpoint directory records each short/long probe
+execution atomically. Keys bind the measured source manifest, binary digest and
+revision, suite, ELF digest, role/profile, case/index and iteration count. Reuse
+checks the key/hash plus the same full raw output, revision, profile and counter
+validator used after execution. A changed or corrupt checkpoint fails closed;
+it does not silently replay completed simulations. Each completed pair updates
+the canonical progress report, including unequal head/base prefixes; active and
+failed states preserve the last validated completed rows. Application and memory
+records are replayed from validated shard evidence, never resimulated.
+
+`--source` selects the frozen measured tree and its exact plan, references and
+binaries. The implementation may come from a newer reporting-only checkout;
+`report.head` remains the measured revision. `report.reporting` separately records
+the reporting commit, dirty status and script hashes and appears in provenance.
+This does not certify simulator equivalence: when reusing evidence after a
+reporting-only change, separately verify that all model/Go/native/ELF/reference
+files remain identical. No native references are recollected or relabeled.
 
 Snapshots remain unpublishable even when all cases have finished. Only an
 existing bundle that passes the normal archive validator and matches the
-campaign's source, binaries, profiles, reference and inventory can transition
+campaign's source, binaries, profiles, reference, inventory, completed rows and diagnostic results can transition
 the page to a complete report. No archive/publisher validation is relaxed.
 Snapshot-only pages link only to available JSON; completed pages expose only
 validated bundle assets. Incomplete, failed or waiting pages refresh every
@@ -141,8 +194,9 @@ suites' fixed 1,024-iteration difference.
 
 The normal post-merge workflow executes memory points alongside application
 points in the existing source-bound workers, then aggregates their raw pairs.
-A local snapshot producer must have all required memory evidence before emitting
-a valid snapshot; it must not manufacture placeholders for points still running.
+A local snapshot producer exports validated ordered memory subsets as shards
+finish. Both roles remain present, with absent cases pending. Base image-capacity
+unavailability stays explicit; it is not a missing head prediction.
 For a memory-only development campaign, `accuracy_parallel.py memory-shard` and
 `memory-aggregate` use the same prepared plan and exact binaries without running
 application points. Render that artifact with:

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Source-bound single-core memory latency/parallelism/bandwidth diagnostics."""
+from report_records import covered_cases
+
 import argparse
 import base64
 from datetime import datetime, timezone
@@ -203,8 +205,8 @@ def summarize_samples(case, samples):
     return row
 
 
-def validate_rows(rows, declared):
-    require(isinstance(rows, list) and [r.get('id') for r in rows] == [c['id'] for c in declared], 'memory simulation case coverage mismatch')
+def validate_rows(rows, declared, *, partial=False):
+    declared = covered_cases(rows, declared, partial=partial)
     for row, case in zip(rows, declared):
         require(type(row.get('instructions')) is int and row['instructions'] == case['passes'] * case['instructions_per_pass']
                 and positive(row.get('cycles')), 'invalid memory differential counters')
@@ -226,12 +228,12 @@ def declared(files):
     return any(name in files for name in [*MEASUREMENT_INPUTS, ELF, REFERENCE])
 
 
-def validate_comparison(simulations, declared_cases, base_large_image_support):
+def validate_comparison(simulations, declared_cases, base_large_image_support, *, partial=False):
     require(type(base_large_image_support) is bool, 'memory base image capability must be a boolean')
     require(isinstance(simulations, dict) and set(simulations) == {'base', 'head'}, 'memory requires both base and head simulation')
     for role, rows in simulations.items():
-        require(isinstance(rows, list) and [r.get('id') for r in rows] == [c['id'] for c in declared_cases], 'memory simulation case coverage mismatch')
-        for row, case in zip(rows, declared_cases):
+        selected = covered_cases(rows, declared_cases, partial=partial)
+        for row, case in zip(rows, selected):
             unsupported = role == 'base' and case['max_image_bytes'] > 256 * 1024 * 1024 and not base_large_image_support
             if unsupported:
                 require(row == unavailable(case), 'memory unsupported base row must match declared capability')

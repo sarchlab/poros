@@ -58,13 +58,17 @@ class LiveReportTests(unittest.TestCase):
         report["artifact_status"] = "partial"
         if not complete:
             report["cases"] = report["cases"][:30]
+        report["summary"] = site.compute.summaries(report["cases"], True)
+        provenance = {key: report[key] for key in ("base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")}
+        provenance["head_commit"] = report["head"]["commit"]
         return dict(kind=live.KIND, report=report,
+                    reference_text=(self.source / site.performance.PATH).read_text(),
                     progress=dict(state="complete" if complete else "running", completed_cases=len(report["cases"]),
                                   required_cases=264, completed_shards=132 if complete else 15, required_shards=132,
                                   active_cases=[] if complete else [report["workload_manifest"]["cases"][30]["id"]], errors=[],
                                   updated_at=datetime.now(timezone.utc).isoformat()),
-                    throughput_reference=self.reference,
-                    throughput_provenance=dict(commit=report["head"]["commit"], binary_sha256=report["head_binary_sha256"], model_profile=report["model_profiles"]["head"]))
+                    throughput_reference_text=(self.source / site.throughput.REFERENCE).read_text(),
+                    throughput_provenance=provenance)
 
     def view(self, value, bundle=None):
         path = self.folder / self.id().split('.')[-1] / 'snapshot.json'
@@ -169,6 +173,7 @@ class LiveReportTests(unittest.TestCase):
             with self.assertRaises((ValueError, KeyError)): live.validate_snapshot(bad)
         complete = copy.deepcopy(value)
         complete['report']['cases'] = copy.deepcopy(self.report['cases'])
+        complete['report']['summary'] = copy.deepcopy(self.report['summary'])
         complete['progress'].update(state='complete', completed_cases=264, completed_shards=132, active_cases=[])
         report = copy.deepcopy(complete['report']); report['artifact_status'] = 'pass'
         folder = self.folder / 'memory-complete'
@@ -241,6 +246,7 @@ class LiveReportTests(unittest.TestCase):
         # The completed CI bundle must retain the same renderer and exact asset.
         complete=copy.deepcopy(value)
         complete['report']['cases']=copy.deepcopy(self.report['cases'])
+        complete['report']['summary']=copy.deepcopy(self.report['summary'])
         complete['progress'].update(state='complete',completed_cases=264,completed_shards=132,active_cases=[])
         for name in [*suite.INPUTS,suite.REFERENCE]:
             target=self.source/name;target.parent.mkdir(parents=True,exist_ok=True)
@@ -294,6 +300,7 @@ class LiveReportTests(unittest.TestCase):
         # The completed CI bundle must retain the same renderer and exact asset.
         complete=copy.deepcopy(value)
         complete['report']['cases']=copy.deepcopy(self.report['cases'])
+        complete['report']['summary']=copy.deepcopy(self.report['summary'])
         complete['progress'].update(state='complete',completed_cases=264,completed_shards=132,active_cases=[])
         for name in [*suite.INPUTS,suite.REFERENCE]:
             target=self.source/name;target.parent.mkdir(parents=True,exist_ok=True)
@@ -391,7 +398,7 @@ class LiveReportTests(unittest.TestCase):
         self.assertNotIn(b'href="report.json"', page)
         self.assertNotIn(b'href="report.md"', page)
         self.assertNotIn(b'href="bundle.json"', page)
-        self.assertEqual(set(assets), {'snapshot.json', 'throughput.json'})
+        self.assertEqual(set(assets), {'snapshot.json', 'reference.json', 'throughput.json'})
         for value in (value['report'], value):
             with self.assertRaises(ValueError):
                 site.check_report(value, self.report['head']['commit'])
@@ -554,6 +561,7 @@ class LiveReportTests(unittest.TestCase):
         # The completed CI bundle must retain the same renderer and exact asset.
         complete=copy.deepcopy(value)
         complete['report']['cases']=copy.deepcopy(self.report['cases'])
+        complete['report']['summary']=copy.deepcopy(self.report['summary'])
         complete['progress'].update(state='complete',completed_cases=264,completed_shards=132,active_cases=[])
         for name in [*suite.INPUTS,suite.REFERENCE]:
             target=self.source/name;target.parent.mkdir(parents=True,exist_ok=True)
@@ -566,6 +574,83 @@ class LiveReportTests(unittest.TestCase):
         self.assertIn(b'Complete validated bundle.',rendered)
         self.assertEqual(assets['capacity.json'],(ROOT/suite.REFERENCE).read_bytes())
         self.assertIn(b'<details id="capacity-table">',rendered)
+
+    def all_pending(self):
+        value = self.snapshot()
+        report = value["report"]
+        report["cases"] = []
+        report["summary"] = site.compute.summaries([], True)
+        value["progress"].update(completed_cases=0, completed_shards=0, active_cases=[])
+        for name, suite in site.DIAGNOSTIC_SUITES.items():
+            for source in [*suite.MEASUREMENT_INPUTS, suite.ELF, suite.REFERENCE]:
+                report["head"]["files"][source] = site.digest(ROOT / source)
+            if name == "memory":
+                for source in suite.INPUTS:
+                    report["head"]["files"][source] = site.digest(ROOT / source)
+                report["memory_base_large_image_support"] = True
+            report[name + "_simulation"] = [] if name == "throughput" else {"head": [], "base": []}
+            value[name + "_reference_text"] = (ROOT / suite.REFERENCE).read_text()
+            value[name + "_provenance"] = copy.deepcopy(value["throughput_provenance"])
+        return value
+
+    def test_all_pending_and_unequal_subsets_use_native_panels(self):
+        value = self.all_pending()
+        live.validate_snapshot(value)
+        page, assets = self.view(value).load()
+        for name in site.DIAGNOSTIC_SUITES:
+            self.assertIn(('id="' + name + '-progress"').encode(), page)
+            self.assertIn(name + '.json', assets)
+        self.assertIn(b'pending', page)
+        suite = site.forwarding
+        cases = suite.cases(ROOT)
+        def row(case, cycles):
+            return dict(id=case["id"], instructions=case["instructions_per_iteration"] * 1024,
+                        cycles=cycles, updates=suite.UPDATES_PER_ITERATION * 1024)
+        value["report"]["forwarding_simulation"] = {"head": [row(cases[2], 3000)], "base": [row(cases[0], 1000)]}
+        value["report"]["diagnostic_progress"] = {"forwarding": dict(state="running", active=[dict(role="head", id=cases[3]["id"])], errors=[])}
+        live.validate_snapshot(value)
+        self.view(value).load()
+        for mutate in (lambda v: v["report"]["forwarding_simulation"]["head"].append(row(cases[2], 3000)),
+                       lambda v: v["report"]["forwarding_simulation"]["head"][0].update(id="unknown"),
+                       lambda v: v["report"]["diagnostic_progress"]["forwarding"].update(state="complete"),
+                       lambda v: v.update(capacity_reference_text=v["capacity_reference_text"] + " "),
+                       lambda v: v["capacity_provenance"].update(head_commit="f" * 40)):
+            bad = copy.deepcopy(value); mutate(bad)
+            with self.assertRaises((ValueError, KeyError)):
+                live.validate_snapshot(bad)
+        with self.assertRaises(ValueError):
+            site.check_report(value["report"], value["report"]["head"]["commit"])
+        # All applications finished is still not completion of the diagnostic suites.
+        value["report"]["cases"] = copy.deepcopy(self.report["cases"])
+        value["report"]["summary"] = copy.deepcopy(self.report["summary"])
+        value["progress"].update(state="complete", completed_cases=264, completed_shards=132)
+        with self.assertRaises(ValueError):
+            live.validate_snapshot(value)
+
+    def test_complete_partial_and_ci_panels_are_identical_for_all_suites(self):
+        value=self.all_pending();report=value['report']
+        report['cases']=copy.deepcopy(self.report['cases'])
+        report['summary']=copy.deepcopy(self.report['summary'])
+        refs={}
+        for name,suite in site.DIAGNOSTIC_SUITES.items():
+            ref=json.loads(value[name+'_reference_text']);refs[name+'_reference']=ref
+            rows=[]
+            for case in ref['cases']:
+                instructions=(case['passes']*case['instructions_per_pass'] if name=='memory'
+                              else (suite.ITERATIONS[1]-suite.ITERATIONS[0])*case['instructions_per_iteration'])
+                row=dict(id=case['id'],instructions=instructions,cycles=1000000)
+                if name=='forwarding':row['updates']=65536
+                rows.append(row)
+            report[name+'_simulation']=rows if name=='throughput' else dict(head=rows,base=copy.deepcopy(rows))
+        value['progress'].update(state='complete',completed_cases=264,completed_shards=132)
+        live.validate_snapshot(value)
+        complete=copy.deepcopy(report);complete['artifact_status']='pass'
+        site.validate_compact_evidence(complete,live.snapshot_references(value))
+        entry=dict(commit=report['head']['commit'])
+        def panels(value):
+            return site.detail(value,entry,live=value_progress,**refs).split('<section id="microbenchmarks">',1)[1].split('</section>',1)[0]
+        value_progress=value['progress']
+        self.assertEqual(panels(complete),panels(report))
 
 if __name__ == '__main__':
     unittest.main()

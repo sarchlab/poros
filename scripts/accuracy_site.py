@@ -24,6 +24,7 @@ import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
 import scheduling_microbenchmark as scheduling
 import capacity_microbenchmark as capacity
+from report_records import covered_cases
 import memory_microbenchmark as memory
 import model_profiles
 from usertime import error_percent
@@ -114,14 +115,21 @@ def safe_name(value):
     return value
 
 
-def check_report(report, commit):
-    if report.get("schema") not in (1, 2, 3, 4) or report.get("artifact_status") not in (
-        "pass",
-        "fail",
-    ):
+def check_report(report, commit, *, partial=False):
+    if report.get("schema") not in (1, 2, 3, 4) or report.get("artifact_status") not in (("pass", "fail", "partial") if partial else ("pass", "fail")):
         raise ValueError("unsupported report")
+    if partial and (report.get("schema") != 4 or report.get("artifact_status") != "partial"):
+        raise ValueError("partial validation requires a schema-4 partial report")
     if report.get("accuracy_status") != "unverified":
         raise ValueError("unsupported accuracy verdict")
+    if "reporting" in report:
+        rendering = report["reporting"]
+        sha(rendering["commit"])
+        if type(rendering.get("dirty")) is not bool or not isinstance(rendering.get("files"), dict) or not rendering["files"]:
+            raise ValueError("invalid reporting implementation identity")
+        for name, value in rendering["files"].items():
+            if not name.startswith("scripts/") or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError("invalid reporting source digest")
     recorded_commit = report.get("head", {}).get("commit", report.get("head_commit"))
     expected_commit = sha(commit)
     if recorded_commit is None and report["artifact_status"] == "fail":
@@ -165,20 +173,19 @@ def check_report(report, commit):
             if not re.fullmatch(r"[0-9a-f]{64}", report.get(field, "")):
                 raise ValueError("invalid simulator binary identity")
     inventory = report_manifest(report)
+    selected = covered_cases(report["cases"], inventory["cases"], partial=partial)
     performance = report.get("schema") == 4 or inventory.get("suite") == "whole-program-performance-six-point-v1" or (report.get("schema") == 3 and inventory["compute"]["suite"] == compute.PROTOCOL)
     if performance:
         capability = compute.validate_base_capability(report["base_capability"])
         if report.get("schema") == 3 and report["original_report"]["base_capability"] != capability:
             raise ValueError("base capability differs between cohorts")
-        for row, case in zip(report["cases"], inventory["cases"]):
+        for row, case in zip(report["cases"], selected):
             expected_status = compute.case_base_status(case, capability)
             if row.get("mapped_image_bytes") != case["mapped_image_bytes"] or row.get("base_status") != expected_status or ("base" in row) != (expected_status == "available"):
                 raise ValueError("missing or unjustified per-case base result")
             if "base" not in row and "error_change_percentage_points" in row:
                 raise ValueError("unpaired error change")
-    if tuple(c["id"] for c in report["cases"]) != case_ids(inventory):
-        raise ValueError("missing required cases")
-    for row, declared in zip(report["cases"], inventory["cases"]):
+    for row, declared in zip(report["cases"], selected):
         if (
             "head" not in row
             or not isinstance(row.get("reference_user_seconds"), (int, float))
@@ -609,29 +616,57 @@ def validate_compact_bundle(path, commit, manifest):
     check_report(report, commit)
     if report["artifact_status"] != "pass":
         return report, manifest
+    references = {name: regular(path / name).read_bytes() for name in names if name not in {"report.json", "report.md"}}
+    validate_compact_evidence(report, references)
+    return report, manifest
+
+
+
+DIAGNOSTIC_SUITES = {"throughput": throughput, "forwarding": forwarding,
+                     "scheduling": scheduling, "capacity": capacity, "memory": memory}
+
+
+def declared_diagnostics(report):
+    files = report["head"]["files"]
+    return {name: suite for name, suite in DIAGNOSTIC_SUITES.items()
+            if (suite.ELF in files if name == "throughput" else suite.declared(files))}
+
+
+def validate_compact_evidence(report, references, *, partial=False):
+    """Same source, native, row and profile contract for live and CI evidence."""
+    check_report(report, report["head"]["commit"], partial=partial)
+    expected = {"reference.json": performance.PATH}
+    expected.update({name + ".json": suite.REFERENCE for name, suite in declared_diagnostics(report).items()})
+    if "throughput" not in declared_diagnostics(report) and FRONTEND_REFERENCE in report["head"]["files"]:
+        expected["frontend.json"] = FRONTEND_REFERENCE
+    if set(references) != set(expected):
+        raise ValueError("report reference membership mismatch")
+    for name, source in expected.items():
+        if not isinstance(references[name], bytes) or hashlib.sha256(references[name]).hexdigest() != report["head"]["files"].get(source):
+            raise ValueError("report reference bytes differ from tested source: " + name)
     if memory.declared(report["head"]["files"]):
-        native_memory = memory.validate_reference(read(path / "memory.json"), report["head"]["files"])
-        memory.validate_comparison(report.get("memory_simulation"), native_memory["cases"], report.get("memory_base_large_image_support"))
+        native_memory = memory.validate_reference(json.loads(references["memory.json"]), report["head"]["files"])
+        memory.validate_comparison(report.get("memory_simulation"), native_memory["cases"], report.get("memory_base_large_image_support"), partial=partial)
     elif "memory_simulation" in report or "memory_base_large_image_support" in report:
         raise ValueError("memory suite absent from tested source")
     if scheduling.declared(report["head"]["files"]):
-        native_scheduling = scheduling.validate_reference(read(path / "scheduling.json"), report["head"]["files"])
-        scheduling.validate_comparison(report.get("scheduling_simulation"), native_scheduling["cases"])
+        native_scheduling = scheduling.validate_reference(json.loads(references["scheduling.json"]), report["head"]["files"])
+        scheduling.validate_comparison(report.get("scheduling_simulation"), native_scheduling["cases"], partial=partial)
     elif "scheduling_simulation" in report:
         raise ValueError("scheduling suite absent from tested source")
     if capacity.declared(report["head"]["files"]):
-        native_capacity = capacity.validate_reference(read(path / "capacity.json"), report["head"]["files"])
-        capacity.validate_comparison(report.get("capacity_simulation"), native_capacity["cases"])
+        native_capacity = capacity.validate_reference(json.loads(references["capacity.json"]), report["head"]["files"])
+        capacity.validate_comparison(report.get("capacity_simulation"), native_capacity["cases"], partial=partial)
     elif "capacity_simulation" in report:
         raise ValueError("capacity suite absent from tested source")
     if forwarding.declared(report["head"]["files"]):
-        native_forwarding = forwarding.validate_reference(read(path / "forwarding.json"), report["head"]["files"])
-        forwarding.validate_comparison(report.get("forwarding_simulation"), native_forwarding["cases"])
+        native_forwarding = forwarding.validate_reference(json.loads(references["forwarding.json"]), report["head"]["files"])
+        forwarding.validate_comparison(report.get("forwarding_simulation"), native_forwarding["cases"], partial=partial)
     elif "forwarding_simulation" in report:
         raise ValueError("forwarding suite absent from tested source")
     if throughput.ELF in report["head"]["files"]:
-        native_throughput = throughput.validate_reference(read(path / "throughput.json"), report["head"]["files"])
-        throughput.validate_simulation(report.get("throughput_simulation"), native_throughput["cases"])
+        native_throughput = throughput.validate_reference(json.loads(references["throughput.json"]), report["head"]["files"])
+        throughput.validate_simulation(report.get("throughput_simulation"), native_throughput["cases"], partial=partial)
         if "frontend_simulation" in report:
             raise ValueError("superseded frontend simulation in throughput report")
     else:
@@ -642,8 +677,8 @@ def validate_compact_bundle(path, commit, manifest):
         elif "frontend_simulation" in report:
             raise ValueError("frontend probe is absent from the tested source")
     declared = report_manifest(report)
-    measured = performance.validate(read(path / "reference.json"), declared)
-    if digest(path / "reference.json") != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:
+    measured = performance.validate(json.loads(references["reference.json"]), declared)
+    if hashlib.sha256(references["reference.json"]).hexdigest() != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:
         raise ValueError("compact reference differs from tested source")
     metadata = {key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")}
     if report["reference"] != metadata:
@@ -651,7 +686,9 @@ def validate_compact_bundle(path, commit, manifest):
     if any(report["head"]["files"].get(name) != sha for name, sha in measured["input_sources"].items()):
         raise ValueError("compact input differs from tested source/ELF")
     profiles = model_profiles.validate(report)
-    for row, observed, case in zip(report["cases"], measured["cases"], declared["cases"]):
+    observations = {row["id"]: row for row in measured["cases"]}
+    for row, case in zip(report["cases"], covered_cases(report["cases"], declared["cases"], partial=partial)):
+        observed = observations[row["id"]]
         if "streamcluster_replacement" in measured and row.get("reference_origin") != performance.reference_origin(measured, case):
             raise ValueError("plotted native acquisition identity mismatch")
         if row["reference_quality"] != observed["quality"] or row["reference_user_seconds"] != observed["median_user_seconds"] or row.get("reference_p10_seconds") != observed["p10_user_seconds"] or row.get("reference_p90_seconds") != observed["p90_user_seconds"]:
@@ -678,8 +715,38 @@ def validate_compact_bundle(path, commit, manifest):
             raise ValueError("unpaired compact error change")
     if report["summary"] != compute.summaries(report["cases"], True):
         raise ValueError("compact summary mismatch")
-    return report, manifest
+    validate_diagnostic_progress(report, references, partial=partial)
+    return report
 
+
+def validate_diagnostic_progress(report, references, *, partial=False):
+    declared = declared_diagnostics(report)
+    progress = report.get("diagnostic_progress", {})
+    if not isinstance(progress, dict) or set(progress) - set(declared):
+        raise ValueError("unknown diagnostic progress section")
+    for name, item in progress.items():
+        roles = ("head",) if name == "throughput" else ("base", "head")
+        ids = [case["id"] for case in json.loads(references[name + ".json"])["cases"]]
+        simulations = report[name + "_simulation"]
+        rows = {"head": simulations} if name == "throughput" else simulations
+        done = {role: {row["id"] for row in rows[role]} for role in roles}
+        if (not isinstance(item, dict) or set(item) != {"state", "active", "errors"}
+                or item["state"] not in ("pending", "running", "partial", "complete", "failed")
+                or not isinstance(item["errors"], list) or any(not isinstance(error, str) for error in item["errors"])
+                or not isinstance(item["active"], list)):
+            raise ValueError("invalid diagnostic progress")
+        active = []
+        for row in item["active"]:
+            if not isinstance(row, dict) or set(row) != {"role", "id"} or row["role"] not in roles or row["id"] not in ids or row["id"] in done[row["role"]]:
+                raise ValueError("invalid active diagnostic case")
+            active.append((row["role"], row["id"]))
+        complete = all(len(done[role]) == len(ids) for role in roles)
+        if len(active) != len(set(active)) or (item["state"] == "complete" and (not complete or active or item["errors"])):
+            raise ValueError("invalid diagnostic completion")
+        if item["state"] == "pending" and (any(done.values()) or active or item["errors"]):
+            raise ValueError("pending diagnostic has results")
+        if not partial and (not complete or item["state"] != "complete" or active or item["errors"]):
+            raise ValueError("complete report has unfinished diagnostics")
 
 
 def reusable_bundle(path, commit):
@@ -1111,16 +1178,41 @@ def frontend_table(reference, simulated=None):
             + '<p><a href="frontend.json">Native reference data</a></p>')
 
 
-def throughput_table(reference, simulated=None):
+def prediction_text(values, role, digits=4, missing="pending"):
+    return format(values[role], f".{digits}f") if role in values else missing
+
+
+def simulation_index(simulations):
+    return {role: {row["id"]: row for row in rows} for role, rows in simulations.items()}
+
+
+def diagnostic_progress(report, name, reference):
+    simulations = report.get(name + "_simulation", [] if name == "throughput" else {"base": [], "head": []})
+    rows = {"head": simulations} if name == "throughput" else simulations
+    required = len(reference["cases"])
+    completed = sum(len(values) for values in rows.values())
+    total = required * len(rows)
+    item = report.get("diagnostic_progress", {}).get(name, {})
+    state = item.get("state", "complete" if completed == total else "partial" if completed else "pending")
+    counts = "; ".join(f"{role} {len(values)}/{required}" for role, values in rows.items())
+    errors = " ".join(item.get("errors", []))
+    return (f'<p id="{name}-progress" data-section-state="{esc(state)}"><strong>{esc(name.title())}: {esc(state)}</strong> · '
+            f'{esc(counts)} executions complete. Native references are shown; missing predictions are pending.'
+            + (" " + esc(errors) if errors else "") + '</p>')
+
+
+def throughput_table(reference, simulated=None, *, partial=False):
     throughput.validate_reference(reference)
     if simulated is not None:
-        throughput.validate_simulation(simulated, reference["cases"])
+        throughput.validate_simulation(simulated, reference["cases"], partial=partial)
+    by_id = {row["id"]: row for row in simulated or []}
     rows = []
     for index, case in enumerate(reference["cases"]):
         instructions = case["iterations"] * case["instructions_per_iteration"]
         ns = case["median_seconds"] * 1e9 / instructions
         spread = (case["p90_seconds"] - case["p10_seconds"]) / case["median_seconds"]
-        model = f"<td>{simulated[index]['instructions'] / simulated[index]['cycles']:.2f}</td>" if simulated else ""
+        predicted = by_id.get(case["id"])
+        model = f"<td>{predicted['instructions'] / predicted['cycles']:.2f}</td>" if predicted else "<td>pending</td>"
         rows.append(f"<tr><td>{esc(case['id'])}</td><td>{ns:.3f}</td>"
                     f"<td>{case['p10_seconds']*1e9/instructions:.3f}–{case['p90_seconds']*1e9/instructions:.3f}</td>"
                     f"<td>{100*spread:.1f}%</td><td>{1e9/ns/reference['assumed_hz']:.2f}</td>{model}</tr>")
@@ -1132,16 +1224,17 @@ def throughput_table(reference, simulated=None):
             "Memory probes reuse a warmed 64-byte working set intended to fit L1.</p>"
             '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/instruction</th><th>P10–P90 ns/instruction</th>'
             '<th>Spread / median</th><th>Estimated native IPC</th>'
-            + ('<th>Simulated IPC</th>' if simulated else '') + '</tr></thead><tbody>' + ''.join(rows)
+            + '<th>Simulated IPC</th>' + '</tr></thead><tbody>' + ''.join(rows)
             + '</tbody></table></div><p>Simulation uses the same assembly loops, differencing 1,024 and 2,048 iterations. '
             'All checksums are checked analytically. '
             'These cases are excluded from application accuracy statistics. <a href="throughput.json">Reference data</a></p>')
 
 
-def forwarding_panels(reference, simulations, profiles):
+def forwarding_panels(reference, simulations, profiles, *, partial=False):
     """Render dependency probes only in the microbenchmark section."""
     forwarding.validate_reference(reference)
-    forwarding.validate_comparison(simulations, reference["cases"])
+    forwarding.validate_comparison(simulations, reference["cases"], partial=partial)
+    indexed = simulation_index(simulations)
     frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
     if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
         raise ValueError("invalid forwarding model frequency")
@@ -1149,11 +1242,11 @@ def forwarding_panels(reference, simulations, profiles):
     for index, case in enumerate(reference["cases"]):
         updates = case["iterations"] * forwarding.UPDATES_PER_ITERATION
         native = {key: case[key + "_seconds"] * 1e9 / updates for key in ("p10", "median", "p90")}
-        model = {role: simulations[role][index]["cycles"] * 1e9 / simulations[role][index]["updates"] / frequencies[role]
-                 for role in ("base", "head")}
+        model = {role: indexed[role][case["id"]]["cycles"] * 1e9 / indexed[role][case["id"]]["updates"] / frequencies[role]
+                 for role in ("base", "head") if case["id"] in indexed[role]}
         spread = 100 * (native["p90"] - native["p10"]) / native["median"]
         tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.4f}/{native["median"]:.4f}/{native["p90"]:.4f} ns/update; '
-                   f'spread {spread:.2f}%; base {model["base"]:.4f}, head {model["head"]:.4f} ns/update')
+                   f'spread {spread:.2f}%; base {prediction_text(model, "base", 4)}, head {prediction_text(model, "head", 4)} ns/update')
         rows[case["id"]] = dict(native=native, model=model, spread=spread, tooltip=tooltip)
     groups = (
         ("64-bit GPR dependencies", ("gpr64_register", "gpr64_same", "gpr64_disjoint", "gpr64_indexed", "gpr64_indexed_load", "gpr64_indexed_store"),
@@ -1174,7 +1267,7 @@ def forwarding_panels(reference, simulations, profiles):
         series = []
         for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
             values = [(i+1, rows[name]["native"]["median"] if role == "native" else rows[name]["model"][role], rows[name]["tooltip"])
-                      for i, name in enumerate(names)]
+                      for i, name in enumerate(names) if role == "native" or role in rows[name]["model"]]
             series.append((role, values, color))
         graphs += chart(title, series, "Probe form", "ns/update", scatter=True,
                         x_ticks=[(i+1, label) for i, label in enumerate(labels)])
@@ -1192,26 +1285,27 @@ def forwarding_panels(reference, simulations, profiles):
         difference = '—' if name == baseline or name.endswith('_disjoint') else f'{row["native"]["median"] - rows[baseline]["native"]["median"]:.4f}'
         n = row["native"]
         table += (f'<tr><td>{esc(name)}</td><td>{n["median"]:.4f}</td><td>{n["p10"]:.4f}–{n["p90"]:.4f}</td>'
-                  f'<td>{row["spread"]:.2f}%</td><td>{row["model"]["base"]:.4f}</td><td>{row["model"]["head"]:.4f}</td><td>{difference}</td></tr>')
+                  f'<td>{row["spread"]:.2f}%</td><td>{prediction_text(row["model"], "base")}</td><td>{prediction_text(row["model"], "head")}</td><td>{difference}</td></tr>')
     table += ('</tbody></table></div><p>Simulation differences use the same assembly at 1,024 and 2,048 iterations, '
               'with exact instruction counts and analytic checksums. <a href="forwarding.json">Native reference data</a></p></details>')
     return graphs, table
 
 
-def scheduling_panels(reference, simulations, profiles):
+def scheduling_panels(reference, simulations, profiles, *, partial=False):
     """Compare additional independent work around the same dependent chain."""
     scheduling.validate_reference(reference)
-    scheduling.validate_comparison(simulations, reference["cases"])
+    scheduling.validate_comparison(simulations, reference["cases"], partial=partial)
+    indexed = simulation_index(simulations)
     frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
     if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
         raise ValueError("invalid scheduling model frequency")
     rows = {}
     for index, case in enumerate(reference["cases"]):
         native = {key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")}
-        modeled = {role: simulations[role][index]["cycles"] * 1e9 / (scheduling.ITERATIONS[1] - scheduling.ITERATIONS[0]) / frequencies[role]
-                   for role in ("base", "head")}
+        modeled = {role: indexed[role][case["id"]]["cycles"] * 1e9 / (scheduling.ITERATIONS[1] - scheduling.ITERATIONS[0]) / frequencies[role]
+                   for role in ("base", "head") if case["id"] in indexed[role]}
         tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.3f}/{native["median"]:.3f}/{native["p90"]:.3f} ns/iteration; '
-                   f'base {modeled["base"]:.3f}, head {modeled["head"]:.3f} ns/iteration; {case["instructions_per_iteration"]} instructions/iteration')
+                   f'base {prediction_text(modeled, "base", 3)}, head {prediction_text(modeled, "head", 3)} ns/iteration; {case["instructions_per_iteration"]} instructions/iteration')
         rows[case["id"]] = dict(case=case, native=native, modeled=modeled, tooltip=tooltip)
     groups = (("Integer dependency and independent work", ("int_chain", "int_interleaved")),
               ("FP dependency and independent work", ("fp_chain", "fp_interleaved")))
@@ -1234,7 +1328,7 @@ def scheduling_panels(reference, simulations, profiles):
         selected = [rows[name] for name in names]
         series = []
         for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
-            points = [(i + 1, row["native"]["median"] if role == "native" else row["modeled"][role], row["tooltip"]) for i, row in enumerate(selected)]
+            points = [(i + 1, row["native"]["median"] if role == "native" else row["modeled"][role], row["tooltip"]) for i, row in enumerate(selected) if role == "native" or role in row["modeled"]]
             series.append((role, points, color))
         graphs += chart(title, series, "Instruction arrangement", "ns/iteration", scatter=True,
                         x_ticks=[(1, "chain"), (2, "interleaved")])
@@ -1245,7 +1339,7 @@ def scheduling_panels(reference, simulations, profiles):
     for row in rows.values():
         n, m, case = row["native"], row["modeled"], row["case"]
         table += (f'<tr><td>{esc(case["id"])}</td><td>{n["median"]:.3f}</td><td>{n["p10"]:.3f}–{n["p90"]:.3f}</td>'
-                  f'<td>{m["base"]:.3f}</td><td>{m["head"]:.3f}</td><td>{n["median"]/case["instructions_per_iteration"]:.4f}</td></tr>')
+                  f'<td>{prediction_text(m, "base", 3)}</td><td>{prediction_text(m, "head", 3)}</td><td>{n["median"]/case["instructions_per_iteration"]:.4f}</td></tr>')
     table += ('</tbody></table></div><p>P10/P90 summarize variability, not confidence intervals. '
               'Simulation subtracts 1,024 from 2,048 iterations, with checked instruction counts and analytic checksums. '
               '<a href="scheduling.json">Native reference data</a></p></details>')
@@ -1253,19 +1347,20 @@ def scheduling_panels(reference, simulations, profiles):
 
 
 
-def capacity_panels(reference, simulations, profiles):
+def capacity_panels(reference, simulations, profiles, *, partial=False):
     """Capacity controls and divider probes never enter application summaries."""
     capacity.validate_reference(reference)
-    capacity.validate_comparison(simulations, reference["cases"])
+    capacity.validate_comparison(simulations, reference["cases"], partial=partial)
+    indexed = simulation_index(simulations)
     frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
     if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
         raise ValueError("invalid capacity model frequency")
     rows = []
     for index, case in enumerate(reference["cases"]):
         native = {key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")}
-        modeled = {role: simulations[role][index]["cycles"] * 1e9 / (capacity.ITERATIONS[1] - capacity.ITERATIONS[0]) / frequencies[role] for role in ("base", "head")}
+        modeled = {role: indexed[role][case["id"]]["cycles"] * 1e9 / (capacity.ITERATIONS[1] - capacity.ITERATIONS[0]) / frequencies[role] for role in ("base", "head") if case["id"] in indexed[role]}
         spread = 100 * (native["p90"] - native["p10"]) / native["median"]
-        tip = f'{case["id"]}: native {native["median"]:.3f} ns/iteration; P10-P90 {native["p10"]:.3f}-{native["p90"]:.3f}; base {modeled["base"]:.3f}, head {modeled["head"]:.3f}'
+        tip = f'{case["id"]}: native {native["median"]:.3f} ns/iteration; P10-P90 {native["p10"]:.3f}-{native["p90"]:.3f}; base {prediction_text(modeled, "base", 3)}, head {prediction_text(modeled, "head", 3)}'
         rows.append(dict(case=case, native=native, modeled=modeled, spread=spread, tooltip=tip))
     graphs = ('<h3>FP capacity and divider controls</h3><p>Two independent integer dependency gates surround independent FP destinations. '
               'Gate lengths, NOP fillers and ungated FP throughput distinguish rename pressure from ROB, dependency and execution-port limits. '
@@ -1287,7 +1382,7 @@ def capacity_panels(reference, simulations, profiles):
         series = []
         for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
             points = [(int(r["case"]["id"].split(separator)[1]),
-                       r["native"]["median"] if role == "native" else r["modeled"][role], r["tooltip"]) for r in selected]
+                       r["native"]["median"] if role == "native" else r["modeled"][role], r["tooltip"]) for r in selected if role == "native" or role in r["modeled"]]
             series.append((role, points, color))
         graphs += chart(title, series, xlabel, "ns/iteration", scatter=True,
                         x_ticks=[(n, str(n)) for n in (1, 4, 16)] if separator == "lanes" else None)
@@ -1328,16 +1423,17 @@ def capacity_panels(reference, simulations, profiles):
     for r in rows:
         n, m = r["native"], r["modeled"]
         table += (f'<tr><td>{esc(r["case"]["id"])}</td><td>{n["median"]:.3f}</td><td>{n["p10"]:.3f}–{n["p90"]:.3f}</td>'
-                  f'<td>{r["spread"]:.1f}%</td><td>{"noisy" if r["spread"] > 20 else "usable"}</td><td>{m["base"]:.3f}</td><td>{m["head"]:.3f}</td></tr>')
+                  f'<td>{r["spread"]:.1f}%</td><td>{"noisy" if r["spread"] > 20 else "usable"}</td><td>{prediction_text(m, "base", 3)}</td><td>{prediction_text(m, "head", 3)}</td></tr>')
     table += ('</tbody></table></div><p>Raw spread is not a confidence interval. Capacity inference uses additional interleaved ABBA controls, '
               'retained with the <a href="capacity.json">native reference and provenance</a>. No samples are dropped.</p></details>')
     return graphs, table + boundary_table
 
 
-def memory_panels(reference, simulations, profiles, base_large_image_support):
+def memory_panels(reference, simulations, profiles, base_large_image_support, *, partial=False):
     """One canonical renderer for CI reports, live snapshots and diagnostic previews."""
     memory.validate_reference(reference)
-    memory.validate_comparison(simulations, reference["cases"], base_large_image_support)
+    memory.validate_comparison(simulations, reference["cases"], base_large_image_support, partial=partial)
+    indexed = simulation_index(simulations)
     frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
     if any(not memory.finite(hz) for hz in frequencies.values()):
         raise ValueError("invalid memory model frequency")
@@ -1345,8 +1441,8 @@ def memory_panels(reference, simulations, profiles, base_large_image_support):
     for index, case in enumerate(reference["cases"]):
         chase = case["kind"] <= 5
         native_seconds = {k: case[k + "_seconds"] / case["native_passes"] for k in ("p10", "median", "p90")}
-        predicted = {role: simulations[role][index]["cycles"] / frequencies[role] / case["passes"]
-                     for role in frequencies if "cycles" in simulations[role][index]}
+        predicted = {role: indexed[role][case["id"]]["cycles"] / frequencies[role] / case["passes"]
+                     for role in frequencies if case["id"] in indexed[role] and "cycles" in indexed[role][case["id"]]}
         def metric(seconds):
             return seconds * 1e9 / case["operations_per_pass"] if chase else case["effective_bytes_per_pass"] / seconds / 1e9
         native = {k: metric(v) for k, v in native_seconds.items()}
@@ -1357,7 +1453,7 @@ def memory_panels(reference, simulations, profiles, base_large_image_support):
         low, high = sorted((native["p10"], native["p90"]))
         tooltip = (f'{case["pattern"]} · {label} ({size:,} total resident bytes)\n'
                    f'Native {native["median"]:.4f} {unit}; P10–P90 time-derived range {low:.4f}–{high:.4f} {unit}\n'
-                   f'Base {format(modeled["base"], ".4f") if "base" in modeled else "unsupported image capacity"}; head {modeled["head"]:.4f} {unit}\n'
+                   f'Base {prediction_text(modeled, "base", missing="unsupported image capacity" if case["id"] in indexed["base"] else "pending")}; head {prediction_text(modeled, "head", 4)} {unit}\n'
                    f'Native quality {case["quality"]}; paired-time spread {case["relative_spread"]:.2%}')
         rows.append(dict(case=case, native=native, modeled=modeled, unit=unit, size_label=label, low=low, high=high, tooltip=tooltip))
     usable = sum(row["case"]["quality"] == "usable" for row in rows)
@@ -1399,7 +1495,7 @@ def memory_panels(reference, simulations, profiles, base_large_image_support):
         c, n, m = row['case'], row['native'], row['modeled']
         table += (f'<tr data-row-key="{esc(c["id"])}"><td>{esc(c["pattern"])}</td><td>{esc(row["size_label"])}</td><td>{row["unit"]}</td>'
                   f'<td>{n["median"]:.4f}</td><td>{row["low"]:.4f}–{row["high"]:.4f}</td>'
-                  f'<td>{format(m["base"], ".4f") if "base" in m else "Unsupported image capacity"}</td><td>{m["head"]:.4f}</td><td>{esc(c["quality"])}</td><td>{c["relative_spread"]:.2%}</td></tr>')
+                  f'<td>{prediction_text(m, "base", missing="Unsupported image capacity" if c["id"] in indexed["base"] else "pending")}</td><td>{prediction_text(m, "head", 4)}</td><td>{esc(c["quality"])}</td><td>{c["relative_spread"]:.2%}</td></tr>')
     table += ('</tbody></table></div><p>P10/P90 summarize variability, not confidence intervals. '
               'Native quality requires a ≥20 ms differential and (P90−P10)/median ≤10%. '
               'Simulation differences cover complete passes with exact instruction counts and checked outputs. '
@@ -1495,6 +1591,11 @@ def timing_curves(groups, cases):
             for _, in_rows, _ in series:
                 for i, (x, y, label) in enumerate(in_rows):
                     in_rows[i] = (x, y, label + "; " + group["labels"][int(x)-1])
+        legacy_progress = workload in ("integer", "branch", "memory") and "points" in group
+        if legacy_progress:
+            body += "<div>"
+            state = "complete" if len(rows) == len(group["points"]) else "partial" if rows else "pending"
+            body += f'<p id="legacy-{esc(workload)}-progress">{esc(workload.title())}: {state} · {len(rows)} / {len(group["points"])} whole-program points</p>'
         body += chart(
             workload.upper() if workload == "mvt" else workload.title(),
             series,
@@ -1502,6 +1603,8 @@ def timing_curves(groups, cases):
             "User time (ms)",
             x_ticks=ticks,
         )
+        if legacy_progress:
+            body += "</div>"
     body += "</div>"
     return body
 
@@ -1563,6 +1666,8 @@ def live_progress(live):
     body += '</p>'
     body += '<p id="live-progress-context">'
     body += f'{live["completed_shards"]} / {live["required_shards"]} shards. '
+    if completed == required and live["state"] != "complete":
+        body += "Whole-program cases complete; diagnostic suites and final validation remain. "
     if validated:
         body += "Complete validated bundle."
     body += ' Updated ' + esc(live["updated_at"]) + '.</p>'
@@ -1584,6 +1689,9 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         if preview
         else '<p><a href="../../index.html">← Report history</a></p>'
     ) + "</header>"
+    if report.get("reporting"):
+        rendering = report["reporting"]
+        body += '<p class="muted">Measured simulator: <code>' + esc(commit) + '</code>; reporting implementation: <code>' + esc(rendering["commit"]) + '</code>' + (" (working tree edits; file hashes recorded)" if rendering["dirty"] else "") + ".</p>"
     if live is not None:
         body += live_progress(live)
     native_reference = report.get("reference", {}).get("protocol") == performance.NATIVE_PROTOCOL
@@ -1634,27 +1742,28 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
     memory_table = ""
     if memory_reference is not None:
-        memory_charts, memory_table = memory_panels(memory_reference, report.get("memory_simulation"), model_profiles.validate(report), report.get("memory_base_large_image_support"))
-        body += memory_charts
+        memory_charts, memory_table = memory_panels(memory_reference, report.get("memory_simulation"), model_profiles.validate(report), report.get("memory_base_large_image_support"), partial=report["artifact_status"] == "partial")
+        body += diagnostic_progress(report, "memory", memory_reference) + memory_charts
     elif full_inventory and memory.declared(report.get("head", {}).get("files", {})):
         raise ValueError("memory reference required by tested source")
     scheduling_table = ""
     if scheduling_reference:
         scheduling_charts, scheduling_table = scheduling_panels(
-            scheduling_reference, report.get("scheduling_simulation"), model_profiles.validate(report))
-        body += scheduling_charts
+            scheduling_reference, report.get("scheduling_simulation"), model_profiles.validate(report), partial=report["artifact_status"] == "partial")
+        body += diagnostic_progress(report, "scheduling", scheduling_reference) + scheduling_charts
     capacity_table = ""
     if capacity_reference:
-        capacity_charts, capacity_table = capacity_panels(capacity_reference, report.get("capacity_simulation"), model_profiles.validate(report))
-        body += capacity_charts
+        capacity_charts, capacity_table = capacity_panels(capacity_reference, report.get("capacity_simulation"), model_profiles.validate(report), partial=report["artifact_status"] == "partial")
+        body += diagnostic_progress(report, "capacity", capacity_reference) + capacity_charts
     forwarding_table = ""
     if forwarding_reference:
         forwarding_charts, forwarding_table = forwarding_panels(
-            forwarding_reference, report.get("forwarding_simulation"), model_profiles.validate(report))
-        body += forwarding_charts
+            forwarding_reference, report.get("forwarding_simulation"), model_profiles.validate(report), partial=report["artifact_status"] == "partial")
+        body += diagnostic_progress(report, "forwarding", forwarding_reference) + forwarding_charts
     if throughput_reference:
+        body += diagnostic_progress(report, "throughput", throughput_reference)
         body += (f'<details id="throughput-table"><summary>Instruction throughput table · {len(throughput_reference["cases"])} probes</summary>'
-                 + throughput_table(throughput_reference, report.get("throughput_simulation")) + '</details>')
+                 + throughput_table(throughput_reference, report.get("throughput_simulation"), partial=report["artifact_status"] == "partial") + '</details>')
     elif frontend:
         body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
                  + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
@@ -1722,6 +1831,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
             json.dumps(
                 {
                     "base_commit": report.get("base_commit"),
+                    "reporting": report.get("reporting"),
                     "formula": report.get("formula"),
                     "reference": report.get("reference"),
                     "compute_reference": report.get("compute_reference"),

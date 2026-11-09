@@ -156,18 +156,19 @@ def validate_timing(result, case):
         raise ValueError("branch hits exceed predictions")
 
 
-def source_state():
+def source_state(root=None):
+    root = Path(root) if root is not None else ROOT
     paths = (
-        subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT)
+        subprocess.check_output(["git", "ls-files", "-z"], cwd=root)
         .decode()
         .split("\x00")
     )
     return dict(
         commit=subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True
         ).strip(),
-        dirty=bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
-        files={p: digest(ROOT / p) for p in paths if p},
+        dirty=bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=root)),
+        files={p: digest(root / p) for p in paths if p},
     )
 
 
@@ -418,11 +419,11 @@ def compare_legacy(args, executor=None):
     return 0 if report["artifact_status"] == "pass" else 1
 
 
-def compare(args, executor=None, *, memory_simulation=None, memory_base_large_image_support=None):
+def compare(args, executor=None, *, memory_simulation=None, memory_base_large_image_support=None, **options):
     """Compare applications and consume explicit memory rows, or measure them serially."""
     from performance_compare import compare as compare_performance
     return compare_performance(args, executor or execute, memory_simulation=memory_simulation,
-                               memory_base_large_image_support=memory_base_large_image_support)
+                               memory_base_large_image_support=memory_base_large_image_support, **options)
 
 
 def main():
