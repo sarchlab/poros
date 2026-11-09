@@ -28,8 +28,15 @@ type Spec struct {
 	NumFP       int         `json:"num_fp"`
 	// NumFPDiv is the number of FP pipes eligible for scalar divide/sqrt.
 	// These are a subset of NumFP, so ordinary arithmetic shares their capacity.
-	NumFPDiv      int `json:"num_fp_div"`
+	NumFPDiv int `json:"num_fp_div"`
+	// NumLDST counts physical memory pipes. NumLoad and NumStore are eligible
+	// subsets, not extra pipes: the first NumLoad accept loads and the last
+	// NumStore accept stores, sharing the overlapping reservation calendars.
+	// Both zero preserves legacy fully shared pipes; otherwise both must be
+	// positive, no greater than NumLDST, and together cover all physical pipes.
 	NumLDST       int `json:"num_ldst"`
+	NumLoad       int `json:"num_load"`
+	NumStore      int `json:"num_store"`
 	BranchPenalty int `json:"branch_penalty"`
 	LoadLatency   int `json:"load_latency"`
 	// FpPhysLimit bounds speculative destinations, not total physical registers.
@@ -45,7 +52,7 @@ type Spec struct {
 func DefaultSpec() Spec {
 	return Spec{
 		Freq: 3490 * timing.MHz, FetchWidth: 8, RetireWidth: 8, ROBCapacity: 256,
-		NumINT: 6, NumFP: 4, NumFPDiv: 1, NumLDST: 4, BranchPenalty: 17, LoadLatency: 5,
+		NumINT: 6, NumFP: 4, NumFPDiv: 1, NumLDST: 4, NumLoad: 3, NumStore: 2, BranchPenalty: 17, LoadLatency: 5,
 		FpPhysLimit: 360, StoreBufferSize: 56, NumMSHREntries: 12, BranchPrediction: true,
 		Predictor: PredictorSpec{BimodalSize: 4096, TaggedTableSize: 2048, BTBSize: 2048, BTBWays: 4, RASSize: 32, TaggedHistLen: 32},
 	}
@@ -106,7 +113,8 @@ const (
 	unitINT unitType = iota
 	unitFP
 	unitFPDiv
-	unitLDST
+	unitLoad
+	unitStore
 )
 
 func (s *State) Initialize(c *Comp) {
@@ -122,6 +130,11 @@ func (s *State) Initialize(c *Comp) {
 	}
 	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumFPDiv < 1 || v.NumFPDiv > v.NumFP || v.NumLDST < 1 || v.LoadLatency < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
+	}
+	if v.NumLoad != 0 || v.NumStore != 0 {
+		if v.NumLoad < 1 || v.NumStore < 1 || v.NumLoad > v.NumLDST || v.NumStore > v.NumLDST || v.NumLoad < v.NumLDST-v.NumStore {
+			panic("ooo: load/store eligibility must cover the physical memory pipes")
+		}
 	}
 	s.IntUnits = make([][]UnitReservation, v.NumINT)
 	s.FpUnits = make([][]UnitReservation, v.NumFP)
@@ -495,8 +508,11 @@ func classifyUnit(instruction arm64asm.Inst) unitType {
 	if (op == arm64asm.ORR || op == arm64asm.MOVI) && instinfo.ArgFP(instruction.Args[0]) >= 0 {
 		return unitFP
 	}
-	if instinfo.IsLoad(op) || instinfo.IsStore(op) {
-		return unitLDST
+	if instinfo.IsLoad(op) {
+		return unitLoad
+	}
+	if instinfo.IsStore(op) {
+		return unitStore
 	}
 	switch op {
 	case arm64asm.FDIV, arm64asm.FSQRT:

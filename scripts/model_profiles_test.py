@@ -33,6 +33,8 @@ class ModelProfileTests(unittest.TestCase):
         cls.old = copy.deepcopy(cls.fixture.report["workload_manifest"]["profile"])
         cls.new = copy.deepcopy(cls.old)
         cls.new["configuration"]["fetch_width"] = 8
+        cls.new["configuration"].update(num_load=3, num_store=2)
+        cls.new["cache_config"]["DisableAdjacentL1Prefetch"] = True
         cls.git("init"); cls.git("config", "user.name", "Unit test"); cls.git("config", "user.email", "unit@example.invalid")
         cls.git("add", "."); cls.git("commit", "-m", "Legacy collection")
         cls.legacy = cls.git("rev-parse", "HEAD")
@@ -86,6 +88,26 @@ class ModelProfileTests(unittest.TestCase):
         report.pop('model_profiles')
         with self.assertRaisesRegex(ValueError, 'missing legacy'):
             models.validate(report)
+
+    def test_new_fields_are_revision_bound_without_normalizing_archives(self):
+        profiles = models.validate(self.report)
+        self.assertNotIn("num_load", profiles["base"]["configuration"])
+        self.assertNotIn("num_store", profiles["base"]["configuration"])
+        self.assertNotIn("DisableAdjacentL1Prefetch", profiles["base"]["cache_config"])
+        self.assertEqual(profiles["head"]["configuration"]["num_load"], 3)
+        self.assertEqual(profiles["head"]["configuration"]["num_store"], 2)
+        self.assertIs(profiles["head"]["cache_config"]["DisableAdjacentL1Prefetch"], True)
+        # An old-shaped row cannot silently inherit the new declaration.
+        for section, key in (("configuration", "num_load"),
+                             ("configuration", "num_store"),
+                             ("cache_config", "DisableAdjacentL1Prefetch")):
+            bad = copy.deepcopy(self.report)
+            bad["cases"][0]["head"][section].pop(key)
+            raw = self.root / ("missing-" + key + ".json")
+            compute.write(raw, bad)
+            raw.with_suffix(".md").write_text("Synthetic missing configuration field")
+            with self.assertRaisesRegex(ValueError, "profile/count mismatch"):
+                site.bundle(raw, self.source, self.root / ("missing-" + key), self.head)
 
     def test_missing_declaration_changed_profiles_and_both_hashes_fail(self):
         for mutate in (lambda r:r.pop("model_profiles"),

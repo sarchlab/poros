@@ -1,13 +1,133 @@
 package mem
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestMissingAdjacentPolicyRetainsLegacyConfiguration(t *testing.T) {
+	raw, err := json.Marshal(DefaultCacheConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	delete(fields, "DisableAdjacentL1Prefetch")
+	raw, err = json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy CacheConfig
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if legacy.DisableAdjacentL1Prefetch {
+		t.Fatal("missing legacy field disabled adjacent fills")
+	}
+	c := NewCache(legacy)
+	c.Access(0x1000, 8, false, 100)
+	if level, ready := c.Access(0x1040, 8, false, 101); level != HitL1 || ready != 437 {
+		t.Fatal("legacy timed policy lost", level, ready)
+	}
+}
+
+func TestTrainedL2StreamsRemainFiniteWithoutAdjacentL1Fills(t *testing.T) {
+	for _, direction := range []int64{-1, 1} {
+		c := NewCache(DefaultCacheConfig())
+		base := int64(0x10000)
+		for i := int64(0); i < 3; i++ {
+			c.Access(uint64(base+direction*i*128), 8, false, 100)
+		}
+		if c.stats.StreamsTrained != 1 || c.stats.Prefetches != 4 || c.stats.L2Misses != 3 {
+			t.Fatal(c.stats)
+		}
+		addr := uint64(base + direction*3*128)
+		line := c.l2.peek(addr)
+		if c.Probe(addr) != HitL2 || line == nil || !line.prefetched || line.readyAt != 459 {
+			t.Fatalf("stream lost finite DRAM arrival or populated L1: direction=%d line=%+v", direction, line)
+		}
+		level, ready := c.Access(addr, 8, false, 101)
+		if level != HitL2 || ready != 473 || c.stats.PrefetchedL2Hits != 1 {
+			t.Fatal("prefetched demand skipped L2 arrival/transfer", level, ready, c.stats)
+		}
+	}
+}
+
+// A timed demand fetches only its own L1 line under the calibrated policy.
+// Even the other half of the same L2 line needs a later demand transfer; an
+// odd-half miss must not send an unsolicited request to the next L2 line.
+func TestDemandOnlyL1FillsPreserveTransportAndReadiness(t *testing.T) {
+	for _, addr := range []uint64{0x1000, 0x1040} {
+		for _, store := range []bool{false, true} {
+			cfg := DefaultCacheConfig()
+			c := NewCache(cfg)
+			var ready uint64
+			if store {
+				accepted, drain := c.Store(addr, 8, 100)
+				if accepted != 100 {
+					t.Fatal("unexpected allocation admission", accepted)
+				}
+				ready = drain
+			} else {
+				_, ready = c.Access(addr, 8, false, 100)
+			}
+			if ready != 435 {
+				t.Fatal("demand arrival changed", ready)
+			}
+			next := addr + 64
+			wantLevel, wantReady := HitL2, uint64(449)
+			if addr == 0x1040 {
+				wantLevel, wantReady = HitDRAM, 443
+			}
+			if got := c.Probe(next); got != wantLevel {
+				t.Fatalf("unsolicited adjacent fill: addr=%#x store=%t level=%d", addr, store, got)
+			}
+			if len(c.channel.busy) != 1 || c.channel.busy[0].End-c.channel.busy[0].Start != 2 || len(c.dram.busy) != 1 || c.dram.busy[0].End-c.dram.busy[0].Start != 8 {
+				t.Fatalf("demand traffic differs: L1 %+v DRAM %+v", c.channel.busy, c.dram.busy)
+			}
+			if s := c.Stats(); s.StreamsTrained != 0 || s.Prefetches != 0 || s.L1Writebacks != 0 || s.L2Writebacks != 0 {
+				t.Fatal(s)
+			}
+			level, ready := c.Access(next, 8, false, 101)
+			if level != wantLevel || ready != wantReady {
+				t.Fatalf("second demand: level %d ready %d want %d,%d", level, ready, wantLevel, wantReady)
+			}
+			// Once installed, another consumer merges but still waits for data.
+			if level, r := c.Access(next, 8, false, 102); level != HitL1 || r != ready {
+				t.Fatal("pending demand exposed early", level, r)
+			}
+		}
+	}
+}
+
+func TestNoAdjacentFillAvoidsSpeculativeDirtyEviction(t *testing.T) {
+	cfg := DefaultCacheConfig()
+	cfg.L1Size, cfg.L1Ways = 128, 1
+	c := NewCache(cfg)
+	c.Prefetch(0x1040) // Pre-run warming only.
+	c.Store(0x1040, 8, 50)
+	c.Access(0x2000, 8, false, 100)
+	if line := c.l1.peek(0x1040); line == nil || !line.dirty || c.stats.L1Writebacks != 0 {
+		t.Fatal("unused adjacent fill evicted dirty data", c.stats)
+	}
+	// Actually demand the conflicting second half; its dirty victim must now
+	// write back through the same finite transport as demand fills.
+	c.Access(0x2040, 8, false, 101)
+	if c.stats.L1Writebacks != 1 || c.stats.WritebackBytes != 64 || c.DrainUntil() < 103 {
+		t.Fatal("demand eviction lost dirty traffic/readiness", c.stats, c.DrainUntil())
+	}
+}
 
 // The coordinator's early-fill counterexample: a demand miss at cycle 100
 // installs a 128 B L2 line arriving at 435; the adjacent 64 B L1 line must not
 // be usable before that fill, whether it is reached through the timed path or
 // through the legacy untimed Lookup path.
 func TestAccessAdjacentLineWaitsForPendingFill(t *testing.T) {
-	c := NewCache(DefaultCacheConfig())
+	cfg := DefaultCacheConfig()
+	cfg.DisableAdjacentL1Prefetch = false // Explicit legacy timed policy.
+	c := NewCache(cfg)
 	level, ready := c.Access(0x1000, 8, false, 100)
 	if level != HitDRAM || ready != 435 {
 		t.Fatalf("demand miss: level=%d ready=%d", level, ready)
@@ -23,7 +143,7 @@ func TestAccessAdjacentLineWaitsForPendingFill(t *testing.T) {
 	}
 
 	// Untimed store to a pending line must not make it ready for a later load.
-	c = NewCache(DefaultCacheConfig())
+	c = NewCache(cfg)
 	c.Access(0x2000, 8, false, 100)
 	if got := c.Lookup(0x2040, 8, true); got != HitL1 {
 		t.Fatalf("store to adjacent pending line: %d", got)
@@ -34,7 +154,7 @@ func TestAccessAdjacentLineWaitsForPendingFill(t *testing.T) {
 
 	// A store whose line is pending in L2 only (not yet in L1) copies the
 	// pending arrival into L1 instead of an instantly ready line.
-	c = NewCache(DefaultCacheConfig())
+	c = NewCache(cfg)
 	c.Access(0x3000, 8, false, 100) // L2 line 0x60 arrives at 435
 	// Evict nothing; touch a different L1 line of the same L2 line via store.
 	c.l1.sets[c.l1.setIndex(0x3040)] = make([]cacheLine, c.l1.ways) // drop the adjacent copy
@@ -156,6 +276,7 @@ func TestAccessWithoutTimedMechanismsMatchesLookupLevels(t *testing.T) {
 	cfg.DRAMBytesPerCycle = 0
 	cfg.PrefetchDistance = 0
 	cfg.WriteBufferEntries = 0
+	cfg.DisableAdjacentL1Prefetch = false
 	legacy := NewCache(cfg)
 	timed := NewCache(cfg)
 	x := uint64(12345)

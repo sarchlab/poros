@@ -67,7 +67,9 @@ func TestStoreCrossLineAndPartialByteOwnership(t *testing.T) {
 	cfg.WriteBufferEntries = 2
 	c := NewCache(cfg)
 	a, d := c.Store(0x103e, 4, 1)
-	if a != 1 || d != 338 {
+	// Both halves are demanded: the second waits for L2 arrival at 336 and
+	// then its own 14-cycle L2 access rather than an automatic adjacent fill.
+	if a != 1 || d != 350 {
 		t.Fatal(a, d)
 	}
 	if c.stats.WriteAllocations != 2 {

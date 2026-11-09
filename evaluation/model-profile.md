@@ -23,8 +23,9 @@ modeling choice supported by the native NOP and mixed-resource throughput probes
 it does not assert an eight-wide backend issue limit. NOP still uses frontend,
 ROB and retirement capacity, but no integer execution slot. Ordinary registers
 represented by `arm64asm.RegSP` participate in the scoreboard; actual SP and zero
-register tracking retain their existing behavior. Load/store sharing and branch
-redirect behavior are separate calibration work.
+register tracking retain their existing behavior. The load/store eligibility
+model below is independent of this frontend limit; branch redirect behavior
+remains separate calibration work.
 
 The comparison operand dependency correction also affects the shared in-order
 scoreboard and cached decode metadata, not only the OoO pipeline. Validation of
@@ -84,11 +85,35 @@ claim a physical M2 issue-queue size.
 These mutable interval lists belong to component `State` and survive JSON state
 round trips. The old experimental numeric `IntUnits`, `FpUnits`, and `LdstUnits`
 arrays are replaced by per-unit arrays of `{Start, End}` intervals; old numeric
-state JSON is not a compatible checkpoint. Configuration and model-profile
-parameters are unchanged, and Poros does not expose a saved timing-state restore
-CLI. The source revision distinguishes this scheduling change. Cache fill and
-prefetch behavior remain separate work; no claim of complete memory timing
-accuracy follows from this correction.
+state JSON is not a compatible checkpoint. Poros does not expose a saved
+timing-state restore CLI. The source revision distinguishes this scheduling
+change; no claim of complete memory timing accuracy follows from it.
+
+`NumLDST` counts physical memory pipes. The M2 default declares **four** pipes,
+of which `NumLoad = 3` accept loads and `NumStore = 2` accept stores. The first
+three calendars serve loads; the last two serve stores, so their overlap is
+one genuinely shared pipe. Loads prefer the two load-only pipes and stores
+prefer the store-only pipe when issue times tie. An earlier available shared
+pipe is still used immediately. Thus pure load/store issue rates are bounded
+by three/two instructions per cycle and mixed traffic by four in total,
+including future reservations. Paired memory instructions retain their existing
+one-pipe issue occupancy; this change does not introduce micro-op decomposition.
+
+Custom configurations may set other capacities: each eligible count must be
+positive, at most `NumLDST`, and their sum must cover all physical pipes.
+Disjoint and multiple-shared-pipe layouts follow the same prefix/suffix rule.
+`NumLoad = NumStore = 0` explicitly selects the legacy fully shared layout,
+including one- and two-pipe configurations. A single zero is invalid; reducing
+`DefaultSpec().NumLDST` also requires choosing valid eligible counts or setting
+both to zero. There is no silent clamping. Omitted fields in older complete Spec
+literals/JSON retain the legacy layout; newly serialized configurations retain
+the zero fields instead of rewriting them. Rebuild timing checkpoints when
+changing a Spec; the existing framework includes Spec in checkpoint identity.
+
+The committed [throughput](microbenchmarks/throughput/README.md) load/store
+controls and [memory](microbenchmarks/memory/README.md) L1-resident write
+controls support this finite eligibility correction. They do not identify every
+M2 memory operation's routing or establish overall application accuracy.
 
 The [scheduling probes](microbenchmarks/scheduling/README.md) contrast dependent
 MADD/FMADD chains with added independent work. They support mechanism-level
@@ -107,6 +132,33 @@ MSHR until the actual modeled load completion. Prefetches do not occupy demand
 MSHRs; the stream table and distance bound their lookahead. A hit on a pending
 L1 fill waits for that arrival without reserving another demand MSHR. This is a
 merged-request approximation; the ROB bounds the number of waiting loads.
+
+The M2 default sets `DisableAdjacentL1Prefetch = true`: a timed L1 miss transfers
+only the requested L1 line. Fetching a 128 B L2 line does not also install its
+unused 64 B half into L1. A later demand for that half performs its own L2
+access/transfer, waits for pending L2 data, and consumes a demand MSHR if needed.
+This applies to loads and write allocations, including each segment of a
+cross-line access. It avoids speculative adjacent traffic, cache pollution and
+dirty evictions without increasing either transport's bandwidth. The trained
+directional L2 stream prefetcher remains enabled and retains real arrival times.
+
+`DisableAdjacentL1Prefetch = false` retains the prior timed next-line policy;
+the negative boolean deliberately makes a missing field in an older complete
+cache configuration preserve that behavior. Untimed `Lookup` still warms the
+next L1 line on a miss regardless of this timed policy, and explicit `Prefetch`
+is unchanged. Runtime configuration and `model-profile.json` expose the policy.
+Archived reports retain their original absent fields and exact source hashes;
+the validators compare each row with its revision's declaration rather than
+inserting new defaults into historical evidence.
+
+The policy is an effective calibration choice, not a claim that M2 never
+prefetches adjacent data. Controlled post-PR72 diagnostics found that removing
+unconditional adjacent requests reduced the Syr2K-3 conflict penalty and
+16-chain L2 chase error while preserving a usable 256 KiB copy control. Doubling
+fill bandwidth instead severely overpredicted the copy speed. Those bounded
+comparisons motivate removing unsupported requests, not a measured replacement
+hardware prefetch algorithm. Broader streaming, adjacent-size and application
+regressions, including new underpredictions, remain part of full evaluation.
 
 Timed fills use two finite transports: every 64 B L1 fill occupies 2 cycles on
 the L2-to-L1 transport (`FillBytesPerCycle` = 32), and every 128 B DRAM fill

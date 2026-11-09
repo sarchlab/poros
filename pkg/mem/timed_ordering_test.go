@@ -177,7 +177,7 @@ func TestLowLatencyTransfersNeverUnderflowOrStartBeforeIssue(t *testing.T) {
 func TestDispatchOrderResidencyRemainsExplicit(t *testing.T) {
 	cfg := DefaultCacheConfig()
 	cfg.L1Size = 128
-	cfg.L1Ways = 2
+	cfg.L1Ways = 1 // conflicting demand lines, independently of adjacent prefetch
 	cfg.L2Size = 128
 	cfg.L2Ways = 1
 	cfg.PrefetchDistance = 0

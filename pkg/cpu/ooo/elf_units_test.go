@@ -11,11 +11,14 @@ func TestELFVectorExecutionUnits(t *testing.T) {
 		encoding uint32
 		unit     unitType
 	}{
-		{0x4ea11c00, unitFP},   // ORR V0.16B, V0.16B, V1.16B
-		{0x4f000400, unitFP},   // MOVI V0.4S, #0
-		{0x6ee0f820, unitFP},   // FNEG V0.2D, V1.2D
-		{0xaa010000, unitINT},  // ORR X0, X0, X1
-		{0xf9400020, unitLDST}, // LDR X0, [X1]
+		{0x4ea11c00, unitFP},    // ORR V0.16B, V0.16B, V1.16B
+		{0x4f000400, unitFP},    // MOVI V0.4S, #0
+		{0x6ee0f820, unitFP},    // FNEG V0.2D, V1.2D
+		{0xaa010000, unitINT},   // ORR X0, X0, X1
+		{0xf9400020, unitLoad},  // LDR X0, [X1]
+		{0xf9000020, unitStore}, // STR X0, [X1]
+		{0x6d400440, unitLoad},  // LDP D0,D1,[X2]
+		{0x6d000440, unitStore}, // STP D0,D1,[X2]
 	} {
 		var bytes [4]byte
 		binary.LittleEndian.PutUint32(bytes[:], tc.encoding)

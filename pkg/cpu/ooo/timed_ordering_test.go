@@ -15,7 +15,9 @@ func TestMSHRWaitPrecedesSupplyingFill(t *testing.T) {
 	p.comp.State.MshrBusyUntil[0] = 1000
 	p.fetchAndProcess()
 	first, second := p.comp.State.Rob[0], p.comp.State.Rob[1]
-	if first != 1335 || second != 1337 || p.comp.State.MshrBusyUntil[0] != 1335 {
+	// The second half is a separate L1 demand miss. It waits for the MSHR
+	// through 1335, then accesses the arrived L2 line for another 14 cycles.
+	if first != 1335 || second != 1349 || p.comp.State.MshrBusyUntil[0] != 1349 {
 		t.Fatalf("supplier=%d adjacent=%d MSHR=%d", first, second, p.comp.State.MshrBusyUntil[0])
 	}
 	t.Logf("supplier=%d adjacent=%d MSHR=%d", first, second, p.comp.State.MshrBusyUntil[0])
@@ -58,9 +60,9 @@ func TestStoreFillUsesFinalUnitIssueAndIndependentDrain(t *testing.T) {
 	if p.comp.State.Rob[0] != 1003 || p.comp.State.StoreDrainUntil[0] != 1003 || p.comp.Resources.Cache.DrainUntil() != 1335 {
 		t.Fatalf("data=%d allocation=%d", p.comp.State.Rob[0], p.comp.State.StoreDrainUntil[0])
 	}
-	_, ready := p.comp.Resources.Cache.Access(0x4040, 8, false, 1)
-	if ready != 1337 {
-		t.Fatalf("store supplied adjacent line before issue: %d", ready)
+	level, ready := p.comp.Resources.Cache.Access(0x4040, 8, false, 1)
+	if level != mem.HitL2 || ready != 1349 {
+		t.Fatalf("second-half demand bypassed store fill/L2 access: level=%d ready=%d", level, ready)
 	}
 	if p.comp.State.StoreBuffer[0].CompleteCycle != 1003 {
 		t.Fatal("allocation readiness changed forwarding data")
@@ -119,11 +121,11 @@ func TestPairedStoreHoldsAllocationUntilBothFills(t *testing.T) {
 	if len(p.comp.State.StoreBuffer) != 2 {
 		t.Fatalf("pair accesses=%d", len(p.comp.State.StoreBuffer))
 	}
-	if p.comp.State.StoreDrainUntil[0] != 4 || p.comp.Resources.Cache.DrainUntil() != 338 {
+	if p.comp.State.StoreDrainUntil[0] != 4 || p.comp.Resources.Cache.DrainUntil() != 350 {
 		t.Fatalf("pair drain=%d", p.comp.State.StoreDrainUntil[0])
 	}
 	for _, entry := range p.comp.State.StoreBuffer {
-		if entry.DrainCycle != 338 || entry.CompleteCycle != 4 {
+		if entry.DrainCycle != 350 || entry.CompleteCycle != 4 {
 			t.Fatalf("pair record %+v", entry)
 		}
 	}

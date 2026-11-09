@@ -2,6 +2,7 @@
   "cache_config": {
     "DRAMBytesPerCycle": 16,
     "DRAMLatency": 335,
+    "DisableAdjacentL1Prefetch": true,
     "FillBytesPerCycle": 32,
     "L1Latency": 5,
     "L1LineSize": 64,
@@ -30,7 +31,9 @@
     "num_fp_div": 1,
     "num_int": 6,
     "num_ldst": 4,
+    "num_load": 3,
     "num_mshr_entries": 12,
+    "num_store": 2,
     "predictor": {
       "bimodal_size": 4096,
       "btb_size": 2048,

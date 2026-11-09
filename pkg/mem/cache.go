@@ -15,9 +15,9 @@ const (
 //
 // The first nine fields describe the legacy synchronous model. The remaining
 // fields configure the timed access path (Access): a finite fill transport, and
-// a trained, optionally page-bounded sequential stream prefetcher. Zero values disable the
-// corresponding mechanism, which makes Access behave like Lookup except that
-// every fill still carries an arrival time.
+// a trained, optionally page-bounded sequential stream prefetcher. Zero values
+// retain legacy adjacent-line prefetch and disable the other timed mechanisms;
+// every timed fill still carries an arrival time.
 type CacheConfig struct {
 	L1Size      int // bytes
 	L1Ways      int // associativity
@@ -41,6 +41,11 @@ type CacheConfig struct {
 	// eviction stage (private L1, shared L2). Zero disables
 	// combining and dirty eviction traffic for legacy configurations.
 	WriteBufferEntries int
+	// DisableAdjacentL1Prefetch suppresses automatic next-line fills on timed
+	// L1 misses (Access/Store). False preserves legacy configurations; the M2
+	// default is true. This does not affect trained L2 stream prefetch or the
+	// untimed Lookup/Prefetch warming APIs.
+	DisableAdjacentL1Prefetch bool
 	// PrefetchDistance is how many L2 lines ahead of the triggering demand line
 	// a trained stream may run. 0 disables stream prefetch.
 	PrefetchDistance int
@@ -73,13 +78,14 @@ func DefaultCacheConfig() CacheConfig {
 		// the diagnostic evidence, assumed-frequency conversion and limits.
 		// These values do not identify physical Apple M2 transport widths or
 		// prefetch structures.
-		FillBytesPerCycle:   32,
-		DRAMBytesPerCycle:   16,
-		WriteBufferEntries:  56,
-		PrefetchDistance:    48,
-		PrefetchDegree:      4,
-		PrefetchTrainMisses: 3,
-		PrefetchStreams:     16,
+		FillBytesPerCycle:         32,
+		DRAMBytesPerCycle:         16,
+		WriteBufferEntries:        56,
+		DisableAdjacentL1Prefetch: true,
+		PrefetchDistance:          48,
+		PrefetchDegree:            4,
+		PrefetchTrainMisses:       3,
+		PrefetchStreams:           16,
 		// No extra page-boundary penalty in this model. This does not assert
 		// that a physical prefetcher crosses virtual or physical boundaries.
 		PrefetchPageBytes: 0,
@@ -506,8 +512,9 @@ func (c *Cache) Lookup(addr uint64, size int, isWrite bool) HitLevel {
 // is never earlier than now plus that level's latency and never earlier than
 // the arrival of the fill that supplies the line. Fills share the finite
 // transports. A demand load miss trains and triggers the stream prefetcher; a
-// store miss allocates its line through the same transports and retains the
-// adjacent-line prefetch, but does not train streams. This charges allocation
+// store miss allocates its line through the same transports but does not train
+// streams. Automatic adjacent L1 fills are controlled separately by
+// DisableAdjacentL1Prefetch for both loads and stores. This charges allocation
 // traffic and, when write buffering is enabled, dirty eviction traffic. Coherence
 // is not modeled. Callers decide whether the
 // returned readiness delays the instruction or holds a store allocation slot.
@@ -601,8 +608,9 @@ func (c *Cache) accessLine(addr uint64, size int, isWrite bool, now uint64) (Hit
 		c.stats.FillWaitCycles += ready - nominal
 	}
 
-	// Timed adjacent-line prefetch into L1 (legacy scope, real arrival time).
-	c.prefetchAdjacent(addr, now, level == HitDRAM, l2Ready)
+	if !c.cfg.DisableAdjacentL1Prefetch {
+		c.prefetchAdjacent(addr, now, level == HitDRAM, l2Ready)
+	}
 
 	// Train the stream table on the demand load miss and run the frontier ahead.
 	if !isWrite {
