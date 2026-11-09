@@ -1,6 +1,10 @@
 package mem
 
-import "testing"
+import (
+	"fmt"
+	"reflect"
+	"testing"
+)
 
 func TestPendingStoresCombineBytesButRetainArrival(t *testing.T) {
 	cfg := DefaultCacheConfig()
@@ -199,5 +203,53 @@ func TestResidentDirtyEvictionUsesStoreDataAvailability(t *testing.T) {
 	c.Access(0x2000, 8, false, 101)
 	if c.stats.L1Writebacks != 1 || c.writebackUntil < 103 {
 		t.Fatal("dirty store data/transfer completed early", c.stats, c.writebackUntil)
+	}
+}
+
+func TestWritebackAndInstallSelectSameVictim(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		lines []cacheLine
+		want  int
+	}{
+		{"first free", []cacheLine{{}, {valid: true, lastUsed: 1}, {}}, 0},
+		{"later free", []cacheLine{{valid: true, lastUsed: 1}, {}, {valid: true, lastUsed: 2}}, 1},
+		{"least recent", []cacheLine{{valid: true, lastUsed: 3}, {valid: true, lastUsed: 5}, {valid: true, lastUsed: 1}}, 2},
+		{"equal ages", []cacheLine{{valid: true, lastUsed: 1}, {valid: true, lastUsed: 1}, {valid: true, lastUsed: 1}}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			level := newCacheLevel(3*64, 3, 64)
+			copy(level.sets[0], tc.lines)
+			level.counter = 10
+			before := append([]cacheLine(nil), level.sets[0]...)
+			victim := level.victim(0x4000)
+			if victim != &level.sets[0][tc.want] {
+				t.Fatal("wrong free/LRU/tie selection")
+			}
+			installed := level.installAt(0x4000, 123, true)
+			if installed != victim || installed.tag != level.tag(0x4000) || installed.readyAt != 123 || !installed.prefetched {
+				t.Fatal("writeback/install selection diverged")
+			}
+			for i := range before {
+				if i != tc.want && !reflect.DeepEqual(before[i], level.sets[0][i]) {
+					t.Fatal("unselected line changed")
+				}
+			}
+		})
+	}
+}
+
+func TestNegativeWriteCapacityDiagnosticMatchesSharedCache(t *testing.T) {
+	cfg := DefaultCacheConfig()
+	cfg.WriteBufferEntries = -1
+	for _, create := range []func(){func() { NewCache(cfg) }, func() { NewSharedL2(cfg) }} {
+		func() {
+			defer func() {
+				if got := fmt.Sprint(recover()); got != "mem: negative write-buffer capacity" {
+					t.Fatalf("unexpected diagnostic %q", got)
+				}
+			}()
+			create()
+		}()
 	}
 }

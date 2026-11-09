@@ -31,7 +31,9 @@ An initial exploratory acquisition informed the dense confirmation sweep. The
 quality and rise criteria below were fixed before that second acquisition; the
 whole sequential study was not preregistered. The boundary quality rule is `(p90-p10)/median <= 20%` for paired
 ratios. The rise criterion is at least 15% above the low-count plateau with
-nonoverlapping p10/p90 bands at both gate lengths. Post-acquisition analysis in
+nonoverlapping p10/p90 bands, applied independently at each gate length. Both
+gates’ brackets are reported; in this acquisition both meet the criterion by 370.
+Post-acquisition analysis in
 `scripts/capacity_microbenchmark.py::infer_transition` specifies the plateau as
 qualified counts ≤356 for each gate, summarized by the median of their medians
 and maximum P90. A later qualified row must exceed 1.15 times that median and
@@ -82,7 +84,9 @@ UTC timestamp, every case's instruction count and native timing bands. Boundary
 sources/binary are hashed before and after sampling. All raw timings, native
 binaries, and disassembly audits are retained externally; compact paired samples
 and provenance are embedded in `m2.json`. Collector hashes identify the acquisition
-version; later optional QEMU smoke support does not change the measured sources.
+version; later QEMU smoke support, post-acquisition `infer_transition`, and report
+integration do not change the measured sources or samples. The committed ELF
+still matches the acquisition SHA256 `38ac11ae36074d79de96283dd02e05db5bae2bb6b5930f1b7539ab9c38dfe44b`.
 Native and ELF loop-object disassemblies
 were compared word-for-word (34,035 identical instruction words). Object builds
 can be reproduced with `clang -arch arm64 -c loops.S` and

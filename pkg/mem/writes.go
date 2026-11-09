@@ -110,29 +110,15 @@ func (c *Cache) DrainUntil() uint64 {
 	return until
 }
 
-func (cl *cacheLevel) victim(addr uint64) *cacheLine {
-	set := cl.sets[cl.setIndex(addr)]
-	var victim *cacheLine
-	for i := range set {
-		if !set[i].valid {
-			return nil
-		}
-		if victim == nil || set[i].lastUsed < victim.lastUsed {
-			victim = &set[i]
-		}
-	}
-	return victim
-}
-
 func (c *Cache) installL1(addr, ready uint64, prefetched bool, now uint64) *cacheLine {
-	if victim := c.l1.victim(addr); victim != nil && victim.dirty {
+	if victim := c.l1.victim(addr); victim.valid && victim.dirty {
 		ready = max(ready, c.writebackL1(*victim, now))
 	}
 	return c.l1.installAt(addr, ready, prefetched)
 }
 
 func (c *Cache) installL2(addr, ready uint64, prefetched bool, now uint64) *cacheLine {
-	if victim := c.l2.victim(addr); victim != nil && victim.dirty {
+	if victim := c.l2.victim(addr); victim.valid && victim.dirty {
 		admitted, end := reserveWriteback(c.l2Writebacks, c.dram, now, max(victim.readyAt, victim.dirtyAt), c.cfg.L2LineSize)
 		ready = max(ready, admitted)
 		c.writebackUntil = max(c.writebackUntil, end)

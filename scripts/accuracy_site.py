@@ -1263,7 +1263,7 @@ def capacity_panels(reference, simulations, profiles):
     rows = []
     for index, case in enumerate(reference["cases"]):
         native = {key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")}
-        modeled = {role: simulations[role][index]["cycles"] * 1e9 / 1024 / frequencies[role] for role in ("base", "head")}
+        modeled = {role: simulations[role][index]["cycles"] * 1e9 / (capacity.ITERATIONS[1] - capacity.ITERATIONS[0]) / frequencies[role] for role in ("base", "head")}
         spread = 100 * (native["p90"] - native["p10"]) / native["median"]
         tip = f'{case["id"]}: native {native["median"]:.3f} ns/iteration; P10-P90 {native["p10"]:.3f}-{native["p90"]:.3f}; base {modeled["base"]:.3f}, head {modeled["head"]:.3f}'
         rows.append(dict(case=case, native=native, modeled=modeled, spread=spread, tooltip=tip))

@@ -74,9 +74,10 @@ func directGPRTransfer(inst arm64asm.Inst) bool {
 }
 
 // Forwarding records and write allocation ownership have different lifetimes.
-// This internal bound covers per-instruction pairs plus at most one byte owner
-// per queued cache-line byte; pressure stalls dispatch rather than growing an
-// unbounded history when requests have far-future issue times.
+// This pool is explicitly capped from instruction-pair and queued-line-byte
+// scales; dispatch stalls when full. Fully shadowed records are compacted, but
+// records covered only by several partial stores remain until they drain. The
+// cap, not a one-owner-per-byte invariant, bounds future-ready record history.
 func (p *middleware) forwardingCapacity() int {
 	capacity := 2 * p.comp.Spec.StoreBufferSize
 	if cache := p.comp.Resources.Cache; cache != nil {

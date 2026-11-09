@@ -62,9 +62,10 @@ class CapacityTests(unittest.TestCase):
 
     def test_panels_sort_actual_filler_counts_and_active_lanes(self):
         profiles = {role: {"configuration": {"freq": 3490000000}} for role in ("base", "head")}
-        with patch.object(site, "chart", return_value="chart") as chart:
+        with patch.object(site, "chart", return_value="chart") as chart, patch.object(suite, "ITERATIONS", (128, 384)):
             site.capacity_panels(self.reference, self.comparison, profiles)
         self.assertEqual(chart.call_count, 10)
+        self.assertAlmostEqual(chart.call_args_list[0].args[1][1][1][0][1], 100000 / 256 / 3.49)
         for call in chart.call_args_list:
             xs = [p[0] for p in call.args[1][0][1]]
             self.assertEqual(xs, sorted(xs))

@@ -190,30 +190,29 @@ func (cl *cacheLevel) lookup(addr uint64) bool {
 	return cl.find(addr) != nil
 }
 
+// victim selects the first free slot, or the LRU occupied slot with first-way
+// tie breaking. Timed writeback and installation use this same selector.
+func (cl *cacheLevel) victim(addr uint64) *cacheLine {
+	set := cl.sets[cl.setIndex(addr)]
+	var victim *cacheLine
+	for i := range set {
+		if !set[i].valid {
+			return &set[i]
+		}
+		if victim == nil || set[i].lastUsed < victim.lastUsed {
+			victim = &set[i]
+		}
+	}
+	return victim
+}
+
 // installAt puts addr into this cache level with the given arrival cycle,
 // evicting the LRU line if needed, and returns the installed line.
 func (cl *cacheLevel) installAt(addr uint64, readyAt uint64, prefetched bool) *cacheLine {
-	set := cl.setIndex(addr)
-	t := cl.tag(addr)
+	slot := cl.victim(addr)
 	cl.counter++
-
-	// Find an invalid slot first.
-	for i := range cl.sets[set] {
-		if !cl.sets[set][i].valid {
-			cl.sets[set][i] = cacheLine{valid: true, tag: t, lastUsed: cl.counter, generation: cl.counter, readyAt: readyAt, prefetched: prefetched}
-			return &cl.sets[set][i]
-		}
-	}
-
-	// Evict LRU.
-	lru := 0
-	for i := 1; i < cl.ways; i++ {
-		if cl.sets[set][i].lastUsed < cl.sets[set][lru].lastUsed {
-			lru = i
-		}
-	}
-	cl.sets[set][lru] = cacheLine{valid: true, tag: t, lastUsed: cl.counter, generation: cl.counter, readyAt: readyAt, prefetched: prefetched}
-	return &cl.sets[set][lru]
+	*slot = cacheLine{valid: true, tag: cl.tag(addr), lastUsed: cl.counter, generation: cl.counter, readyAt: readyAt, prefetched: prefetched}
+	return slot
 }
 
 // install puts addr into this cache level as immediately ready (legacy path).
@@ -362,6 +361,9 @@ type SharedL2 struct {
 // NewSharedL2 creates a shared L2 cache from the given config.
 // The L2 parameters (L2Size, L2Ways, L2LineSize) from cfg are used.
 func NewSharedL2(cfg CacheConfig) *SharedL2 {
+	if cfg.WriteBufferEntries < 0 {
+		panic("mem: negative write-buffer capacity")
+	}
 	s := &SharedL2{level: newCacheLevel(cfg.L2Size, cfg.L2Ways, cfg.L2LineSize), cfg: cfg, clients: make(map[*Cache]uint64), writebacks: make([]uint64, cfg.WriteBufferEntries)}
 	if cfg.DRAMBytesPerCycle > 0 {
 		s.dram = &fillChannel{bytesPerCycle: uint64(cfg.DRAMBytesPerCycle)}

@@ -156,6 +156,9 @@ L2 evictions share the existing 16 B/cycle DRAM transport. These are conservativ
 shared-direction bandwidth assumptions, not measured bidirectional bus widths.
 Private L1 eviction slots are private; L2 eviction slots and DRAM transport are
 shared across attached cores. The initiating cache owns final-drain bookkeeping.
+An L1 writeback raises readiness for the entire 128 B L2 line until its transfer
+completes, so an L1 miss reading the clean 64 B half also waits. This conservative
+line-granular dependency is a model assumption, not a measured hardware rule.
 Coherence and a full DRAM controller remain unmodeled.
 
 `Access(isWrite=true)` records an already-admitted transaction and its dirty
