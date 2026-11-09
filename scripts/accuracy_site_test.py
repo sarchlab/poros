@@ -483,15 +483,46 @@ class AccuracySiteTest(unittest.TestCase):
         zeros = site.absolute_error_cdf([(1, 1, "a"), (2, 2, "b")])
         self.assertIn("2 / 2 (100.00%)", zeros)
         self.assertNotIn("<circle", zeros)
+        for percentile in (50, 75, 90, 95):
+            self.assertIn(f'P{percentile}: <strong>0%</strong>', zeros)
+        self.assertNotIn('percentile-guide', empty)
+        self.assertNotIn('percentile-marker', zeros)
         single = site.absolute_error_cdf([(100, 125, "single")])
         self.assertIn('cx="401.000"', single)
         self.assertIn("cumulative fraction 1/1 = 1", single)
+        for percentile in (50, 75, 90, 95):
+            self.assertIn(f'P{percentile}: <strong>25.00%</strong>', single)
+        self.assertEqual(single.count('class="percentile-marker"'), 4)
         tiny = site.absolute_error_cdf([(1, 1.000000001, "tiny")])
         for page in (empty, zeros, single, tiny):
             self.assertNotIn("nan", page.lower())
             self.assertNotIn("infinity", page.lower())
         self.assertIn("Absolute error (%) · log scale", single)
         self.assertIn("Cumulative fraction of cases", single)
+
+    def test_error_cdf_percentiles_use_nearest_rank_without_extra_observations(self):
+        points = [(100, 100+error, str(i)) for i, error in enumerate((0, 10, 20, 30, 100, 200))]
+        before = copy.deepcopy(points)
+        with patch.object(site, 'chart', wraps=site.chart) as render:
+            page = site.absolute_error_cdf(points)
+        guides = render.call_args.kwargs['percentile_guides']
+        self.assertEqual([g[0] for g in guides], [.5, .75, .9, .95])
+        self.assertEqual([g[2] for g in guides], ['P50: 20.00%', 'P75: 100.00%', 'P90: 200.00%', 'P95: 200.00%'])
+        for guide, error in zip(guides, (20, 100, 200, 200)):
+            self.assertAlmostEqual(guide[1], site.math.log10(error))
+        self.assertEqual(len(render.call_args.args[1][0][1]), 5)  # Five positive observations, not nine.
+        self.assertEqual(page.count('<circle '), 5)
+        self.assertIn('Nearest-rank percentiles; no interpolation.', page)
+        self.assertEqual(points, before)
+        with patch.object(site, 'chart', wraps=site.chart) as render:
+            tied = site.absolute_error_cdf([(100, value, str(i)) for i, value in enumerate((100, 100, 100, 100, 200, 200))])
+        self.assertIsNone(render.call_args.kwargs['percentile_guides'][0][1])
+        self.assertIn('P50: <strong>0%</strong>', tied)
+        self.assertEqual(tied.count('class="percentile-marker"'), 3)
+        self.assertEqual(tied.count('<circle '), 2)
+        other = site.chart('ordinary', [('head', [(1, 2, 'one')], '#000')], 'x', 'y')
+        self.assertNotIn('percentile-guide', other)
+        self.assertNotIn('cdf-percentiles', other)
 
     def test_overview_cdf_shares_application_sample_and_row(self):
         def row(name, quality="usable", head=True):
@@ -503,6 +534,8 @@ class AccuracySiteTest(unittest.TestCase):
             page = site.overview_charts(rows)
         self.assertEqual(render.call_args.args[0], [(1000, 1250, "app-1")])
         self.assertIn("Absolute error across 1 qualified cases", page)
+        for percentile in (50, 75, 90, 95):
+            self.assertIn(f'P{percentile}: <strong>25.00%</strong>', page)
         self.assertLess(page.index("S-curve:"), page.index("Absolute error distribution (CDF)"))
         self.assertLess(page.index("Absolute error distribution (CDF)"), page.index("Qualified reference vs. prediction"))
         self.assertIn('</div><div class="charts" style="margin-top:16px"><figure><figcaption>Qualified reference vs. prediction', page)

@@ -708,6 +708,7 @@ def number(value, suffix=""):
 
 CSS = """
 :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172b35;background:#f5f7f7;font-size:15px}body{margin:0}main{max-width:1180px;margin:auto;padding:40px 24px 64px}a{color:#006e75;text-underline-offset:3px}header{border-bottom:1px solid #cedbde;padding-bottom:25px;margin-bottom:24px}.eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;color:#49717a}h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.04em;margin:12px 0}h2{font-size:22px;margin:32px 0 14px}p{line-height:1.6}.muted{color:#58707a}.notice{border-left:4px solid #b77a13;background:#fff7df;padding:13px 18px;margin:18px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.card,figure{background:white;border:1px solid #d7e1e4;border-radius:9px;padding:18px;margin:0}.card strong{display:block;font-size:26px;margin-top:6px}.table{overflow:auto;border:1px solid #d7e1e4;border-radius:9px;background:white}table{border-collapse:collapse;width:100%;white-space:nowrap}td,th{padding:12px 14px;text-align:left;border-bottom:1px solid #e5ecee;font-variant-numeric:tabular-nums}th{background:#edf3f3;font-size:12px;text-transform:uppercase;color:#49616b}tr:last-child td{border-bottom:0}.badge{font-size:12px;padding:4px 8px;border-radius:20px;background:#edf1f2}.pass{background:#e1f3e9;color:#15523b}.fail{background:#fbe6df;color:#8f321b}.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}svg{width:100%;height:auto}svg text{font:11px system-ui;fill:#526a75}figcaption{font-weight:650;margin-bottom:10px}.band-key{display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;padding:0;font-size:13px}.band-key li{white-space:nowrap}.band-key span{display:inline-block;width:12px;height:12px;margin-right:5px;border:1px solid #0002;vertical-align:-2px}#point-tip{position:fixed;z-index:10;pointer-events:none;background:#18343e;color:white;border-radius:5px;padding:8px 11px;max-width:min(380px,85vw);font-size:13px;line-height:1.4;white-space:pre-line}circle[data-tip]{cursor:crosshair}circle[data-tip]:focus{outline:none;stroke:#2c5059;stroke-width:2}details{margin:20px 0}pre{overflow:auto;background:#edf3f3;padding:16px;font-size:12px}.downloads{display:flex;flex-wrap:wrap;gap:16px}footer{margin-top:35px;color:#617780;font-size:12px}code{font-size:12px;overflow-wrap:anywhere}@media(max-width:500px){main{padding:24px 12px}.charts{grid-template-columns:1fr}td,th{padding:10px}.card{padding:13px}}
+.cdf-percentiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;list-style:none;padding:0;font-size:13px}.cdf-percentiles li{border-left:3px solid;padding-left:8px}.cdf-percentiles strong{white-space:nowrap}
 """
 
 
@@ -842,7 +843,8 @@ LIVE_REFRESH = """<script>
 
 
 def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=None,
-          ideal=False, note="", y_bands=(), y_ranges=(), x_domain=None, step_start=None):
+          ideal=False, note="", y_bands=(), y_ranges=(), x_domain=None, step_start=None,
+          percentile_guides=()):
     """Plot the data domain; guide lines never contribute observations."""
     points = [(x, y) for _, values, _ in series for x, y, _ in values]
     if not points:
@@ -908,6 +910,17 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
         point_key = esc(json.dumps(keys))
         body += (f'<circle data-point-key="{point_key}" cx="{px(x):.3f}" cy="{py(y):.3f}" r="3.2" fill="{entries[-1][0]}" '
                  f'stroke="transparent" stroke-width="4" tabindex="0" aria-label="{tip}" data-tip="{tip}"/>')
+    for fraction, value, label, color in percentile_guides:
+        x = px(fraction)
+        # Zero error has no finite log-axis ordinate. Its exact label remains
+        # below the chart, but no positive marker is substituted for it.
+        body += (f'<g class="percentile-guide" aria-label="{esc(label)}" pointer-events="none">'
+                 f'<path d="M{x:.3f} 20V235" fill="none" stroke="{color}" stroke-dasharray="3 4" opacity="0.65"/>')
+        if value is not None:
+            y = py(value)
+            body += (f'<path class="percentile-marker" d="M{x:.3f} {y-4:.3f}l4 4-4 4-4-4Z" '
+                     f'fill="white" stroke="{color}" stroke-width="2"/>')
+        body += '</g>'
     body += f'<text x="235" y="279" text-anchor="middle">{esc(xlabel)}</text><text x="6" y="12">{esc(ylabel)}</text>'
     legend = " · ".join(f'<span style="color:{color}">{esc(name)}</span>' for name, _, color in series)
     if ideal:
@@ -975,11 +988,22 @@ def absolute_error_cdf(points):
     n = len(ranked)
     if not n:
         return chart(title, [], "Cumulative fraction of cases", "Absolute error (%) · log scale")
+    guides, labels = [], []
+    for percentile, color in ((50, '#5a519e'), (75, '#2273a3'), (90, '#ad5700'), (95, '#a83163')):
+        error = ranked[(percentile*n + 99)//100 - 1][0]
+        value = '0' if error == 0 else f'{error:.2f}' if error >= .005 else f'{error:.3g}'
+        label = f'P{percentile}: {value}%'
+        labels.append(f'<li style="border-color:{color}">P{percentile}: <strong>{value}%</strong></li>')
+        guides.append((percentile/100, math.log10(error) if error > 0 else None, label, color))
+    percentiles = ('<ul class="cdf-percentiles" aria-label="Absolute error percentiles">' + ''.join(labels)
+                   + '</ul><p class="muted">P90: at least 90% of cases have error at or below this value. '
+                   'Nearest-rank percentiles; no interpolation.</p>')
     zeros = sum(error == 0 for error, _, _, _ in ranked)
     note = f'<p class="muted">Exact zero error: {zeros} / {n} ({zeros/n:.2%}).'
     if zeros == n:
-        return f'<figure><figcaption>{title}</figcaption>{note} No positive errors to plot on a log axis.</p></figure>'
+        return f'<figure><figcaption>{title}</figcaption>{percentiles}{note} No positive errors to plot on a log axis.</p></figure>'
     note += ' Zero-error points are omitted from the log axis.</p>' if zeros else '</p>'
+    note = percentiles + note
     values = []
     for i, (error, name, ref, pred) in enumerate(ranked, 1):
         if error == 0:
@@ -994,7 +1018,7 @@ def absolute_error_cdf(points):
     return chart(title, [("head", values, "#087e8b")], "Cumulative fraction of cases",
                  "Absolute error (%) · log scale", x_domain=(0, 1),
                  x_ticks=[(x/4, f'{x/4:g}') for x in range(5)], y_ticks=ticks,
-                 step_start=zeros/n, note=note)
+                 step_start=zeros/n, note=note, percentile_guides=guides)
 
 
 def overview_charts(cases):
