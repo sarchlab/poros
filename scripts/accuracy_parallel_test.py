@@ -260,6 +260,8 @@ class ParallelAccuracyTests(unittest.TestCase):
              patch.object(memory,'measure',side_effect=AssertionError('aggregate memory fallback')), \
              patch.object(probe,'measure',side_effect=AssertionError('aggregate frontend fallback')), \
              contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(parallel.aggregate(self.prepared,results,'123',1,output),1)
+            self.assertIn('requires --checkpoints with recorded diagnostic evidence',parallel.read(output)['error'])
             self.assertEqual(parallel.aggregate(self.prepared,results,'123',1,output,checkpoints=checkpoints),0)
             self.assertEqual(parallel.read(output)['throughput_simulation'],expected)
             next(checkpoints.glob('*.json')).unlink()

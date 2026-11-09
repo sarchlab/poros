@@ -177,11 +177,19 @@ The task inventory is derived from the frozen source and binds the original
 The current 107 diagnostic points comprise 17 head-only throughput points and
 13 forwarding, 4 scheduling and 73 capacity points with both roles: 394 raw
 short/long executions. Each worker owns one directory and its `diagnostic.json`
-status; a directory lock rejects concurrent writers. Checkpoints are named
+status; a directory lock rejects concurrent writers.
+Conflicting point or campaign ownership is rejected without overwriting the
+existing status receipt. Checkpoints are named
 `<suite>-<role>-<suite_index>-<iterations>.json`, with one-based suite indices.
 The normal CI workflow schedules this matrix alongside application/memory
 shards. Aggregation waits for both matrices, validates all raw evidence and
 builds the report without executable binary permissions or simulator calls.
+Only successful diagnostic jobs upload aggregatable raw artifacts. Each job
+first uploads its status separately, then uploads raw evidence as its final
+step on success. Failed or interrupted points therefore leave no partial raw
+artifact in the aggregate's download pattern. Re-running failed jobs reuses
+successful points and shards from earlier attempts; their simulations need not
+run again. Status artifacts remain available for diagnosing failed attempts.
 
 The optional campaign status file binds `head`, `base`, `run_id`, completed shard
 indices and active shard indices (`active` object). It supplies activity only;
@@ -206,6 +214,8 @@ it never silently reruns completed simulations. Existing compatible raw
 checkpoints retain their exact keys and can move into their owning task directory.
 Aggregation recursively reads the checkpoint root and rejects missing,
 unexpected, duplicate or conflicting evidence, with no execution fallback.
+`aggregate` requires `--checkpoints` when the measured source declares diagnostic
+points; historical sources without those suites do not require the argument.
 Only `diagnostic.json`, `started.json` and `receipt.json` are transport metadata
 and excluded from raw checkpoint indexing. Application and memory records are
 replayed from validated shard evidence, never resimulated.

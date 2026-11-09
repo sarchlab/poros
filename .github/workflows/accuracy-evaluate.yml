@@ -114,10 +114,17 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          name: accuracy-diagnostic-status-${{ needs.accuracy-prepare.outputs.plan_id }}-${{ matrix.point }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/diagnostic/diagnostic.json
+          retention-days: 30
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
           name: accuracy-diagnostic-${{ needs.accuracy-prepare.outputs.plan_id }}-${{ matrix.point }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/diagnostic/
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
   user-time-accuracy:
     name: User-time accuracy report
     needs: [accuracy-prepare, accuracy-shards, accuracy-diagnostics]

@@ -5,6 +5,7 @@ import contextlib
 import copy
 import io
 import hashlib
+import fnmatch
 from pathlib import Path
 import struct
 import tempfile
@@ -65,10 +66,10 @@ class DiagnosticTests(unittest.TestCase):
         self.patches.enter_context(patch.object(forwarding,'execute',side_effect=lambda *a,**kw: execute(*a,suite=None,**kw)))
         self.patches.enter_context(patch.object(parallel,'load_plan',return_value=(self.plan,{})))
 
-    def run_point(self, index):
+    def run_point(self, index, attempt=1):
         folder = self.saved/str(index)
         with contextlib.redirect_stdout(io.StringIO()):
-            return parallel.run_diagnostic_point(self.prepared,'test',1,index,folder,folder/'diagnostic.json',source=self.source)
+            return parallel.run_diagnostic_point(self.prepared,'test',attempt,index,folder,folder/'diagnostic.json',source=self.source)
 
     def test_inventory_preserves_old_plan_and_source_bound_107_points_394_executions(self):
         before = (self.prepared/'plan.json').read_bytes()
@@ -166,10 +167,76 @@ class DiagnosticTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):self.run_point(0)
         self.assertEqual(self.calls,[])
         lock.unlink();self.assertEqual(self.run_point(0),0)
+        receipt=folder/'diagnostic.json'
+        original=receipt.read_bytes()
         with contextlib.redirect_stdout(io.StringIO()):
             status=parallel.run_diagnostic_point(self.prepared,'test',1,1,folder,folder/'diagnostic.json',source=self.source)
         self.assertEqual(status,1)
         self.assertEqual(len(self.calls),2)
+        self.assertEqual(receipt.read_bytes(),original)
+        self.assertEqual(parallel.read(receipt)['status'],'pass')
+        self.assertFalse(lock.exists())
+        # A failed owner's receipt still owns the directory even without raw files.
+        for path in folder.glob('throughput-*.json'):path.unlink()
+        with contextlib.redirect_stdout(io.StringIO()):
+            status=parallel.run_diagnostic_point(self.prepared,'test',1,1,folder,receipt,source=self.source)
+        self.assertEqual(status,1)
+        self.assertEqual(receipt.read_bytes(),original)
+        self.assertEqual(len(self.calls),2)
+        self.assertFalse(lock.exists())
+
+    def test_missing_checkpoint_argument_is_explicit_and_undeclared_source_remains_compatible(self):
+        with self.assertRaisesRegex(ValueError,'requires --checkpoints with recorded diagnostic evidence'):
+            parallel.recorded_diagnostics(self.plan,self.prepared,self.source,None)
+        archived=copy.deepcopy(self.plan);archived['head']['files']={}
+        self.assertEqual(parallel.recorded_diagnostics(archived,self.prepared,self.source,None),({},{}))
+
+    def test_failed_job_retry_excludes_partial_artifact_and_reuses_prior_successes(self):
+        # Exercise the actual workflow upload/download contract without GitHub.
+        workflow=(self.source/'.github/workflows/accuracy-evaluate.yml').read_text()
+        job=workflow.split('  accuracy-diagnostics:',1)[1].split('  user-time-accuracy:',1)[0]
+        uploads=job.split('      - uses: actions/upload-artifact@v4\n')[1:]
+        raw=next(step for step in uploads if '\n          name: accuracy-diagnostic-${{' in step)
+        status=next(step for step in uploads if '\n          name: accuracy-diagnostic-status-' in step)
+        self.assertIn('        if: success()\n',raw)
+        self.assertIn('        if: always()\n',status)
+        self.assertIs(raw,uploads[-1]) # Successful raw upload is the job's final step.
+        self.assertIn('path: ${{ runner.temp }}/diagnostic/diagnostic.json',status)
+        self.assertIn('pattern: accuracy-diagnostic-${{ needs.accuracy-prepare.outputs.plan_id }}-*',workflow)
+        plan_id=parallel.identity(self.plan)
+        tasks=self.tasks[:2]
+        with patch.object(parallel,'diagnostic_tasks',return_value=tasks), \
+             patch.object(throughput,'cases',return_value=[t['case'] for t in tasks]):
+            self.assertEqual(self.run_point(0),0)
+            task=tasks[1]
+            saved=parallel.diagnostic_checkpoint(self.plan,self.prepared,self.saved/'1','throughput','head')
+            n=1024
+            row=synthetic_execution(self.prepared/'head',self.source,task['case'],task['index'],n,'ooo',
+                saved.identity['revision'],saved.identity['profile'])
+            saved(task['case'],task['index'],n,lambda:row,
+                lambda r:throughput.validate_execution(r,self.source,task['case'],task['index'],n,'ooo',
+                    saved.identity['revision'],saved.identity['profile']))
+            partial=list((self.saved/'1').glob('*.json'))
+            self.assertEqual(len(partial),1)
+            # The failed attempt uploads only status under a non-matching name.
+            failed_status=self.root/'failed-status'
+            parallel.write(failed_status/'diagnostic.json',dict(task=task,attempt=1,status='fail'))
+            artifacts={f'accuracy-diagnostic-{plan_id}-0-1':self.saved/'0',
+                       f'accuracy-diagnostic-status-{plan_id}-1-1':failed_status}
+            for path in partial:path.unlink() # A fresh CI runner for the retry.
+            self.assertEqual(self.run_point(1,attempt=2),0)
+            artifacts[f'accuracy-diagnostic-{plan_id}-1-2']=self.saved/'1'
+            self.assertEqual(parallel.read(self.saved/'0/diagnostic.json')['attempt'],1)
+            self.assertEqual(parallel.read(self.saved/'1/diagnostic.json')['attempt'],2)
+            downloaded=self.root/'downloaded'
+            import shutil
+            for name,folder in artifacts.items():
+                if fnmatch.fnmatchcase(name,f'accuracy-diagnostic-{plan_id}-*'):
+                    shutil.copytree(folder,downloaded/name)
+            with patch.object(throughput,'execute',side_effect=AssertionError('aggregate reran diagnostics')):
+                rows,_=parallel.recorded_diagnostics(self.plan,self.prepared,self.source,downloaded)
+            self.assertEqual([r['id'] for r in rows['throughput']],[t['case']['id'] for t in tasks])
+            self.assertEqual(len(self.calls),4) # Point 0 was not rerun at attempt 2.
 
     def test_live_export_uses_raw_partial_roles_and_activity_with_511_point_denominator(self):
         cases,_=parallel.inputs(self.source)

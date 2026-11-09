@@ -439,12 +439,20 @@ def run_diagnostic_point(directory, run_id, attempt, index, checkpoints, output,
     report = dict(schema=1, plan_id=identity(plan), run_id=run_id, attempt=attempt,
                   task=task, status="running", completed_roles=[], errors=[],
                   reporting=reporting_identity(), started_at=time.time())
+    owned = False
     try:
         expected = {f"{task['suite']}-{role}-{task['index']}-{n}.json"
                     for role in task["roles"] for n in site.DIAGNOSTIC_SUITES[task["suite"]].ITERATIONS}
         if any(path.name not in expected | {"diagnostic.json", "receipt.json", "started.json"}
                for path in checkpoints.glob("*.json")):
             raise ValueError("diagnostic directory belongs to another point")
+        receipt = checkpoints / "diagnostic.json"
+        if receipt.exists():
+            previous = read(receipt)
+            if not isinstance(previous, dict) or any(previous.get(key) != report[key]
+                                                     for key in ("schema", "plan_id", "run_id", "task")):
+                raise ValueError("diagnostic receipt belongs to another point or campaign")
+        owned = True
         atomic_write(output, report)
         suite = site.DIAGNOSTIC_SUITES[task["suite"]]
         for role in task["roles"]:
@@ -460,7 +468,8 @@ def run_diagnostic_point(directory, run_id, attempt, index, checkpoints, output,
     finally:
         report["completed_at"] = time.time()
         try:
-            atomic_write(output, report)
+            if owned:
+                atomic_write(output, report)
         finally:
             lock.unlink()
     print("diagnostic", index, task["suite"], task["case"]["id"], report["status"], flush=True)
@@ -470,6 +479,8 @@ def run_diagnostic_point(directory, run_id, attempt, index, checkpoints, output,
 def recorded_diagnostics(plan, directory, source, checkpoints, *, partial=False):
     """Read raw checkpoints only. Missing pairs may remain pending in live views."""
     tasks = diagnostic_tasks(plan, source)
+    if tasks and checkpoints is None and not partial:
+        raise ValueError("aggregation requires --checkpoints with recorded diagnostic evidence")
     expected = {}
     simulations, progress = {}, {}
     for task in tasks:
