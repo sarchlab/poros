@@ -17,6 +17,13 @@
     "PrefetchPageBytes": 0,
     "PrefetchStreams": 16,
     "PrefetchTrainMisses": 3,
+    "SLCLatency": 138,
+    "SLCSize": 8388608,
+    "TLBPageBytes": 16384,
+    "TLBSets": 256,
+    "TLBWalkLatency": 30,
+    "TLBWalkers": 4,
+    "TLBWays": 12,
     "WriteBufferEntries": 56
   },
   "configuration": {

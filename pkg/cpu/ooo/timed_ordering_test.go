@@ -9,7 +9,7 @@ import (
 )
 
 func TestMSHRWaitPrecedesSupplyingFill(t *testing.T) {
-	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, mem.NewCache(mem.DefaultCacheConfig()))
+	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, fillCache())
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.comp.Resources.Emu.Regs.WriteX(3, 0x4040)
 	p.comp.State.MshrBusyUntil[0] = 1000
@@ -24,7 +24,7 @@ func TestMSHRWaitPrecedesSupplyingFill(t *testing.T) {
 }
 
 func TestCrossLineLoadWaitsForMSHRBeforeMissingTailFill(t *testing.T) {
-	cfg := mem.DefaultCacheConfig()
+	cfg := fillConfig()
 	cache := mem.NewCache(cfg)
 	cache.Prefetch(0x4040) // First L1 line resident; second crosses into a missing L2 line.
 	if cache.Probe(0x407c) != mem.HitL1 || cache.Probe(0x4080) != mem.HitDRAM {
@@ -53,7 +53,7 @@ func TestCrossLineLoadWaitsForMSHRBeforeMissingTailFill(t *testing.T) {
 }
 
 func TestStoreFillUsesFinalUnitIssueAndIndependentDrain(t *testing.T) {
-	p := reservationPipeline(t, []uint32{0xf9000020}, mem.NewCache(mem.DefaultCacheConfig())) // STR X0,[X1]
+	p := reservationPipeline(t, []uint32{0xf9000020}, fillCache()) // STR X0,[X1]
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.comp.State.LdstUnits[0] = []UnitReservation{{1, 1000}}
 	p.fetchAndProcess()
@@ -75,7 +75,7 @@ func TestStoreAllocationPoolBoundsStreamAndDrainsTerminalStores(t *testing.T) {
 	for i := range words {
 		words[i] = 0xf9000020
 	} // STR X0,[X1]
-	cfg := mem.DefaultCacheConfig()
+	cfg := fillConfig()
 	cfg.WriteBufferEntries = 2
 	p := reservationPipeline(t, words, mem.NewCache(cfg))
 	p.comp.Spec.FetchWidth = 1
@@ -115,8 +115,8 @@ func TestStoreAllocationPoolBoundsStreamAndDrainsTerminalStores(t *testing.T) {
 }
 
 func TestPairedStoreHoldsAllocationUntilBothFills(t *testing.T) {
-	p := reservationPipeline(t, []uint32{0xa9000820}, mem.NewCache(mem.DefaultCacheConfig())) // STP X0,X2,[X1]
-	p.comp.Resources.Emu.Regs.WriteX(1, 0x4038)                                               // two different L1 halves
+	p := reservationPipeline(t, []uint32{0xa9000820}, fillCache()) // STP X0,X2,[X1]
+	p.comp.Resources.Emu.Regs.WriteX(1, 0x4038)                    // two different L1 halves
 	p.fetchAndProcess()
 	if len(p.comp.State.StoreBuffer) != 2 {
 		t.Fatalf("pair accesses=%d", len(p.comp.State.StoreBuffer))
@@ -164,7 +164,7 @@ func TestPendingOldStoreSurvivesYoungerDrainingStores(t *testing.T) {
 }
 
 func TestAllocationDoesNotDelayExactGPRForwarding(t *testing.T) {
-	p := reservationPipeline(t, []uint32{0xf9000020, 0xf9400022}, mem.NewCache(mem.DefaultCacheConfig()))
+	p := reservationPipeline(t, []uint32{0xf9000020, 0xf9400022}, fillCache())
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.fetchAndProcess()
 	if p.comp.State.Rob[0] != 4 || p.comp.State.Rob[1] != 3 || p.comp.State.StoreDrainUntil[0] != 4 || p.comp.Resources.Cache.DrainUntil() != 336 {
@@ -174,7 +174,7 @@ func TestAllocationDoesNotDelayExactGPRForwarding(t *testing.T) {
 
 func TestDoneAndFaultPathsReleaseSharedTimingClient(t *testing.T) {
 	for _, alreadyDone := range []bool{false, true} {
-		cfg := mem.DefaultCacheConfig()
+		cfg := fillConfig()
 		shared := mem.NewSharedL2(cfg)
 		cache := mem.NewPrivateL1WithSharedL2(cfg, shared)
 		sibling := mem.NewPrivateL1WithSharedL2(cfg, shared)
@@ -218,7 +218,7 @@ func TestRejectsLegacyOrIncompatibleStoreAllocationState(t *testing.T) {
 }
 
 func TestCheckedFetchFaultDrainsPriorStoreAllocations(t *testing.T) {
-	p := reservationPipeline(t, []uint32{0xf9000020, 0x00000000}, mem.NewCache(mem.DefaultCacheConfig()))
+	p := reservationPipeline(t, []uint32{0xf9000020, 0x00000000}, fillCache())
 	em := p.comp.Resources.Emu
 	em.Regs.WriteX(1, 0x4000)
 	// Emulator satisfies Execution; this enables the checked-process fault
@@ -254,7 +254,7 @@ func TestUsefulWorkCanOverlapFixedStoreDrain(t *testing.T) {
 		for i := 1; i < len(words); i++ {
 			words[i] = 0x91000442
 		} // ADD X2,X2,#1
-		cache := mem.NewCache(mem.DefaultCacheConfig())
+		cache := fillCache()
 		p := reservationPipeline(t, words, cache)
 		p.comp.Spec.FetchWidth = 8
 		p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)

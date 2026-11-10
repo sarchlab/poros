@@ -181,6 +181,7 @@ func TestDispatchOrderResidencyRemainsExplicit(t *testing.T) {
 	cfg.L2Size = 128
 	cfg.L2Ways = 1
 	cfg.PrefetchDistance = 0
+	cfg.SLCSize = 0 // the untimed path it is compared with has no memory-side cache
 	legacy, timed := NewCache(cfg), NewCache(cfg)
 	for i, addr := range []uint64{0x1000, 0x1000, 0x2000, 0x1000} {
 		want := legacy.Lookup(addr, 8, false)

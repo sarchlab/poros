@@ -10,7 +10,7 @@ import (
 // complete when that fill arrives, not after a nominal L1 hit latency.
 func TestLoadToPendingLineWaitsForFillArrival(t *testing.T) {
 	// LDR X0,[X1]; LDR X2,[X3]
-	cfg := mem.DefaultCacheConfig()
+	cfg := fillConfig()
 	cfg.DisableAdjacentL1Prefetch = false // Legacy adjacent-fill merging.
 	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, mem.NewCache(cfg))
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
@@ -36,7 +36,7 @@ func TestLoadToPendingLineWaitsForFillArrival(t *testing.T) {
 }
 
 func TestSecondHalfDemandWaitsForMSHRAndL2Fill(t *testing.T) {
-	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, mem.NewCache(mem.DefaultCacheConfig()))
+	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, fillCache())
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.comp.Resources.Emu.Regs.WriteX(3, 0x4040)
 	p.fetchAndProcess()
@@ -50,7 +50,7 @@ func TestSecondHalfDemandWaitsForMSHRAndL2Fill(t *testing.T) {
 // Two independent misses in the same cycle are serialized by the finite fill
 // transport: the second completes one line transfer later.
 func TestIndependentMissesShareFillTransport(t *testing.T) {
-	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, mem.NewCache(mem.DefaultCacheConfig()))
+	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, fillCache())
 	p.comp.Spec.NumLDST = 2
 	p.comp.State.LdstUnits = make([][]UnitReservation, 2)
 	p.comp.State.MshrBusyUntil = make([]uint64, 2)

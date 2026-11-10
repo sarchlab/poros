@@ -387,6 +387,12 @@ func (p *middleware) fetchAndProcess() {
 			issueCycle = forwarding.issueCycle
 		}
 
+		// A load that takes its data from the cache needs its address
+		// translation first; a page walk moves its cache access later.
+		if instinfo.IsLoad(inst.Op) && !forwarding.forwarded {
+			issueCycle = p.translated(issueCycle)
+		}
+
 		// 6. Probe residency without side effects, choose MSHR/unit issue, then
 		// commit cache requests at that final time. Cache fills cannot start
 		// while the supplying instruction is still waiting for a resource.
@@ -610,6 +616,8 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 			switch worst {
 			case mem.HitL2:
 				return uint64(cfg.L2Latency), dataReady
+			case mem.HitSLC:
+				return uint64(cfg.SLCLatency), dataReady
 			case mem.HitDRAM:
 				return uint64(cfg.DRAMLatency), dataReady
 			default:
@@ -619,6 +627,22 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 		return uint64(p.comp.Spec.LoadLatency), 0
 	}
 	return uint64(instinfo.ExecuteLatency(inst.Op)), 0
+}
+
+// translated returns when the address translations of the current
+// instruction's accesses are available to an access whose address is known at
+// issueCycle. Without a cache, or with translation timing disabled, that is
+// issueCycle.
+func (p *middleware) translated(issueCycle uint64) uint64 {
+	cache := p.comp.Resources.Cache
+	if cache == nil {
+		return issueCycle
+	}
+	ready := issueCycle
+	for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+		ready = max(ready, cache.Translate(acc.Addr, acc.Size, issueCycle))
+	}
+	return ready
 }
 
 // loadMissesL1 only classifies current dispatch-order cache residency.
