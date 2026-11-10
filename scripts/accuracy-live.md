@@ -157,7 +157,7 @@ omit them; stray recurrence evidence on an undeclaring head is rejected.
   its host, core, cycle scale and counter checks; it is not a macOS reference.
   A parsed `recurrence_reference` is rejected.
 - `report.recurrence_simulation`: exactly `base` and `head`, each an ordered
-  subset of the **36** declared cases (all 36 for a complete report). Each row
+  subset of the **41** declared cases (all 41 for a complete report). Each row
   contains `id`, `instructions`, positive integer `cycles` and `updates`. Counts
   subtract 128 from 256 outer trips (`recurrence.ITERATIONS`): instructions and
   updates equal 128 times the case's declared per-trip counts. Both binaries
