@@ -33,6 +33,7 @@
     "num_ldst": 4,
     "num_load": 3,
     "num_mshr_entries": 12,
+    "num_select_fusion": 1,
     "num_store": 2,
     "predictor": {
       "bimodal_size": 4096,

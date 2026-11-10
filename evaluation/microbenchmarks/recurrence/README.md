@@ -1,6 +1,6 @@
 # Compare/select and memory-carried recurrence probes
 
-These 36 probes separate three questions raised by the Nussinov inner loop,
+These 41 probes separate three questions raised by the Nussinov inner loop,
 whose only loop-carried dependency is `str` → same-address `ldr` → `cmp` →
 `csel`: whether an adjacent compare/select pair costs one or two dependency
 steps, what a same-address GPR store→load step costs in different program
@@ -9,9 +9,14 @@ macOS executable and the native Linux executable assemble the same bodies; an
 instruction audit requires every function to be word-identical in all three at
 the same offset within a 64-byte line.
 
-**Status: experimental diagnostics.** No native reference is committed yet and
-the suite is not part of the accuracy report. The probes establish what the
-model predicts and what must be measured; they do not calibrate anything.
+The reference `m2-linux.json` is one native Linux capture on a pinned M2
+performance core (Avalanche, CPU 4 of an Asahi Linux host with 16 KiB pages),
+with user-mode hardware cycle and instruction counters. It is this suite's
+official reference and its own cohort: it replaces no macOS reference, and the
+application references are unchanged. An official reference is a measurement
+record, not a statement that the simulator is validated against it.
+[`model-profile.md`](../../model-profile.md) states which rows support the
+modelled compare/select fusion and which record gaps the model still has.
 
 Dense loops perform 64 updates per outer trip, tight loops run 64
 single-update trips, and kernel replicas run 1,024 inner trips. `cases.def`
@@ -24,7 +29,9 @@ of one chain.
 | `clock_add`, `clock_fadd` | One-cycle integer and three-cycle FP register chains |
 | `sel32_rr_adj`/`_sep`, `sel64_rr_adj`/`_sep` | Running maximum `cmp`/`csel` on W or X registers. Every update has the same four instructions; the separated form moves the independent accumulator between compare and select |
 | `sel32_rr_adj_p8`/`_sep_p8`, `sel32_rr_adj_p4` | The W forms shifted 8 bytes (a second layout with no straddle) and the adjacent form shifted 4 bytes, where every fourth pair straddles a 64-byte line |
-| `sel32_ri_adj`/`_sep`, `sel32_ri16_adj`, `sel32_shift_adj` | Compare with immediate 15, immediate 16, and `#1, lsl #12`; the selection alternates between both outcomes |
+| `sel32_rr_swap_adj`, `sel32_rr_dst_adj`, `sel32_rr_other_adj` | Operand relation of the adjacent W register form: the compared registers selected in the other order, a destination that is neither compared register, and a select between two registers that were not compared |
+| `sel32_ri_same_adj` | Compare with immediate 15, then select between the compared register and one other |
+| `sel32_ri_adj`/`_sep`, `sel32_ri16_adj`, `sel32_shift_adj` | Compare with immediate 15, immediate 16, and `#1, lsl #12`, then select between two registers that were not compared; the selection alternates between both outcomes |
 | `sel32_csinc_adj` | `cmp` followed by `csinc` instead of `csel` |
 | `thr32_mix_adj`, `thr32_mix_sep` | Issue throughput, not latency: 64 independent units of one compare, one select and two adds. At eight instructions per cycle a unit needs four integer operations unless the adjacent pair issues as one; both orders have the same instructions, count and loop size |
 | `mem32_max_const`, `mem32_max_chg`, `mem32_max_const_sep` | The maximum is loaded from and stored to one address. The stored value is constant, changes every update, or the pair is separated; one instruction separates each store from the next load |
@@ -32,7 +39,7 @@ of one chain.
 | `mem64_independent`, `mem_fadd` | The same instruction classes without a memory dependency; an FP load/`fadd`/store chain |
 | `fwd_near`, `fwd_mid`, `fwd_far` | Load, two increments, store. Reload immediately after the store, or four and eight instructions later with two and three interleaved chains |
 | `mem64_addr_far` | The recurrence runs through the load address while the stored data is ready early |
-| `tight_add_mem`, `tight_max_mem`, `tight_max_reg` | One static store/load pair per taken branch, and its register-carried control |
+| `tight_add_mem`, `tight_max_mem`, `tight_max_mem_same`, `tight_max_reg` | One static store/load pair per taken branch: an increment, a maximum selected into a second register, the same maximum selected into the loaded register, and the register-carried control |
 | `nuss_const`, `nuss_chg`, `nuss_sep`, `nuss_reg` | The eleven-instruction Nussinov loop on L1-resident data at the application's line offset: constant maximum, changing maximum, index increment moved between `cmp` and `csel`, and register-carried maximum with an unrelated third load |
 
 Compared forms keep the same instruction multiset, dynamic count, loop size and
@@ -47,6 +54,7 @@ can be removed. The analytic outputs, with `T = 64 N` for `N` outer trips, are:
 | `select_max` | `T(T+1)/2 + T + 1` |
 | `select_low`, `select_shift` | `50T + T²/4`, `2500T + T²/4` |
 | `select_inc` | `T(T+1)/2 + T/2 + T + 1` |
+| `select_other`, `select_hold` | `2^29 T`, `101T` |
 | `mix` | `6N − 3` |
 | `max_const`, `max_chg` | `T + 5`, `5T + T(T+1)/2 + 5 + T` |
 | `mid`, `far`, `trips` | `2(T + 1)`, `3(T + 1)`, `N` |
@@ -67,6 +75,9 @@ Before and after each interval the collector also reads hardware counters for
 the measured thread when the system provides them: the kernel's per-process
 accounting on macOS (`proc_pid_rusage`, one thread) or a user-mode `perf_event`
 cycle/instruction group on Linux. If neither is available the capture says so.
+The Linux group also reports how long it was enabled and how long it was
+actually counting; a capture in which the two differ was multiplexed and is
+rejected.
 
 1. One warmup call per probe (retained, never analysed), then a duration
    pilot at 1:2:4 trip counts of about 16 million instructions. The fastest
@@ -107,9 +118,38 @@ and run functional and timing smoke checks with
 plus the complete schedule with a synthetic clock, so it measures nothing; the
 same `dry` run prints identical bytes on every host. `build-linux --directory
 DIR` cross-builds the static Linux collector with 16 KiB-compatible segments.
-`collect` captures on a quiet local Apple M2, and `summarize` turns a capture
-taken elsewhere into a reference. A native Linux capture is its own cohort in
-`m2-linux.json`; it replaces no macOS reference.
+A capture is the unmodified output of that collector on an otherwise idle
+host, `native-linux collect BLOCKS TARGET_NS DEADLINE_S CPU`, run once.
+`summarize` re-derives the schedule, checks every interval and turns the
+capture into a reference bound to the four measurement sources, the executed
+binary and the raw capture by SHA-256.
+
+## Reading the reference
+
+The capture ran 12 mirrored blocks (2,016 main intervals, 73.5 s of thread CPU
+time) and never left CPU 4. `clock_add` reads 1.0000 and `clock_fadd` 3.0000
+cycles per update, counted instructions are 1.000001 of the declared loops, the
+counter group was enabled and counting for the same 73.58 s, and all 41 rows
+pass the spread screen (`mem_fadd` is the widest at 7%).
+
+The compare/select rows read as follows. An adjacent 32-bit register compare
+and a select between the compared registers cost 1.07 cycles per update
+against 2.01 separated, in two layouts, with the operands in either order and
+with any destination; 1.333 when every fourth pair straddles a 64-byte line.
+A compare with immediate 15 followed by a select between the compared register
+and one other also costs 1.07. A select between two registers that were not
+compared costs 2.01 after a register compare and after an immediate compare,
+as do 64-bit pairs and `csinc`. Independent adjacent pairs issue at exactly
+one per cycle, against 0.70 cycles per unit when separated.
+
+Three limits apply to every use of these rows. They come from one host and one
+session. Only immediate 15 was measured with a select that uses the compared
+register: the immediate-16 and shifted-immediate rows select two other
+registers, which alone prevents the saving, so no row says whether another
+immediate value would behave like 15 or like 16 in that relation. And a row
+describes its own instruction arrangement: the same-address rows range from no
+added cycle to four and a half, and no single store-to-load latency summarizes
+them.
 
 Simulation differences use 128 and 256 outer trips, check analytic output and
 exact retired instruction counts, and require the declared source revision and

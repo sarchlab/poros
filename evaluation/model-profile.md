@@ -68,6 +68,104 @@ be retained when comparing or reusing results. Old serialized store-buffer
 entries without the new readiness/classification fields retain the conventional
 path; newly produced states round-trip those fields.
 
+The later [recurrence probes](microbenchmarks/recurrence/README.md) count
+cycles on an M2 performance core and show where this hypothesis stops. The
+one-cycle path is granted by address and width, but hardware distinguishes the
+base register: the same load/increment/store chain costs 1.75 cycles per
+update through one base register and 6.47 through a second register holding
+the same address (model: 2.0 for both). Within the same-base class the added
+cost is not one number. It is about zero when a reload follows its store
+directly in a four-instruction update, eight instructions later, across a taken
+branch, or in the Nussinov loop; 0.75 in the three-instruction update the
+forwarding probes use; and two to four and a half cycles for two interleaved
+chains and for a memory-carried maximum, whether or not the loaded register is
+also the one stored. A narrower load of a wider store costs 5.47 cycles and an
+FP chain 9.1, against the model's conventional 8. These rows do not yet give a rule that
+reproduces all of them, so the forwarding model is unchanged; they are the
+recorded gaps for a separate calibration.
+
+## Compare/select fusion
+
+An eligible compare and the conditional select that immediately follows it
+execute as one operation. Eligibility follows the measured forms. The compare
+is a 32-bit `CMP` of two plain registers, or of a register and an unshifted
+immediate of at most 15; the select is a 32-bit `CSEL`; both instructions lie
+in one 64-byte line; and together they read at most two different registers,
+the inputs of one two-source operation. A register compare therefore fuses
+with a select between its two operands, in either order and into any
+destination, and an immediate compare with a select between the compared
+register and one other. A select between registers that were not compared,
+64-bit pairs, shifted or extended compares, larger immediates, `CMN`, `CSINC`
+and the other conditional-select forms, and the zero register or stack pointer
+as an operand keep separate timing. The pair issues once, when every register
+either instruction reads is ready, occupies one integer pipe for one cycle,
+and delivers the flags and the selected register together one cycle later.
+Both instructions still execute, hold their own ROB entries and retire, and a
+later flag reader is an ordinary consumer of the pair's flags.
+
+`NumSelectFusion` (default **1**) is the number of integer pipes that can
+execute a fused pair: the last `NumSelectFusion` of the `NumINT` pipes, a
+subset rather than extra pipes. Ordinary integer work fills pipes from the
+first and reaches a fusion pipe only when the others are busy at that time, so
+a stream of pairs is bounded by one per cycle per fusion pipe. Zero disables
+the fusion and reproduces the previous timing exactly; a negative count or one
+above `NumINT` is rejected. Omitted in an older complete Spec, the field is
+zero.
+
+A pair is admitted whole. With one fetch slot or one ROB entry left, the
+compare waits for the next cycle rather than issuing unfused, and a
+configuration that can never hold two in a cycle runs unfused. The model's own
+cycle boundaries are therefore never a fusion barrier. Whether hardware decode
+groups are one was not measured; only the 64-byte line was.
+
+The [recurrence probes](microbenchmarks/recurrence/README.md) support this on a
+pinned M2 performance core with counted user-mode cycles (the one-cycle ADD
+chain reads 1.0000 and the three-cycle FADD chain 3.0000 cycles per update).
+The adjacent W-register pair costs 1.07 cycles per update and the separated
+pair 2.01, in two layouts; with every fourth pair straddling a line it costs
+1.33. It still costs 1.07 with the select operands in the other order and with
+a destination that is neither compared register, and so does a compare with
+immediate 15 followed by a select between the compared register and one other.
+A select between two registers that were not compared costs 2.01 after either
+compare form, as does the same recurrence on X registers or with `CSINC`.
+An independent stream of adjacent pairs issues at exactly 1.000 cycle per pair
+where the separated stream takes 0.70: the saving is latency on a
+one-per-cycle resource, which is why the pair has its own restricted pipe
+rather than any integer pipe. The Nussinov inner-loop replica costs 1.39
+cycles per trip with the pair adjacent and 2.67 with one instruction between.
+
+Limits of the evidence and of the model:
+
+- Eligibility is the measured forms and two stated extensions, not the
+  compiler's fusion tuning set. Measured: the register compare with a select
+  of its operands in both orders, into a compared or a third register, and
+  immediate 15 with the compared register as destination and second select
+  operand. Extended without a measurement: immediates 0 to 14, because the
+  compiler's code-layout rule treats unshifted immediates up to 15 as one
+  class and 15 is its largest member; and, for the immediate form, the
+  operand order and destination freedom measured on the register form. In the
+  workload binaries the extensions apply to one `CMP Wn, #0` pair each in
+  facesim and fluidanimate, which changes one cycle of a facesim run and none
+  of fluidanimate.
+- Immediate 16 and the shifted immediate were probed only with a select of two
+  other registers, which alone prevents the saving. They, `CMN` and
+  zero-register operands stay unfused because nothing measured supports
+  fusing them.
+- Hardware loses about one cycle in fifteen pairs in the dense chain and one in
+  nine in the tight loop, consistent with other work sharing the single pipe.
+  The model's ordinary work avoids the fusion pipe while another is free, so it
+  reads 1.00 where hardware reads 1.07 and 1.11, and 1.25 against 1.33 for the
+  straddling layout.
+- Four memory-carried maximum probes move further from hardware: the model
+  falls from 3.0 to 2.0 cycles per update against a measured 5.47 (two probes)
+  and 3.79 (two probes). Hardware does save time on the adjacent pair there
+  (separating it adds 0.69 cycles in the dense loop); the gap is the store-to-load cost described
+  above, which the model does not have.
+- The Nussinov loop still costs the model two cycles per trip, because a
+  fetch group ends at the taken branch; hardware runs its eleven instructions
+  at eight per cycle. That frontend difference is separate work.
+- One host and session; the in-order model is unchanged.
+
 ## Execution-unit reservations
 
 OoO execution units record occupied half-open intervals rather than a single

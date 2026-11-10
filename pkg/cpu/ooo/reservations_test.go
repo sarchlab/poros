@@ -16,6 +16,13 @@ import (
 
 func reservationPipeline(t *testing.T, words []uint32, cache *mem.Cache) *middleware {
 	t.Helper()
+	return specPipeline(t, words, cache, nil)
+}
+
+// specPipeline starts from one pipe of each kind and a fetch group holding
+// the whole program, then applies a test's own configuration.
+func specPipeline(t *testing.T, words []uint32, cache *mem.Cache, adjust func(*Spec)) *middleware {
+	t.Helper()
 	em := emu.NewEmulator()
 	em.Mem.TrackAccesses = true
 	em.Regs.PC = 0x1000
@@ -29,6 +36,9 @@ func reservationPipeline(t *testing.T, words []uint32, cache *mem.Cache) *middle
 	spec.NumLDST = 1
 	spec.NumLoad, spec.NumStore = 0, 0 // one fully shared pipe
 	spec.NumMSHREntries = 1
+	if adjust != nil {
+		adjust(&spec)
+	}
 	simulation := sim.MakeBuilder().Build()
 	t.Cleanup(func() {
 		if err := simulation.Terminate(); err != nil {

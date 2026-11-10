@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """Reject incomplete, reordered or misattributed recurrence-probe evidence."""
 import copy
+import json
+from pathlib import Path
+import shutil
+import tempfile
 import unittest
 
+import accuracy_site as site
+import accuracy_test_support as fixtures
+import compute_usertime as compute
 import recurrence_microbenchmark as suite
 
 
@@ -14,9 +21,10 @@ def emulate(case, iterations):
         return trips + 1
     if kind == "half":
         return int(1.0 + 0.5 * trips)
-    if kind in ("select_max", "select_low", "select_shift", "select_inc"):
-        value, candidate, total = (1, 1, 0) if kind in ("select_max", "select_inc") else (0, 5000 if kind == "select_shift" else 100, 0)
-        limit = {"select_low": 16 if "ri16" in name else 15, "select_shift": 4096}.get(kind)
+    if kind.startswith("select_"):
+        value, candidate = {"select_max": (1, 1), "select_inc": (1, 1), "select_other": (0, 1),
+                            "select_shift": (0, 5000)}.get(kind, (0, 100))
+        limit, total = {"select_low": 16 if "ri16" in name else 15, "select_shift": 4096}.get(kind), 0
         for _ in range(trips):
             total += value
             candidate = (candidate + 1) & mask
@@ -24,6 +32,10 @@ def emulate(case, iterations):
                 value = value if value >= candidate else candidate
             elif kind == "select_inc":
                 value = value if value >= candidate else candidate + 1
+            elif kind == "select_other":
+                value = 1 << 30 if value < candidate else 0
+            elif kind == "select_hold":
+                value = candidate if value < 15 else value
             else:
                 value = candidate if value < limit else 0
         return total + value
@@ -55,7 +67,7 @@ def emulate(case, iterations):
     return total
 
 
-def capture(declared, blocks=4, target=24000000, *, system="linux", counters="perf_event_user", away=(), stop="complete"):
+def capture(declared, blocks=4, target=24000000, *, system="linux", counters="perf_event_user", away=(), stop="complete", multiplexed=0):
     """A collector-shaped capture from exact per-update costs (0.3 ns per cycle)."""
     cost = {case["id"]: 1.0 + index % 3 for index, case in enumerate(declared)}
     lines, chosen, clock = [], [], 0
@@ -87,6 +99,8 @@ def capture(declared, blocks=4, target=24000000, *, system="linux", counters="pe
                   blocks_completed=blocks, target_ns=target, deadline_s=150, pilot_instructions=suite.PILOT_INSTRUCTIONS,
                   stop=stop, iteration_limited=0, start_realtime_ns=1794312000000000000, elapsed_ns=clock)
     environment = dict(os=system, counters=counters, pinned_cpu=4 if system == "linux" else -1)
+    if counters == "perf_event_user":
+        environment.update(counter_enabled_ns=clock, counter_running_ns=clock - multiplexed)
     return "\n".join([*(f"H {k} {v}" for k, v in header.items()), *(f"E {k} {v}" for k, v in environment.items()),
                       *(f"F {b} 3504000 3504000" for b in range(blocks)),
                       *(f"N {i} {a} {b}" for i, (a, b) in enumerate(chosen)), *lines]) + "\n", cost
@@ -103,7 +117,7 @@ class RecurrenceTests(unittest.TestCase):
         return suite.summarize_capture(suite.parse_capture(text, self.cases), self.cases)
 
     def test_declared_cases_and_analytic_outputs(self):
-        self.assertEqual(len(self.cases), 36)
+        self.assertEqual(len(self.cases), 41)
         self.assertEqual(self.cases[0]["id"], suite.CLOCK)
         for case in self.cases:
             for iterations in (1, 2, 5):
@@ -156,6 +170,7 @@ class RecurrenceTests(unittest.TestCase):
                        lambda values: values.pop(main), lambda values: values.append("X 1"),
                        lambda values: values.remove("F 3 3504000 3504000"),
                        lambda values: values.remove("E counters perf_event_user"),
+                       lambda values: values.remove(next(v for v in values if v.startswith("E counter_running_ns"))),
                        lambda values: values.__setitem__(0, "H protocol other")):
             changed = list(lines)
             mutate(changed)
@@ -198,13 +213,18 @@ class RecurrenceTests(unittest.TestCase):
                        lambda r: r["campaign"].update(blocks=3), lambda r: r["campaign"].update(stop="interval-limit"),
                        lambda r: r["sources"].pop(suite.ELF), lambda r: r.update(timer="wall time"),
                        lambda r: r.update(cycle_scale="assumed frequency"), lambda r: r.update(os="other"),
+                       lambda r: r["environment"].update(counter_running_ns="1"),
+                       lambda r: r["environment"].pop("counter_enabled_ns"),
                        lambda r: r.update(definition=r["definition"] + "\n")):
             bad = copy.deepcopy(reference)
             mutate(bad)
             with self.assertRaises((ValueError, KeyError)):
                 suite.validate_reference(bad)
-        with self.assertRaises(ValueError):
-            suite.reference_from_capture(text.replace("H clock measured", "H clock synthetic"), self.cases, sources, "1" * 64, "gcc", "test")
+        # A synthetic clock is not a measurement, and a counter group that was
+        # ever descheduled is not a count.
+        for altered in (text.replace("H clock measured", "H clock synthetic"), capture(self.cases, multiplexed=1)[0]):
+            with self.assertRaises(ValueError):
+                suite.reference_from_capture(altered, self.cases, sources, "1" * 64, "gcc", "test")
         suite.validate_simulation(self.rows, self.cases)
         suite.validate_comparison(dict(base=self.rows, head=self.rows), self.cases)
         for mutate in (lambda r: r.pop(), lambda r: r.reverse(), lambda r: r[0].update(cycles=True),
@@ -216,6 +236,74 @@ class RecurrenceTests(unittest.TestCase):
         for value in ({"head": self.rows}, {"base": self.rows}, dict(base=self.rows, head=self.rows, extra=self.rows)):
             with self.assertRaises(ValueError):
                 suite.validate_comparison(value, self.cases)
+
+    def test_committed_reference_is_bound_to_its_sources_and_capture(self):
+        reference = suite.load_reference(suite.ROOT)
+        self.assertEqual((reference["os"], reference["hardware"]), ("linux", "Apple M2"))
+        self.assertEqual({row["quality"] for row in reference["cases"]}, {"usable"})
+        by_id = {row["id"]: row["median_cycles_per_update"] for row in reference["cases"]}
+        # The counter scale is checked by the reference itself.
+        self.assertAlmostEqual(by_id["clock_add"], 1, places=3)
+        self.assertAlmostEqual(by_id["clock_fadd"], 3, places=3)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in [*suite.INPUTS, suite.REFERENCE]:
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(suite.ROOT / name, target)
+            for name in suite.COLLECTOR_SOURCES:
+                (root / name).write_bytes(b"later collector version")
+            self.assertEqual(suite.load_reference(root), reference)
+            for name in suite.MEASUREMENT_INPUTS:
+                saved = (root / name).read_bytes()
+                (root / name).write_bytes(saved + b"\n")
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    suite.load_reference(root)
+                (root / name).write_bytes(saved)
+
+    def test_bundle_plots_are_separate_complete_and_source_bound(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            fixture = fixtures.Evidence(suite.ROOT, root / "fixture")
+            report = fixtures.compact_report(fixture)
+            before = site.benchmark_summary(report)
+            for name in [*suite.INPUTS, suite.REFERENCE]:
+                target = fixture.source / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(suite.ROOT / name, target)
+                report["head"]["files"][name] = suite.digest(target)
+            report["recurrence_simulation"] = dict(base=self.rows, head=self.rows)
+            raw = root / "report.json"
+            compute.write(raw, report)
+            raw.with_suffix(".md").write_text("Synthetic application fixture")
+            bundle = root / "bundle"
+            site.bundle(raw, fixture.source, bundle, fixtures.SHA)
+            valid, manifest = site.validate_bundle(bundle, fixtures.SHA)
+            # The probes never enter the application summary.
+            self.assertEqual(site.benchmark_summary(valid), before)
+            self.assertIn("recurrence.json", manifest["files"])
+            self.assertEqual(json.loads((bundle / "recurrence.json").read_text()), suite.load_reference(suite.ROOT))
+            overall, micro = (bundle / "index.html").read_text().split('<section id="microbenchmarks">')
+            self.assertNotIn("nuss_const", overall)
+            self.assertIn('<details id="recurrence-table">', micro)
+            self.assertLess(micro.index("Compare/select pair latency"), micro.index('<details id="recurrence-table">'))
+            for text in ("native Linux", "pinned CPU 4", "user-mode cycle counter (perf_event)", "cycles/update", "no frequency is assumed"):
+                self.assertIn(text, micro)
+            for case in self.cases:
+                self.assertIn(case["id"], micro)
+            for mutate in (lambda r: r.pop("recurrence_simulation"),
+                           lambda r: r["recurrence_simulation"].pop("base"),
+                           lambda r: r["recurrence_simulation"]["head"].pop(),
+                           lambda r: r["recurrence_simulation"]["head"][0].update(updates=1),
+                           lambda r: r["head"]["files"].pop(suite.ELF),
+                           lambda r: r["head"]["files"].update({suite.DIRECTORY + "loops.S": "0" * 64})):
+                bad = copy.deepcopy(report)
+                mutate(bad)
+                compute.write(bundle / "report.json", bad)
+                manifest["files"]["report.json"] = suite.digest(bundle / "report.json")
+                compute.write(bundle / "bundle.json", manifest)
+                with self.assertRaises((ValueError, KeyError)):
+                    site.validate_bundle(bundle, fixtures.SHA)
 
 
 if __name__ == "__main__":

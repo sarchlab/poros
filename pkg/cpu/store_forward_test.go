@@ -65,13 +65,13 @@ func perIteration(core *ooo.Comp) float64 {
 var maxIntoMemoryBody = []uint32{encLdrW3X4, encCmpW5W3, encCselW0W5W3, encStrW0X4, encAddW5Imm3}
 
 // The candidate exact-match GPR path waits for store data, so the modeled
-// loop-carried chain is forward + CMP + CSEL rather
-// than store completion + L1 latency + CMP + CSEL.
+// loop-carried chain is forward + the fused CMP/CSEL pair rather
+// than store completion + L1 latency + the pair.
 func TestExactMatchIntegerStoreLoadChainUsesDataReadyForwarding(t *testing.T) {
 	chain := runForwardProbe(t, maxIntoMemoryBody)
 	got := perIteration(chain)
-	if got < 3 || got > 4 {
-		t.Fatalf("exact-match integer chain costs %.2f cycles/iteration, want 3..4", got)
+	if got < 2 || got > 3 {
+		t.Fatalf("exact-match integer chain costs %.2f cycles/iteration, want 2..3", got)
 	}
 	if v := chain.Resources.Emu.Regs.ReadX(0) & 0xffffffff; v != 3*(forwardProbeIterations-1) {
 		t.Fatalf("chain value %d, want %d", v, 3*(forwardProbeIterations-1))
@@ -104,8 +104,9 @@ func TestPartialOrMismatchedOverlapIsConventional(t *testing.T) {
 	wideStore := runForwardProbe(t, []uint32{encLdrW3X4, encCmpW5W3, encCselW0W5W3, encStrX0X4, encAddW5Imm3})
 	wideLoad := runForwardProbe(t, []uint32{encLdrX3X4, encCmpW5W3, encCselW0W5W3, encStrW0X4, encAddW5Imm3})
 	for name, core := range map[string]*ooo.Comp{"covered narrower load": wideStore, "partially covered wider load": wideLoad} {
-		if got := perIteration(core); got < 9.5 || got > 11 {
-			t.Fatalf("%s costs %.2f cycles/iteration, want the conventional 10", name, got)
+		// Store completion (3) + L1 latency (5) + the fused pair (1).
+		if got := perIteration(core); got < 8.5 || got > 10 {
+			t.Fatalf("%s costs %.2f cycles/iteration, want the conventional 9", name, got)
 		}
 	}
 }

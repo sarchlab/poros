@@ -64,6 +64,8 @@ static uint64_t synthetic_ns, synthetic_instructions;
 static const char *counter_source = "none";
 #ifndef __APPLE__
 static int perf = -1;
+// Equal enabled and running times show the group was never multiplexed.
+static uint64_t perf_enabled_ns, perf_running_ns;
 #endif
 
 static uint64_t read_clock(clockid_t id) {
@@ -90,7 +92,8 @@ static void open_counters(void) {
     struct perf_event_attr attr;
     memset(&attr, 0, sizeof attr);
     attr.type = PERF_TYPE_HARDWARE, attr.size = sizeof attr, attr.config = PERF_COUNT_HW_CPU_CYCLES;
-    attr.exclude_kernel = 1, attr.exclude_hv = 1, attr.read_format = PERF_FORMAT_GROUP;
+    attr.exclude_kernel = 1, attr.exclude_hv = 1;
+    attr.read_format = PERF_FORMAT_GROUP | PERF_FORMAT_TOTAL_TIME_ENABLED | PERF_FORMAT_TOTAL_TIME_RUNNING;
     perf = (int)syscall(SYS_perf_event_open, &attr, 0, -1, -1, 0);
     if (perf < 0) return;
     attr.config = PERF_COUNT_HW_INSTRUCTIONS;
@@ -117,11 +120,12 @@ static int read_counters(struct counters *c) {
     c->cycles = info.ri_cycles, c->instructions = info.ri_instructions;
     c->performance_cycles = info.ri_pcycles, c->performance_instructions = info.ri_pinstructions;
 #else
-    uint64_t group[3];
+    uint64_t group[5];
     if (getrusage(RUSAGE_THREAD, &usage)) return -1;
     if (perf >= 0) {
         if (read(perf, group, sizeof group) != (ssize_t)sizeof group || group[0] != 2) return -1;
-        c->cycles = group[1], c->instructions = group[2];
+        perf_enabled_ns = group[1], perf_running_ns = group[2];
+        c->cycles = group[3], c->instructions = group[4];
     }
 #endif
     c->involuntary = usage.ru_nivcsw, c->voluntary = usage.ru_nvcsw;
@@ -205,6 +209,9 @@ static void print_environment(void) {
         printf("E maximum_khz %s\n", system_value("/sys/devices/system/cpu/cpu%ld/cpufreq/cpuinfo_max_freq", pinned));
     }
     printf("E load_average %s\n", system_value("/proc/loadavg", 0));
+    if (perf >= 0)
+        printf("E counter_enabled_ns %llu\nE counter_running_ns %llu\n", (unsigned long long)perf_enabled_ns,
+               (unsigned long long)perf_running_ns);
 #endif
     printf("E counters %s\nE pinned_cpu %ld\n", counter_source, pinned);
 }

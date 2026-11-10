@@ -630,7 +630,7 @@ class LiveReportTests(unittest.TestCase):
     def test_global_progress_includes_all_points_and_mixed_role_pairs(self):
         value=self.all_pending();report=value['report'];progress=value['progress']
         refs={name:json.loads(value[name+'_reference_text']) for name in site.DIAGNOSTIC_SUITES}
-        self.assertEqual(site.overall_progress(report,refs,progress),dict(required=511,completed=0,active=0,remaining=511))
+        self.assertEqual(site.overall_progress(report,refs,progress),dict(required=552,completed=0,active=0,remaining=552))
         report['cases']=copy.deepcopy(self.report['cases'][:262])
         progress['active_cases']=[case['id'] for case in self.report['cases'][262:]]
         memory=refs['memory']['cases']
@@ -638,7 +638,7 @@ class LiveReportTests(unittest.TestCase):
         report['memory_simulation']={role:copy.deepcopy(rows[:139]) for role in ('head','base')}
         report['diagnostic_progress']={'memory':dict(state='running',errors=[],active=[dict(role=role,id=memory[-1]['id']) for role in ('head','base')])}
         totals=site.overall_progress(report,refs,progress)
-        self.assertEqual(totals,dict(required=511,completed=401,active=3,remaining=107))
+        self.assertEqual(totals,dict(required=552,completed=401,active=3,remaining=148))
         # Completing head alone does not finish this paired point.
         report['memory_simulation']['head'].append(rows[-1])
         report['diagnostic_progress']['memory']['active']=[dict(role='base',id=memory[-1]['id'])]
@@ -646,10 +646,10 @@ class LiveReportTests(unittest.TestCase):
         # An explicitly unsupported base is resolved evidence, not a missing role.
         report['memory_simulation']['base'].append(site.memory.unavailable(memory[-1]))
         report['diagnostic_progress']['memory']['active']=[]
-        self.assertEqual(site.overall_progress(report,refs,progress),dict(required=511,completed=402,active=2,remaining=107))
+        self.assertEqual(site.overall_progress(report,refs,progress),dict(required=552,completed=402,active=2,remaining=148))
         report['cases']=copy.deepcopy(self.report['cases']);progress['active_cases']=[]
         totals=site.overall_progress(report,refs,progress)
-        self.assertEqual(totals,dict(required=511,completed=404,active=0,remaining=107))
+        self.assertEqual(totals,dict(required=552,completed=404,active=0,remaining=148))
         self.assertNotIn('100.0%',site.live_progress(dict(progress,completed_cases=264),totals))
         with self.assertRaisesRegex(ValueError,'unfinished'):
             site.live_progress(dict(progress,state='complete',completed_cases=264),totals)
@@ -676,6 +676,7 @@ class LiveReportTests(unittest.TestCase):
                               else (suite.ITERATIONS[1]-suite.ITERATIONS[0])*case['instructions_per_iteration'])
                 row=dict(id=case['id'],instructions=instructions,cycles=1000000)
                 if name=='forwarding':row['updates']=65536
+                if name=='recurrence':row['updates']=(suite.ITERATIONS[1]-suite.ITERATIONS[0])*case['updates_per_iteration']
                 rows.append(row)
             report[name+'_simulation']=rows if name=='throughput' else dict(head=rows,base=copy.deepcopy(rows))
         value['progress'].update(state='complete',completed_cases=264,completed_shards=132)
@@ -688,9 +689,9 @@ class LiveReportTests(unittest.TestCase):
         value_progress=value['progress']
         self.assertEqual(panels(complete),panels(report))
         references={name:refs[name+'_reference'] for name in site.DIAGNOSTIC_SUITES}
-        self.assertEqual(site.overall_progress(report,references,value_progress),dict(required=511,completed=511,active=0,remaining=0))
+        self.assertEqual(site.overall_progress(report,references,value_progress),dict(required=552,completed=552,active=0,remaining=0))
         for page in (site.detail(report,entry,live=value_progress,**refs),site.detail(complete,entry,**refs)):
-            self.assertIn('511 / 511 points · 100.0%',page)
+            self.assertIn('552 / 552 points · 100.0%',page)
 
 if __name__ == '__main__':
     unittest.main()

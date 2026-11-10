@@ -106,13 +106,14 @@ class SnapshotView:
         throughput, frontend = reference("throughput"), reference("frontend")
         forwarding, scheduling = reference("forwarding"), reference("scheduling")
         capacity, memory = reference("capacity"), reference("memory")
+        recurrence = reference("recurrence")
         if live["state"] == "complete" and self.bundle is not None:
             try:
                 completed, manifest = site.validate_bundle(self.bundle, entry["commit"])
                 identity_fields = ("head", "base_commit", "head_binary_sha256", "base_binary_sha256",
                                    "model_profiles", "workload_manifest", "reference_sha256", "reference", "cases", "summary",
                                    "throughput_simulation", "forwarding_simulation", "scheduling_simulation",
-                                   "capacity_simulation", "memory_simulation", "frontend_simulation")
+                                   "capacity_simulation", "recurrence_simulation", "memory_simulation", "frontend_simulation")
                 if completed["artifact_status"] != "pass" or any(completed.get(key) != report.get(key) for key in identity_fields):
                     raise ValueError("final bundle is not a matching complete result")
                 completed_assets = {name: site.regular(self.bundle / name).read_bytes() for name in manifest["files"]}
@@ -124,6 +125,7 @@ class SnapshotView:
                 completed_forwarding = json.loads(completed_assets["forwarding.json"]) if "forwarding.json" in completed_assets else None
                 completed_scheduling = json.loads(completed_assets["scheduling.json"]) if "scheduling.json" in completed_assets else None
                 completed_capacity = json.loads(completed_assets["capacity.json"]) if "capacity.json" in completed_assets else None
+                completed_recurrence = json.loads(completed_assets["recurrence.json"]) if "recurrence.json" in completed_assets else None
                 completed_memory = json.loads(completed_assets["memory.json"]) if "memory.json" in completed_assets else None
                 completed_frontend = json.loads(completed_assets["frontend.json"]) if "frontend.json" in completed_assets else None
                 # Commit the transition only after all verified assets are ready.
@@ -131,11 +133,11 @@ class SnapshotView:
                 live["validated_bundle"] = True
                 entry.update(evidence_files=sorted(manifest["files"]), measurement_completed_at=measurement_completed)
                 assets = {"snapshot.json": assets["snapshot.json"], **completed_assets}
-                capacity = completed_capacity
+                capacity, recurrence = completed_capacity, completed_recurrence
                 throughput, frontend, forwarding, scheduling, memory = completed_throughput, completed_frontend, completed_forwarding, completed_scheduling, completed_memory
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
                 live.update(state="failed", errors=["Final bundle validation failed: " + str(error)])
-        return site.detail(report, entry, preview=True, frontend=frontend, throughput_reference=throughput, live=live, forwarding_reference=forwarding, scheduling_reference=scheduling, memory_reference=memory, capacity_reference=capacity).encode(), assets
+        return site.detail(report, entry, preview=True, frontend=frontend, throughput_reference=throughput, live=live, forwarding_reference=forwarding, scheduling_reference=scheduling, memory_reference=memory, capacity_reference=capacity, recurrence_reference=recurrence).encode(), assets
 
 
 def handler(view):

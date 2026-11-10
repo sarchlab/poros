@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
-import os
 from pathlib import Path
 import re
 import statistics
@@ -32,8 +31,8 @@ MAX_INSTRUCTIONS = 4000000
 MAX_ITERATIONS = 8388608
 PILOT_INSTRUCTIONS = 16000000
 CLOCK = "clock_add"
-KINDS = ("count64", "half", "select_max", "select_low", "select_shift", "select_inc", "mix", "max_const",
-         "max_chg", "sum64", "count128", "mid", "far", "trips", "tight_max", "kernel_const", "kernel_chg")
+KINDS = ("count64", "half", "select_max", "select_low", "select_shift", "select_inc", "select_other", "select_hold",
+         "mix", "max_const", "max_chg", "sum64", "count128", "mid", "far", "trips", "tight_max", "kernel_const", "kernel_chg")
 QUALITIES = ("usable", "noisy", "invalid")
 NOISY_SPREAD = 0.20
 # Harness, kernel-entry and interrupt instructions counted around one interval.
@@ -78,6 +77,8 @@ def expected(case, iterations):
         "select_low": 50 * t + t * t // 4,
         "select_shift": 2500 * t + t * t // 4,
         "select_inc": t * (t + 1) // 2 + t // 2 + t + 1,
+        "select_other": (1 << 29) * t,
+        "select_hold": 101 * t,
         "mix": 6 * n - 3,
         "max_const": t + 5,
         "max_chg": 5 * t + t * (t + 1) // 2 + 5 + t,
@@ -208,6 +209,13 @@ def block_order(block, probes):
     return [0, *(reversed(order) if block % 2 else order), 0]
 
 
+def counter_group_ran(environment):
+    """A perf group that was ever descheduled undercounts silently, so the
+    collector reports the group's enabled and running times; they must agree."""
+    times = [str(environment.get(key, "")) for key in ("counter_enabled_ns", "counter_running_ns")]
+    return environment.get("counters") != "perf_event_user" or (all(time.isdigit() for time in times) and 0 < int(times[0]) == int(times[1]))
+
+
 def parse_capture(text, declared):
     """Parse and independently check one native capture; nothing is repaired."""
     header, environment, frequency, chosen, records = {}, {}, {}, {}, []
@@ -236,6 +244,8 @@ def parse_capture(text, declared):
         environment = dict(os="synthetic", counters="proc_pid_rusage", pinned_cpu="-1")
     if environment.get("os") not in ("darwin", "linux", "synthetic") or environment.get("counters") not in CYCLE_SCALES:
         raise ValueError("native capture environment missing")
+    if not counter_group_ran(environment):
+        raise ValueError("native capture counter group was multiplexed or its times are missing")
     target, blocks = int(header["target_ns"]), int(header["blocks_completed"])
     if int(header["pilot_instructions"]) != PILOT_INSTRUCTIONS:
         raise ValueError("native capture pilot length mismatch")
@@ -327,7 +337,9 @@ def summarize_capture(capture, declared):
         ns = [s["ns"] for s in samples]
         excluded = len(everything) - len(performance)
         median = statistics.median(cycles)
-        spread = (rank(cycles, 0.9) - rank(cycles, 0.1)) / median if median > 0 else math.inf
+        # A nonpositive median is already invalid; its spread stays finite so
+        # the row can still be recorded and shown.
+        spread = (rank(cycles, 0.9) - rank(cycles, 0.1)) / abs(median) if median else 0.0
         if not performance or min(cycles) <= 0 or min(ns) <= 0:
             quality = "invalid"
         else:
@@ -386,7 +398,7 @@ def validate_reference(reference, files=None):
     if (reference.get("protocol") != PROTOCOL or reference.get("timer") != "CLOCK_THREAD_CPUTIME_ID"
             or reference.get("cycle_scale") not in CYCLE_SCALES.values() or reference.get("os") not in ("darwin", "linux")
             or reference.get("instantaneous_frequency") != "unknown" or reference.get("hardware") != "Apple M2"
-            or not isinstance(reference.get("environment"), dict)
+            or not isinstance(reference.get("environment"), dict) or not counter_group_ran(reference["environment"])
             or any(not isinstance(reference.get(key), str) or not reference[key] for key in ("core_identity", "host", "compiler"))):
         raise ValueError("invalid recurrence reference protocol/environment")
     if (not re.fullmatch(r"[0-9a-f]{64}", reference.get("native_binary_sha256", ""))
@@ -470,69 +482,14 @@ def native_check(binary):
     return text
 
 
-def observe():
-    """Observed host activity; quietness is recorded, never assumed."""
-    processes = subprocess.run(["ps", "-Ao", "pcpu=,comm="], capture_output=True, text=True).stdout.splitlines()
-    busiest = sorted(((float(line.split(None, 1)[0]), line.split(None, 1)[1].strip()) for line in processes if len(line.split(None, 1)) == 2), reverse=True)[:8]
-    return dict(utc=datetime.now(timezone.utc).isoformat(), load_average=list(os.getloadavg()),
-                busiest_processes=[dict(cpu_percent=cpu, command=Path(command).name) for cpu, command in busiest])
-
-
-def collect(output, evidence_dir, blocks, target_ns, deadline_s, max_load=None):
-    """Local macOS capture. Every outcome, including refusal and timeout, leaves its record."""
-    hardware = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
-    if hardware != "Apple M2":
-        raise ValueError("M2 reference collection requires Apple M2")
-    evidence = Path(evidence_dir)
-    evidence.mkdir(parents=True, exist_ok=False)
-    declared = cases()
-    sources = {name: digest(ROOT / name) for name in INPUTS}
-    binary = build_native(evidence)
-    native_check(binary)
-    names = ("hw.model", "kern.osproductversion", "hw.perflevel0.logicalcpu", "hw.perflevel1.logicalcpu")
-    record = dict(host={name: subprocess.run(["sysctl", "-n", name], capture_output=True, text=True).stdout.strip() for name in names},
-                  before=observe(), command=[binary.name, "collect", str(blocks), str(target_ns), str(deadline_s)])
-    def retain(**outcome):
-        (evidence / "environment.json").write_text(json.dumps(dict(record, **outcome), indent=2) + "\n")
-    if max_load is not None and record["before"]["load_average"][0] > max_load:
-        # A busy host defers the capture; no interval is timed.
-        retain(refused="load average above limit")
-        raise ValueError("host load average exceeds the declared limit; capture deferred")
-    try:
-        process = subprocess.run([str(binary), *record["command"][1:]], capture_output=True, text=True, timeout=deadline_s + 30)
-    except subprocess.TimeoutExpired as error:
-        # The collector prints only at the end, so a timeout normally has no
-        # intervals; whatever exists is kept and the campaign is not rerun.
-        partial = error.stdout or ""
-        (evidence / "capture.txt").write_text(partial if isinstance(partial, str) else partial.decode(errors="replace"))
-        retain(after=observe(), timeout_seconds=deadline_s + 30, stderr=str(error.stderr or ""))
-        raise ValueError("native capture timed out; partial output retained") from None
-    # Retain the capture before any check can reject it.
-    (evidence / "capture.txt").write_text(process.stdout)
-    retain(after=observe(), exit_status=process.returncode, stderr=process.stderr)
-    reference = reference_from_capture(process.stdout, declared, sources, digest(binary),
-                                       subprocess.check_output(["clang", "--version"], text=True).splitlines()[0],
-                                       "local " + record["host"]["hw.model"])
-    if sources != {name: digest(ROOT / name) for name in INPUTS}:
-        raise ValueError("recurrence collection source changed during measurement")
-    write_reference(reference, output, evidence / "reference.json")
-    return 0 if process.returncode == 0 else 1
-
-
-def write_reference(reference, *paths):
-    serialized = json.dumps(reference, indent=2) + "\n"
-    for path in paths:
-        Path(path).write_text(serialized)
-    for row in reference["cases"]:
-        print(row["id"], f'{row["median_cycles_per_update"]:.3f}', f'{row["relative_spread"]:.2%}', row["quality"], flush=True)
-
-
 def summarize(capture, output, native_binary, compiler, host):
-    """Reference from a capture taken elsewhere with a binary built from this tree."""
+    """Reference from the collector's retained output and the binary that produced it."""
     text = Path(capture).read_text()
     reference = reference_from_capture(text, cases(), {name: digest(ROOT / name) for name in INPUTS},
                                        digest(native_binary), compiler, host)
-    write_reference(reference, output)
+    Path(output).write_text(json.dumps(reference, indent=2) + "\n")
+    for row in reference["cases"]:
+        print(row["id"], f'{row["median_cycles_per_update"]:.3f}', f'{row["relative_spread"]:.2%}', row["quality"], flush=True)
 
 
 def main():
@@ -544,13 +501,6 @@ def main():
     check_parser.add_argument("--directory", required=True, type=Path, help="existing directory for the native build")
     build_parser = commands.add_parser("build-linux", help="cross-build the static native Linux collector")
     build_parser.add_argument("--directory", required=True, type=Path)
-    collect_parser = commands.add_parser("collect", help="capture on this macOS host")
-    collect_parser.add_argument("--output", type=Path, required=True)
-    collect_parser.add_argument("--evidence-dir", required=True, type=Path, help="new local directory for the raw capture; do not commit")
-    collect_parser.add_argument("--blocks", type=int, default=16)
-    collect_parser.add_argument("--target-ns", type=int, default=24000000)
-    collect_parser.add_argument("--deadline-seconds", type=int, default=150)
-    collect_parser.add_argument("--max-load", type=float, help="defer, without timing, above this one-minute load average")
     summarize_parser = commands.add_parser("summarize", help="reference from a retained capture")
     summarize_parser.add_argument("--capture", required=True, type=Path)
     summarize_parser.add_argument("--native-binary", required=True, type=Path)
@@ -564,8 +514,6 @@ def main():
         native_check(build_native(args.directory))
     elif args.command == "build-linux":
         print(digest(build_native(args.directory, "linux")))
-    elif args.command == "collect":
-        raise SystemExit(collect(args.output, args.evidence_dir, args.blocks, args.target_ns, args.deadline_seconds, args.max_load))
     else:
         summarize(args.capture, args.output, args.native_binary, args.compiler, args.host)
 

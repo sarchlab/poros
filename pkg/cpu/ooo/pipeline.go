@@ -25,7 +25,11 @@ type Spec struct {
 	RetireWidth int         `json:"retire_width"`
 	ROBCapacity int         `json:"rob_capacity"`
 	NumINT      int         `json:"num_int"`
-	NumFP       int         `json:"num_fp"`
+	// NumSelectFusion is the number of integer pipes that can execute a fused
+	// compare/select pair. They are the last NumINT pipes, a subset shared with
+	// ordinary integer work. Zero disables the fusion.
+	NumSelectFusion int `json:"num_select_fusion"`
+	NumFP           int `json:"num_fp"`
 	// NumFPDiv is the number of FP pipes eligible for scalar divide/sqrt.
 	// These are a subset of NumFP, so ordinary arithmetic shares their capacity.
 	NumFPDiv int `json:"num_fp_div"`
@@ -52,7 +56,7 @@ type Spec struct {
 func DefaultSpec() Spec {
 	return Spec{
 		Freq: 3490 * timing.MHz, FetchWidth: 8, RetireWidth: 8, ROBCapacity: 256,
-		NumINT: 6, NumFP: 4, NumFPDiv: 1, NumLDST: 4, NumLoad: 3, NumStore: 2, BranchPenalty: 17, LoadLatency: 5,
+		NumINT: 6, NumSelectFusion: 1, NumFP: 4, NumFPDiv: 1, NumLDST: 4, NumLoad: 3, NumStore: 2, BranchPenalty: 17, LoadLatency: 5,
 		FpPhysLimit: 360, StoreBufferSize: 56, NumMSHREntries: 12, BranchPrediction: true,
 		Predictor: PredictorSpec{BimodalSize: 4096, TaggedTableSize: 2048, BTBSize: 2048, BTBWays: 4, RASSize: 32, TaggedHistLen: 32},
 	}
@@ -111,6 +115,7 @@ type unitType int
 
 const (
 	unitINT unitType = iota
+	unitSelectFusion
 	unitFP
 	unitFPDiv
 	unitLoad
@@ -130,6 +135,9 @@ func (s *State) Initialize(c *Comp) {
 	}
 	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumFPDiv < 1 || v.NumFPDiv > v.NumFP || v.NumLDST < 1 || v.LoadLatency < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
+	}
+	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
+		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
 	}
 	if v.NumLoad != 0 || v.NumStore != 0 {
 		if v.NumLoad < 1 || v.NumStore < 1 || v.NumLoad > v.NumLDST || v.NumStore > v.NumLDST || v.NumLoad < v.NumLDST-v.NumStore {
@@ -248,6 +256,7 @@ func (p *middleware) fetchAndProcess() {
 	}
 
 	fetched := 0
+	var pair fusedSelect
 	for fetched < p.comp.Spec.FetchWidth && p.comp.State.RobCount < p.comp.Spec.ROBCapacity && !p.comp.Resources.backend().Stopped() {
 		// 1. Peek at instruction at emulator's current PC.
 		pc := p.comp.Resources.backend().CPURegisters().PC
@@ -268,6 +277,19 @@ func (p *middleware) fetchAndProcess() {
 			return
 		}
 		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC && (p.comp.State.RobCount != 0 || !p.storesDrained()) {
+			return
+		}
+
+		// A fused compare/select pair is admitted whole: the compare waits
+		// for the next cycle when its select would not fit in this one.
+		selects := pair.pending && pair.pc == pc
+		pair.pending = false
+		var partner []int
+		compares := false
+		if !selects {
+			partner, compares = p.fusedPartner(inst, pc)
+		}
+		if compares && (fetched+2 > p.comp.Spec.FetchWidth || p.comp.State.RobCount+2 > p.comp.Spec.ROBCapacity) {
 			return
 		}
 
@@ -309,6 +331,12 @@ func (p *middleware) fetchAndProcess() {
 				srcReady = p.comp.State.FpReady[fp]
 			}
 		}
+		// A fused pair issues when every register either half reads is ready.
+		for _, gpr := range partner {
+			if p.comp.State.GprReady[gpr] > srcReady {
+				srcReady = p.comp.State.GprReady[gpr]
+			}
+		}
 
 		// Flags (NZCV) dependency.
 		if instinfo.UsesFlags(inst.Op) && p.comp.State.FlagsReady > srcReady {
@@ -317,6 +345,9 @@ func (p *middleware) fetchAndProcess() {
 
 		// 3. Classify instruction and find execution unit.
 		ut := classifyUnit(inst)
+		if compares {
+			ut = unitSelectFusion
+		}
 		dispatchCycle := p.comp.State.Cycles
 		issueCycle := dispatchCycle
 		if srcReady > issueCycle {
@@ -327,6 +358,11 @@ func (p *middleware) fetchAndProcess() {
 		// and retirement accounting. Other HINT instructions are not assumed
 		// to have the same resource behavior.
 		usesUnit := inst.Op != arm64asm.NOP
+		if selects {
+			// The pair issued once, with its compare. The select reserves
+			// nothing and completes with the flags the pair produced.
+			issueCycle, usesUnit = pair.complete-1, false
+		}
 		if instinfo.IsLoad(inst.Op) {
 			// Forwarding eligibility depends on when a load could issue.
 			// Other instructions need only the final resource selection below.
@@ -377,6 +413,9 @@ func (p *middleware) fetchAndProcess() {
 		}
 		if mshr >= 0 {
 			p.comp.State.MshrBusyUntil[mshr] = completeCycle
+		}
+		if compares {
+			pair = fusedSelect{pc: pc + 4, complete: completeCycle, pending: true}
 		}
 		if storeSlot >= 0 {
 			drain := completeCycle

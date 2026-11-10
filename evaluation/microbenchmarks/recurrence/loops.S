@@ -44,6 +44,11 @@ endloop
 // only difference. pad shifts the loop by 4*pad bytes from a 64-byte boundary.
 // form: 0 CMP Wn,Wm  1 CMP Xn,Xm  2 CMP Wn,#15  3 CMP Wn,#16
 //       4 CMP Wn,#1,LSL #12  5 CMP Wn,Wm + CSINC
+// Forms 0, 1 and 5 select between the two compared registers; 2-4 select two
+// other registers. The remaining forms vary only that operand relation:
+//       6 CMP Wn,Wm, select two other registers
+//       7 CMP Wn,#15, select the compared register or one other
+//       8 CMP Wn,Wm, select the compared registers in swapped order
 .macro compare form
 .if \form == 1
  cmp x2, x6
@@ -53,6 +58,8 @@ endloop
  cmp w2, #16
 .elseif \form == 4
  cmp w2, #1, lsl #12
+.elseif \form == 7
+ cmp w2, #15
 .else
  cmp w2, w6
 .endif
@@ -64,6 +71,12 @@ endloop
  csel x2, x2, x6, ge
 .elseif \form == 5
  csinc w2, w2, w6, ge
+.elseif \form == 6
+ csel w2, w4, w5, lo
+.elseif \form == 7
+ csel w2, w6, w2, lo
+.elseif \form == 8
+ csel w2, w6, w2, lt
 .else
  csel w2, w6, w5, lo
 .endif
@@ -81,6 +94,13 @@ begin \name
 .elseif \form == 4
  mov x2, #0
  mov x6, #5000
+.elseif \form == 6
+ mov x2, #0
+ mov x6, #1
+ mov x4, #0x40000000
+.elseif \form == 7
+ mov x2, #0
+ mov x6, #100
 .else
  mov x2, #1
  mov x6, #1
@@ -365,11 +385,16 @@ begin \name
  str w3, [x1]
 .p2align 6
 1:
-.if \memory
+.if \memory == 1
  ldr w3, [x1]
  cmp w6, w3
  csel w2, w6, w3, ge
  str w2, [x1]
+.elseif \memory == 2
+ ldr w3, [x1]
+ cmp w6, w3
+ csel w3, w6, w3, ge
+ str w3, [x1]
 .else
  cmp w6, w3
  csel w3, w6, w3, ge
@@ -453,6 +478,36 @@ nussloop nuss_const, 0, 4096
 nussloop nuss_chg, 0, 0
 nussloop nuss_sep, 1, 4096
 nussloop nuss_reg, 2, 4096
+
+// Operand-relation controls, placed last so earlier probes keep their layout.
+selectloop sel32_rr_other_adj, 6
+selectloop sel32_ri_same_adj, 7
+selectloop sel32_rr_swap_adj, 8
+
+// The same running maximum with a destination that is neither compared
+// register: updates alternate between w2 and w3.
+begin sel32_rr_dst_adj
+ mov x7, #0
+ mov x2, #1
+ mov x6, #1
+.p2align 6
+1:
+.rept 32
+ add x7, x7, x2
+ add w6, w6, #1
+ cmp w2, w6
+ csel w3, w2, w6, ge
+ add x7, x7, x3
+ add w6, w6, #1
+ cmp w3, w6
+ csel w2, w3, w6, ge
+.endr
+endloop
+ add x0, x7, x2
+ ret
+
+// The loaded register is also the selected and stored register.
+tightmax tight_max_mem_same, 2
 #ifdef __ELF__
 .section .note.GNU-stack,"",%progbits
 #endif
