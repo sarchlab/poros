@@ -19,13 +19,14 @@ import forwarding_microbenchmark as forwarding
 import memory_microbenchmark as memory
 import model_profiles as models
 import probe_checkpoint as checkpoint
+import recurrence_microbenchmark as recurrence
 import throughput_microbenchmark as throughput
 import usertime as user
 
 
 def synthetic_execution(binary, root, case, index, n, mode, revision, profile, suite=throughput.THROUGHPUT):
-    if suite is None:
-        elf, checksum = forwarding.ELF, forwarding.expected(case, n)
+    if suite in (forwarding, recurrence):
+        elf, checksum = suite.ELF, suite.expected(case, n)
     else:
         elf, checksum = suite.elf, suite.checksum(case, n)
     instructions = 20 + n * case['instructions_per_iteration']
@@ -63,7 +64,8 @@ class DiagnosticTests(unittest.TestCase):
             return synthetic_execution(*args, **kwargs)
         self.patches = contextlib.ExitStack(); self.addCleanup(self.patches.close)
         self.patches.enter_context(patch.object(throughput,'execute',side_effect=execute))
-        self.patches.enter_context(patch.object(forwarding,'execute',side_effect=lambda *a,**kw: execute(*a,suite=None,**kw)))
+        self.patches.enter_context(patch.object(forwarding,'execute',side_effect=lambda *a,**kw: execute(*a,suite=forwarding,**kw)))
+        self.patches.enter_context(patch.object(recurrence,'execute',side_effect=lambda *a,**kw: execute(*a,suite=recurrence,**kw)))
         self.patches.enter_context(patch.object(parallel,'load_plan',return_value=(self.plan,{})))
 
     def run_point(self, index, attempt=1):
@@ -71,27 +73,27 @@ class DiagnosticTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             return parallel.run_diagnostic_point(self.prepared,'test',attempt,index,folder,folder/'diagnostic.json',source=self.source)
 
-    def test_inventory_preserves_old_plan_and_source_bound_107_points_394_executions(self):
+    def test_inventory_preserves_old_plan_and_source_bound_148_points_558_executions(self):
         before = (self.prepared/'plan.json').read_bytes()
         inventory = parallel.diagnostic_inventory(self.prepared,'test',1,self.source,self.root/'inventory.json')
         self.assertEqual((self.prepared/'plan.json').read_bytes(),before)
         self.assertEqual(inventory['plan_id'],parallel.identity(self.plan))
         self.assertEqual(inventory['head'],self.plan['head']['commit'])
-        self.assertEqual([t['diagnostic_index'] for t in inventory['tasks']],list(range(107)))
-        self.assertEqual(sum(len(t['roles'])*2 for t in self.tasks),394)
-        self.assertEqual({name:sum(t['suite']==name for t in self.tasks) for name in ('throughput','forwarding','scheduling','capacity')},
-                         dict(throughput=17,forwarding=13,scheduling=4,capacity=73))
+        self.assertEqual([t['diagnostic_index'] for t in inventory['tasks']],list(range(148)))
+        self.assertEqual(sum(len(t['roles'])*2 for t in self.tasks),558)
+        self.assertEqual({name:sum(t['suite']==name for t in self.tasks) for name in ('throughput','forwarding','scheduling','capacity','recurrence')},
+                         dict(throughput=17,forwarding=13,scheduling=4,capacity=73,recurrence=41))
         with patch.object(throughput,'cases',wraps=throughput.cases) as cases:
-            self.assertEqual(len(parallel.diagnostic_tasks(self.plan,self.source)),107)
+            self.assertEqual(len(parallel.diagnostic_tasks(self.plan,self.source)),148)
             self.assertTrue(all(call.args[0]==self.source for call in cases.call_args_list))
         archived=copy.deepcopy(self.plan);archived['head']['files']={}
         self.assertEqual(parallel.diagnostic_tasks(archived,self.source),[])
 
     def test_all_points_match_serial_measurement_and_resume_never_executes(self):
         # Deliberately finish in reverse order. Replay must restore reference order.
-        for index in reversed(range(107)):
+        for index in reversed(range(148)):
             self.assertEqual(self.run_point(index),0)
-        self.assertEqual(len(self.calls),394)
+        self.assertEqual(len(self.calls),558)
         rows, states = parallel.recorded_diagnostics(self.plan,self.prepared,self.source,self.saved)
         self.assertTrue(all(s['state']=='complete' for s in states.values()))
         for name,suite in site.DIAGNOSTIC_SUITES.items():
@@ -102,8 +104,9 @@ class DiagnosticTests(unittest.TestCase):
                     self.plan['model_profiles'][role]['profile'])
                 self.assertEqual(rows[name] if name=='throughput' else rows[name][role],expected)
         with patch.object(throughput,'execute',side_effect=AssertionError('completed simulation rerun')), \
-             patch.object(forwarding,'execute',side_effect=AssertionError('completed simulation rerun')):
-            for index in (0,17,30,34,106):self.assertEqual(self.run_point(index),0)
+             patch.object(forwarding,'execute',side_effect=AssertionError('completed simulation rerun')), \
+             patch.object(recurrence,'execute',side_effect=AssertionError('completed simulation rerun')):
+            for index in (0,17,30,34,106,107,147):self.assertEqual(self.run_point(index),0)
             self.assertEqual(parallel.recorded_diagnostics(self.plan,self.prepared,self.source,self.saved)[0],rows)
         receipt=parallel.read(self.saved/'0/diagnostic.json')
         self.assertEqual(receipt['reporting']['commit'],user.source_state()['commit'])
@@ -238,7 +241,7 @@ class DiagnosticTests(unittest.TestCase):
             self.assertEqual([r['id'] for r in rows['throughput']],[t['case']['id'] for t in tasks])
             self.assertEqual(len(self.calls),4) # Point 0 was not rerun at attempt 2.
 
-    def test_live_export_uses_raw_partial_roles_and_activity_with_511_point_denominator(self):
+    def test_live_export_uses_raw_partial_roles_and_activity_with_552_point_denominator(self):
         cases,_=parallel.inputs(self.source)
         self.plan.update(cases=cases,shards=parallel.partition(cases,132),
             references={'performance264':user.digest(self.source/parallel.REFERENCE)},
@@ -256,7 +259,7 @@ class DiagnosticTests(unittest.TestCase):
             saved.identity['revision'],saved.identity['profile'],checkpoint=saved)
         status=self.root/'diagnostic-status.json'
         state=dict(head=self.plan['head']['commit'],base=self.plan['base_commit'],run_id='test',
-            total=107,completed=[18],active={'17':'worker'},failed=[])
+            total=148,completed=[18],active={'17':'worker'},failed=[])
         parallel.write(status,state)
         exporter=progress.SnapshotExporter(self.prepared,self.source,self.root/'shards','test',1,
             checkpoints=self.saved,diagnostic_status=status)
@@ -269,9 +272,9 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(report['diagnostic_progress']['forwarding']['active'],[dict(role='base',id=task['case']['id'])])
         references={name:suite.load_reference(self.source) for name,suite in site.DIAGNOSTIC_SUITES.items()}
         self.assertEqual(site.overall_progress(report,references,snapshot['progress']),
-            dict(required=511,completed=1,active=1,remaining=509))
+            dict(required=552,completed=1,active=1,remaining=550))
         for mutate in (lambda s:s.update(head='c'*40),lambda s:s.update(completed=[18,18]),
-                       lambda s:s.update(active={'107':'worker'}),lambda s:s.update(active={'17':'a','017':'b'})):
+                       lambda s:s.update(active={'148':'worker'}),lambda s:s.update(active={'17':'a','017':'b'})):
             bad=copy.deepcopy(state);mutate(bad);parallel.write(status,bad)
             with self.assertRaises(ValueError):exporter.export()
 

@@ -39,9 +39,10 @@ constructing the same application rows as the serial comparator. The renderer
 never runs simulations or collects hardware measurements.
 
 The top three-segment bar counts **measurement points**, not simulator executions.
-For the current declaration it covers 511 points: 264 whole-program points
+For the current declaration it covers 552 points: 264 whole-program points
 (including the 18 legacy microbenchmark points once), 17 head-only throughput
-points, and 13 forwarding + 4 scheduling + 73 capacity + 140 memory paired points.
+points, and 13 forwarding + 4 scheduling + 73 capacity + 41 recurrence + 140
+memory paired points.
 A whole-program point includes its required functional and model-role evidence;
 a paired diagnostic point completes only when both role rows are present. An
 explicitly validated unsupported-base row resolves that role. A partial pair or
@@ -144,6 +145,35 @@ paired boundary ratios with P10/P90 dispersion, and collapsed tables only in
 the microbenchmark section. These points never enter application accuracy,
 S-curves, CDFs, or correlations.
 
+A head declaring the recurrence suite (any measurement input, ELF fixture or
+reference under `evaluation/microbenchmarks/recurrence/` in `report.head.files`)
+requires the three recurrence fields below. Historical heads without the suite
+omit them; stray recurrence evidence on an undeclaring head is rejected.
+
+- `recurrence_reference_text`: the exact UTF-8 contents of committed
+  `evaluation/microbenchmarks/recurrence/m2-linux.json`, transported as one JSON
+  string whose SHA-256 matches the corresponding `report.head.files` entry. This
+  reference is a native Linux capture on a pinned M2 performance core and names
+  its host, core, cycle scale and counter checks; it is not a macOS reference.
+  A parsed `recurrence_reference` is rejected.
+- `report.recurrence_simulation`: exactly `base` and `head`, each an ordered
+  subset of the **41** declared cases (all 41 for a complete report). Each row
+  contains `id`, `instructions`, positive integer `cycles` and `updates`. Counts
+  subtract 128 from 256 outer trips (`recurrence.ITERATIONS`): instructions and
+  updates equal 128 times the case's declared per-trip counts. Both binaries
+  run the head-declared recurrence ELF and must pass analytic output,
+  instruction-count, exact binary revision and role-specific profile checks,
+  including when the base revision predates the suite.
+- `recurrence_provenance`: exactly `head_commit`, `base_commit`,
+  `head_binary_sha256`, `base_binary_sha256` and `model_profiles`, matching
+  `report` in the same way as forwarding provenance above.
+
+The final bundle retains the exact reference bytes as `recurrence.json` and
+both simulated series. The shared renderer plots native and simulated **cycles
+per update** in one unit, so no frequency converts either side, with a
+collapsed table, only in the microbenchmark section. These points never enter
+application accuracy, S-curves, CDFs, or correlations.
+
 For a live campaign, prepare the clean base/head binaries, profiles and committed
 references first. The first snapshot may have no results; it still carries all
 mandatory references, including the capacity boundary block. Run the ordinary
@@ -174,9 +204,9 @@ python3 NEW/scripts/accuracy_parallel.py aggregate --prepared RUN/prepared \
 
 The task inventory is derived from the frozen source and binds the original
 `plan_id`; creating it does not change `plan.json` or existing shard identities.
-The current 107 diagnostic points comprise 17 head-only throughput points and
-13 forwarding, 4 scheduling and 73 capacity points with both roles: 394 raw
-short/long executions. Each worker owns one directory and its `diagnostic.json`
+The current 148 diagnostic points comprise 17 head-only throughput points and
+13 forwarding, 4 scheduling, 73 capacity and 41 recurrence points with both
+roles: 558 raw short/long executions. Each worker owns one directory and its `diagnostic.json`
 status; a directory lock rejects concurrent writers.
 Conflicting point or campaign ownership is rejected without overwriting the
 existing status receipt. Checkpoints are named

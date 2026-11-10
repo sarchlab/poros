@@ -74,6 +74,8 @@ func TestInvalidConfigurationRejectedAtInitialize(t *testing.T) {
 		"oversized load subset":  func(s *Spec) { s.NumLoad = s.NumLDST + 1 },
 		"oversized store subset": func(s *Spec) { s.NumStore = s.NumLDST + 1 },
 		"unused memory pipes":    func(s *Spec) { s.NumLoad, s.NumStore = 1, 1 },
+		"negative fusion pipes":  func(s *Spec) { s.NumSelectFusion = -1 },
+		"fusion pipe subset":     func(s *Spec) { s.NumSelectFusion = s.NumINT + 1 },
 		"empty divider":          func(s *Spec) { s.NumFPDiv = 0 },
 		"divider subset":         func(s *Spec) { s.NumFPDiv = s.NumFP + 1 },
 		"empty FP window":        func(s *Spec) { s.FpPhysLimit = 0 },

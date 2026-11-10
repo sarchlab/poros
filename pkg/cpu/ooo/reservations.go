@@ -18,6 +18,8 @@ func (p *middleware) units(ut unitType) [][]UnitReservation {
 	switch ut {
 	case unitINT:
 		return p.comp.State.IntUnits
+	case unitSelectFusion:
+		return p.comp.State.IntUnits[p.comp.Spec.NumINT-p.comp.Spec.NumSelectFusion:]
 	case unitFP:
 		return p.comp.State.FpUnits
 	case unitFPDiv:

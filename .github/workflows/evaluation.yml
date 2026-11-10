@@ -40,6 +40,7 @@ jobs:
       - run: python3 scripts/forwarding_microbenchmark_test.py
       - run: python3 scripts/scheduling_microbenchmark_test.py
       - run: python3 scripts/capacity_microbenchmark_test.py
+      - run: python3 scripts/recurrence_microbenchmark_test.py
       - run: python3 scripts/memory_microbenchmark_test.py
       - run: python3 scripts/model_profiles_test.py
       - run: python3 scripts/merged_main_pr_test.py
@@ -103,6 +104,7 @@ jobs:
           python3 scripts/forwarding_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/scheduling_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/capacity_microbenchmark.py smoke --poros /tmp/poros --qemu /usr/bin/qemu-aarch64
+          python3 scripts/recurrence_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/memory_microbenchmark.py smoke --poros /tmp/poros --qemu /usr/bin/qemu-aarch64
           python3 scripts/elf-differential_test.py
           python3 scripts/elf-differential.py --require-clean --poros /tmp/poros --output evaluation-results/elf-differential.json
