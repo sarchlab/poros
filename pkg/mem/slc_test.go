@@ -238,6 +238,39 @@ func TestMemorySideFillsUseTheMemoryTransport(t *testing.T) {
 	}
 }
 
+// A held line's return cannot use the fill transport before the line is
+// available behind L2, even when the return latency is shorter than the
+// transfer of the line itself.
+func TestMemorySideReturnTransferStartsWhenTheLineIsAvailable(t *testing.T) {
+	cfg := memorySideConfig(4)
+	cfg.SLCLatency = 1 // below the eight cycles a 128 B line occupies the transport
+	for _, tc := range []struct {
+		name            string
+		request, starts uint64
+	}{
+		{"requested before the line is available", 50, 100},
+		{"requested after the line is available", 200, 200},
+	} {
+		c := NewCache(cfg)
+		c.slc.keep(lineD/128, 100)
+		ready, level := c.fetchL2(lineD, tc.request, false)
+		want := fillInterval{Start: tc.starts, End: tc.starts + spillCycles}
+		if level != HitSLC || ready != want.End {
+			t.Fatalf("%s: level %d ready %d, want a memory-side hit at %d", tc.name, level, ready, want.End)
+		}
+		if len(c.dram.busy) != 1 || c.dram.busy[0] != want {
+			t.Fatalf("%s: fill transport %+v, want %+v", tc.name, c.dram.busy, want)
+		}
+	}
+	// The same through the public path: the load's data is ready when the
+	// transfer that started at availability has ended.
+	c := NewCache(cfg)
+	c.slc.keep(lineD/128, 100)
+	if level, ready := c.Access(lineD, 8, false, 50); level != HitSLC || ready != 100+spillCycles {
+		t.Fatal("access", level, ready)
+	}
+}
+
 // A dirty L2 victim still pays its write traffic on the fill transport when
 // it leaves L2, is not charged a second time on the spill transport, and its
 // bytes cannot be read back from the memory side before they were written.
@@ -309,14 +342,32 @@ func TestMemorySideCacheIsSharedWithTheSharedL2(t *testing.T) {
 	if len(shared.spill.busy) != 0 {
 		t.Fatal("finished spill transfers were not retired", shared.spill.busy)
 	}
-	other := cfg
-	other.SLCLatency = 100
-	defer func() {
-		if recover() == nil {
-			t.Fatal("inconsistent memory-side configuration attached")
+}
+
+// Configuration is compared when a client attaches. A shared L2 that has not
+// started timing takes a client with an identical configuration and refuses
+// one whose memory-side cache differs, for that reason and no other.
+func TestSharedL2RefusesADifferentMemorySideConfiguration(t *testing.T) {
+	cfg := memorySideConfig(4)
+	for name, mutate := range map[string]func(*CacheConfig){
+		"latency": func(c *CacheConfig) { c.SLCLatency = 100 },
+		"size":    func(c *CacheConfig) { c.SLCSize = 8 * 128 },
+	} {
+		shared := NewSharedL2(cfg)
+		if NewPrivateL1WithSharedL2(cfg, shared).slc != shared.slc {
+			t.Fatal("identical configuration did not attach to the shared memory-side cache")
 		}
-	}()
-	NewPrivateL1WithSharedL2(other, shared)
+		other := cfg
+		mutate(&other)
+		func() {
+			defer func() {
+				if got := recover(); got != "mem: inconsistent shared L2 timing configuration" {
+					t.Fatalf("different %s: recovered %v, want the configuration panic", name, got)
+				}
+			}()
+			NewPrivateL1WithSharedL2(other, shared)
+		}()
+	}
 }
 
 func TestMemorySideConfigurationIsValidated(t *testing.T) {

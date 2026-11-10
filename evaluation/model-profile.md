@@ -372,8 +372,9 @@ request instead of `DRAMLatency`, reports `HitSLC`, and the line returns to L2
 and leaves the record; taking a line out does not let the others stay longer.
 A clean victim's 128 bytes travel to the record on a transport of their own,
 as wide as the fill transport (`DRAMBytesPerCycle`), one line after another;
-the line can be supplied only once that move has ended, and the fill that
-displaced it is not delayed. A dirty victim's write is charged on the fill
+the line can be supplied only once that move has ended (its return transfer
+on the fill transport starts no earlier), and the fill that displaced it is
+not delayed. A dirty victim's write is charged on the fill
 transport as before and the line has left L2 when that transfer ends. A line
 evicted before its own fill arrived cannot be supplied before that data
 existed. The return uses the existing fill transport and the existing demand
@@ -418,7 +419,9 @@ accesses to a page whose walk is pending wait for that walk. A load that takes
 its data from the cache issues its cache access when its translation is
 available; a load forwarded from a store does not wait. A store's bytes are
 accepted by the cache once translated, which holds its store slot longer but
-does not delay forwarding. A walk overlaps a wait for an MSHR. Walker bookings
+does not delay forwarding. A walk delays a load's value, not its address: the
+base register of a pre- or post-indexed load is still updated one cycle after
+address generation. A walk overlaps a wait for an MSHR. Walker bookings
 keep real times and earlier gaps for requests visited out of order, and are
 retired only at the pipeline's clock. `TLBPageBytes = 0` disables translation
 timing.

@@ -388,10 +388,13 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		// A load that takes its data from the cache needs its address
-		// translation first; a page walk moves its cache access later.
+		// translation first; a page walk moves its cache access later. The
+		// address itself was generated at addressCycle, walk or no walk.
+		addressCycle := issueCycle
 		if instinfo.IsLoad(inst.Op) && !forwarding.forwarded {
 			issueCycle = p.translated(issueCycle)
 		}
+		walked := issueCycle > addressCycle
 
 		// 6. Probe residency without side effects, choose MSHR/unit issue, then
 		// commit cache requests at that final time. Cache fills cannot start
@@ -466,6 +469,10 @@ func (p *middleware) fetchAndProcess() {
 					baseReady = dispatchCycle
 				}
 				p.comp.State.GprReady[base] = baseReady + 1
+			} else if walked {
+				// A page walk delays the load's cache access and its data,
+				// not its address: the base follows address generation.
+				p.comp.State.GprReady[base] = addressCycle + 1
 			} else {
 				// For loads, issueCycle already includes base readiness.
 				p.comp.State.GprReady[base] = issueCycle + 1

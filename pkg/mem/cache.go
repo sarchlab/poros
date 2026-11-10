@@ -737,18 +737,22 @@ func (c *Cache) transferL1(earliest, notBefore uint64) uint64 {
 // with its arrival cycle and returns that cycle and the supplier. A line the
 // memory-side cache still holds arrives after SLCLatency, counted from when
 // the line's own data reached that cache, and leaves it; any other line
-// arrives from DRAM. Both use the same finite memory-side transport.
+// arrives from DRAM. Both use the same finite memory-side transport, and a
+// held line's transfer cannot start before the line is available there.
 // prefetched marks stream prefetches.
 func (c *Cache) fetchL2(addr uint64, now uint64, prefetched bool) (uint64, HitLevel) {
-	level, arrival := HitDRAM, now+uint64(c.cfg.DRAMLatency)
+	// earliest is when the supplier can start sending the line: the request,
+	// or the cycle a held line became available if that is later.
+	level, earliest, arrival := HitDRAM, now, now+uint64(c.cfg.DRAMLatency)
 	if c.slc != nil {
 		if held, ok := c.slc.take(c.l2Line(addr)); ok {
-			level, arrival = HitSLC, max(now, held)+uint64(c.cfg.SLCLatency)
+			earliest = max(now, held)
+			level, arrival = HitSLC, earliest+uint64(c.cfg.SLCLatency)
 			c.stats.SLCHits++
 		}
 	}
 	if occ := c.dram.occupancy(c.cfg.L2LineSize); occ > 0 {
-		start := now
+		start := earliest
 		if arrival >= occ && arrival-occ > start {
 			start = arrival - occ
 		}

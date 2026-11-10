@@ -231,6 +231,17 @@ reproduces the report's MVT 3072 cycles exactly; on the candidate tree with
 both mechanisms off it gives the unmodified tree's cycles on a probe ELF
 (108,728,296).
 
+Every cycle count in this section was produced by commit `cc29961`. Review
+then found three defects, corrected since: a page walk delayed the base
+register of a pre- or post-indexed load as well as its value; a line's
+return from the record could occupy the fill transport before the line was
+available there (only when the return latency is below the transfer time,
+which the defaults are not); and translation could loop on the last
+addressable page with a one-byte page. The first changes default timing
+slightly wherever a walk falls on an indexed load, so the corrected
+candidate's cycles will not be exactly those below. They have not been
+re-run; the canonical comparison on the corrected candidate replaces them.
+
 **Probes.** All 54 points of the first capture, candidate against committed
 model, error = |model − M2| / min, M2 on 16 KiB pages:
 
@@ -285,19 +296,34 @@ The record alone accounts for the whole change at 3072; translation alone
 leaves the outlier where it was; the record alone leaves a size that does
 not conflict where it was.
 
-Two other application points under the candidate, both sequential workloads
-that exceed L2: canneal-1 46,043,290 cycles (committed 46,043,260) and the
-usertime `memory` case at 32 MiB 68,201,351 (committed 68,201,316).
-Unchanged, as expected of streams. The `memory` case is a sequential
-read-modify-write loop; it is not the pointer-chase microbenchmark and says
-nothing about the candidate's accuracy on dependent accesses.
+Three other application points under the candidate:
+
+| Point | Committed cycles | Candidate cycles | Change |
+|---|---:|---:|---:|
+| symm-1 | 59,879,435 | 59,879,468 | +33 |
+| canneal-1 | 46,043,260 | 46,043,290 | +30 |
+| usertime `memory`, 32 MiB | 68,201,316 | 68,201,351 | +35 |
+
+Each ends normally with the committed instruction count and output. symm-1
+stays inside L2 and touches 180 pages; the other two are sequential and
+exceed L2. All three are unchanged, as expected of workloads that neither
+re-use lines L2 has just evicted nor walk more than 3,072 pages. The `memory`
+case is a sequential read-modify-write loop; it is not the pointer-chase
+microbenchmark and says nothing about the candidate's accuracy on dependent
+accesses.
+
+A first attempt at symm-1 is excluded: it was run with a 1 MiB output limit,
+stopped at the guest's final write, and is recorded as a failed run, not as
+a result.
 
 The six MVT points are the ones the change was designed around, so they show
 that it does what it was meant to do, not that it is safe. The remaining
-ablations and the control workloads that could regress (SYMM, SYR2K,
-Nussinov, GEMM, Jacobi1d, Streamcluster, Facesim, the other Canneal and
-memory points, and the memory microbenchmarks with their pointer-chase rows)
-are not complete; this section is extended only with completed runs.
+ablations and the control workloads that could regress (SYR2K, Nussinov,
+GEMM, Jacobi1d, Streamcluster, Facesim, the other SYMM, Canneal and memory
+points, and the memory microbenchmarks with their pointer-chase rows) are
+not complete; this section is extended only with completed runs. The paired
+canonical comparison of the whole application set is still to be run on the
+corrected candidate.
 
 ## Limits and open points
 

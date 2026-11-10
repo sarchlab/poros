@@ -127,6 +127,44 @@ func TestDefaultsPairedStoreAcrossPagesWaitsForBothTranslations(t *testing.T) {
 	}
 }
 
+// A post-indexed load on a page that needs a walk: the walk delays the load's
+// cache access and so its value, not its address. The updated base is ready
+// one cycle after address generation, exactly as without translation; only a
+// consumer of the loaded value is a walk later.
+func TestDefaultsPageWalkDelaysLoadedValueNotBaseWriteback(t *testing.T) {
+	const (
+		loadX0FromX1PostIndex8 = 0xf8408420 // LDR X0,[X1],#8
+		addX2FromX1            = 0x91000422 // ADD X2,X1,#1: reads the updated base
+		addX3FromX0            = 0x91000403 // ADD X3,X0,#1: reads the loaded value
+	)
+	cfg := mem.DefaultCacheConfig()
+	words := []uint32{loadX0FromX1PostIndex8, addX2FromX1, addX3FromX0}
+	base := func(p *middleware) { p.comp.Resources.Emu.Regs.WriteX(1, 0x4000) }
+	run := func(cache *mem.Cache) (done []uint64, baseReady uint64) {
+		p := specPipeline(t, words, cache, nil)
+		base(p)
+		p.fetchAndProcess()
+		if p.comp.State.Err != "" {
+			t.Fatal(p.comp.State.Err)
+		}
+		return append([]uint64(nil), p.comp.State.Rob[:len(words)]...), p.comp.State.GprReady[1]
+	}
+	plain, plainBase := run(fillCache())
+	cache := mem.NewCache(cfg)
+	walked, walkedBase := run(cache)
+	walk := uint64(cfg.TLBWalkLatency)
+	if stats := cache.Stats(); stats.TLBWalks != 1 {
+		t.Fatal(stats)
+	}
+	// Address generated at cycle 1: base ready at 2, its consumer done at 3.
+	if plainBase != 2 || walkedBase != 2 || plain[1] != 3 || walked[1] != 3 {
+		t.Fatalf("base writeback: ready %d -> %d, consumer %d -> %d; want 2 and 3 with and without the walk", plainBase, walkedBase, plain[1], walked[1])
+	}
+	if walked[0] != plain[0]+walk || walked[2] != plain[2]+walk {
+		t.Fatalf("load %d -> %d, value consumer %d -> %d; want each one walk (%d) later", plain[0], walked[0], plain[2], walked[2], walk)
+	}
+}
+
 // smallLevels shrinks L1 and L2 to one set each so three lines push the first
 // out of L2, and leaves every other default (translation included) in place.
 func smallLevels() mem.CacheConfig {

@@ -117,7 +117,9 @@ func (c *Cache) Translate(addr uint64, size int, now uint64) uint64 {
 		end = ^uint64(0) // an access cannot extend past the address space
 	}
 	last := end / c.tlb.pageBytes
-	for page := addr / c.tlb.pageBytes; page <= last; page++ {
+	// The loop ends on the last page itself: with a small enough page the
+	// last page number is the largest integer, and counting past it wraps.
+	for page := addr / c.tlb.pageBytes; ; page++ {
 		at, walked := c.tlb.translate(page, now)
 		if walked {
 			c.stats.TLBWalks++
@@ -126,6 +128,8 @@ func (c *Cache) Translate(addr uint64, size int, now uint64) uint64 {
 			c.stats.TLBWaitCycles += at - now
 		}
 		ready = max(ready, at)
+		if page == last {
+			return ready
+		}
 	}
-	return ready
 }

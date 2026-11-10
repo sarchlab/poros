@@ -136,6 +136,23 @@ func TestTranslationAtTopOfAddressSpace(t *testing.T) {
 	if ready := c.Translate(^uint64(0)-3, 8, 100); ready != 130 || c.stats.TLBWalks != 1 {
 		t.Fatal("wrapping access", ready, c.stats)
 	}
+	// With one-byte pages the last page number is the largest integer; the
+	// page loop must end there instead of wrapping to page zero.
+	cfg := translationConfig(16, 4, 30, 2)
+	cfg.TLBPageBytes = 1
+	c = NewCache(cfg)
+	if ready := c.Translate(^uint64(0), 1, 100); ready != 130 || c.stats.TLBWalks != 1 {
+		t.Fatal("last addressable page", ready, c.stats)
+	}
+	// The four bytes up to the top of the address space are four pages: two
+	// walkers take them two at a time, and page zero is never touched.
+	c = NewCache(cfg)
+	if ready := c.Translate(^uint64(0)-3, 8, 100); ready != 160 || c.stats.TLBWalks != 4 {
+		t.Fatal("access clamped at the top of the address space", ready, c.stats)
+	}
+	if ready := c.Translate(0, 1, 500); ready != 530 || c.stats.TLBWalks != 5 {
+		t.Fatal("page zero was translated by the wrapping access", ready, c.stats)
+	}
 }
 
 // Advancing the simulation clock retires finished walks only; a walk booked
