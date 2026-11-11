@@ -354,6 +354,125 @@ access/advancement. The model remains a single-thread-calibrated, unvalidated
 multicore extension without coherence or chronological cross-core residency.
 Cache objects are live resources, not part of the component JSON checkpoint.
 
+## Memory-side cache and translation reach
+
+Two mechanisms on the timed memory path. Their evidence is three native
+captures on one M2 performance core (counted user-mode cycles; per-hop counter
+ticks in the third), described with their fixed reading rules, failed
+predictions and limits in
+[the MVT 3072 investigation](mvt-outlier-investigation.md). Neither uses an
+application reference time. The values below are effective: they reproduce
+what was counted in one regime and are not properties read out of the part.
+
+**Memory-side cache.** The model keeps a record of the lines most recently
+evicted from L2, in the order they left: the last `SLCSize / L2LineSize`
+(**8 MiB / 128 B = 65,536**) victims. It has no sets or ways. A timed L2 miss
+on a line still in the record arrives `SLCLatency` (**138**) cycles after the
+request instead of `DRAMLatency`, reports `HitSLC`, and the line returns to L2
+and leaves the record; taking a line out does not let the others stay longer.
+A clean victim's 128 bytes travel to the record on a transport of their own,
+as wide as the fill transport (`DRAMBytesPerCycle`), one line after another;
+the line can be supplied only once that move has ended (its return transfer
+on the fill transport starts no earlier), and the fill that displaced it is
+not delayed. A dirty victim's write is charged on the fill
+transport as before and the line has left L2 when that transfer ends. A line
+evicted before its own fill arrived cannot be supplied before that data
+existed. The return uses the existing fill transport and the existing demand
+MSHR; stream prefetches and writeback allocations take the same path. With a
+shared L2 the record and its transport are shared. `SLCSize = 0` removes all
+of it, so an older complete cache configuration without these fields keeps its
+timing. The untimed `Lookup`/`Prefetch` paths neither fill nor consult it.
+
+- 138 cycles is what a hop of a dependent chase costs on the M2 when the
+  chased lines conflict in L2: 138.2 to 138.4 at three shapes in the first
+  capture. The third capture timed hops one at a time with a 24 MHz counter
+  (one tick is 146 cycles). At one shape 99% of hops take one or two ticks,
+  under 1% are as fast as an L2 hit and none takes three. At the other two
+  shapes 84 to 90% take one or two ticks, 6 to 14% none and 1 to 5% three or
+  more. Read afterwards as three kinds of hop (not one of that capture's fixed
+  rules): 74 to 99% intermediate, 1 to 22% as fast as an L2 hit, 0 to 6% as
+  slow as memory, and the intermediate cost that reproduces the separately
+  counted chases is 132 to 140 cycles at all three shapes. The model makes
+  every such hop 138.
+- 8 MiB is the published size of the M1's system-level cache, used because
+  nothing measured here gives a size: the conflicting walks need about
+  0.3 MiB, and the attempt to measure a size by reuse distance failed (see
+  the limits below). MVT 3072 differs by 0.02% with a 1 MiB record.
+- That the record holds victims only, and that a line leaves it when it
+  returns to L2, follows the published description of the M1's cache as
+  exclusive of the CPU caches. Nothing measured here tests that choice.
+- The separate transport for clean victims is a modelling choice bounded by a
+  measurement: if victims shared the fill transport at its present rate, a
+  conflicting walk could not go below 16 cycles per access; the M2 runs it at
+  11.5.
+- In the conflicting rows the independent walk costs 11.5 cycles per access,
+  one twelfth of the chase, which twelve overlapping returns of 138 cycles
+  also give. The twelve demand MSHRs are unchanged; this is a consistency, not
+  a count of a hardware resource.
+
+**Translation reach.** `Cache.Translate` gives the cycle at which a data
+address is translated. Pages are `TLBPageBytes` (**16 KiB**); the table holds
+`TLBSets × TLBWays` (**256 × 12 = 3,072**) pages, indexed by page number and
+replaced LRU. A page that is not in the table starts a walk of
+`TLBWalkLatency` (**30**) cycles on one of `TLBWalkers` (**4**) walkers;
+accesses to a page whose walk is pending wait for that walk. A load that takes
+its data from the cache issues its cache access when its translation is
+available; a load forwarded from a store does not wait. A store's bytes are
+accepted by the cache once translated, which holds its store slot longer but
+does not delay forwarding. A walk delays a load's value, not its address: the
+base register of a pre- or post-indexed load is still updated one cycle after
+address generation. A walk overlaps a wait for an MSHR. Walker bookings
+keep real times and earlier gaps for requests visited out of order, and are
+retired only at the pipeline's clock. `TLBPageBytes = 0` disables translation
+timing.
+
+- 3,072 entries is the size of this core's second-level TLB in Apple's
+  optimization guide (read through a secondary source that quotes it); 256
+  sets of 12 is the published reverse-engineering result for the M1. In
+  the first capture a walk with no cache conflict costs the same on 16 KiB and
+  on huge pages up to 3,072 pages and more beyond; 46% of hops pay at 3,200
+  pages where this geometry with LRU predicts 52%.
+- 30 cycles and four walkers are effective values from averages of that
+  capture: the chase over 4,096 pages costs 29.7 cycles per hop more than over
+  2,048 pages, and the MVT-shaped walk over 4,096 pages costs 6.93 cycles per
+  access (30 / 6.93 = 4.3; a gather loop over the same pages costs 5.96, which
+  would be five). Huge pages change physical placement as well as
+  translation, so the attribution is an inference.
+
+Limits:
+
+- One host, Linux. Application references are macOS.
+- **Read pressure.** On the M2, reading 16 to 96 MiB of other memory (in
+  order or shuffled, once or twice) leaves a recently used 512 KiB target
+  mostly as fast as L2 hits: a chase over it costs 20 to 39 cycles per hop
+  after 16 to 32 MiB and 60 to 131 after 96 MiB. The model's L2 is exact LRU
+  and loses the whole target at 16 MiB: 135 cycles per hop at 16 to 20 MiB
+  with the record and 328 from 24 MiB; 328 from 16 MiB without it. The
+  prediction that the M2 would show the 138-cycle level by reuse distance
+  failed. This gap is in the committed model too and is not addressed.
+- **Near the onset of conflict the record makes the model worse.** The M2
+  starts losing lines earlier than a modulo index does (between 1,024 and
+  1,536 rows at a 24,576-byte stride; the model between 2,048 and 2,560).
+  Where the model has only a few misses, charging them a memory access
+  happened to cost about what the M2 pays; as 138-cycle returns they cost
+  less. Four measured walk rows (2,048 × 24,576 and 1,024 × 16,384 bytes, MVT
+  loop and gather loop) move from 0.74–0.94 of the M2 to 0.43–0.51.
+- **Not every return is intermediate.** At the largest conflicting shape about
+  6% of the M2's hops cost a memory access; the model has none. At 3,072 rows
+  the M2 keeps about a fifth of the lines in L2; the model keeps none of them
+  there and is 17 to 21% too slow for that chase.
+- Only the last translation level is modelled. The first level costs a
+  dependent chase about six cycles per hop beyond 256 pages on the M2 and is
+  absent here, as are page-table cache misses on very large footprints.
+- Physical placement is not modelled: caches are indexed by virtual address.
+  On 16 KiB pages the M2 shows partial L2 conflicts that scattered frames
+  explain (3,584 rows at 28,672 bytes) and that the model does not have.
+- An L2 hit costs a dependent chase 14 cycles in the model and 19 on the M2.
+- The record and the translation table change in dispatch order, like the
+  cache tags. A request visited after the eviction of its line but issued
+  earlier finds the line in the record and waits for the eviction and the
+  move: later than hardware that still had the line in L2, never earlier.
+
 ## Scalar FP timing and measured destination capacity
 
 Scalar FMADD/FMSUB/FNMADD/FNMSUB have four-cycle result latency and one-cycle

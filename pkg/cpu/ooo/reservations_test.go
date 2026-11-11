@@ -14,6 +14,18 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
+// fillConfig is the default cache configuration without address-translation
+// timing, for tests that pin fill, MSHR and store-allocation arithmetic on
+// first-touch accesses. translation_test.go covers page walks, including the
+// complete default path.
+func fillConfig() mem.CacheConfig {
+	cfg := mem.DefaultCacheConfig()
+	cfg.TLBPageBytes = 0
+	return cfg
+}
+
+func fillCache() *mem.Cache { return mem.NewCache(fillConfig()) }
+
 func reservationPipeline(t *testing.T, words []uint32, cache *mem.Cache) *middleware {
 	t.Helper()
 	return specPipeline(t, words, cache, nil)
@@ -133,7 +145,7 @@ func TestExactForwardingUsesGapButWaitsForStoreData(t *testing.T) {
 }
 
 func TestMSHRDelayRechecksExecutionUnitBeforeBooking(t *testing.T) {
-	p := reservationPipeline(t, []uint32{0xf9400020}, mem.NewCache(mem.DefaultCacheConfig()))
+	p := reservationPipeline(t, []uint32{0xf9400020}, fillCache())
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.comp.Resources.Emu.Mem.WriteU64(0x4000, 42)
 	p.comp.State.MshrBusyUntil[0] = 10
