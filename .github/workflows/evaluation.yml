@@ -97,11 +97,11 @@ jobs:
       - name: Install QEMU user-mode emulator
         working-directory: ${{ runner.temp }}
         run: |
-          curl --fail --location --silent --show-error --retry 3 --output qemu.tar.gz \
-            https://github.com/tonistiigi/binfmt/releases/download/deploy/v10.2.3-68/qemu_v10.2.3_linux-amd64.tar.gz
-          echo '8e7d8f4c0c7809fc3fea0085199fd6b16f671e7c73d9bf6bec711e1cb535920a  qemu.tar.gz' | sha256sum --check
           mkdir -p qemu-bin
-          tar -xzf qemu.tar.gz -C qemu-bin qemu-aarch64
+          curl --fail --location --silent --show-error --retry 3 --output qemu-bin/qemu-aarch64 \
+            https://github.com/multiarch/qemu-user-static/releases/download/v7.2.0-1/qemu-aarch64-static
+          echo 'dce64b2dc6b005485c7aa735a7ea39cb0006bf7e5badc28b324b2cd0c73d883f  qemu-bin/qemu-aarch64' | sha256sum --check
+          chmod +x qemu-bin/qemu-aarch64
           qemu-bin/qemu-aarch64 --version
           echo "$RUNNER_TEMP/qemu-bin" >> "$GITHUB_PATH"
       - run: |
