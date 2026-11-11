@@ -47,10 +47,15 @@ jobs:
           path: source
           fetch-depth: 0
           persist-credentials: false
+      - name: Read retained accuracy evidence
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: pages
+          persist-credentials: false
       - name: Choose validated retained, parallel, or legacy evidence path
         id: route
         run: |
-          git clone --depth 1 --branch gh-pages "https://github.com/$GITHUB_REPOSITORY.git" pages
           python3 tools/scripts/accuracy_backfill.py route --source source --pages pages \
             --target "$RUNNER_TEMP/accuracy-target.json" --output resolved
       - uses: actions/upload-artifact@v4

@@ -74,6 +74,9 @@ class BackfillTests(unittest.TestCase):
         self.assertIn("if: always()",parallel)
         self.assertIn("name: User-time accuracy report",parallel)
         self.assertIn("actions: read",pages)
+        resolve = pages.split("  resolve:\n", 1)[1].split("  parallel:\n", 1)[0]
+        self.assertIn("uses: actions/checkout@v4\n        with:\n          ref: gh-pages\n          path: pages\n          persist-credentials: false", resolve)
+        self.assertNotIn("git clone", resolve)
         self.assertIn('if: always() && needs.resolve.result == \'success\'',pages)
         self.assertIn('--route-status "$ROUTE_STATUS"',pages)
 
