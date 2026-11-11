@@ -295,10 +295,10 @@ func (p *middleware) fetchAndProcess() {
 
 		// Admit the actual destination count, including both halves of LDP.
 		// A full FP window does not prevent integer or store-only progress.
-		_, fpFirst := instinfo.DestRegs(inst)
+		gpr, fp := instinfo.DestRegs(inst)
 		_, fpSecond := instinfo.DestRegs2(inst)
 		neededFP := 0
-		if fpFirst >= 0 {
+		if fp >= 0 {
 			neededFP++
 		}
 		if fpSecond >= 0 {
@@ -387,22 +387,30 @@ func (p *middleware) fetchAndProcess() {
 			issueCycle = forwarding.issueCycle
 		}
 
-		// A load that takes its data from the cache needs its address
-		// translation first; a page walk moves its cache access later. The
-		// address itself was generated at addressCycle, walk or no walk.
+		// An indexed load produces its updated base on a load pipe. Store
+		// overlap may have delayed issue since the initial forwarding probe.
+		base := instinfo.BaseWritebackGPR(inst)
+		writesBase := base >= 0 && base < 31 && base != gpr
+		indexedLoad := ut == unitLoad && writesBase
+		occupancy := unitOccupancy(inst.Op)
 		addressCycle := issueCycle
-		if instinfo.IsLoad(inst.Op) && !forwarding.forwarded {
-			issueCycle = p.translated(issueCycle)
+		if indexedLoad {
+			addressCycle = p.reserveIssue(ut, issueCycle, occupancy)
 		}
-		walked := issueCycle > addressCycle
+		issueCycle = addressCycle
 
-		// 6. Probe residency without side effects, choose MSHR/unit issue, then
-		// commit cache requests at that final time. Cache fills cannot start
-		// while the supplying instruction is still waiting for a resource.
-		miss := !forwarding.forwarded && instinfo.IsLoad(inst.Op) && p.loadMissesL1()
+		// 6. A cache request waits for translation and (on an L1 miss) a miss
+		// entry. An indexed load uses its address slot for an immediate access;
+		// a deferred access returns to the same pool of load pipes to issue.
 		mshr := -1
-		if usesUnit {
-			issueCycle, mshr = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss)
+		if ut == unitLoad && !forwarding.forwarded {
+			issueCycle = p.translated(addressCycle)
+			if p.loadMissesL1() {
+				mshr, issueCycle = p.acquireMSHR(issueCycle)
+			}
+		}
+		if usesUnit && (!indexedLoad || issueCycle != addressCycle) {
+			issueCycle = p.reserveIssue(ut, issueCycle, occupancy)
 		}
 		var latency, dataReady, storeDrain uint64
 		if instinfo.IsStore(inst.Op) {
@@ -435,7 +443,6 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		// 7. Update destination register readiness.
-		gpr, fp := instinfo.DestRegs(inst)
 		if gpr >= 0 && gpr < 31 {
 			p.comp.State.GprReady[gpr] = completeCycle
 		}
@@ -460,7 +467,7 @@ func (p *middleware) fetchAndProcess() {
 		// The base writeback (e.g., X22 += 8 in "str D1, [X22], #8") is
 		// available after address generation (1 cycle), independent of the
 		// instruction's data latency.
-		if base := instinfo.BaseWritebackGPR(inst); base >= 0 && base < 31 && base != gpr {
+		if writesBase {
 			if instinfo.IsStore(inst.Op) {
 				// For stores, base writeback depends only on the base
 				// register, not on the store data operand.
@@ -469,13 +476,8 @@ func (p *middleware) fetchAndProcess() {
 					baseReady = dispatchCycle
 				}
 				p.comp.State.GprReady[base] = baseReady + 1
-			} else if walked {
-				// A page walk delays the load's cache access and its data,
-				// not its address: the base follows address generation.
-				p.comp.State.GprReady[base] = addressCycle + 1
 			} else {
-				// For loads, issueCycle already includes base readiness.
-				p.comp.State.GprReady[base] = issueCycle + 1
+				p.comp.State.GprReady[base] = addressCycle + 1
 			}
 		}
 

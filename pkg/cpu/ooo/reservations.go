@@ -96,15 +96,8 @@ func (p *middleware) findUnit(ut unitType, earliest, occupancy uint64) (int, uin
 	return best, start
 }
 
-// reserveIssue commits a unit interval and selects an MSHR index (-1 for a
-// hit). The caller commits the cache at this final issue time, then holds the
-// selected MSHR until the resulting completion. No other instruction can
-// intervene between selection and that commitment in the serial pipeline.
-func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64, miss bool) (uint64, int) {
-	mshr := -1
-	if miss {
-		mshr, earliest = p.acquireMSHR(earliest)
-	}
+// reserveIssue commits the earliest eligible unit interval.
+func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64) uint64 {
 	unit, issue := p.findUnit(ut, earliest, occupancy)
 	units := p.units(ut)
 	list := units[unit]
@@ -118,7 +111,7 @@ func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64, miss 
 		list[pos] = reservation
 	}
 	units[unit] = list
-	return issue, mshr
+	return issue
 }
 
 // Occupancy controls issue throughput; it is independent of result latency.

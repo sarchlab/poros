@@ -420,8 +420,11 @@ its data from the cache issues its cache access when its translation is
 available; a load forwarded from a store does not wait. A store's bytes are
 accepted by the cache once translated, which holds its store slot longer but
 does not delay forwarding. A walk delays a load's value, not its address: the
-base register of a pre- or post-indexed load is still updated one cycle after
-address generation. A walk overlaps a wait for an MSHR. Walker bookings
+base register of a pre- or post-indexed load is updated one cycle after its
+address stage reserves a load pipe. The model uses that same slot for an
+immediate cache access or a forwarded value. If translation or an MSHR delays
+the cache request, the model charges a second issue on an eligible load pipe
+when the request can proceed. A walk overlaps a wait for an MSHR. Walker bookings
 keep real times and earlier gaps for requests visited out of order, and are
 retired only at the pipeline's clock. `TLBPageBytes = 0` disables translation
 timing.
