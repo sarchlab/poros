@@ -39,9 +39,10 @@ constructing the same application rows as the serial comparator. The renderer
 never runs simulations or collects hardware measurements.
 
 The top three-segment bar counts **measurement points**, not simulator executions.
-For the current declaration it covers 511 points: 264 whole-program points
+For the current declaration it covers 552 points: 264 whole-program points
 (including the 18 legacy microbenchmark points once), 17 head-only throughput
-points, and 13 forwarding + 4 scheduling + 73 capacity + 140 memory paired points.
+points, and 13 forwarding + 4 scheduling + 73 capacity + 41 recurrence + 140
+memory paired points.
 A whole-program point includes its required functional and model-role evidence;
 a paired diagnostic point completes only when both role rows are present. An
 explicitly validated unsupported-base row resolves that role. A partial pair or
@@ -144,10 +145,40 @@ paired boundary ratios with P10/P90 dispersion, and collapsed tables only in
 the microbenchmark section. These points never enter application accuracy,
 S-curves, CDFs, or correlations.
 
+A head declaring the recurrence suite (any measurement input, ELF fixture or
+reference under `evaluation/microbenchmarks/recurrence/` in `report.head.files`)
+requires the three recurrence fields below. Historical heads without the suite
+omit them; stray recurrence evidence on an undeclaring head is rejected.
+
+- `recurrence_reference_text`: the exact UTF-8 contents of committed
+  `evaluation/microbenchmarks/recurrence/m2-linux.json`, transported as one JSON
+  string whose SHA-256 matches the corresponding `report.head.files` entry. This
+  reference is a native Linux capture on a pinned M2 performance core and names
+  its host, core, cycle scale and counter checks; it is not a macOS reference.
+  A parsed `recurrence_reference` is rejected.
+- `report.recurrence_simulation`: exactly `base` and `head`, each an ordered
+  subset of the **41** declared cases (all 41 for a complete report). Each row
+  contains `id`, `instructions`, positive integer `cycles` and `updates`. Counts
+  subtract 128 from 256 outer trips (`recurrence.ITERATIONS`): instructions and
+  updates equal 128 times the case's declared per-trip counts. Both binaries
+  run the head-declared recurrence ELF and must pass analytic output,
+  instruction-count, exact binary revision and role-specific profile checks,
+  including when the base revision predates the suite.
+- `recurrence_provenance`: exactly `head_commit`, `base_commit`,
+  `head_binary_sha256`, `base_binary_sha256` and `model_profiles`, matching
+  `report` in the same way as forwarding provenance above.
+
+The final bundle retains the exact reference bytes as `recurrence.json` and
+both simulated series. The shared renderer plots native and simulated **cycles
+per update** in one unit, so no frequency converts either side, with a
+collapsed table, only in the microbenchmark section. These points never enter
+application accuracy, S-curves, CDFs, or correlations.
+
 For a live campaign, prepare the clean base/head binaries, profiles and committed
 references first. The first snapshot may have no results; it still carries all
 mandatory references, including the capacity boundary block. Run the ordinary
-source-bound shards, then aggregate their already completed raw records. No
+source-bound application/memory shards and independent diagnostic workers in
+parallel, then aggregate their already completed raw records. No
 prelaunch simulation barrier is necessary. The exporter reads `shard.json` or
 `shard.json.gz`; compressed deliveries need a matching `receipt.json` with the
 uncompressed SHA-256, head commit, both binary digests and returncode0. It never
@@ -156,14 +187,39 @@ canonical rows, keyed by immutable file metadata and receipt digest; a changed
 file is revalidated. New incomplete downloads without receipts remain pending.
 
 ```sh
+python3 NEW/scripts/accuracy_parallel.py diagnostic-tasks --prepared RUN/prepared \
+  --source FROZEN_SOURCE --run-id RUN_ID --attempt 1 --output RUN/diagnostics.json
+# A scheduler assigns each listed diagnostic_index once to its own directory.
+python3 NEW/scripts/accuracy_parallel.py diagnostic --prepared RUN/prepared \
+  --source FROZEN_SOURCE --run-id RUN_ID --attempt 1 --diagnostic-index 0 \
+  --checkpoints RUN/diagnostics/0 --output RUN/diagnostics/0/diagnostic.json
 python3 NEW/scripts/accuracy_progress.py --prepared RUN/prepared --source FROZEN_SOURCE \
   --results RUN/shards --run-id RUN_ID --attempt 1 --status RUN/status.json \
-  --probe-progress RUN/probe-progress.json --output RUN/snapshot.json --interval 15
+  --checkpoints RUN/diagnostics --diagnostic-status RUN/diagnostic-status.json \
+  --output RUN/snapshot.json --interval 15
 python3 NEW/scripts/accuracy_parallel.py aggregate --prepared RUN/prepared \
   --source FROZEN_SOURCE --results RAW_SHARDS --run-id RUN_ID --attempt 1 \
-  --output RUN/final/report.json --checkpoints RUN/probe-checkpoints \
-  --progress RUN/probe-progress.json
+  --output RUN/final/report.json --checkpoints RUN/diagnostics
 ```
+
+The task inventory is derived from the frozen source and binds the original
+`plan_id`; creating it does not change `plan.json` or existing shard identities.
+The current 148 diagnostic points comprise 17 head-only throughput points and
+13 forwarding, 4 scheduling, 73 capacity and 41 recurrence points with both
+roles: 558 raw short/long executions. Each worker owns one directory and its `diagnostic.json`
+status; a directory lock rejects concurrent writers.
+Conflicting point or campaign ownership is rejected without overwriting the
+existing status receipt. Checkpoints are named
+`<suite>-<role>-<suite_index>-<iterations>.json`, with one-based suite indices.
+The normal CI workflow schedules this matrix alongside application/memory
+shards. Aggregation waits for both matrices, validates all raw evidence and
+builds the report without executable binary permissions or simulator calls.
+Only successful diagnostic jobs upload aggregatable raw artifacts. Each job
+first uploads its status separately, then uploads raw evidence as its final
+step on success. Failed or interrupted points therefore leave no partial raw
+artifact in the aggregate's download pattern. Re-running failed jobs reuses
+successful points and shards from earlier attempts; their simulations need not
+run again. Status artifacts remain available for diagnosing failed attempts.
 
 The optional campaign status file binds `head`, `base`, `run_id`, completed shard
 indices and active shard indices (`active` object). It supplies activity only;
@@ -172,15 +228,27 @@ when strict validation confirms every application and diagnostic result. A full
 264/264 whole-program subtotal alone never means the diagnostic campaign is finished. The exporter
 retries transient failures without replacing its last good atomic snapshot.
 
-The aggregate's optional checkpoint directory records each short/long probe
-execution atomically. Keys bind the measured source manifest, binary digest and
+The separate optional diagnostic status file binds `head`, `base`, `run_id`,
+`completed` task indices, `active` (index-to-worker object), and `failed`
+entries with `index` and `error`. It supplies worker activity only; completed
+rows always come from validated raw checkpoints. The exporter supports
+out-of-order point completion and unequal base/head subsets in canonical
+reference order. `--probe-progress` remains available for older serial
+comparison producers, but cannot be combined with `--checkpoints`.
+
+Each diagnostic worker records short/long executions atomically. Keys bind the measured source manifest, binary digest and
 revision, suite, ELF digest, role/profile, case/index and iteration count. Reuse
 checks the key/hash plus the same full raw output, revision, profile and counter
 validator used after execution. A changed or corrupt checkpoint fails closed;
-it does not silently replay completed simulations. Each completed pair updates
-the canonical progress report, including unequal head/base prefixes; active and
-failed states preserve the last validated completed rows. Application and memory
-records are replayed from validated shard evidence, never resimulated.
+it never silently reruns completed simulations. Existing compatible raw
+checkpoints retain their exact keys and can move into their owning task directory.
+Aggregation recursively reads the checkpoint root and rejects missing,
+unexpected, duplicate or conflicting evidence, with no execution fallback.
+`aggregate` requires `--checkpoints` when the measured source declares diagnostic
+points; historical sources without those suites do not require the argument.
+Only `diagnostic.json`, `started.json` and `receipt.json` are transport metadata
+and excluded from raw checkpoint indexing. Application and memory records are
+replayed from validated shard evidence, never resimulated.
 
 `--source` selects the frozen measured tree and its exact plan, references and
 binaries. The implementation may come from a newer reporting-only checkout;

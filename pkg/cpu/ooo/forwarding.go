@@ -105,7 +105,8 @@ func (p *middleware) appendStoreRecord(entry storeBufferEntry) {
 func (p *middleware) storeTiming(issue uint64) (accepted, drained uint64) {
 	if cache := p.comp.Resources.Cache; cache != nil {
 		for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
-			a, d := cache.Store(acc.Addr, acc.Size, issue)
+			// The cache accepts the bytes once their address is translated.
+			a, d := cache.Store(acc.Addr, acc.Size, cache.Translate(acc.Addr, acc.Size, issue))
 			accepted, drained = max(accepted, a), max(drained, d)
 		}
 	}

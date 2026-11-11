@@ -111,6 +111,14 @@ class ParallelAccuracyTests(unittest.TestCase):
             parallel.write(root / str(i) / "shard.json", shard)
         return root
 
+    def serial_compare(self, plan, results, output, **options):
+        selected = parallel.select_shards(plan, [parallel.read(p) for p in results.rglob('shard.json')], 1)
+        executor, _ = parallel.recorded_executor(plan, selected, self.witnesses, self.prepared)
+        args = SimpleNamespace(head=str(self.prepared/'head'), base=str(self.prepared/'base'),
+            base_unavailable=False, base_commit=plan['base_commit'],
+            reference=str(self.fixture.source/parallel.REFERENCE), output=str(output))
+        return user.compare(args, executor, **options)
+
     def declarations(self):
         profile_hash = hashlib.sha256(models.encode(self.profile)).hexdigest()
         self.plan["head"] = copy.deepcopy(self.plan["head"])
@@ -211,7 +219,7 @@ class ParallelAccuracyTests(unittest.TestCase):
              patch.object(models,'resolve',return_value=self.plan['model_profiles']), \
              patch.object(throughput,'measure',side_effect=corrupt), \
              contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(parallel.aggregate(self.prepared,results,'123',1,output,progress=progress),1)
+            self.assertEqual(self.serial_compare(self.plan,results,output,progress_path=progress),1)
         saved=live.validate_snapshot(parallel.read(progress))
         self.assertEqual(saved['report']['throughput_simulation'],[row])
         self.assertEqual(saved['progress']['state'],'failed')
@@ -228,6 +236,37 @@ class ParallelAccuracyTests(unittest.TestCase):
         for n in (0, -1, True, 265):
             with self.assertRaises(ValueError):
                 parallel.partition(self.cases, n)
+
+    def test_aggregate_replays_diagnostics_and_never_falls_back_to_executor(self):
+        from accuracy_diagnostics_test import synthetic_execution
+        self.declarations()
+        for name in (*throughput.MEASUREMENT_INPUTS,throughput.ELF,throughput.REFERENCE):
+            target=self.fixture.source/name;target.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(Path(__file__).resolve().parents[1]/name,target)
+            self.plan['head']['files'][name]=user.digest(target)
+        parallel.write(self.prepared/'plan.json',self.plan)
+        results=self.write_shards(self.shards())
+        checkpoints=self.root/'diagnostics'
+        saved=parallel.diagnostic_checkpoint(self.plan,self.prepared,checkpoints,'throughput','head')
+        with patch.object(throughput,'execute',side_effect=synthetic_execution):
+            expected=throughput.measure(self.prepared/'head',self.fixture.source,HEAD,
+                self.plan['model_profiles']['head']['profile'],checkpoint=saved)
+        output=self.root/'replayed/report.json'
+        with patch.object(user,'source_state',return_value=self.plan['head']), \
+             patch.object(models,'resolve',return_value=self.plan['model_profiles']), \
+             patch.object(user,'execute',side_effect=AssertionError('aggregate executed application')), \
+             patch.object(throughput,'execute',side_effect=AssertionError('aggregate executed diagnostic')), \
+             patch.object(throughput,'measure',side_effect=AssertionError('aggregate serial fallback')), \
+             patch.object(memory,'measure',side_effect=AssertionError('aggregate memory fallback')), \
+             patch.object(probe,'measure',side_effect=AssertionError('aggregate frontend fallback')), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(parallel.aggregate(self.prepared,results,'123',1,output),1)
+            self.assertIn('requires --checkpoints with recorded diagnostic evidence',parallel.read(output)['error'])
+            self.assertEqual(parallel.aggregate(self.prepared,results,'123',1,output,checkpoints=checkpoints),0)
+            self.assertEqual(parallel.read(output)['throughput_simulation'],expected)
+            next(checkpoints.glob('*.json')).unlink()
+            self.assertEqual(parallel.aggregate(self.prepared,results,'123',1,output,checkpoints=checkpoints),1)
+            self.assertIn('missing diagnostic checkpoint',parallel.read(output)['error'])
 
     def test_plan_rebinds_current_source_inputs_binaries_and_references(self):
         parallel.load_plan(self.prepared, "123", 1)
@@ -540,7 +579,7 @@ class ParallelAccuracyTests(unittest.TestCase):
         result, _ = site.validate_bundle(self.root / "bundle", HEAD)
         self.assertEqual(result["artifact_status"], "fail")
 
-    def test_aggregation_requires_frontend_probe_when_source_declares_it(self):
+    def test_serial_comparison_requires_frontend_probe_when_source_declares_it(self):
         state = copy.deepcopy(self.state)
         state["files"][probe.ELF] = "f" * 64
         plan = copy.deepcopy(self.plan)
@@ -556,7 +595,7 @@ class ParallelAccuracyTests(unittest.TestCase):
             with patch.object(user, "source_state", return_value=state), \
                  patch.object(probe, "measure", return_value=rows, side_effect=error) as measure, \
                  contextlib.redirect_stdout(io.StringIO()):
-                status = parallel.aggregate(self.prepared, results, "123", 1, output)
+                status = self.serial_compare(plan, results, output)
             measure.assert_called_once()
             report = parallel.read(output)
             self.assertEqual(status, int(error is not None))
@@ -566,7 +605,7 @@ class ParallelAccuracyTests(unittest.TestCase):
             else:
                 self.assertEqual(report["frontend_simulation"], rows)
 
-    def test_aggregation_requires_throughput_suite_when_source_declares_it(self):
+    def test_serial_comparison_requires_throughput_suite_when_source_declares_it(self):
         state = copy.deepcopy(self.state)
         state["files"][throughput.ELF] = "f" * 64
         state["files"][probe.ELF] = "e" * 64
@@ -585,7 +624,7 @@ class ParallelAccuracyTests(unittest.TestCase):
                  patch.object(throughput, "load_reference", return_value={}), \
                  patch.object(throughput, "measure", return_value=rows, side_effect=error) as measure, \
                  contextlib.redirect_stdout(io.StringIO()):
-                status = parallel.aggregate(self.prepared, results, "123", 1, output)
+                status = self.serial_compare(plan, results, output)
             measure.assert_called_once()
             old_measure.assert_not_called()
             report = parallel.read(output)
@@ -597,7 +636,7 @@ class ParallelAccuracyTests(unittest.TestCase):
                 self.assertEqual(report["throughput_simulation"], rows)
                 self.assertNotIn("frontend_simulation", report)
 
-    def test_aggregation_runs_forwarding_on_both_revision_binaries(self):
+    def test_serial_comparison_runs_forwarding_on_both_revision_binaries(self):
         state=copy.deepcopy(self.state)
         state['files'][forwarding.ELF]='f'*64
         plan=copy.deepcopy(self.plan);plan['head']=state
@@ -613,7 +652,7 @@ class ParallelAccuracyTests(unittest.TestCase):
                  patch.object(forwarding,'load_reference',return_value={}), \
                  patch.object(forwarding,'measure',side_effect=[rows,error if error else rows]) as measure, \
                  contextlib.redirect_stdout(io.StringIO()):
-                status=parallel.aggregate(self.prepared,results,'123',1,output)
+                status=self.serial_compare(plan,results,output)
             self.assertEqual(measure.call_count,2)
             calls=measure.call_args_list
             self.assertEqual(calls[0].args[2],state['commit'])
@@ -693,7 +732,7 @@ class ParallelAccuracyTests(unittest.TestCase):
             self.assertEqual(report["artifact_status"], "fail")
             self.assertEqual(report["head_commit"], HEAD)
 
-    def test_aggregation_runs_capacity_on_both_revision_binaries(self):
+    def test_serial_comparison_runs_capacity_on_both_revision_binaries(self):
         state=copy.deepcopy(self.state)
         state['files'][capacity.ELF]='f'*64
         plan=copy.deepcopy(self.plan);plan['head']=state
@@ -709,7 +748,7 @@ class ParallelAccuracyTests(unittest.TestCase):
                  patch.object(capacity,'load_reference',return_value={}), \
                  patch.object(capacity,'measure',side_effect=[rows,error if error else rows]) as measure, \
                  contextlib.redirect_stdout(io.StringIO()):
-                status=parallel.aggregate(self.prepared,results,'123',1,output)
+                status=self.serial_compare(plan,results,output)
             self.assertEqual(measure.call_count,2)
             calls=measure.call_args_list
             self.assertEqual(calls[0].args[2],state['commit'])

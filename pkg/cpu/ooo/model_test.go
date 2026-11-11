@@ -64,15 +64,25 @@ func TestConfigurationIsolationAndStateRoundTrip(t *testing.T) {
 }
 func TestInvalidConfigurationRejectedAtInitialize(t *testing.T) {
 	tests := map[string]func(*Spec){
-		"empty ROB":         func(s *Spec) { s.ROBCapacity = 0 },
-		"empty units":       func(s *Spec) { s.NumINT = 0 },
-		"empty divider":     func(s *Spec) { s.NumFPDiv = 0 },
-		"divider subset":    func(s *Spec) { s.NumFPDiv = s.NumFP + 1 },
-		"empty FP window":   func(s *Spec) { s.FpPhysLimit = 0 },
-		"unusable FP pair":  func(s *Spec) { s.FpPhysLimit = 1 },
-		"empty MSHRs":       func(s *Spec) { s.NumMSHREntries = 0 },
-		"invalid predictor": func(s *Spec) { s.Predictor.TaggedHistLen = 0 },
-		"duplicate hooks":   func(s *Spec) { s.FuncHookCycles = []HookCycles{{1, 2}, {1, 3}} },
+		"empty ROB":              func(s *Spec) { s.ROBCapacity = 0 },
+		"empty units":            func(s *Spec) { s.NumINT = 0 },
+		"empty memory pipes":     func(s *Spec) { s.NumLDST = 0 },
+		"missing load subset":    func(s *Spec) { s.NumLoad = 0 },
+		"missing store subset":   func(s *Spec) { s.NumStore = 0 },
+		"negative load subset":   func(s *Spec) { s.NumLoad = -1 },
+		"negative store subset":  func(s *Spec) { s.NumStore = -1 },
+		"oversized load subset":  func(s *Spec) { s.NumLoad = s.NumLDST + 1 },
+		"oversized store subset": func(s *Spec) { s.NumStore = s.NumLDST + 1 },
+		"unused memory pipes":    func(s *Spec) { s.NumLoad, s.NumStore = 1, 1 },
+		"negative fusion pipes":  func(s *Spec) { s.NumSelectFusion = -1 },
+		"fusion pipe subset":     func(s *Spec) { s.NumSelectFusion = s.NumINT + 1 },
+		"empty divider":          func(s *Spec) { s.NumFPDiv = 0 },
+		"divider subset":         func(s *Spec) { s.NumFPDiv = s.NumFP + 1 },
+		"empty FP window":        func(s *Spec) { s.FpPhysLimit = 0 },
+		"unusable FP pair":       func(s *Spec) { s.FpPhysLimit = 1 },
+		"empty MSHRs":            func(s *Spec) { s.NumMSHREntries = 0 },
+		"invalid predictor":      func(s *Spec) { s.Predictor.TaggedHistLen = 0 },
+		"duplicate hooks":        func(s *Spec) { s.FuncHookCycles = []HookCycles{{1, 2}, {1, 3}} },
 	}
 	for name, change := range tests {
 		t.Run(name, func(t *testing.T) {

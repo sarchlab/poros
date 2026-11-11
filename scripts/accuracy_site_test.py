@@ -669,6 +669,12 @@ class AccuracySiteTest(unittest.TestCase):
         self.assertNotIn("contents: write", evaluation)
         self.assertIn("retention-days: 30", parallel)
         self.assertIn("name: user-time-accuracy-${{ github.run_attempt }}", parallel)
+        diagnostics = parallel.split("  accuracy-diagnostics:",1)[1].split("  user-time-accuracy:",1)[0]
+        self.assertIn("needs: accuracy-prepare",diagnostics)
+        self.assertNotIn("needs: accuracy-shards",diagnostics)
+        self.assertIn("fromJSON(needs.accuracy-prepare.outputs.diagnostics)",diagnostics)
+        self.assertIn("needs: [accuracy-prepare, accuracy-shards, accuracy-diagnostics]",parallel)
+        self.assertIn('--checkpoints "$RUNNER_TEMP/diagnostics"',parallel)
         self.assertIn(
             "github.event_name == 'pull_request' && github.ref || github.run_id",
             evaluation,
@@ -694,7 +700,7 @@ class AccuracySiteTest(unittest.TestCase):
             publishing,
         )
 
-    def test_aggregate_workflow_restores_downloaded_probe_permissions(self):
+    def test_aggregate_workflow_requires_no_execution_and_propagates_diagnostic_failure(self):
         workflow = (ROOT / ".github/workflows/accuracy-evaluate.yml").read_text()
         step = workflow.split("- name: Validate complete shard coverage and build the report", 1)[1]
         preparation = textwrap.dedent(step.split("run: |\n", 1)[1].split("          python3 scripts/accuracy_parallel.py aggregate", 1)[0])
@@ -716,10 +722,15 @@ class AccuracySiteTest(unittest.TestCase):
                 # before it can produce its normal failure artifact.
                 command = preparation + '\ntouch "$RUNNER_TEMP/aggregate-reached"\n'
                 subprocess.run(["/bin/sh", "-eu", "-c", command],
-                               env={**os.environ, "RUNNER_TEMP": str(self.root)}, check=True)
+                               env={**os.environ, "RUNNER_TEMP": str(self.root),
+                                    "DIAGNOSTIC_STATUS":"success","SHARD_STATUS":"success"}, check=True)
                 self.assertTrue(reached.is_file())
                 for name in available:
-                    subprocess.run([str(prepared / name)], check=True)
+                    self.assertEqual((prepared/name).stat().st_mode & 0o111,0)
+        for status in ('failure','cancelled','skipped'):
+            result=subprocess.check_output(['/bin/sh','-eu','-c',preparation+'\nprintf "%s" "$SHARD_STATUS"'],
+                env={**os.environ,"DIAGNOSTIC_STATUS":status,"SHARD_STATUS":"success"},text=True)
+            self.assertEqual(result,'diagnostics-'+status)
 
     def test_attempt_scoped_artifacts_and_failed_job_rerun(self):
         artifacts = [

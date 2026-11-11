@@ -117,13 +117,24 @@ func (c *Cache) installL1(addr, ready uint64, prefetched bool, now uint64) *cach
 	return c.l1.installAt(addr, ready, prefetched)
 }
 
+// installL2 replaces the L2 victim for addr on behalf of a request issued at
+// now. With a memory-side cache the victim stays reachable there once it has
+// been moved. A dirty victim's write traffic is charged on the fill transport
+// as before and it has left L2 when that transfer ends. A clean victim leaves
+// at the request's issue cycle and travels on the spill transport
+// (keepInSLC); it does not delay the fill that displaced it.
 func (c *Cache) installL2(addr, ready uint64, prefetched bool, now uint64) *cacheLine {
-	if victim := c.l2.victim(addr); victim.valid && victim.dirty {
-		admitted, end := reserveWriteback(c.l2Writebacks, c.dram, now, max(victim.readyAt, victim.dirtyAt), c.cfg.L2LineSize)
-		ready = max(ready, admitted)
-		c.writebackUntil = max(c.writebackUntil, end)
-		c.stats.L2Writebacks++
-		c.stats.WritebackBytes += uint64(c.cfg.L2LineSize)
+	if victim := c.l2.victim(addr); victim.valid {
+		left := now
+		if victim.dirty {
+			admitted, end := reserveWriteback(c.l2Writebacks, c.dram, now, max(victim.readyAt, victim.dirtyAt), c.cfg.L2LineSize)
+			ready = max(ready, admitted)
+			c.writebackUntil = max(c.writebackUntil, end)
+			c.stats.L2Writebacks++
+			c.stats.WritebackBytes += uint64(c.cfg.L2LineSize)
+			left = end
+		}
+		c.keepInSLC(*victim, left)
 	}
 	return c.l2.installAt(addr, ready, prefetched)
 }

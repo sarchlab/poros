@@ -100,7 +100,7 @@ class SnapshotExporter:
     Files are immutable campaign receipts. A changed stat causes full revalidation;
     unchanged files reuse canonical rows validated against this exact plan.
     """
-    def __init__(self, prepared, source, results, run_id, attempt, probe_progress=None, status=None):
+    def __init__(self, prepared, source, results, run_id, attempt, probe_progress=None, status=None, checkpoints=None, diagnostic_status=None):
         self.prepared, self.source, self.results = map(Path, (prepared, source, results))
         self.run_id, self.attempt = run_id, attempt
         self.plan, self.witnesses = parallel.load_plan(prepared, run_id, attempt, source)
@@ -108,6 +108,12 @@ class SnapshotExporter:
         self.cache = {}
         self.probe_progress = Path(probe_progress) if probe_progress else None
         self.status = Path(status) if status else None
+        self.checkpoints = Path(checkpoints) if checkpoints else None
+        self.diagnostic_status = Path(diagnostic_status) if diagnostic_status else None
+        if self.checkpoints and self.probe_progress:
+            raise ValueError("choose raw diagnostic checkpoints or legacy probe progress")
+        if self.diagnostic_status and not self.checkpoints:
+            raise ValueError("diagnostic status requires raw checkpoints")
 
     def read_shard(self, path):
         stat = path.stat()
@@ -192,6 +198,49 @@ class SnapshotExporter:
                 rows = {r["id"]: r for shard in selected.values() for r in shard["memory"][role]}
                 report["memory_simulation"][role] = [rows[c["id"]] for c in self.plan["memory"]["cases"] if c["id"] in rows]
         errors = []
+        if self.checkpoints:
+            simulations, diagnostics = parallel.recorded_diagnostics(
+                self.plan, self.prepared, self.source, self.checkpoints, partial=True)
+            for name, rows in simulations.items():
+                report[name + "_simulation"] = rows
+            report["diagnostic_progress"] = diagnostics
+            if self.diagnostic_status:
+                status_d = site.read(self.diagnostic_status)
+                if (status_d.get("head") != self.plan["head"]["commit"]
+                        or status_d.get("base") != self.plan["base_commit"] or status_d.get("run_id") != self.run_id):
+                    raise ValueError("diagnostic status identity mismatch")
+                tasks = parallel.diagnostic_tasks(self.plan, self.source)
+                def task_index(value):
+                    if isinstance(value, str) and value.isascii() and value.isdigit():
+                        value = int(value)
+                    if type(value) is not int or not 0 <= value < len(tasks):
+                        raise ValueError("unknown diagnostic status index")
+                    return value
+                completed = status_d.get("completed")
+                active_d, failed = status_d.get("active", {}), status_d.get("failed", [])
+                if not isinstance(completed, list) or not isinstance(active_d, dict) or not isinstance(failed, list):
+                    raise ValueError("invalid diagnostic status collections")
+                completed_ids, active_ids = [task_index(i) for i in completed], [task_index(i) for i in active_d]
+                if (len(set(completed_ids)) != len(completed_ids) or len(set(active_ids)) != len(active_ids)
+                        or set(completed_ids) & set(active_ids)):
+                    raise ValueError("duplicate/overlapping diagnostic status indices")
+                for index in active_ids:
+                    task = tasks[index]
+                    name, ident = task["suite"], task["case"]["id"]
+                    rows = {"head": simulations[name]} if name == "throughput" else simulations[name]
+                    for role in task["roles"]:
+                        entry = dict(role=role, id=ident)
+                        if ident not in {r["id"] for r in rows[role]} and entry not in diagnostics[name]["active"]:
+                            diagnostics[name]["active"].append(entry)
+                            diagnostics[name]["state"] = "running"
+                for failure in failed:
+                    if not isinstance(failure, dict) or not isinstance(failure.get("error"), str):
+                        raise ValueError("invalid failed diagnostic status")
+                    task = tasks[task_index(failure.get("index"))]
+                    message = task["suite"] + "/" + task["case"]["id"] + ": " + failure["error"]
+                    diagnostics[task["suite"]]["state"] = "failed"
+                    diagnostics[task["suite"]]["errors"].append(message)
+                    errors.append(message)
         if self.probe_progress and self.probe_progress.exists():
             progress = site.read(self.probe_progress)
             # Validate the complete partial-report contract before copying any rows.
@@ -232,9 +281,11 @@ def main():
     parser.add_argument("--attempt", type=int, required=True)
     parser.add_argument("--probe-progress")
     parser.add_argument("--status")
+    parser.add_argument("--checkpoints")
+    parser.add_argument("--diagnostic-status")
     parser.add_argument("--interval", type=float, default=0)
     args = parser.parse_args()
-    exporter = SnapshotExporter(args.prepared, args.source, args.results, args.run_id, args.attempt, args.probe_progress, args.status)
+    exporter = SnapshotExporter(args.prepared, args.source, args.results, args.run_id, args.attempt, args.probe_progress, args.status, args.checkpoints, args.diagnostic_status)
     while True:
         try:
             atomic_write(args.output, exporter.export())

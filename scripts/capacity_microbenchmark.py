@@ -42,6 +42,9 @@ parse_cases = partial(shared.parse_cases, suite=SUITE)
 execute = partial(shared.execute, suite=SUITE)
 smoke = partial(shared.smoke, suite=SUITE)
 measure = partial(shared.measure, suite=SUITE)
+measure_case = partial(shared.measure_case, suite=SUITE)
+validate_execution = partial(shared.validate_execution, suite=SUITE)
+summarize_samples = shared.summarize_samples
 
 validate_simulation = shared.validate_simulation
 

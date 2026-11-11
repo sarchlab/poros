@@ -18,12 +18,24 @@ func (p *middleware) units(ut unitType) [][]UnitReservation {
 	switch ut {
 	case unitINT:
 		return p.comp.State.IntUnits
+	case unitSelectFusion:
+		return p.comp.State.IntUnits[p.comp.Spec.NumINT-p.comp.Spec.NumSelectFusion:]
 	case unitFP:
 		return p.comp.State.FpUnits
 	case unitFPDiv:
 		return p.comp.State.FpUnits[:p.comp.Spec.NumFPDiv]
-	default:
+	case unitLoad:
+		if p.comp.Spec.NumLoad > 0 {
+			return p.comp.State.LdstUnits[:p.comp.Spec.NumLoad]
+		}
 		return p.comp.State.LdstUnits
+	case unitStore:
+		if p.comp.Spec.NumStore > 0 {
+			return p.comp.State.LdstUnits[p.comp.Spec.NumLDST-p.comp.Spec.NumStore:]
+		}
+		return p.comp.State.LdstUnits
+	default:
+		panic("ooo: unknown execution unit type")
 	}
 }
 
@@ -61,11 +73,19 @@ func firstUnitGap(list []UnitReservation, earliest, occupancy uint64) uint64 {
 
 func (p *middleware) findUnit(ut unitType, earliest, occupancy uint64) (int, uint64) {
 	units := p.units(ut)
-	best, start := 0, firstUnitGap(units[0], earliest, occupancy)
+	// Loads scan from the load-only end; stores scan from the store-only end.
+	// Prefer dedicated pipes on equal issue times, without delaying a request
+	// when a shared pipe has an earlier gap. Fully shared configurations retain
+	// the legacy lowest-index tie break.
+	best, step := 0, 1
+	if ut == unitStore && p.comp.Spec.NumLoad > 0 && p.comp.Spec.NumLoad < p.comp.Spec.NumLDST {
+		best, step = len(units)-1, -1
+	}
+	start := firstUnitGap(units[best], earliest, occupancy)
 	if start == earliest {
 		return best, start
 	}
-	for i := 1; i < len(units); i++ {
+	for i := best + step; i >= 0 && i < len(units); i += step {
 		if candidate := firstUnitGap(units[i], earliest, occupancy); candidate < start {
 			best, start = i, candidate
 			if start == earliest {
@@ -76,15 +96,8 @@ func (p *middleware) findUnit(ut unitType, earliest, occupancy uint64) (int, uin
 	return best, start
 }
 
-// reserveIssue commits a unit interval and selects an MSHR index (-1 for a
-// hit). The caller commits the cache at this final issue time, then holds the
-// selected MSHR until the resulting completion. No other instruction can
-// intervene between selection and that commitment in the serial pipeline.
-func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64, miss bool) (uint64, int) {
-	mshr := -1
-	if miss {
-		mshr, earliest = p.acquireMSHR(earliest)
-	}
+// reserveIssue commits the earliest eligible unit interval.
+func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64) uint64 {
 	unit, issue := p.findUnit(ut, earliest, occupancy)
 	units := p.units(ut)
 	list := units[unit]
@@ -98,7 +111,7 @@ func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64, miss 
 		list[pos] = reservation
 	}
 	units[unit] = list
-	return issue, mshr
+	return issue
 }
 
 // Occupancy controls issue throughput; it is independent of result latency.

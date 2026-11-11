@@ -2,6 +2,7 @@ package ooo
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -13,7 +14,26 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
+// fillConfig is the default cache configuration without address-translation
+// timing, for tests that pin fill, MSHR and store-allocation arithmetic on
+// first-touch accesses. translation_test.go covers page walks, including the
+// complete default path.
+func fillConfig() mem.CacheConfig {
+	cfg := mem.DefaultCacheConfig()
+	cfg.TLBPageBytes = 0
+	return cfg
+}
+
+func fillCache() *mem.Cache { return mem.NewCache(fillConfig()) }
+
 func reservationPipeline(t *testing.T, words []uint32, cache *mem.Cache) *middleware {
+	t.Helper()
+	return specPipeline(t, words, cache, nil)
+}
+
+// specPipeline starts from one pipe of each kind and a fetch group holding
+// the whole program, then applies a test's own configuration.
+func specPipeline(t *testing.T, words []uint32, cache *mem.Cache, adjust func(*Spec)) *middleware {
 	t.Helper()
 	em := emu.NewEmulator()
 	em.Mem.TrackAccesses = true
@@ -26,7 +46,11 @@ func reservationPipeline(t *testing.T, words []uint32, cache *mem.Cache) *middle
 	spec.NumINT = 1
 	spec.NumFP = 1
 	spec.NumLDST = 1
+	spec.NumLoad, spec.NumStore = 0, 0 // one fully shared pipe
 	spec.NumMSHREntries = 1
+	if adjust != nil {
+		adjust(&spec)
+	}
 	simulation := sim.MakeBuilder().Build()
 	t.Cleanup(func() {
 		if err := simulation.Terminate(); err != nil {
@@ -121,7 +145,7 @@ func TestExactForwardingUsesGapButWaitsForStoreData(t *testing.T) {
 }
 
 func TestMSHRDelayRechecksExecutionUnitBeforeBooking(t *testing.T) {
-	p := reservationPipeline(t, []uint32{0xf9400020}, mem.NewCache(mem.DefaultCacheConfig()))
+	p := reservationPipeline(t, []uint32{0xf9400020}, fillCache())
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.comp.Resources.Emu.Mem.WriteU64(0x4000, 42)
 	p.comp.State.MshrBusyUntil[0] = 10
@@ -144,7 +168,7 @@ func TestUnitReservationsUseWholeOccupancyAndEarliestAvailableUnit(t *testing.T)
 	if unit, start := p.findUnit(unitINT, 8, 4); unit != 1 || start != 8 {
 		t.Fatalf("unit=%d start=%d", unit, start)
 	}
-	if got, _ := p.reserveIssue(unitINT, 8, unitOccupancy(arm64asm.SDIV), false); got != 20 {
+	if got := p.reserveIssue(unitINT, 8, unitOccupancy(arm64asm.SDIV)); got != 20 {
 		t.Fatalf("nonpipelined reservation starts %d", got)
 	}
 	if unitOccupancy(arm64asm.FDIV) != 1 || unitOccupancy(arm64asm.FSQRT) != 2 || unitOccupancy(arm64asm.FADD) != 1 {
@@ -162,7 +186,7 @@ func TestUnitReservationFastPathsKeepFirstUnitOnTies(t *testing.T) {
 	if unit, issue := p.findUnit(unitINT, 30, 4); unit != 0 || issue != 30 {
 		t.Fatalf("tail tie: unit=%d issue=%d", unit, issue)
 	}
-	if got, _ := p.reserveIssue(unitINT, 30, 4, false); got != 30 {
+	if got := p.reserveIssue(unitINT, 30, 4); got != 30 {
 		t.Fatal(got)
 	}
 	if want := []UnitReservation{{10, 20}, {30, 34}}; !reflect.DeepEqual(p.comp.State.IntUnits[0], want) {
@@ -198,7 +222,7 @@ func TestUnitReservationSearchMatchesDiscreteResourceOracle(t *testing.T) {
 			expected++
 		}
 		unit, _ := p.findUnit(unitINT, ready, duration)
-		got, _ := p.reserveIssue(unitINT, ready, duration, false)
+		got := p.reserveIssue(unitINT, ready, duration)
 		if got != expected {
 			t.Fatalf("request %d: got %d want %d", n, got, expected)
 		}
@@ -226,10 +250,10 @@ func TestReservationCheckpointPreservesGapsAndPrunesOnlyPast(t *testing.T) {
 	}
 	p := &middleware{comp: &Comp{State: restored}}
 	p.pruneUnitReservations()
-	if got, _ := p.reserveIssue(unitINT, 50, 1, false); got != 50 {
+	if got := p.reserveIssue(unitINT, 50, 1); got != 50 {
 		t.Fatal(got)
 	}
-	if got, _ := p.reserveIssue(unitINT, 5, 1, false); got != 5 {
+	if got := p.reserveIssue(unitINT, 5, 1); got != 5 {
 		t.Fatal(got)
 	}
 	want := []UnitReservation{{5, 6}, {10, 12}, {50, 51}, {100, 101}}
@@ -259,7 +283,7 @@ func BenchmarkUnitReservations(b *testing.B) {
 			p.pruneUnitReservations()
 		}
 		ready := p.comp.State.Cycles + uint64(i%31)
-		p.reserveIssue(unitINT, ready, 1, false)
+		p.reserveIssue(unitINT, ready, 1)
 	}
 }
 
@@ -268,18 +292,18 @@ func TestSharedDividerCapacityAndOrdinaryFPPipeCompetition(t *testing.T) {
 	p := &middleware{comp: &Comp{Spec: spec, State: State{FpUnits: make([][]UnitReservation, spec.NumFP)}}}
 	// All divisions share the eligible subset, not four independent one-cycle dividers.
 	for i := uint64(0); i < 4; i++ {
-		got, _ := p.reserveIssue(unitFPDiv, 10, unitOccupancy(arm64asm.FDIV), false)
+		got := p.reserveIssue(unitFPDiv, 10, unitOccupancy(arm64asm.FDIV))
 		if got != 10+i {
 			t.Fatalf("divide %d issued at %d", i, got)
 		}
 	}
-	if got, _ := p.reserveIssue(unitFP, 10, 1, false); got != 10 {
+	if got := p.reserveIssue(unitFP, 10, 1); got != 10 {
 		t.Fatal("unrelated FP pipe needlessly blocked")
 	}
-	if got, _ := p.reserveIssue(unitFPDiv, 8, 2, false); got != 8 {
+	if got := p.reserveIssue(unitFPDiv, 8, 2); got != 8 {
 		t.Fatal("future divide reservation erased earlier sqrt gap")
 	}
-	if got, _ := p.reserveIssue(unitFPDiv, 9, 2, false); got != 14 {
+	if got := p.reserveIssue(unitFPDiv, 9, 2); got != 14 {
 		t.Fatalf("sqrt interval overlap: %d", got)
 	}
 	if !reflect.DeepEqual(p.comp.State.FpUnits[0], []UnitReservation{{8, 10}, {10, 11}, {11, 12}, {12, 13}, {13, 14}, {14, 16}}) {
@@ -291,8 +315,136 @@ func TestSharedDividerCapacityAndOrdinaryFPPipeCompetition(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.comp.State = restored
-	if got, _ := p.reserveIssue(unitFPDiv, 15, 1, false); got != 16 {
+	if got := p.reserveIssue(unitFPDiv, 15, 1); got != 16 {
 		t.Fatal("checkpoint lost shared divider")
+	}
+}
+
+func TestMemoryPipeEligibilityAndPhysicalReservations(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		total, loads, stores int
+		// Physical pipe indices in dedicated-first preference order.
+		loadPipes, storePipes []int
+	}{
+		{"M2", 4, 3, 2, []int{0, 1, 2}, []int{3, 2}},
+		{"legacy one", 1, 0, 0, []int{0}, []int{0}},
+		{"legacy two", 2, 0, 0, []int{0, 1}, []int{0, 1}},
+		{"explicit shared", 2, 2, 2, []int{0, 1}, []int{0, 1}},
+		{"disjoint", 3, 2, 1, []int{0, 1}, []int{2}},
+		{"multiple shared and dedicated", 6, 4, 4, []int{0, 1, 2, 3}, []int{5, 4, 3, 2}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := DefaultSpec()
+			spec.NumLDST, spec.NumLoad, spec.NumStore = tc.total, tc.loads, tc.stores
+			// Check Spec serialization retains explicit zero/zero legacy mode.
+			raw, err := json.Marshal(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var restored Spec
+			if err := json.Unmarshal(raw, &restored); err != nil || !reflect.DeepEqual(spec, restored) {
+				t.Fatal("memory eligibility did not roundtrip", err)
+			}
+			simulation := sim.MakeBuilder().Build()
+			t.Cleanup(func() {
+				if err := simulation.Terminate(); err != nil {
+					t.Error(err)
+				}
+			})
+			em := emu.NewEmulator()
+			em.Mem.TrackAccesses = true
+			core := modeling.MakeBuilder[*Comp](restored).WithSimulation(simulation).WithResources(Resources{Emu: em}).Build("CPU")
+			if err := simulation.Initialize(); err != nil {
+				t.Fatal(err)
+			}
+			p := core.Middlewares.Pipeline
+			occupied := make([]map[uint64]bool, tc.total)
+			for i := range occupied {
+				occupied[i] = make(map[uint64]bool)
+			}
+			rng := rand.New(rand.NewSource(18))
+			for n := 0; n < 300; n++ {
+				ut, eligible := unitLoad, tc.loadPipes
+				if rng.Intn(2) == 0 {
+					ut, eligible = unitStore, tc.storePipes
+				}
+				ready, duration := uint64(rng.Intn(100)), uint64(1+rng.Intn(3))
+				want, physical := ready, -1
+				for physical < 0 {
+					for _, i := range eligible {
+						free := true
+						for c := want; c < want+duration; c++ {
+							if occupied[i][c] {
+								free = false
+								break
+							}
+						}
+						if free {
+							physical = i
+							break
+						}
+					}
+					if physical < 0 {
+						want++
+					}
+				}
+				got := p.reserveIssue(ut, ready, duration)
+				if got != want {
+					t.Fatalf("request %d: start %d want %d", n, got, want)
+				}
+				for c := want; c < want+duration; c++ {
+					occupied[physical][c] = true
+				}
+				for i, list := range core.State.LdstUnits {
+					actual := make(map[uint64]bool)
+					for _, slot := range list {
+						for c := slot.Start; c < slot.End; c++ {
+							if actual[c] {
+								t.Fatalf("overbooked physical pipe %d at %d", i, c)
+							}
+							actual[c] = true
+						}
+					}
+					if !reflect.DeepEqual(actual, occupied[i]) {
+						t.Fatalf("request %d: wrong physical pipe %d", n, i)
+					}
+				}
+				if n == 150 {
+					// Restore in the middle: both classes must still share the same
+					// physical calendars, including future bookings and earlier gaps.
+					raw, err := json.Marshal(core.State)
+					if err != nil {
+						t.Fatal(err)
+					}
+					core.State = State{}
+					if err := json.Unmarshal(raw, &core.State); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestM2LoadStoreIssueLimitsAndDedicatedPreference(t *testing.T) {
+	for _, tc := range []struct {
+		ops    []unitType
+		starts []uint64
+	}{
+		{[]unitType{unitLoad, unitLoad, unitLoad, unitLoad}, []uint64{10, 10, 10, 11}},
+		{[]unitType{unitStore, unitStore, unitStore}, []uint64{10, 10, 11}},
+		{[]unitType{unitLoad, unitLoad, unitStore, unitStore, unitLoad}, []uint64{10, 10, 10, 10, 11}},
+		{[]unitType{unitStore, unitLoad, unitLoad, unitLoad, unitStore}, []uint64{10, 10, 10, 10, 11}},
+	} {
+		t.Run(fmt.Sprint(tc.ops), func(t *testing.T) {
+			p := &middleware{comp: &Comp{Spec: DefaultSpec(), State: State{LdstUnits: make([][]UnitReservation, 4)}}}
+			for i, ut := range tc.ops {
+				if got := p.reserveIssue(ut, 10, 1); got != tc.starts[i] {
+					t.Fatalf("request %d issued at %d want %d", i, got, tc.starts[i])
+				}
+			}
+		})
 	}
 }
 

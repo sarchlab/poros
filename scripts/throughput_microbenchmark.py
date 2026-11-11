@@ -133,20 +133,33 @@ def smoke(binary, root=ROOT, suite=THROUGHPUT):
         print(case["id"], "functional + ooo checksum passed", flush=True)
 
 
+def summarize_samples(case, samples):
+    if len(samples) != 2:
+        raise ValueError("probe short/long execution pair missing")
+    row = dict(id=case["id"], instructions=samples[1]["instructions"] - samples[0]["instructions"],
+               cycles=samples[1]["timing"]["user_cycles"] - samples[0]["timing"]["user_cycles"])
+    validate_simulation([row], [case])
+    return row
+
+
+def measure_case(binary, root, case, index, revision, profile, suite=THROUGHPUT, *, checkpoint=None):
+    samples = []
+    for n in ITERATIONS:
+        collect = lambda: execute(binary, root, case, index, n, "ooo", revision, profile, suite)
+        validate = lambda row: validate_execution(row, root, case, index, n, "ooo", revision, profile, suite)
+        samples.append(checkpoint(case, index, n, collect, validate) if checkpoint else collect())
+    summarize_samples(case, samples)
+    return samples
+
+
 def measure(binary, root, revision, profile, suite=THROUGHPUT, *, checkpoint=None, progress=None):
     declared = cases(root, suite)
     rows = []
     for index, case in enumerate(declared, 1):
         if progress:
             progress(rows, case["id"])
-        samples = []
-        for n in ITERATIONS:
-            collect = lambda: execute(binary, root, case, index, n, "ooo", revision, profile, suite)
-            validate = lambda row: validate_execution(row, root, case, index, n, "ooo", revision, profile, suite)
-            samples.append(checkpoint(case, index, n, collect, validate) if checkpoint else collect())
-        instructions = samples[1]["instructions"] - samples[0]["instructions"]
-        cycles = samples[1]["timing"]["user_cycles"] - samples[0]["timing"]["user_cycles"]
-        rows.append(dict(id=case["id"], instructions=instructions, cycles=cycles))
+        samples = measure_case(binary, root, case, index, revision, profile, suite, checkpoint=checkpoint)
+        rows.append(summarize_samples(case, samples))
         validate_simulation(rows, declared, partial=True)
         if progress:
             progress(rows, None)

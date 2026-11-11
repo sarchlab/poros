@@ -10,7 +10,9 @@ import (
 // complete when that fill arrives, not after a nominal L1 hit latency.
 func TestLoadToPendingLineWaitsForFillArrival(t *testing.T) {
 	// LDR X0,[X1]; LDR X2,[X3]
-	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, mem.NewCache(mem.DefaultCacheConfig()))
+	cfg := fillConfig()
+	cfg.DisableAdjacentL1Prefetch = false // Legacy adjacent-fill merging.
+	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, mem.NewCache(cfg))
 	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
 	p.comp.Resources.Emu.Regs.WriteX(3, 0x4040)
 	p.comp.Resources.Emu.Mem.WriteU64(0x4000, 1)
@@ -33,10 +35,22 @@ func TestLoadToPendingLineWaitsForFillArrival(t *testing.T) {
 	}
 }
 
+func TestSecondHalfDemandWaitsForMSHRAndL2Fill(t *testing.T) {
+	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, fillCache())
+	p.comp.Resources.Emu.Regs.WriteX(1, 0x4000)
+	p.comp.Resources.Emu.Regs.WriteX(3, 0x4040)
+	p.fetchAndProcess()
+	// No speculative adjacent L1 fill: the second load is an L1 miss, waits
+	// for the one MSHR at 336, then pays L2 latency for its demanded half.
+	if p.comp.State.Err != "" || p.comp.State.Rob[0] != 336 || p.comp.State.Rob[1] != 350 || p.comp.State.MshrBusyUntil[0] != 350 {
+		t.Fatalf("second-half demand bypassed resources: completions=%v MSHR=%v error=%s", p.comp.State.Rob[:2], p.comp.State.MshrBusyUntil, p.comp.State.Err)
+	}
+}
+
 // Two independent misses in the same cycle are serialized by the finite fill
 // transport: the second completes one line transfer later.
 func TestIndependentMissesShareFillTransport(t *testing.T) {
-	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, mem.NewCache(mem.DefaultCacheConfig()))
+	p := reservationPipeline(t, []uint32{0xf9400020, 0xf9400062}, fillCache())
 	p.comp.Spec.NumLDST = 2
 	p.comp.State.LdstUnits = make([][]UnitReservation, 2)
 	p.comp.State.MshrBusyUntil = make([]uint64, 2)

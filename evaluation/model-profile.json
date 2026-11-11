@@ -2,6 +2,7 @@
   "cache_config": {
     "DRAMBytesPerCycle": 16,
     "DRAMLatency": 335,
+    "DisableAdjacentL1Prefetch": true,
     "FillBytesPerCycle": 32,
     "L1Latency": 5,
     "L1LineSize": 64,
@@ -16,6 +17,13 @@
     "PrefetchPageBytes": 0,
     "PrefetchStreams": 16,
     "PrefetchTrainMisses": 3,
+    "SLCLatency": 138,
+    "SLCSize": 8388608,
+    "TLBPageBytes": 16384,
+    "TLBSets": 256,
+    "TLBWalkLatency": 30,
+    "TLBWalkers": 4,
+    "TLBWays": 12,
     "WriteBufferEntries": 56
   },
   "configuration": {
@@ -30,7 +38,10 @@
     "num_fp_div": 1,
     "num_int": 6,
     "num_ldst": 4,
+    "num_load": 3,
     "num_mshr_entries": 12,
+    "num_select_fusion": 1,
+    "num_store": 2,
     "predictor": {
       "bimodal_size": 4096,
       "btb_size": 2048,

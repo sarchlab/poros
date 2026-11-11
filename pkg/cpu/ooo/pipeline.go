@@ -25,11 +25,22 @@ type Spec struct {
 	RetireWidth int         `json:"retire_width"`
 	ROBCapacity int         `json:"rob_capacity"`
 	NumINT      int         `json:"num_int"`
-	NumFP       int         `json:"num_fp"`
+	// NumSelectFusion is the number of integer pipes that can execute a fused
+	// compare/select pair. They are the last NumINT pipes, a subset shared with
+	// ordinary integer work. Zero disables the fusion.
+	NumSelectFusion int `json:"num_select_fusion"`
+	NumFP           int `json:"num_fp"`
 	// NumFPDiv is the number of FP pipes eligible for scalar divide/sqrt.
 	// These are a subset of NumFP, so ordinary arithmetic shares their capacity.
-	NumFPDiv      int `json:"num_fp_div"`
+	NumFPDiv int `json:"num_fp_div"`
+	// NumLDST counts physical memory pipes. NumLoad and NumStore are eligible
+	// subsets, not extra pipes: the first NumLoad accept loads and the last
+	// NumStore accept stores, sharing the overlapping reservation calendars.
+	// Both zero preserves legacy fully shared pipes; otherwise both must be
+	// positive, no greater than NumLDST, and together cover all physical pipes.
 	NumLDST       int `json:"num_ldst"`
+	NumLoad       int `json:"num_load"`
+	NumStore      int `json:"num_store"`
 	BranchPenalty int `json:"branch_penalty"`
 	LoadLatency   int `json:"load_latency"`
 	// FpPhysLimit bounds speculative destinations, not total physical registers.
@@ -45,7 +56,7 @@ type Spec struct {
 func DefaultSpec() Spec {
 	return Spec{
 		Freq: 3490 * timing.MHz, FetchWidth: 8, RetireWidth: 8, ROBCapacity: 256,
-		NumINT: 6, NumFP: 4, NumFPDiv: 1, NumLDST: 4, BranchPenalty: 17, LoadLatency: 5,
+		NumINT: 6, NumSelectFusion: 1, NumFP: 4, NumFPDiv: 1, NumLDST: 4, NumLoad: 3, NumStore: 2, BranchPenalty: 17, LoadLatency: 5,
 		FpPhysLimit: 360, StoreBufferSize: 56, NumMSHREntries: 12, BranchPrediction: true,
 		Predictor: PredictorSpec{BimodalSize: 4096, TaggedTableSize: 2048, BTBSize: 2048, BTBWays: 4, RASSize: 32, TaggedHistLen: 32},
 	}
@@ -104,9 +115,11 @@ type unitType int
 
 const (
 	unitINT unitType = iota
+	unitSelectFusion
 	unitFP
 	unitFPDiv
-	unitLDST
+	unitLoad
+	unitStore
 )
 
 func (s *State) Initialize(c *Comp) {
@@ -122,6 +135,14 @@ func (s *State) Initialize(c *Comp) {
 	}
 	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumFPDiv < 1 || v.NumFPDiv > v.NumFP || v.NumLDST < 1 || v.LoadLatency < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
+	}
+	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
+		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
+	}
+	if v.NumLoad != 0 || v.NumStore != 0 {
+		if v.NumLoad < 1 || v.NumStore < 1 || v.NumLoad > v.NumLDST || v.NumStore > v.NumLDST || v.NumLoad < v.NumLDST-v.NumStore {
+			panic("ooo: load/store eligibility must cover the physical memory pipes")
+		}
 	}
 	s.IntUnits = make([][]UnitReservation, v.NumINT)
 	s.FpUnits = make([][]UnitReservation, v.NumFP)
@@ -235,6 +256,7 @@ func (p *middleware) fetchAndProcess() {
 	}
 
 	fetched := 0
+	var pair fusedSelect
 	for fetched < p.comp.Spec.FetchWidth && p.comp.State.RobCount < p.comp.Spec.ROBCapacity && !p.comp.Resources.backend().Stopped() {
 		// 1. Peek at instruction at emulator's current PC.
 		pc := p.comp.Resources.backend().CPURegisters().PC
@@ -258,12 +280,25 @@ func (p *middleware) fetchAndProcess() {
 			return
 		}
 
+		// A fused compare/select pair is admitted whole: the compare waits
+		// for the next cycle when its select would not fit in this one.
+		selects := pair.pending && pair.pc == pc
+		pair.pending = false
+		var partner []int
+		compares := false
+		if !selects {
+			partner, compares = p.fusedPartner(inst, pc)
+		}
+		if compares && (fetched+2 > p.comp.Spec.FetchWidth || p.comp.State.RobCount+2 > p.comp.Spec.ROBCapacity) {
+			return
+		}
+
 		// Admit the actual destination count, including both halves of LDP.
 		// A full FP window does not prevent integer or store-only progress.
-		_, fpFirst := instinfo.DestRegs(inst)
+		gpr, fp := instinfo.DestRegs(inst)
 		_, fpSecond := instinfo.DestRegs2(inst)
 		neededFP := 0
-		if fpFirst >= 0 {
+		if fp >= 0 {
 			neededFP++
 		}
 		if fpSecond >= 0 {
@@ -296,6 +331,12 @@ func (p *middleware) fetchAndProcess() {
 				srcReady = p.comp.State.FpReady[fp]
 			}
 		}
+		// A fused pair issues when every register either half reads is ready.
+		for _, gpr := range partner {
+			if p.comp.State.GprReady[gpr] > srcReady {
+				srcReady = p.comp.State.GprReady[gpr]
+			}
+		}
 
 		// Flags (NZCV) dependency.
 		if instinfo.UsesFlags(inst.Op) && p.comp.State.FlagsReady > srcReady {
@@ -304,6 +345,9 @@ func (p *middleware) fetchAndProcess() {
 
 		// 3. Classify instruction and find execution unit.
 		ut := classifyUnit(inst)
+		if compares {
+			ut = unitSelectFusion
+		}
 		dispatchCycle := p.comp.State.Cycles
 		issueCycle := dispatchCycle
 		if srcReady > issueCycle {
@@ -314,6 +358,11 @@ func (p *middleware) fetchAndProcess() {
 		// and retirement accounting. Other HINT instructions are not assumed
 		// to have the same resource behavior.
 		usesUnit := inst.Op != arm64asm.NOP
+		if selects {
+			// The pair issued once, with its compare. The select reserves
+			// nothing and completes with the flags the pair produced.
+			issueCycle, usesUnit = pair.complete-1, false
+		}
 		if instinfo.IsLoad(inst.Op) {
 			// Forwarding eligibility depends on when a load could issue.
 			// Other instructions need only the final resource selection below.
@@ -338,13 +387,30 @@ func (p *middleware) fetchAndProcess() {
 			issueCycle = forwarding.issueCycle
 		}
 
-		// 6. Probe residency without side effects, choose MSHR/unit issue, then
-		// commit cache requests at that final time. Cache fills cannot start
-		// while the supplying instruction is still waiting for a resource.
-		miss := !forwarding.forwarded && instinfo.IsLoad(inst.Op) && p.loadMissesL1()
+		// An indexed load produces its updated base on a load pipe. Store
+		// overlap may have delayed issue since the initial forwarding probe.
+		base := instinfo.BaseWritebackGPR(inst)
+		writesBase := base >= 0 && base < 31 && base != gpr
+		indexedLoad := ut == unitLoad && writesBase
+		occupancy := unitOccupancy(inst.Op)
+		addressCycle := issueCycle
+		if indexedLoad {
+			addressCycle = p.reserveIssue(ut, issueCycle, occupancy)
+		}
+		issueCycle = addressCycle
+
+		// 6. A cache request waits for translation and (on an L1 miss) a miss
+		// entry. An indexed load uses its address slot for an immediate access;
+		// a deferred access returns to the same pool of load pipes to issue.
 		mshr := -1
-		if usesUnit {
-			issueCycle, mshr = p.reserveIssue(ut, issueCycle, unitOccupancy(inst.Op), miss)
+		if ut == unitLoad && !forwarding.forwarded {
+			issueCycle = p.translated(addressCycle)
+			if p.loadMissesL1() {
+				mshr, issueCycle = p.acquireMSHR(issueCycle)
+			}
+		}
+		if usesUnit && (!indexedLoad || issueCycle != addressCycle) {
+			issueCycle = p.reserveIssue(ut, issueCycle, occupancy)
 		}
 		var latency, dataReady, storeDrain uint64
 		if instinfo.IsStore(inst.Op) {
@@ -365,6 +431,9 @@ func (p *middleware) fetchAndProcess() {
 		if mshr >= 0 {
 			p.comp.State.MshrBusyUntil[mshr] = completeCycle
 		}
+		if compares {
+			pair = fusedSelect{pc: pc + 4, complete: completeCycle, pending: true}
+		}
 		if storeSlot >= 0 {
 			drain := completeCycle
 			if dataReady > drain {
@@ -374,7 +443,6 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		// 7. Update destination register readiness.
-		gpr, fp := instinfo.DestRegs(inst)
 		if gpr >= 0 && gpr < 31 {
 			p.comp.State.GprReady[gpr] = completeCycle
 		}
@@ -399,7 +467,7 @@ func (p *middleware) fetchAndProcess() {
 		// The base writeback (e.g., X22 += 8 in "str D1, [X22], #8") is
 		// available after address generation (1 cycle), independent of the
 		// instruction's data latency.
-		if base := instinfo.BaseWritebackGPR(inst); base >= 0 && base < 31 && base != gpr {
+		if writesBase {
 			if instinfo.IsStore(inst.Op) {
 				// For stores, base writeback depends only on the base
 				// register, not on the store data operand.
@@ -409,8 +477,7 @@ func (p *middleware) fetchAndProcess() {
 				}
 				p.comp.State.GprReady[base] = baseReady + 1
 			} else {
-				// For loads, issueCycle already includes base readiness.
-				p.comp.State.GprReady[base] = issueCycle + 1
+				p.comp.State.GprReady[base] = addressCycle + 1
 			}
 		}
 
@@ -495,8 +562,11 @@ func classifyUnit(instruction arm64asm.Inst) unitType {
 	if (op == arm64asm.ORR || op == arm64asm.MOVI) && instinfo.ArgFP(instruction.Args[0]) >= 0 {
 		return unitFP
 	}
-	if instinfo.IsLoad(op) || instinfo.IsStore(op) {
-		return unitLDST
+	if instinfo.IsLoad(op) {
+		return unitLoad
+	}
+	if instinfo.IsStore(op) {
+		return unitStore
 	}
 	switch op {
 	case arm64asm.FDIV, arm64asm.FSQRT:
@@ -555,6 +625,8 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 			switch worst {
 			case mem.HitL2:
 				return uint64(cfg.L2Latency), dataReady
+			case mem.HitSLC:
+				return uint64(cfg.SLCLatency), dataReady
 			case mem.HitDRAM:
 				return uint64(cfg.DRAMLatency), dataReady
 			default:
@@ -564,6 +636,22 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 		return uint64(p.comp.Spec.LoadLatency), 0
 	}
 	return uint64(instinfo.ExecuteLatency(inst.Op)), 0
+}
+
+// translated returns when the address translations of the current
+// instruction's accesses are available to an access whose address is known at
+// issueCycle. Without a cache, or with translation timing disabled, that is
+// issueCycle.
+func (p *middleware) translated(issueCycle uint64) uint64 {
+	cache := p.comp.Resources.Cache
+	if cache == nil {
+		return issueCycle
+	}
+	ready := issueCycle
+	for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+		ready = max(ready, cache.Translate(acc.Addr, acc.Size, issueCycle))
+	}
+	return ready
 }
 
 // loadMissesL1 only classifies current dispatch-order cache residency.

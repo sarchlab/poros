@@ -24,6 +24,7 @@ import throughput_microbenchmark as throughput
 import forwarding_microbenchmark as forwarding
 import scheduling_microbenchmark as scheduling
 import capacity_microbenchmark as capacity
+import recurrence_microbenchmark as recurrence
 from report_records import covered_cases
 import memory_microbenchmark as memory
 import model_profiles
@@ -564,6 +565,9 @@ def bundle_compact(report_path, source, output, commit):
         if capacity.declared(report["head"]["files"]):
             shutil.copyfile(source / capacity.REFERENCE, output / "capacity.json")
             names.add("capacity.json")
+        if recurrence.declared(report["head"]["files"]):
+            shutil.copyfile(source / recurrence.REFERENCE, output / "recurrence.json")
+            names.add("recurrence.json")
         if forwarding.declared(report["head"]["files"]):
             shutil.copyfile(source / forwarding.REFERENCE, output / "forwarding.json")
             names.add("forwarding.json")
@@ -577,7 +581,7 @@ def bundle_compact(report_path, source, output, commit):
           run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
           files={name: digest(output / name) for name in names}))
     validate_bundle(output, commit)
-    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None, forwarding_reference=read(output / "forwarding.json") if "forwarding.json" in names else None, scheduling_reference=read(output / "scheduling.json") if "scheduling.json" in names else None, memory_reference=read(output / "memory.json") if "memory.json" in names else None, capacity_reference=read(output / "capacity.json") if "capacity.json" in names else None))
+    (output / "index.html").write_text(detail(report, dict(commit=commit, measurement_completed_at=measurement_completed(report, output) if report["artifact_status"] == "pass" else None), preview=True, frontend=read(output / "frontend.json") if "frontend.json" in names else None, throughput_reference=read(output / "throughput.json") if "throughput.json" in names else None, forwarding_reference=read(output / "forwarding.json") if "forwarding.json" in names else None, scheduling_reference=read(output / "scheduling.json") if "scheduling.json" in names else None, memory_reference=read(output / "memory.json") if "memory.json" in names else None, capacity_reference=read(output / "capacity.json") if "capacity.json" in names else None, recurrence_reference=read(output / "recurrence.json") if "recurrence.json" in names else None))
 
 
 def validate_compact_bundle(path, commit, manifest):
@@ -596,6 +600,10 @@ def validate_compact_bundle(path, commit, manifest):
             if digest(regular(path / "capacity.json")) != report["head"]["files"].get(capacity.REFERENCE):
                 raise ValueError("capacity reference differs from tested source")
             names.add("capacity.json")
+        if recurrence.declared(report["head"]["files"]):
+            if digest(regular(path / "recurrence.json")) != report["head"]["files"].get(recurrence.REFERENCE):
+                raise ValueError("recurrence reference differs from tested source")
+            names.add("recurrence.json")
         if forwarding.declared(report["head"]["files"]):
             if digest(regular(path / "forwarding.json")) != report["head"]["files"].get(forwarding.REFERENCE):
                 raise ValueError("forwarding reference differs from tested source")
@@ -623,7 +631,7 @@ def validate_compact_bundle(path, commit, manifest):
 
 
 DIAGNOSTIC_SUITES = {"throughput": throughput, "forwarding": forwarding,
-                     "scheduling": scheduling, "capacity": capacity, "memory": memory}
+                     "scheduling": scheduling, "capacity": capacity, "recurrence": recurrence, "memory": memory}
 
 
 def declared_diagnostics(report):
@@ -659,6 +667,11 @@ def validate_compact_evidence(report, references, *, partial=False):
         capacity.validate_comparison(report.get("capacity_simulation"), native_capacity["cases"], partial=partial)
     elif "capacity_simulation" in report:
         raise ValueError("capacity suite absent from tested source")
+    if recurrence.declared(report["head"]["files"]):
+        native_recurrence = recurrence.validate_reference(json.loads(references["recurrence.json"]), report["head"]["files"])
+        recurrence.validate_comparison(report.get("recurrence_simulation"), native_recurrence["cases"], partial=partial)
+    elif "recurrence_simulation" in report:
+        raise ValueError("recurrence suite absent from tested source")
     if forwarding.declared(report["head"]["files"]):
         native_forwarding = forwarding.validate_reference(json.loads(references["forwarding.json"]), report["head"]["files"])
         forwarding.validate_comparison(report.get("forwarding_simulation"), native_forwarding["cases"], partial=partial)
@@ -1347,6 +1360,101 @@ def scheduling_panels(reference, simulations, profiles, *, partial=False):
 
 
 
+RECURRENCE_GROUPS = (
+    ("Compare/select pair latency",
+     ("sel32_rr_adj", "sel32_rr_sep", "sel32_rr_adj_p8", "sel32_rr_sep_p8", "sel32_rr_adj_p4", "sel64_rr_adj", "sel64_rr_sep"),
+     ("Wa", "Ws", "Wa8", "Ws8", "Wa4", "Xa", "Xs")),
+    ("Compare/select operand forms",
+     ("sel32_rr_swap_adj", "sel32_rr_dst_adj", "sel32_rr_other_adj", "sel32_ri_same_adj", "sel32_ri_adj", "sel32_ri_sep",
+      "sel32_ri16_adj", "sel32_shift_adj", "sel32_csinc_adj"),
+     ("swap", "dst", "other", "15r", "15a", "15s", "16a", "shl", "inc")),
+    ("Cycle scale and issue throughput", ("clock_add", "clock_fadd", "thr32_mix_adj", "thr32_mix_sep"),
+     ("add", "fadd", "mix a", "mix s")),
+    ("Same-address store/load recurrences",
+     ("mem64_add", "mem64_add_alias", "mem64_add_disp", "mem64_partial", "mem64_independent", "mem_fadd",
+      "fwd_near", "fwd_mid", "fwd_far", "mem64_addr_far"),
+     ("same", "alias", "disp", "part", "indep", "fp", "near", "mid", "far", "addr")),
+    ("Memory-carried maximum and Nussinov loop",
+     ("mem32_max_const", "mem32_max_chg", "mem32_max_const_sep", "tight_add_mem", "tight_max_mem", "tight_max_mem_same",
+      "tight_max_reg", "nuss_const", "nuss_chg", "nuss_sep", "nuss_reg"),
+     ("const", "chg", "sep", "t add", "t max", "t same", "t reg", "k con", "k chg", "k sep", "k reg")),
+)
+
+
+def recurrence_panels(reference, simulations, *, partial=False):
+    """Compare/select and memory-recurrence probes, in cycles per update.
+
+    Native and simulated values share one unit, so no frequency enters."""
+    recurrence.validate_reference(reference)
+    recurrence.validate_comparison(simulations, reference["cases"], partial=partial)
+    indexed = simulation_index(simulations)
+    rows = {}
+    for case in reference["cases"]:
+        native = {key: case[key + "_cycles_per_update"] for key in ("p10", "median", "p90")}
+        model = {role: indexed[role][case["id"]]["cycles"] / indexed[role][case["id"]]["updates"]
+                 for role in ("base", "head") if case["id"] in indexed[role]}
+        tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.4f}/{native["median"]:.4f}/{native["p90"]:.4f} cycles/update; '
+                   f'spread {case["relative_spread"]:.2%}; {case["quality"]}; '
+                   f'base {prediction_text(model, "base", 4)}, head {prediction_text(model, "head", 4)} cycles/update')
+        rows[case["id"]] = dict(case=case, native=native, model=model, tooltip=tooltip)
+    if sorted(rows) != sorted(name for _, names, _ in RECURRENCE_GROUPS for name in names):
+        raise ValueError("recurrence panel requires exactly the declared probes")
+    campaign, environment = reference["campaign"], reference["environment"]
+    counted = "counter_cycles_per_cpu_second" in campaign
+    graphs = ('<h3>Compare/select and memory-recurrence probes</h3>'
+              f'<p>{esc(reference["hardware"])} · native {esc(reference["os"].title())} · {esc(reference["host"])} · '
+              f'{esc(reference["core_identity"])} · {esc(reference["collected_at_utc"])}. '
+              f'Cycles per update: {esc(reference["cycle_scale"])}. '
+              + ('Counted instructions were ' + f'{campaign["counted_over_declared_instructions"]:.6f}'
+                 + ' of the declared loops and the counter advanced ' + f'{campaign["counter_cycles_per_cpu_second"] / 1e9:.4f}'
+                 + ' billion cycles per thread-CPU second. ' if counted else '')
+              + ('The counter group was enabled and running for the same ' + f'{int(environment["counter_enabled_ns"]) / 1e9:.3f}'
+                 + ' s, so it was never multiplexed. ' if environment.get("counters") == "perf_event_user" else '')
+              + f'{campaign["blocks"]} mirrored blocks; each visit differences N and 2N trips in ABBA or BAAB order with intervals of about '
+              f'{campaign["target_seconds"] * 1e3:g} ms or more. '
+              f'{campaign["performance_core_interval_share"]:.1%} of main intervals stayed on the reference core; other visits are counted, not mixed in. '
+              + (f'The operating system reported {campaign["reported_khz_minimum"]:,}–{campaign["reported_khz_maximum"]:,} kHz at block boundaries, '
+                 'an observation rather than a measurement. ' if "reported_khz_maximum" in campaign else '')
+              + 'Simulated values are model cycles per update, so native and simulated points share one unit and no frequency is assumed. '
+              'Hover a point for P10/median/P90, spread, quality and both simulator predictions. '
+              'These probes are excluded from application accuracy statistics.</p><div class="charts">')
+    for title, names, labels in RECURRENCE_GROUPS:
+        series = []
+        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
+            values = [(i + 1, rows[name]["native"]["median"] if role == "native" else rows[name]["model"][role], rows[name]["tooltip"])
+                      for i, name in enumerate(names) if role == "native" or role in rows[name]["model"]]
+            series.append((role, values, color))
+        graphs += chart(title, series, "Probe", "cycles/update", scatter=True,
+                        x_ticks=[(i + 1, label) for i, label in enumerate(labels)])
+    graphs += ('</div><p>Pair latency: W and X are 32- and 64-bit register compares selecting the compared registers, '
+               'a adjacent, s with one instruction between, 8 and 4 the loop shifted by that many bytes (at 4 every fourth pair '
+               'straddles a 64-byte line). Operand forms, all 32-bit and adjacent except 15s: swap selects the compared registers '
+               'in the other order, dst writes a third register, other selects two registers that were not compared; '
+               '15r compares with immediate 15 and selects between the compared register and one other; 15a, 15s, 16a and shl '
+               'compare with an immediate (15, 15, 16, 1 LSL 12) and select two registers that were not compared; inc uses CSINC. '
+               'Mix is the independent compare/select/add/add stream. Store/load: same base register, a second base register '
+               'holding the same address, displacement 8, a 32-bit load of a 64-bit store, no memory dependency, FP; near, mid and far '
+               'reload 0, 4 and 8 instructions after the store; addr carries the recurrence through the load address. '
+               'Maximum: constant or changing stored value and the separated pair; t is one static pair per taken branch '
+               '(t same reloads into the register it stores); '
+               'k is the eleven-instruction Nussinov loop replica. P10/P90 are variability summaries, not confidence intervals.</p>')
+    table = (f'<details id="recurrence-table"><summary>Compare/select and memory-recurrence table · {len(rows)} probes</summary>'
+             '<div class="table"><table><thead><tr><th>Probe</th><th>Native cycles/update</th><th>P10–P90</th><th>Spread / median</th>'
+             '<th>Quality</th><th>Visits used / excluded</th><th>Base cycles/update</th><th>Head cycles/update</th>'
+             '<th>Head / native</th><th>Native ns/update</th></tr></thead><tbody>')
+    for name, row in rows.items():
+        case, n, m = row["case"], row["native"], row["model"]
+        ratio = f'{m["head"] / n["median"]:.3f}' if "head" in m and case["quality"] != "invalid" else "—"
+        table += (f'<tr><td>{esc(name)}</td><td>{n["median"]:.4f}</td><td>{n["p10"]:.4f}–{n["p90"]:.4f}</td>'
+                  f'<td>{case["relative_spread"]:.2%}</td><td>{esc(case["quality"])}</td><td>{case["blocks"]} / {case["excluded_blocks"]}</td>'
+                  f'<td>{prediction_text(m, "base")}</td><td>{prediction_text(m, "head")}</td><td>{ratio}</td>'
+                  f'<td>{case["median_ns_per_update"]:.4f}</td></tr>')
+    table += ('</tbody></table></div><p>Simulation differences use the same assembly at 128 and 256 outer trips, '
+              'with exact instruction counts and analytic checksums. Head / native is a ratio of cycles per update. '
+              '<a href="recurrence.json">Native reference data</a></p></details>')
+    return graphs, table
+
+
 def capacity_panels(reference, simulations, profiles, *, partial=False):
     """Capacity controls and divider probes never enter application summaries."""
     capacity.validate_reference(reference)
@@ -1745,7 +1853,7 @@ def live_progress(live, totals=None):
     return body + '</section>'
 
 
-def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None, capacity_reference=None):
+def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None, capacity_reference=None, recurrence_reference=None):
     commit = entry["commit"]
     full_inventory = report["artifact_status"] == "pass" or live is not None
     body = (
@@ -1763,7 +1871,8 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         body += '<p class="muted">Measured simulator: <code>' + esc(commit) + '</code>; reporting implementation: <code>' + esc(rendering["commit"]) + '</code>' + (" (working tree edits; file hashes recorded)" if rendering["dirty"] else "") + ".</p>"
     if live is not None or (report.get("schema") == 4 and report["artifact_status"] == "pass"):
         references = dict(throughput=throughput_reference, forwarding=forwarding_reference,
-                          scheduling=scheduling_reference, capacity=capacity_reference, memory=memory_reference)
+                          scheduling=scheduling_reference, capacity=capacity_reference,
+                          recurrence=recurrence_reference, memory=memory_reference)
         totals = overall_progress(report, references, live)
         progress = live if live is not None else dict(state="complete", validated_bundle=True,
             completed_cases=len(report["cases"]), required_cases=len(report_manifest(report)["cases"]),
@@ -1835,6 +1944,11 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         forwarding_charts, forwarding_table = forwarding_panels(
             forwarding_reference, report.get("forwarding_simulation"), model_profiles.validate(report), partial=report["artifact_status"] == "partial")
         body += diagnostic_progress(report, "forwarding", forwarding_reference) + forwarding_charts
+    recurrence_table = ""
+    if recurrence_reference:
+        recurrence_charts, recurrence_table = recurrence_panels(
+            recurrence_reference, report.get("recurrence_simulation"), partial=report["artifact_status"] == "partial")
+        body += diagnostic_progress(report, "recurrence", recurrence_reference) + recurrence_charts
     if throughput_reference:
         body += diagnostic_progress(report, "throughput", throughput_reference)
         body += (f'<details id="throughput-table"><summary>Instruction throughput table · {len(throughput_reference["cases"])} probes</summary>'
@@ -1842,7 +1956,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     elif frontend:
         body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
                  + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
-    body += memory_table + scheduling_table + forwarding_table + capacity_table
+    body += memory_table + scheduling_table + forwarding_table + recurrence_table + capacity_table
     body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
              + timing_table(micros, micro_ids) + '</details></section>')
     replacement = report.get("reference", {}).get("streamcluster_replacement")
@@ -2144,8 +2258,9 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
         forwarding_reference = read(p / "forwarding.json") if "forwarding.json" in retained_manifest["files"] else None
         scheduling_reference = read(p / "scheduling.json") if "scheduling.json" in retained_manifest["files"] else None
         capacity_reference = read(p / "capacity.json") if "capacity.json" in retained_manifest["files"] else None
+        recurrence_reference = read(p / "recurrence.json") if "recurrence.json" in retained_manifest["files"] else None
         memory_reference = read(p / "memory.json") if "memory.json" in retained_manifest["files"] else None
-        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference, scheduling_reference=scheduling_reference, memory_reference=memory_reference, capacity_reference=capacity_reference))
+        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference, scheduling_reference=scheduling_reference, memory_reference=memory_reference, capacity_reference=capacity_reference, recurrence_reference=recurrence_reference))
     write(index_path, index)
     (root / "index.html").write_text(home(index))
     (site / ".nojekyll").touch()

@@ -18,19 +18,28 @@ class Checkpoint:
         self.identity = dict(source=source, binary_sha256=user.digest(binary), revision=revision,
                              profile=profile, elf_sha256=elf_sha256, suite=name, role=role)
 
-    def __call__(self, case, index, iterations, collect, validate):
+    def filename(self, index, iterations):
+        return f"{self.name}-{self.role}-{index}-{iterations}.json"
+
+    def read(self, case, index, iterations, validate, *, path=None):
+        """Strict replay: absence is an error, never permission to execute."""
         key = dict(self.identity, case=case, index=index, iterations=iterations, mode="ooo")
-        path = self.directory / f"{self.name}-{self.role}-{index}-{iterations}.json"
+        path = Path(path) if path is not None else self.directory / self.filename(index, iterations)
+        record = progress.site.read(path)
+        if (record.get("schema") != 1 or record.get("key") != key
+                or record.get("sha256") != digest({"key": key, "result": record.get("result")})):
+            raise ValueError("probe checkpoint identity/hash mismatch: " + path.name)
+        result = record["result"]
+        validate(result)
+        return result
+
+    def __call__(self, case, index, iterations, collect, validate):
+        path = self.directory / self.filename(index, iterations)
         if path.exists():
-            record = progress.site.read(path)
-            if (record.get("schema") != 1 or record.get("key") != key
-                    or record.get("sha256") != digest({"key": key, "result": record.get("result")})):
-                raise ValueError("probe checkpoint identity/hash mismatch: " + path.name)
-            result = record["result"]
-            validate(result)
-            return result
+            return self.read(case, index, iterations, validate)
         result = collect()
         validate(result)
+        key = dict(self.identity, case=case, index=index, iterations=iterations, mode="ooo")
         record = dict(schema=1, key=key, result=result, sha256=digest({"key": key, "result": result}))
         progress.atomic_write(path, record)
         return result

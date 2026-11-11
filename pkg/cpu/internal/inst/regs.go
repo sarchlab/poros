@@ -171,6 +171,34 @@ func RegExtReg(rea arm64asm.RegExtshiftAmount) arm64asm.Reg {
 	return s.Reg
 }
 
+// UnmodifiedReg returns the register of a register operand that applies no
+// shift and no extension, as in "CMP W1, W2".
+func UnmodifiedReg(arg arm64asm.Arg) (arm64asm.Reg, bool) {
+	rea, ok := arg.(arm64asm.RegExtshiftAmount)
+	if !ok {
+		return 0, false
+	}
+	s := *(*regExtLayout)(unsafe.Pointer(&rea))
+	return s.Reg, s.ExtShift == 0 && s.Amount == 0
+}
+
+// immShiftLayout matches arm64asm.ImmShift internal layout.
+type immShiftLayout struct {
+	Imm   uint16
+	Shift uint8
+}
+
+// UnshiftedImm returns the value of an immediate operand that applies no
+// shift, as in "CMP W1, #15".
+func UnshiftedImm(arg arm64asm.Arg) (uint16, bool) {
+	imm, ok := arg.(arm64asm.ImmShift)
+	if !ok {
+		return 0, false
+	}
+	s := *(*immShiftLayout)(unsafe.Pointer(&imm))
+	return s.Imm, s.Shift == 0
+}
+
 // BaseWritebackGPR returns the GPR index of the base register written back
 // by pre/post-indexed load/store instructions (e.g., "ldr d1, [x22], #8"
 // writes x22 = x22+8). Returns -1 if no writeback occurs.
