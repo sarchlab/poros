@@ -1,0 +1,78 @@
+name: PR 76 hosted 256 MiB probe
+on:
+  push:
+    branches: [codex/pr76-probe-check]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        factor: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6cf1e192086739415f3fd032b6383ef87afcdf9a
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.27.0
+      - run: go build -o "$RUNNER_TEMP/poros" ./cmd/poros
+      - name: Time the release workload with the PR limit
+        env:
+          PYTHONPATH: scripts
+          FACTOR: ${{ matrix.factor }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time
+          from pathlib import Path
+          import memory_microbenchmark as memory
+          import model_profiles
+
+          sha = "6cf1e192086739415f3fd032b6383ef87afcdf9a"
+          case = next(c for c in memory.cases() if c["id"] == "chase1-268435456")
+          profile = model_profiles.revision(memory.ROOT, sha)["profile"]
+          passes = case["passes"] * int(os.environ["FACTOR"])
+          tmp = Path(os.environ["RUNNER_TEMP"])
+          start = time.monotonic()
+          result = memory.execute(tmp / "poros", memory.ROOT, case, passes, revision=sha, profile=profile)
+          elapsed = time.monotonic() - start
+          print(f"Validated {passes} passes in {elapsed:.2f} s of 900 s, {result['instructions']} instructions")
+          (tmp / "sample.json").write_text(json.dumps(dict(elapsed=elapsed, passes=passes, result=result)))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sample-${{ matrix.factor }}
+          path: ${{ runner.temp }}/sample.json
+          retention-days: 7
+  compare:
+    needs: probe
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6cf1e192086739415f3fd032b6383ef87afcdf9a
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sample-*
+          path: ${{ runner.temp }}/results
+      - env:
+          PYTHONPATH: scripts
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          import memory_microbenchmark as memory
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "results"
+          case = next(c for c in memory.cases() if c["id"] == "chase1-268435456")
+          pair = [json.loads((root / f"sample-{i}/sample.json").read_text()) for i in (1, 2)]
+          print(memory.summarize_samples(case, [x["result"] for x in pair]))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as log:
+              for row in pair:
+                  print(f"{row['passes']} passes: {row['elapsed']:.2f} s of 900 s", file=log)
+          PY
