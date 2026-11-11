@@ -1,8 +1,44 @@
 {
   "schema": 1,
-  "main_head": "e6ddb099d9a1f8526dc13358ed74ee60bea3c35f",
+  "main_head": "17d0dfad2a926edbdf01ee12706cf65a742ebe06",
   "latest_success": "0b0bf5ab0501ca455e0156ba4e9e523cad57c70e",
   "entries": [
+    {
+      "kind": "release",
+      "commit": "ac742b79951dacff6b2e11cf5f2bf22e801b5a3c",
+      "release": {
+        "id": 441849489,
+        "tag": "v0.1.1",
+        "publication_run_url": "https://github.com/sarchlab/poros/actions/runs/43045185114/attempts/1"
+      },
+      "conclusion": "failure",
+      "run_id": 43045185114,
+      "run_attempt": 1,
+      "run_url": "https://github.com/sarchlab/poros/actions/runs/43045185114/attempts/1",
+      "main": false,
+      "artifact_status": "fail",
+      "accuracy_status": "unverified",
+      "series": null,
+      "summary": {},
+      "releases": [
+        {
+          "id": 441849489,
+          "tag": "v0.1.1",
+          "publication_run_url": "https://github.com/sarchlab/poros/actions/runs/43045185114/attempts/1"
+        }
+      ],
+      "evidence_run_url": "https://github.com/sarchlab/poros/actions/runs/43045185114/attempts/1",
+      "evidence_files": [
+        "report.json",
+        "report.md"
+      ],
+      "measurement_completed_at": null,
+      "evaluation_run_id": 43045131846,
+      "evaluation_run_attempt": 1,
+      "evaluation_conclusion": "failure",
+      "evaluation_run_url": "https://github.com/sarchlab/poros/actions/runs/43045131846/attempts/1",
+      "benchmark_summary": {}
+    },
     {
       "commit": "e6ddb099d9a1f8526dc13358ed74ee60bea3c35f",
       "kind": "main",
