@@ -158,14 +158,15 @@ def instruction_budget(case, passes):
 
 
 def execute(binary, root, case, passes, mode='ooo', revision=None, profile=None):
+    timeout_seconds = 900 if case_elf(case) == LARGE_ELF else 600
     cmd = [str(binary), 'elf', '--mode', mode, '--max-instructions', str(instruction_budget(case, passes)),
-           '--timeout', '600s']
+           '--timeout', f'{timeout_seconds}s']
     if profile is not None:
         cmd += ['--frequency-hz', str(profile['configuration']['freq'])]
     if case['max_image_bytes'] > 256 * 1024 * 1024:
         cmd += ['--max-image-bytes', str(case['max_image_bytes'])]
     cmd += [str(Path(root) / case_elf(case)), *arguments(case, passes)]
-    process = subprocess.run(cmd, capture_output=True, timeout=620)
+    process = subprocess.run(cmd, capture_output=True, timeout=timeout_seconds + 20)
     require(process.returncode == 0 and not process.stderr, 'memory execution failed: ' + case['id'] + ' ' + process.stdout.decode(errors='replace')[-1500:])
     result = json.loads(process.stdout)
     validate_execution(result, case, passes, digest(Path(root) / case_elf(case)), mode, revision, profile)
