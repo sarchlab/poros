@@ -1,0 +1,181 @@
+{
+  "protocol": "assembly-throughput-v1",
+  "hardware": "Apple M2",
+  "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+  "collected_at_utc": "2026-11-07T10:52:26.478702+00:00",
+  "timer": "CLOCK_THREAD_CPUTIME_ID",
+  "core_identity": "unknown",
+  "instantaneous_frequency": "unknown",
+  "assumed_hz": 3490000000,
+  "trials": 9,
+  "compiler": "Apple clang version 21.0.0 (clang-2100.4.1.1)",
+  "sources": {
+    "evaluation/microbenchmarks/throughput/cases.def": "085082bff8471fa65b1dc5783e8f41d8498136ec036af9899d35c6deae3f60a2",
+    "evaluation/microbenchmarks/throughput/loops.S": "43e6d25fd8d9bc0a6da09094fa670c6c7ffa88d62e8ab90c832e11dfc2e737c6",
+    "evaluation/microbenchmarks/throughput/driver.h": "2e02e9b4fe073a87a582ab0d1fa4b1e4e2424949097b432e2d318f3049e47d36",
+    "evaluation/microbenchmarks/throughput/linux.c": "100fa52b6ba395a8daec39d0c02a98d026fefe40d53dca75f3823c83e97f5061",
+    "evaluation/microbenchmarks/throughput/entry.S": "03f3675c20c9d31a0d753cf881de80f258de4e27cd40e7dd6914ac594e69ed23",
+    "evaluation/microbenchmarks/throughput/native.c": "2ed54372e420feb50e6939fc03334029b2560ac6c143a08c74f1f88b366d27d0",
+    "evaluation/microbenchmarks/throughput/build.sh": "edae6be24900ee1ca0684b19ca4baffb21b3f3d0c97a3d826a37d4bc48edbfad",
+    "evaluation/microbenchmarks/throughput/throughput.elf": "554f7be15f0781f349b9c9aa5790bce6fbb8c7a181dbd61c8fc4ed6822d6f645",
+    "scripts/throughput_microbenchmark.py": "0de99f4a6de5e2d3402dbb5cfe960a00f6784b512e54fdaa56d58add23307505",
+    "tests/usertime/layout.ld": "9d942ff9006b4a5269475b6a0b455837d1c82c8b2bd5d5ee8f898f782129b5e9"
+  },
+  "definition": "PROBE(nop_32, 34, nop)\nPROBE(nop_128, 130, nop)\nPROBE(nop_256, 258, nop)\nPROBE(nop_512, 514, nop)\nPROBE(add_1, 258, add)\nPROBE(add_2, 258, add)\nPROBE(add_4, 258, add)\nPROBE(add_8, 258, add)\nPROBE(add_16, 258, add)\nPROBE(fp_1, 258, fp)\nPROBE(fp_4, 258, fp)\nPROBE(fp_8, 258, fp)\nPROBE(load_8, 258, load)\nPROBE(store_8, 258, store)\nPROBE(mixed, 194, mixed)\nPROBE(fp_16, 258, fp)\nPROBE(mixed_16, 194, mixed)\n",
+  "cases": [
+    {
+      "id": "nop_32",
+      "instructions_per_iteration": 34,
+      "kind": "nop",
+      "iterations": 14705882,
+      "p10_seconds": 0.016969708,
+      "median_seconds": 0.017909876,
+      "p90_seconds": 0.017974042
+    },
+    {
+      "id": "nop_128",
+      "instructions_per_iteration": 130,
+      "kind": "nop",
+      "iterations": 3846153,
+      "p10_seconds": 0.017222666,
+      "median_seconds": 0.017885792,
+      "p90_seconds": 0.017974791
+    },
+    {
+      "id": "nop_256",
+      "instructions_per_iteration": 258,
+      "kind": "nop",
+      "iterations": 1937984,
+      "p10_seconds": 0.017794666,
+      "median_seconds": 0.017925667,
+      "p90_seconds": 0.0180655
+    },
+    {
+      "id": "nop_512",
+      "instructions_per_iteration": 514,
+      "kind": "nop",
+      "iterations": 972762,
+      "p10_seconds": 0.017820625,
+      "median_seconds": 0.017875958,
+      "p90_seconds": 0.017930584
+    },
+    {
+      "id": "add_1",
+      "instructions_per_iteration": 258,
+      "kind": "add",
+      "iterations": 1937984,
+      "p10_seconds": 0.141833208,
+      "median_seconds": 0.142398375,
+      "p90_seconds": 0.146512584
+    },
+    {
+      "id": "add_2",
+      "instructions_per_iteration": 258,
+      "kind": "add",
+      "iterations": 1937984,
+      "p10_seconds": 0.070760375,
+      "median_seconds": 0.071000668,
+      "p90_seconds": 0.071856333
+    },
+    {
+      "id": "add_4",
+      "instructions_per_iteration": 258,
+      "kind": "add",
+      "iterations": 1937984,
+      "p10_seconds": 0.042894,
+      "median_seconds": 0.043392667,
+      "p90_seconds": 0.043647541
+    },
+    {
+      "id": "add_8",
+      "instructions_per_iteration": 258,
+      "kind": "add",
+      "iterations": 1937984,
+      "p10_seconds": 0.029315791,
+      "median_seconds": 0.029670876,
+      "p90_seconds": 0.029986125
+    },
+    {
+      "id": "add_16",
+      "instructions_per_iteration": 258,
+      "kind": "add",
+      "iterations": 1937984,
+      "p10_seconds": 0.023618833,
+      "median_seconds": 0.0242445,
+      "p90_seconds": 0.024848293
+    },
+    {
+      "id": "fp_1",
+      "instructions_per_iteration": 258,
+      "kind": "fp",
+      "iterations": 1937984,
+      "p10_seconds": 0.421962125,
+      "median_seconds": 0.426755375,
+      "p90_seconds": 0.427215333
+    },
+    {
+      "id": "fp_4",
+      "instructions_per_iteration": 258,
+      "kind": "fp",
+      "iterations": 1937984,
+      "p10_seconds": 0.106343917,
+      "median_seconds": 0.107108125,
+      "p90_seconds": 0.115774541
+    },
+    {
+      "id": "fp_8",
+      "instructions_per_iteration": 258,
+      "kind": "fp",
+      "iterations": 1937984,
+      "p10_seconds": 0.053106332,
+      "median_seconds": 0.053331333,
+      "p90_seconds": 0.056617792
+    },
+    {
+      "id": "load_8",
+      "instructions_per_iteration": 258,
+      "kind": "load",
+      "iterations": 1937984,
+      "p10_seconds": 0.049750292,
+      "median_seconds": 0.050194251,
+      "p90_seconds": 0.050373917
+    },
+    {
+      "id": "store_8",
+      "instructions_per_iteration": 258,
+      "kind": "store",
+      "iterations": 1937984,
+      "p10_seconds": 0.070066125,
+      "median_seconds": 0.071028501,
+      "p90_seconds": 0.071216208
+    },
+    {
+      "id": "mixed",
+      "instructions_per_iteration": 194,
+      "kind": "mixed",
+      "iterations": 2577319,
+      "p10_seconds": 0.035617666,
+      "median_seconds": 0.03577575,
+      "p90_seconds": 0.035796541
+    },
+    {
+      "id": "fp_16",
+      "instructions_per_iteration": 258,
+      "kind": "fp",
+      "iterations": 1937984,
+      "p10_seconds": 0.035401584,
+      "median_seconds": 0.035560457,
+      "p90_seconds": 0.035823917
+    },
+    {
+      "id": "mixed_16",
+      "instructions_per_iteration": 194,
+      "kind": "mixed",
+      "iterations": 2577319,
+      "p10_seconds": 0.017785667,
+      "median_seconds": 0.0178635,
+      "p90_seconds": 0.017911332
+    }
+  ],
+  "native_binary_sha256": "c81b545dc28b05316ef31a858674185757cfc7188cdd3bf0b78bb3fd88d9a6d0"
+}
