@@ -94,7 +94,16 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.0'
-      - run: sudo apt-get update && sudo apt-get install -y qemu-user
+      - name: Install QEMU user-mode emulator
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --location --silent --show-error --retry 3 --output qemu.tar.gz \
+            https://github.com/tonistiigi/binfmt/releases/download/deploy/v10.2.3-68/qemu_v10.2.3_linux-amd64.tar.gz
+          echo '8e7d8f4c0c7809fc3fea0085199fd6b16f671e7c73d9bf6bec711e1cb535920a  qemu.tar.gz' | sha256sum --check
+          mkdir -p qemu-bin
+          tar -xzf qemu.tar.gz -C qemu-bin qemu-aarch64
+          qemu-bin/qemu-aarch64 --version
+          echo "$RUNNER_TEMP/qemu-bin" >> "$GITHUB_PATH"
       - run: |
           mkdir -p evaluation-results
           go build -o /tmp/poros ./cmd/poros
@@ -103,9 +112,9 @@ jobs:
           python3 scripts/throughput_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/forwarding_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/scheduling_microbenchmark.py smoke --poros /tmp/poros
-          python3 scripts/capacity_microbenchmark.py smoke --poros /tmp/poros --qemu /usr/bin/qemu-aarch64
+          python3 scripts/capacity_microbenchmark.py smoke --poros /tmp/poros --qemu qemu-aarch64
           python3 scripts/recurrence_microbenchmark.py smoke --poros /tmp/poros
-          python3 scripts/memory_microbenchmark.py smoke --poros /tmp/poros --qemu /usr/bin/qemu-aarch64
+          python3 scripts/memory_microbenchmark.py smoke --poros /tmp/poros --qemu qemu-aarch64
           python3 scripts/elf-differential_test.py
           python3 scripts/elf-differential.py --require-clean --poros /tmp/poros --output evaluation-results/elf-differential.json
           python3 scripts/benchmark-differential.py --require-clean --poros /tmp/poros --output evaluation-results/benchmark-differential.json
