@@ -94,16 +94,16 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.0'
-      - name: Install QEMU user-mode emulator
-        working-directory: ${{ runner.temp }}
+      - name: Install Ubuntu QEMU user-mode emulator
         run: |
-          mkdir -p qemu-bin
-          curl --fail --location --silent --show-error --retry 3 --output qemu-bin/qemu-aarch64 \
-            https://github.com/multiarch/qemu-user-static/releases/download/v7.2.0-1/qemu-aarch64-static
-          echo 'dce64b2dc6b005485c7aa735a7ea39cb0006bf7e5badc28b324b2cd0c73d883f  qemu-bin/qemu-aarch64' | sha256sum --check
-          chmod +x qemu-bin/qemu-aarch64
-          qemu-bin/qemu-aarch64 --version
-          echo "$RUNNER_TEMP/qemu-bin" >> "$GITHUB_PATH"
+          sources="$RUNNER_TEMP/qemu-ubuntu.list"
+          for suite in noble noble-updates noble-security; do
+            echo "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu $suite main universe"
+          done > "$sources"
+          apt_options=(-o "Dir::Etc::sourcelist=$sources" -o Dir::Etc::sourceparts=- -o Acquire::Retries=2)
+          sudo apt-get "${apt_options[@]}" -o APT::Update::Error-Mode=any update
+          sudo apt-get "${apt_options[@]}" install --no-install-recommends -y qemu-user
+          qemu-aarch64 --version
       - run: |
           mkdir -p evaluation-results
           go build -o /tmp/poros ./cmd/poros
@@ -112,9 +112,9 @@ jobs:
           python3 scripts/throughput_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/forwarding_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/scheduling_microbenchmark.py smoke --poros /tmp/poros
-          python3 scripts/capacity_microbenchmark.py smoke --poros /tmp/poros --qemu qemu-aarch64
+          python3 scripts/capacity_microbenchmark.py smoke --poros /tmp/poros --qemu /usr/bin/qemu-aarch64
           python3 scripts/recurrence_microbenchmark.py smoke --poros /tmp/poros
-          python3 scripts/memory_microbenchmark.py smoke --poros /tmp/poros --qemu qemu-aarch64
+          python3 scripts/memory_microbenchmark.py smoke --poros /tmp/poros --qemu /usr/bin/qemu-aarch64
           python3 scripts/elf-differential_test.py
           python3 scripts/elf-differential.py --require-clean --poros /tmp/poros --output evaluation-results/elf-differential.json
           python3 scripts/benchmark-differential.py --require-clean --poros /tmp/poros --output evaluation-results/benchmark-differential.json
