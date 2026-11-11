@@ -2,4 +2,4 @@
 
 Artifact: **fail**; accuracy: **unverified**
 
-parallel backfill (failure) did not produce a complete evidence bundle; inspect workflow logs
+parallel backfill (cancelled) did not produce a complete evidence bundle; inspect workflow logs
