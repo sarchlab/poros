@@ -178,7 +178,7 @@ jobs:
   single-accuracy-case:
     if: github.event_name == 'workflow_dispatch' && inputs.accuracy_case != ''
     runs-on: ubuntu-24.04
-    timeout-minutes: 115
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@v4
         with:

@@ -23,6 +23,13 @@ def main():
     user.validate_timing(result, case)
     if result["build"].get("vcs.revision") != state["commit"] or result["build"].get("vcs.modified") != "false":
         raise ValueError("head binary provenance mismatch")
+    witness = parallel.functional_witness.matches(parallel.ROOT, state, [case], outputs).get(args.case_id)
+    if witness is not None:
+        parallel.functional_witness.check(case, result, witness)
+    else:
+        functional = user.execute(args.binary, case, mode="functional", expected_identity=outputs[case["id"]])
+        if any(result[key] != functional[key] for key in ("instructions", "stdout_base64", "build")):
+            raise ValueError("functional/timing architectural mismatch")
     print(f"{args.case_id}: instructions={result['instructions']} cycles={result['timing']['user_cycles']}")
 
 

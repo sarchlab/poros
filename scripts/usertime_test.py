@@ -46,6 +46,14 @@ class UserTimeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 gate.validate_execution(dict(result,instructions=instructions),case,mode='functional',expected_output=raw)
 
+    def test_simulator_deadline_in_json_is_visible_on_ci_failure(self):
+        case = dict(id="heavy", file="program.elf", args=["program"], env=[], model="ooo", frequency_hz=1)
+        stdout = json.dumps(dict(termination="timeout", instructions=234, stdout_base64="guest-output")).encode()
+        with patch.object(gate.subprocess, "run", return_value=SimpleNamespace(returncode=1, stdout=stdout, stderr=b"")):
+            with self.assertRaisesRegex(ValueError, "heavy head ooo.*exit=1.*timeout.*234") as caught:
+                gate.execute("/tmp/head", case)
+        self.assertNotIn("guest-output", str(caught.exception))
+
     def test_symmetric_error(self):
         self.assertEqual(gate.error_percent(2, 1), 100)
         self.assertEqual(gate.error_percent(0.5, 1), 100)

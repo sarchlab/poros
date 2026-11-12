@@ -27,8 +27,9 @@ import capacity_microbenchmark as capacity
 import recurrence_microbenchmark as recurrence
 from report_records import covered_cases
 import memory_microbenchmark as memory
+import functional_witness
 import model_profiles
-from usertime import error_percent
+from usertime import OutputIdentity, error_percent
 from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
 
 SCHEMA = 1
@@ -556,6 +557,9 @@ def bundle_compact(report_path, source, output, commit):
     if report["artifact_status"] == "pass":
         shutil.copyfile(source / performance.PATH, output / "reference.json")
         names.add("reference.json")
+        if functional_witness.PATH in report["head"]["files"]:
+            shutil.copyfile(source / functional_witness.PATH, output / "functional-witness.json")
+            names.add("functional-witness.json")
         if memory.declared(report["head"]["files"]):
             shutil.copyfile(source / memory.REFERENCE, output / "memory.json")
             names.add("memory.json")
@@ -588,6 +592,8 @@ def validate_compact_bundle(path, commit, manifest):
     report = read(regular(path / "report.json"))
     names = {"report.json", "report.md"} | ({"reference.json"} if report["artifact_status"] == "pass" else set())
     if report["artifact_status"] == "pass":
+        if functional_witness.PATH in report["head"]["files"]:
+            names.add("functional-witness.json")
         if memory.declared(report["head"]["files"]):
             if digest(regular(path / "memory.json")) != report["head"]["files"].get(memory.REFERENCE):
                 raise ValueError("memory reference differs from tested source")
@@ -644,6 +650,8 @@ def validate_compact_evidence(report, references, *, partial=False):
     """Same source, native, row and profile contract for live and CI evidence."""
     check_report(report, report["head"]["commit"], partial=partial)
     expected = {"reference.json": performance.PATH}
+    if functional_witness.PATH in report["head"]["files"]:
+        expected["functional-witness.json"] = functional_witness.PATH
     expected.update({name + ".json": suite.REFERENCE for name, suite in declared_diagnostics(report).items()})
     if "throughput" not in declared_diagnostics(report) and FRONTEND_REFERENCE in report["head"]["files"]:
         expected["frontend.json"] = FRONTEND_REFERENCE
@@ -700,8 +708,15 @@ def validate_compact_evidence(report, references, *, partial=False):
         raise ValueError("compact input differs from tested source/ELF")
     profiles = model_profiles.validate(report)
     observations = {row["id"]: row for row in measured["cases"]}
+    witnesses = {}
+    if "functional-witness.json" in references:
+        outputs = {k: OutputIdentity(v["output_bytes"], v["output_sha256"]) for k, v in observations.items()}
+        witnesses = functional_witness.match_bytes(references["functional-witness.json"], report["head"], declared["cases"], outputs)
     for row, case in zip(report["cases"], covered_cases(report["cases"], declared["cases"], partial=partial)):
         observed = observations[row["id"]]
+        witness = witnesses.get(row["id"])
+        if row.get("functional_witness") != witness:
+            raise ValueError("reported functional witness differs from measured source")
         if "streamcluster_replacement" in measured and row.get("reference_origin") != performance.reference_origin(measured, case):
             raise ValueError("plotted native acquisition identity mismatch")
         if row["reference_quality"] != observed["quality"] or row["reference_user_seconds"] != observed["median_user_seconds"] or row.get("reference_p10_seconds") != observed["p10_user_seconds"] or row.get("reference_p90_seconds") != observed["p90_user_seconds"]:
@@ -710,6 +725,8 @@ def validate_compact_evidence(report, references, *, partial=False):
             if label not in row:
                 continue
             value = row[label]
+            if witness is not None:
+                functional_witness.check(case, value, witness)
             if type(value["cycles"]) is not int or type(value["instructions"]) is not int or any(value[k] != profiles[label][k] for k in ("configuration", "cache_config")):
                 raise ValueError("compact report timing profile/count mismatch")
             seconds, real = value["predicted_user_seconds"], observed["median_user_seconds"]
@@ -1732,7 +1749,7 @@ def timing_table(cases, ids):
         base, head = c.get("base", {}), c.get("head", {})
         values = [
             case,
-            c.get("functional_status", "not separately recorded"),
+            ("pass (reused)" if c.get("functional_witness") else c.get("functional_status", "not separately recorded")),
             number(c.get("reference_user_seconds", 0) * 1000),
             c["reference_quality"],
             number(base.get("predicted_user_seconds", 0) * 1000) if base else c.get("base_status", "unavailable"),

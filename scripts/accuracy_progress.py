@@ -62,6 +62,8 @@ def report_header(plan, source):
 def snapshot(report, source, progress):
     result = dict(kind=live.KIND, report=copy.deepcopy(report), progress=progress,
                   reference_text=(Path(source) / reference.PATH).read_bytes().decode("utf-8"))
+    if parallel.functional_witness.PATH in report["head"]["files"]:
+        result["functional_witness_text"] = (Path(source) / parallel.functional_witness.PATH).read_text()
     result["report"]["artifact_status"] = "partial"
     provenance = {key: report[key] for key in ("base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")}
     provenance["head_commit"] = report["head"]["commit"]
@@ -137,7 +139,8 @@ class SnapshotExporter:
         cases = {c["id"]: c for c in self.plan["cases"]}
         native = {c["id"]: c for c in self.native["cases"]}
         rows = [comparison.application_row(cases[r["case_id"]], native[r["case_id"]], self.native,
-                self.header, self.prepared / "head", self.prepared / "base", execute) for r in shard["records"]]
+                self.header, self.prepared / "head", self.prepared / "base", execute,
+                self.plan.get("functional_witnesses", {}).get(r["case_id"])) for r in shard["records"]]
         if remaining:
             raise ValueError("unused recorded executions")
         memory = {"head": [], "base": []}
