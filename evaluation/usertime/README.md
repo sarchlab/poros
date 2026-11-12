@@ -151,8 +151,22 @@ assembly recipe in `tests/benchmarks/build.sh` reproduces the measured ELF.
 
 Evaluation builds head/base once and freezes the full 264-case plan. It then runs
 132 deterministic shards, two cases per shard, with at most 16 concurrent jobs.
-Each case requires head functional and head OoO execution. Base OoO is required
-whenever the exact base can load that ELF and retain its complete output.
+Each case runs head OoO and checks its complete output against the native reference.
+Base OoO also runs when the exact base supports the image and output size.
+
+`functional-witness.json` stores the independent guest instruction counts from
+264 clean functional executions in the v0.1.2 laboratory run. The collection
+commit, simulator binary SHA-256 and run ID identify those executions. Each
+entry binds the guest ELF digest, argv, environment and expected output length
+and SHA-256. On a match, both timing runs must reproduce the count and the
+report identifies the original functional run. A different functional engine
+or unmatched input requires a fresh head functional execution. Updating timing
+models alone permits reuse. To refresh the counts, use validated functional
+records from a completed campaign with the corresponding build provenance.
+
+To measure one input on the hosted Ubuntu runner, dispatch `Evaluation` with
+`accuracy_case=streamcluster-6` (or another manifest ID). The job uses the
+normal input, timing model and per-execution timeout and logs elapsed host time.
 
 Per-process bounds are 2 billion instructions and 45 minutes, except the
 16-pass Streamcluster ELF's bounded 6-billion-instruction and 90-minute

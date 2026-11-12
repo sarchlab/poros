@@ -10,6 +10,7 @@ import forwarding_microbenchmark as forwarding
 import scheduling_microbenchmark as scheduling
 import capacity_microbenchmark as capacity
 import memory_microbenchmark as memory
+import functional_witness
 import model_profiles
 
 
@@ -27,7 +28,7 @@ def benchmark_summary(report):
                              performance=report.get("schema") == 4)
 
 
-def application_row(case, native, measured, report, head, base, executor):
+def application_row(case, native, measured, report, head, base, executor, witness=None):
     """Construct the same complete application row from live or recorded runs."""
     import usertime as user
     profiles = model_profiles.validate(report)
@@ -39,7 +40,10 @@ def application_row(case, native, measured, report, head, base, executor):
                reason="Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved")
     if "streamcluster_replacement" in measured:
         row["reference_origin"] = reference.reference_origin(measured, case)
-    functional = executor(head, case, mode="functional", expected_identity=expected)
+    if witness is None:
+        functional = executor(head, case, mode="functional", expected_identity=expected)
+    else:
+        row["functional_witness"] = witness
     for label, binary, revision in (("head", head, report["head"]["commit"]), ("base", base, report["base_commit"])):
         if label == "base" and row["base_status"] != "available":
             continue
@@ -49,7 +53,9 @@ def application_row(case, native, measured, report, head, base, executor):
         user.validate_timing(result, case)
         if result["build"].get("vcs.revision") != revision or result["build"].get("vcs.modified") != "false":
             raise ValueError(label + " binary provenance mismatch")
-        if label == "head" and any(result[key] != functional[key] for key in ("instructions", "stdout_base64", "build")):
+        if witness is not None:
+            functional_witness.check(case, result, witness)
+        elif label == "head" and any(result[key] != functional[key] for key in ("instructions", "stdout_base64", "build")):
             raise ValueError("functional/timing architectural mismatch")
         timing = result["timing"]
         row[label] = dict(predicted_user_seconds=timing["predicted_user_seconds"], instructions=result["instructions"], cycles=timing["user_cycles"], configuration=timing["configuration"], cache_config=timing["cache_config"])
@@ -115,6 +121,8 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
         declarations = model_profiles.resolve(root, state, args.base_commit)
         if declarations is not None:
             report["model_profiles"] = declarations
+        outputs = {r["id"]: user.OutputIdentity(r["output_bytes"], r["output_sha256"]) for r in measured["cases"]}
+        functional_witnesses = functional_witness.matches(root, state, declared["cases"], outputs)
         profiles = model_profiles.validate(report)
         from accuracy_progress import reporting_identity
         import accuracy_site as site
@@ -134,7 +142,8 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
         progress_ready = True
         publish()
         for case, native in zip(declared["cases"], measured["cases"]):
-            row = application_row(case, native, measured, report, args.head, args.base, executor)
+            row = application_row(case, native, measured, report, args.head, args.base, executor,
+                                  functional_witnesses.get(case["id"]))
             report["cases"].append(row)
             publish()
             print("accuracy", case["id"], native["quality"], flush=True)

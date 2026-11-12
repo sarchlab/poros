@@ -350,6 +350,59 @@ class ParallelAccuracyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "functional execution"):
             parallel.validate_result(good, self.plan, case, "functional", self.witnesses[case["id"]])
 
+    def test_functional_witness_hit_and_fallback_in_same_shard(self):
+        import performance_compare as compare
+        plan = self.plan
+        hit, miss = [next(c for c in self.cases if c["id"] == ident) for ident in plan["shards"][0][:2]]
+        witness = dict(commit="c" * 40, binary_sha256="e" * 64, run_id="previous", instructions=100)
+        plan["functional_witnesses"] = {hit["id"]: witness}
+        calls = []
+        def execute(binary, case, mode=None, **options):
+            role = "functional" if mode == "functional" else Path(binary).name
+            calls.append((case["id"], role))
+            return self.result(case, role)
+        path = self.root / "shard.json"
+        with patch.object(parallel, "load_plan", return_value=(plan, self.witnesses)), patch.object(user, "execute", execute):
+            self.assertEqual(parallel.run_shard(self.prepared, "123", 1, 0, path), 0)
+        self.assertNotIn((hit["id"], "functional"), calls)
+        self.assertIn((miss["id"], "functional"), calls)
+        selected = {0: parallel.read(path)}
+        replay, _ = parallel.recorded_executor(plan, selected, self.witnesses, self.prepared)
+        measured = self.witnesses[hit["id"]]
+        native = dict(output_bytes=measured.length, output_sha256=measured.sha256,
+                      median_user_seconds=1, p10_user_seconds=1, p90_user_seconds=1, quality="usable")
+        report = dict(plan, workload_manifest={"profile": self.profile})
+        row = compare.application_row(hit, native, {}, report, self.prepared / "head",
+                                      self.prepared / "base", replay, witness)
+        self.assertEqual(row["functional_witness"], witness)
+        # A coherent timing record with a different instruction count still fails.
+        bad = selected[0]["records"][0]["executions"]["head"]
+        bad["instructions"] = bad["timing"]["retired_instructions"] = 200
+        bad["timing"]["cpi"] = 1
+        with self.assertRaisesRegex(ValueError, "expected 100"):
+            parallel.recorded_executor(plan, selected, self.witnesses, self.prepared)
+
+    def test_witness_invalidation(self):
+        w = parallel.functional_witness
+        case = self.cases[0]
+        ident = case["id"]
+        files = {"pkg/emu/execute.go": "a", "pkg/cpu/ooo/pipeline.go": "b"}
+        row = dict(input_sha256=w.input_key(case, self.witnesses[ident]), instructions=100)
+        data = json.dumps(dict(schema=1, commit=BASE, binary_sha256="a" * 64, run_id="original",
+                               engine_sha256=w.engine_key(files), cases={ident: row})).encode()
+        files[w.PATH] = hashlib.sha256(data).hexdigest()
+        def matched(c):
+            return w.match_bytes(data, {"files": files}, [c], self.witnesses)
+        files["pkg/cpu/ooo/pipeline.go"] = "new timing"
+        self.assertEqual(matched(case)[ident]["instructions"], 100)
+        for field, value in (("args", ["changed"]), ("env", ["NEW=1"]), ("sha256", "0" * 64)):
+            self.assertEqual(matched(dict(case, **{field: value})), {})
+        files["pkg/emu/execute.go"] = "new decoder"
+        self.assertEqual(matched(case), {})
+        files[w.PATH] = "changed file"
+        with self.assertRaisesRegex(ValueError, "file changed"):
+            matched(case)
+
     def test_recorded_execution_roles_and_consumption_are_exact(self):
         selected = parallel.select_shards(self.plan, self.shards(), 1)
         executor, remaining = parallel.recorded_executor(self.plan, selected, self.witnesses, self.prepared)

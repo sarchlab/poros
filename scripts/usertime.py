@@ -10,6 +10,7 @@ import base64
 import json
 from pathlib import Path
 import math
+import time
 import statistics
 import subprocess
 import native_usertime as native
@@ -68,14 +69,22 @@ def execute(poros, case, mode=None, expected_output=None, expected_identity=None
     for entry in case["env"]:
         argv += ["--env", entry]
     argv += [str(ROOT / case["file"] if "outputs" in case else ROOT / "tests/usertime" / case["file"])] + case["args"][1:]
-    p = subprocess.run(argv, capture_output=True, timeout=timeout_seconds + 50)
+    stage = f"{case['id']} {Path(poros).name} {mode or case['model']}"
+    start = time.monotonic()
+    print(f"Starting {stage}, timeout={timeout_seconds}s", flush=True)
+    try:
+        p = subprocess.run(argv, capture_output=True, timeout=timeout_seconds + 50)
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError(f"{stage}: host process timeout after {time.monotonic() - start:.1f}s") from exc
+    print(f"Finished {stage}, elapsed={time.monotonic() - start:.1f}s exit={p.returncode}", flush=True)
     if p.returncode != 0 or p.stderr:
-        raise ValueError(
-            "timing execution failed: "
-            + case["id"]
-            + ": "
-            + p.stderr.decode(errors="replace")
-        )
+        try:
+            failure = json.loads(p.stdout)
+        except (ValueError, UnicodeError):
+            failure = {}
+        detail = {key: failure[key] for key in ("termination", "diagnostic", "instructions")
+                  if isinstance(failure, dict) and key in failure}
+        raise ValueError(f"{stage}: exit={p.returncode} {detail} {p.stderr[:2048].decode(errors='replace')}")
     r = json.loads(p.stdout)
     return validate_execution(r, case, mode, expected_output, expected_identity, expected_profile)
 

@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      accuracy_case:
+        description: 'Run only head timing for this performance input (e.g. streamcluster-6)'
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -11,6 +16,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   static:
+    if: inputs.accuracy_case == ''
     name: Linux static and manifest
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -53,6 +59,7 @@ jobs:
           name: manifest
           path: evaluation-results/
   tests:
+    if: inputs.accuracy_case == ''
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -84,6 +91,7 @@ jobs:
           name: ${{ matrix.os }}-${{ matrix.tier }}
           path: evaluation-results/
   elf-functional:
+    if: inputs.accuracy_case == ''
     name: Linux ELF functional and QEMU differential
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -149,7 +157,7 @@ jobs:
       base: ${{ github.event.before }}
   diagnostics:
     name: Extended CLI diagnostics
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.accuracy_case == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -167,3 +175,20 @@ jobs:
         with:
           name: extended-cli
           path: evaluation-results/
+  single-accuracy-case:
+    if: github.event_name == 'workflow_dispatch' && inputs.accuracy_case != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.0'
+      - name: Measure one head timing execution
+        env:
+          ACCURACY_CASE: ${{ inputs.accuracy_case }}
+        run: |
+          go build -o "$RUNNER_TEMP/head" ./cmd/poros
+          python3 scripts/accuracy_single.py "$ACCURACY_CASE" "$RUNNER_TEMP/head"

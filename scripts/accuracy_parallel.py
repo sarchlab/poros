@@ -19,6 +19,7 @@ import accuracy_site as site
 import performance_reference as reference
 import compute_usertime as compute
 import usertime as user
+import functional_witness
 import model_profiles
 import memory_microbenchmark as memory
 
@@ -75,7 +76,7 @@ def prepare(base, directory, run_id, attempt, shards):
     if state["dirty"]:
         raise ValueError("prepare requires clean committed source")
     base = git("rev-parse", base + "^{commit}")
-    cases, _ = inputs()
+    cases, outputs = inputs()
     reference.require_collection_ancestor(ROOT, read(ROOT / REFERENCE)["collection_commit"], state["commit"])
     compute_base = compute.base_declares_cohort(base)
     if not compute_base:
@@ -97,6 +98,8 @@ def prepare(base, directory, run_id, attempt, shards):
                 binaries={"head": user.digest(head_binary), "base": user.digest(base_binary)},
                 references={"performance264": user.digest(ROOT / REFERENCE)},
                 cases=cases, shards=partition(cases, shards))
+    if functional_witness.PATH in state["files"]:
+        plan["functional_witnesses"] = functional_witness.matches(ROOT, state, cases, outputs)
     declarations = model_profiles.resolve(ROOT, state, base)
     if declarations is not None:
         plan["model_profiles"] = declarations
@@ -128,6 +131,9 @@ def load_plan(directory, run_id, attempt, source=None):
     elif "memory" in plan:
         raise ValueError("memory plan absent from source")
     cases, witnesses = inputs(root)
+    expected = functional_witness.matches(root, state, cases, witnesses) if functional_witness.PATH in state["files"] else None
+    if plan.get("functional_witnesses") != expected:
+        raise ValueError("plan functional witnesses differ from source")
     if plan["cases"] != cases or plan["shards"] != partition(cases, len(plan["shards"])):
         raise ValueError("plan coverage/partition mismatch")
     if plan["base_capability"] != compute.base_capability(plan["base_commit"], root):
@@ -146,7 +152,8 @@ def load_plan(directory, run_id, attempt, source=None):
 
 
 def roles(plan, case, witnesses):
-    result = ["functional", "head"]
+    reused = case["id"] in plan.get("functional_witnesses", {})
+    result = ["head"] if reused else ["functional", "head"]
     if plan["compute_base_available"] and compute.case_base_status(case, plan["base_capability"]) == "available":
         result.append("base")
     return result
@@ -161,6 +168,9 @@ def validate_result(result, plan, case, role, golden):
         raise ValueError("execution build provenance mismatch")
     if role != "functional":
         user.validate_timing(result, case)
+        witness = plan.get("functional_witnesses", {}).get(case["id"])
+        if witness is not None:
+            functional_witness.check(case, result, witness)
 
 
 def run_shard(directory, run_id, attempt, index, output):

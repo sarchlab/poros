@@ -56,6 +56,8 @@ def snapshot_references(value):
     if not isinstance(text, str):
         raise ValueError("snapshot needs exact application reference bytes")
     references = {"reference.json": text.encode()}
+    if site.functional_witness.PATH in report["head"]["files"]:
+        references["functional-witness.json"] = value["functional_witness_text"].encode()
     expected = {key: report[key] for key in ("base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")}
     expected["head_commit"] = report["head"]["commit"]
     declared = site.declared_diagnostics(report)
