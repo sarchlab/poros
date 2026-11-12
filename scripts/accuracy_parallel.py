@@ -22,7 +22,7 @@ import usertime as user
 import model_profiles
 import memory_microbenchmark as memory
 import devices
-from performance_compare import case_base_status
+from performance_compare import application_source, case_base_status
 
 ROOT = user.ROOT
 REFERENCE = reference.PATH
@@ -59,8 +59,10 @@ def inputs(root=None, value=None):
     outputs checked. A device that does compare against the timings must be
     the hardware they were measured on."""
     root = ROOT if root is None else Path(root)
-    declared, measured = reference.load(root, require_native=True)
-    if value is not None and devices.measured(value, "application"):
+    value = {} if value is None else value
+    path, hardware = application_source(value)
+    declared, measured = reference.load(root, require_native=True, path=path, hardware=hardware)
+    if devices.measured(value, "application"):
         devices.require_reference(value, "application", measured)
     cases = declared["cases"]
     identities = {r["id"]: user.OutputIdentity(r["output_bytes"], r["output_sha256"]) for r in measured["cases"]}
@@ -88,7 +90,8 @@ def prepare(base, directory, run_id, attempt, shards, device=None):
     chosen = devices.resolve(ROOT, state, base, device)
     bound = {} if chosen is None else {"device": chosen}
     cases, _ = inputs(value=bound)
-    reference.require_collection_ancestor(ROOT, read(ROOT / REFERENCE)["collection_commit"], state["commit"])
+    source_path = application_source(bound)[0]
+    reference.require_collection_ancestor(ROOT, read(ROOT / source_path)["collection_commit"], state["commit"])
     compute_base = compute.base_declares_cohort(base)
     if not compute_base:
         raise ValueError("performance plan requires a compute-ELF-capable base")
@@ -107,13 +110,13 @@ def prepare(base, directory, run_id, attempt, shards, device=None):
     plan = dict(schema=SCHEMA, run_id=str(run_id), prepared_attempt=positive(attempt),
                 head=state, base_commit=base, compute_base_available=compute_base, base_capability=compute.base_capability(base),
                 binaries={"head": user.digest(head_binary), "base": user.digest(base_binary)},
-                references={"performance264": user.digest(ROOT / REFERENCE)},
+                references={"performance264": user.digest(ROOT / source_path)},
                 cases=cases, shards=partition(cases, shards), **bound)
     declarations = model_profiles.resolve(ROOT, state, base)
     if declarations is not None:
         plan["model_profiles"] = declarations
     if memory.declared(state["files"]):
-        plan["memory"] = memory_plan(state, shards, base, measured=devices.measured(plan, "memory"))
+        plan["memory"] = memory_plan(state, shards, base, value=plan)
     if not plan["run_id"]:
         raise ValueError("run identity is required")
     write(directory / "plan.json", plan)
@@ -137,7 +140,7 @@ def load_plan(directory, run_id, attempt, source=None):
     if plan.get("device") != devices.resolve(root, state, plan["base_commit"], plan["device"]["id"] if "device" in plan else None):
         raise ValueError("plan device declaration differs from source")
     if memory.declared(state["files"]):
-        if plan.get("memory") != memory_plan(state, len(plan["shards"]), plan["base_commit"], root, measured=devices.measured(plan, "memory")):
+        if plan.get("memory") != memory_plan(state, len(plan["shards"]), plan["base_commit"], root, value=plan):
             raise ValueError("memory plan source/coverage mismatch")
     elif "memory" in plan:
         raise ValueError("memory plan absent from source")
@@ -148,7 +151,7 @@ def load_plan(directory, run_id, attempt, source=None):
         raise ValueError("plan base image capability mismatch")
     if plan["compute_base_available"] is not compute.base_declares_cohort(plan["base_commit"], root):
         raise ValueError("plan base capability mismatch")
-    if plan["references"] != {"performance264": user.digest(root / REFERENCE)}:
+    if plan["references"] != {"performance264": user.digest(root / application_source(plan)[0])}:
         raise ValueError("plan reference mismatch")
     if set(plan["binaries"]) != {"head", "base"}:
         raise ValueError("plan binaries missing")
@@ -283,15 +286,17 @@ def recorded_executor(plan, selected, witnesses, directory):
 
 
 
-def memory_plan(state, shards, base, root=None, *, measured=True):
+def memory_plan(state, shards, base, root=None, *, value=None):
     """Memory cases partitioned across existing workers, with explicit source binding.
 
-    Only a device with a native memory reference binds that reference."""
+    `value` is the plan being built or checked. Its device binds the native
+    memory reference only if it declares that file and was measured on it."""
     root = ROOT if root is None else Path(root)
     declared = memory.cases(root)
     result = dict(cases=declared, shards=partition(declared, min(shards, len(declared))))
-    if measured:
-        memory.load_reference(root)
+    value = {} if value is None else value
+    if devices.measured(value, "memory"):
+        devices.bind_reference(value, "memory", memory.REFERENCE, memory.load_reference(root))
         result["reference_sha256"] = state["files"][memory.REFERENCE]
     result["elfs"] = {name: state["files"][name] for name in {memory.case_elf(c) for c in declared}}
     result["base_large_image_support"] = memory.supports_large_images(root, base)
@@ -402,6 +407,8 @@ def recorded_memory(plan, reports, attempt, *, partial=False):
 def require_memory_reference(plan):
     # The memory-only artifact and its preview plot native against simulated
     # values. A device without that reference runs memory in its accuracy shards.
+    # For a device that declares one, load_plan has already required the
+    # declared file to be this one and to be measured on the device's hardware.
     if not devices.measured(plan, "memory"):
         raise ValueError("memory-only artifacts need a native memory reference; device "
                          + devices.ident(plan) + " has none and reports memory through its accuracy shards")
@@ -419,6 +426,9 @@ def aggregate_memory(directory, results, run_id, attempt, output):
                   head_binary_sha256=plan["binaries"]["head"], base_binary_sha256=plan["binaries"]["base"],
                   model_profiles=plan["model_profiles"], reference_sha256=plan["memory"]["reference_sha256"],
                   memory_simulation=simulations, memory_base_large_image_support=plan["memory"]["base_large_image_support"])
+    if "device" in plan:
+        # The artifact names the device its executions and reference belong to.
+        report["device"] = plan["device"]
     write(output, report)
     return 0
 
@@ -430,7 +440,7 @@ def diagnostic_tasks(plan, source):
         if name == "memory":
             continue
         if devices.measured(plan, name):
-            devices.require_reference(plan, name, suite.load_reference(source))
+            devices.bind_reference(plan, name, suite.REFERENCE, suite.load_reference(source))
         for index, case in enumerate(suite.cases(source), 1):
             tasks.append(dict(diagnostic_index=len(tasks), suite=name, index=index, case=case,
                               roles=list(site.diagnostic_roles(plan, name))))
@@ -578,27 +588,39 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
     output = Path(output)
     # A reporting-only checkout never relabels the measured target on failure.
     target = site.git(root, "rev-parse", "HEAD") if source is not None else git("rev-parse", "HEAD")
+    # A failure is filed under the device the caller asked for until a plan
+    # validates. From then on it is the plan's device, so a failure after
+    # `prepare --device m1` is M1's even when the caller did not repeat it.
+    failed_device = device
     def failure(message):
         from accuracy_progress import reporting_identity
-        # A failure stays with the device the caller asked for, even when no
-        # plan could be read to confirm it.
-        site.failure(output.parent, target, message, device=device)
+        site.failure(output.parent, target, message, device=failed_device)
         failed = read(output.parent / "report.json")
         failed["reporting"] = reporting_identity()
         write(output.parent / "report.json", failed)
     failure("Parallel accuracy aggregation incomplete")
     try:
+        # Read the plan before anything else can fail, upstream jobs included.
+        try:
+            plan, witnesses = load_plan(directory, run_id, attempt, source)
+            unreadable = None
+        except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
+            plan, unreadable = None, error
+        if plan is not None:
+            if device is not None and device != devices.ident(plan):
+                raise ValueError(f"requested device {device!r} differs from prepared plan device {devices.ident(plan)!r}")
+            if "device" in plan:
+                failed_device = devices.ident(plan)
         if shard_status != "success":
             raise ValueError("upstream shard jobs did not succeed: " + shard_status)
-        plan, witnesses = load_plan(directory, run_id, attempt, source)
-        if device is not None and device != devices.ident(plan):
-            raise ValueError(f"requested device {device!r} differs from prepared plan device {devices.ident(plan)!r}")
+        if unreadable is not None:
+            raise unreadable
         paths = sorted(Path(results).rglob("shard.json"))
         selected = select_shards(plan, [read(path) for path in paths], attempt)
         executor, remaining = recorded_executor(plan, selected, witnesses, directory)
         args = SimpleNamespace(head=str(Path(directory) / "head"), base=str(Path(directory) / "base"),
                                base_unavailable=False, base_commit=plan["base_commit"],
-                               reference=str(root / REFERENCE),
+                               reference=str(root / application_source(plan)[0]),
                                output=str(output))
         memory_simulation = None
         memory_base_large_image_support = None

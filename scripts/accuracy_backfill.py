@@ -33,9 +33,9 @@ def route(source, pages, output, target):
         if not (source / devices.PATH).is_file():
             raise ValueError(f"target predates device declarations and cannot model {device!r}")
         devices.select(devices.load(source), device)
-    archived = site.archive_root(pages, device) / "runs" / commit
+    archived = site.bundle_dir(pages, commit, device)
     if target["kind"] == "release" and archived.exists() and site.reusable_bundle(archived, commit):
-        shutil.copytree(archived, output / "evidence")
+        site.copy_bundle(archived, device, output / "evidence")
         selected = "reuse"
     elif (source / "tests/usertime/performance.json").exists():
         performance = site.read(source / "tests/usertime/performance.json")

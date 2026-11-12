@@ -94,6 +94,11 @@ class SnapshotView:
         self.previous = None
 
     def load(self):
+        state = self.resolve()
+        return site.detail(state["report"], state["entry"], preview=True, live=state["live"], **state["references"]).encode(), state["assets"]
+
+    def resolve(self):
+        """The validated state of one device's campaign: report, progress, native references and assets."""
         try:
             value = validate_snapshot(site.read(self.snapshot))
             self.previous = copy.deepcopy(value)
@@ -148,7 +153,45 @@ class SnapshotView:
                 throughput, frontend, forwarding, scheduling, memory = completed_throughput, completed_frontend, completed_forwarding, completed_scheduling, completed_memory
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
                 live.update(state="failed", errors=["Final bundle validation failed: " + str(error)])
-        return site.detail(report, entry, preview=True, frontend=frontend, throughput_reference=throughput, live=live, forwarding_reference=forwarding, scheduling_reference=scheduling, memory_reference=memory, capacity_reference=capacity, recurrence_reference=recurrence).encode(), assets
+        return dict(report=report, entry=entry, live=live, assets=assets,
+                    references=dict(frontend=frontend, throughput_reference=throughput, forwarding_reference=forwarding,
+                                    scheduling_reference=scheduling, memory_reference=memory,
+                                    capacity_reference=capacity, recurrence_reference=recurrence))
+
+
+class CommitView:
+    """Several devices' campaigns of one commit, shown as that commit's one report.
+
+    Each snapshot stays one device's validated evidence. The page is the commit
+    report the archive renders: the same pooled overview and the same device
+    views, with devices that have no snapshot here shown as pending."""
+    def __init__(self, snapshots):
+        self.views = [SnapshotView(snapshot) for snapshot in snapshots]
+
+    def load(self):
+        states = [view.resolve() for view in self.views]
+        reports = [state["report"] for state in states]
+        commit = reports[0]["head"]["commit"]
+        ids = [site.report_device(report) for report in reports]
+        if any(report["head"]["commit"] != commit for report in reports) or len(set(ids)) != len(ids):
+            raise ValueError("a live commit view needs one snapshot per device, all of one commit")
+        record = site.commit_declaration(None, [site.report_declaration(report) for report in reports])
+        views, assets = [], {}
+        for declared in site.declared_devices(record):
+            if declared["id"] not in ids:
+                views.append(dict(id=declared["id"], declared=declared, state="pending", report=None))
+                continue
+            state = states[ids.index(declared["id"])]
+            live = state["live"]
+            views.append(dict(id=declared["id"], declared=declared, report=state["report"], entry=state["entry"],
+                              references=state["references"], live=live,
+                              state={"failed": "failed", "complete": "report"}.get(live["state"], "running")))
+            folder = "" if declared["id"] == devices.DEFAULT else "devices/" + declared["id"] + "/"
+            assets.update({folder + name: data for name, data in state["assets"].items()})
+        if {view["id"] for view in views if view["state"] != "pending"} != set(ids):
+            raise ValueError("a snapshot is for a device its commit does not declare")
+        page, _, _ = site.commit_report(commit, record, views, live=True, retained=False)
+        return page.encode(), assets
 
 
 def handler(view):
@@ -171,11 +214,18 @@ def handler(view):
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
-            except (OSError, ValueError, KeyError, TypeError, AttributeError):
-                self.send_error(503, "Live snapshot temporarily unavailable")
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+                # The reason matters to whoever started this loopback server:
+                # snapshots that cannot form one commit's report never will.
+                self.send_error(503, "Live snapshot temporarily unavailable", str(error))
     return Handler
 
 
-def serve(snapshot, bundle, port):
+def serve(snapshots, bundle, port):
+    """One snapshot is one device's live report. Several are the live report of their commit."""
+    snapshots = [snapshots] if isinstance(snapshots, (str, Path)) else list(snapshots)
+    if len(snapshots) > 1 and bundle:
+        raise ValueError("a final bundle belongs to one device; serve it with that device's snapshot alone")
+    view = SnapshotView(snapshots[0], bundle) if len(snapshots) == 1 else CommitView(snapshots)
     # Only loopback; request paths are looked up in a validated asset map.
-    ThreadingHTTPServer(("127.0.0.1", port), handler(SnapshotView(snapshot, bundle))).serve_forever()
+    ThreadingHTTPServer(("127.0.0.1", port), handler(view)).serve_forever()

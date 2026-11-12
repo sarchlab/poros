@@ -103,8 +103,9 @@ what the result is compared with:
   reference time, error, direction, correlation or mean, and none is displayed
   as zero or as a placeholder. Program outputs are still checked against the
   committed complete-output identities, which are what each program must print
-  on any device; the report names that file as its output oracle and reads no
-  timing from it.
+  on any device. The report names that file as its output oracle. The file is
+  the M2 reference and is validated as a whole; none of its timings is shown
+  or compared.
 - The base revision is compared only if it models the device. A base that
   predates device declarations is `m2` and is run without a target, exactly as
   before. For any other device its predictions are absent and each case says
@@ -128,17 +129,36 @@ The smoke runs in pull-request CI. Full campaigns for a device other than `m2`
 run on request: the `accuracy_device` input of the Evaluation workflow produces
 the evidence bundle, and the `device` input of "Publish accuracy reports"
 evaluates and publishes it. Merges to `main` continue to run and publish `m2`
-only. Published reports of `m2` stay at `calibration/runs/<commit>/`; another
-device's are at `calibration/devices/<device>/runs/<commit>/`, each device with
-its own history, retention and release pins, and each page links the same
-commit under the other devices.
+only.
+
+A commit has one published report, at `calibration/runs/<commit>/`, and the
+report history has one row per commit. The report opens on a commit overview
+and holds one view per device that commit declares, at
+`calibration/runs/<commit>/#device-<id>`. The devices are the ones in that
+commit's own `evaluation/devices.json`, a copy of which is retained beside the
+report; a commit that predates the file is `m2` alone. A device that has not
+published is shown as pending, so a commit that declares four devices and has
+published `m2` is `partial`, and a later publication of another device joins
+the same report. The `m2` bundle stays directly in `calibration/runs/<commit>/`
+and each other device's is in `calibration/runs/<commit>/devices/<id>/`.
+
+The commit overview pools observations instead of averaging devices: every
+qualified application input of every device that has its own native reference
+is one observation, and the error, correlation and ordering statistics and the
+three overview charts are computed over all of them together. Devices without a
+native application reference are listed with their predictions and add nothing
+to those statistics. The exact layout and rules are in
+[the report contract](../scripts/accuracy-live.md#one-report-per-commit).
 
 Giving a device its own parameters needs a declared model profile for it, which
 the scripts do not resolve yet: they refuse a device whose `parameter_source`
-is not `m2` rather than validate it against the M2 profile. Giving a device
-measured references needs the reference file's `hardware` to equal the declared
-hardware and its case identities to match the committed inventories; the
-existing reference validators are still written for the M2 captures.
+is not `m2` rather than validate it against the M2 profile. Giving a device a
+measured whole-program reference needs a file at the path its entry names under
+`references.application`, with that device's `hardware` and case identities
+that match the committed inventories. The capture-provenance checks of that
+file are still the ones written for the M2 Mach-O captures, and each diagnostic
+suite still reads the single M2 reference file, so a second device's suite
+references need those validators extended first.
 
 ## Memory diagnostics
 

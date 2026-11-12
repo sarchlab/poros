@@ -44,7 +44,8 @@ def reporting_identity():
 
 
 def report_header(plan, source):
-    declared, measured = reference.load(source, require_native=True)
+    path, hardware = comparison.application_source(plan)
+    declared, measured = reference.load(source, require_native=True, path=path, hardware=hardware)
     report = dict(schema=4, artifact_status="partial", accuracy_status="unverified", formula=user.FORMULA,
                   cases=[], workload_manifest=declared, head=plan["head"], base_commit=plan["base_commit"],
                   head_binary_sha256=plan["binaries"]["head"], base_binary_sha256=plan["binaries"]["base"],
@@ -74,7 +75,7 @@ def snapshot(report, source, progress):
     result = dict(kind=live.KIND, report=copy.deepcopy(report), progress=progress)
     # Native reference bytes travel only with the device they were measured on.
     if devices.measured(report, "application"):
-        result["reference_text"] = (Path(source) / reference.PATH).read_bytes().decode("utf-8")
+        result["reference_text"] = (Path(source) / comparison.application_reference(report)[0]).read_bytes().decode("utf-8")
     result["report"]["artifact_status"] = "partial"
     provenance = {key: report[key] for key in ("base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")}
     provenance["head_commit"] = report["head"]["commit"]
@@ -264,6 +265,11 @@ class SnapshotExporter:
             for key in ("head", "base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles"):
                 if incoming[key] != report[key]:
                     raise ValueError("probe progress source identity mismatch")
+            # Devices that share parameters share every identity above, and the
+            # summarized rows no longer name their target. Two reports without a
+            # device selection are both the default device.
+            if incoming.get("device") != report.get("device"):
+                raise ValueError("probe progress is for another modeled device")
             for name in site.declared_diagnostics(report):
                 if name != "memory":
                     report[name + "_simulation"] = incoming[name + "_simulation"]

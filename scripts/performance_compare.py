@@ -15,14 +15,36 @@ import devices
 
 
 MICRO_WORKLOADS = {"integer", "branch", "memory"}
-OUTPUT_ORACLE_SCOPE = ("complete-output identities only: what each program must print on any device; "
-                       "no native timing from this file is read, shown or compared")
+OUTPUT_ORACLE_SCOPE = ("the committed file is validated as a whole, native timing fields included; this device uses only its "
+                       "complete-output identities, which are what each program must print on any device, and none "
+                       "of its timings is shown or compared")
 
 
 def case_base_status(value, case):
     """Why a plan's or report's case has or lacks a base prediction."""
     status = compute.case_base_status(case, value["base_capability"])
     return status if devices.available(value, "base") else devices.BASE_UNAVAILABLE
+
+
+def application_reference(value):
+    """The native application reference of a plan's or report's device.
+
+    Returns (path, hardware it was measured on), or None for a device that
+    declares none. A value without a device declaration is the default device
+    with the original file."""
+    declared = devices.entry(value)
+    if declared is None:
+        return reference.PATH, reference.HARDWARE
+    path = declared["references"].get("application")
+    return None if path is None else (path, declared["hardware"])
+
+
+def application_source(value):
+    """The validated file a device's campaign takes its output identities from.
+
+    That is its own reference when it has one. Otherwise it is the default
+    device's file, used as an output oracle only."""
+    return application_reference(value) or (reference.PATH, reference.HARDWARE)
 
 
 def output_oracle(root):
@@ -132,24 +154,26 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
     compute.write(output, report)
     output.with_suffix(".md").write_text("# User-time accuracy report\nArtifact: **fail**; comparison incomplete.\n")
     try:
-        if Path(args.reference).resolve() != (root / reference.PATH).resolve():
-            raise ValueError("active comparison requires the committed compact reference")
-        declared, measured = reference.load(root, require_native=True)
         state = user.source_state(root)
-        if state["dirty"]:
-            raise ValueError("accuracy comparison requires clean committed source")
-        if not args.base or args.base_unavailable or not compute.base_declares_cohort(args.base_commit, root):
-            raise ValueError("performance comparison requires a compute-ELF-capable base")
         chosen = devices.resolve(root, state, args.base_commit, device)
         report.pop("device", None)
         if chosen is not None:
             report["device"] = chosen
+        # The device's own reference, or the default device's file as output oracle.
+        path, hardware = application_source(report)
+        if Path(args.reference).resolve() != (root / path).resolve():
+            raise ValueError("active comparison requires the committed compact reference")
+        declared, measured = reference.load(root, require_native=True, path=path, hardware=hardware)
+        if state["dirty"]:
+            raise ValueError("accuracy comparison requires clean committed source")
+        if not args.base or args.base_unavailable or not compute.base_declares_cohort(args.base_commit, root):
+            raise ValueError("performance comparison requires a compute-ELF-capable base")
         report.update(workload_manifest=declared, head=state, base_commit=args.base_commit,
                       head_binary_sha256=user.digest(args.head), base_binary_sha256=user.digest(args.base),
                       base_capability=compute.base_capability(args.base_commit, root), base_status="per_case_resource_limit")
         if devices.measured(report, "application"):
             devices.require_reference(report, "application", measured)
-            report.update(reference_sha256=user.digest(root / reference.PATH),
+            report.update(reference_sha256=user.digest(root / path),
                           reference={key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")})
         else:
             report["output_oracle"] = output_oracle(root)
@@ -186,7 +210,7 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
             if name == "memory":
                 continue
             if devices.measured(report, name):
-                devices.require_reference(report, name, suite.load_reference(root))
+                devices.bind_reference(report, name, suite.REFERENCE, suite.load_reference(root))
             if diagnostic_simulation is not None:
                 rows = diagnostic_simulation[name]
                 site.validate_diagnostic_rows(report, name, rows, suite.cases(root))
@@ -233,7 +257,7 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
         if memory.declared(state["files"]):
             if devices.measured(report, "memory"):
                 native_memory = memory.load_reference(root)
-                devices.require_reference(report, "memory", native_memory)
+                devices.bind_reference(report, "memory", memory.REFERENCE, native_memory)
                 memory_cases = native_memory["cases"]
             else:
                 memory_cases = memory.cases(root)
@@ -258,7 +282,7 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
         report["summary"] = compute.summaries(report["cases"], True)
         if (user.source_state(root)) != state or user.digest(args.head) != report["head_binary_sha256"] or user.digest(args.base) != report["base_binary_sha256"]:
             raise ValueError("source or simulator changed during comparison")
-        if user.digest(root / reference.PATH) != (report["reference_sha256"] if "reference_sha256" in report else report["output_oracle"]["sha256"]):
+        if user.digest(root / path) != (report["reference_sha256"] if "reference_sha256" in report else report["output_oracle"]["sha256"]):
             raise ValueError("reference changed during comparison")
         report["artifact_status"] = "pass"
         publish()

@@ -341,7 +341,7 @@ class ComputeTimeTests(unittest.TestCase):
         publication = publisher.publish(self.source, bundle, self.metadata(commit), str(remote), build=False)
         self.assertEqual(git("ls-remote", str(remote), "gh-pages").split()[0], publication)
         index = json.loads(subprocess.check_output(["git", "--git-dir", str(remote), "show", "gh-pages:calibration/index.json"]))
-        self.assertEqual(index["entries"][0]["summary"]["validation-legacy"]["required"], 228)
+        self.assertEqual(index["entries"][0]["devices"]["m2"]["summary"]["validation-legacy"]["required"], 228)
         marker = subprocess.check_output(["git", "--git-dir", str(remote), "show", "gh-pages:marker.txt"], text=True)
         self.assertEqual(marker, "preserve unrelated content\n")
 

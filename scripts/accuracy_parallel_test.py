@@ -280,6 +280,70 @@ class ParallelAccuracyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "foreign shard identity"):
                 parallel.select_shards(other, shards, 1)
 
+    def test_failure_after_a_prepared_plan_is_filed_under_the_plan_device(self):
+        output = self.root / "failed/report.json"
+        def failed(reason, filed, **options):
+            """Aggregation fails for this reason, and its report is filed under this device (None: unnamed)."""
+            self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output, **options), 1)
+            report = parallel.read(output)
+            self.assertEqual(report["artifact_status"], "fail")
+            self.assertIn(reason, report["error"])
+            self.assertEqual(report.get("device"), None if filed is None else dict(id=filed))
+            self.assertEqual(site.report_device(report), filed or "m2")
+        with self.device_campaign("m1"):
+            results = self.write_shards(self.device_shards())
+            # The workflow's aggregate job repeats no device: the plan prepared for M1 says whose failure it is.
+            failed("upstream shard jobs did not succeed: failure", "m1", shard_status="failure")
+            (results / "3/shard.json").unlink()
+            failed("missing", "m1")
+            failed("missing", "m1", device="m1")
+            # The same through the command line, and the failure is publishable as M1's.
+            argv = ["accuracy_parallel.py", "aggregate", "--prepared", str(self.prepared), "--run-id", "123", "--attempt", "1",
+                    "--results", str(results), "--output", str(output), "--shard-status", "cancelled"]
+            with patch("sys.argv", argv):
+                self.assertEqual(parallel.main(), 1)
+            report = parallel.read(output)
+            self.assertEqual((report["error"], report["device"]), ("Parallel accuracy aggregation failed: upstream shard jobs did not succeed: cancelled", dict(id="m1")))
+            site.bundle(output, self.fixture.source, self.root / "bundle", HEAD)
+            self.assertEqual(site.report_device(site.validate_bundle(self.root / "bundle", HEAD)[0]), "m1")
+            # A caller that asks for another device is told so, under the device it asked for.
+            failed("requested device 'grace' differs from prepared plan device 'm1'", "grace", device="grace", shard_status="failure")
+            # Without a readable plan only the caller can name the device; unnamed, it is the default as before.
+            (self.prepared / "plan.json").write_text("{}")
+            failed("upstream shard jobs did not succeed: failure", None, shard_status="failure")
+            failed("schema", None)
+            failed("schema", "m1", device="m1")
+        # A plan without a device stays an unlabelled, default-device failure.
+        parallel.write(self.prepared / "plan.json", {key: value for key, value in self.plan.items() if key not in ("device", "model_profiles")})
+        results = self.root / "missing-results"
+        with patch.object(parallel.devices, "resolve", return_value=None), patch.object(models, "resolve", return_value=None), \
+             patch.object(user, "source_state", return_value=self.plan["head"]):
+            failed("upstream shard jobs did not succeed: failure", None, shard_status="failure")
+
+    def test_probe_progress_of_another_device_is_not_imported(self):
+        import accuracy_progress as progress
+        results = self.root / "no-shards"
+        results.mkdir()
+        def exporter(**options):
+            return progress.SnapshotExporter(self.prepared, self.fixture.source, results, "123", 1, **options)
+        # Devices that share parameters differ in nothing but the device their snapshot names.
+        probes = {}
+        for ident in ("m2", "m1", "grace"):
+            with self.device_campaign(ident):
+                probes[ident] = self.root / (ident + "-probes.json")
+                parallel.write(probes[ident], exporter().export())
+        identity = ("head", "base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")
+        reports = {ident: parallel.read(path)["report"] for ident, path in probes.items()}
+        self.assertTrue(all(reports[ident][key] == reports["m2"][key] for ident in reports for key in identity))
+        for ident in probes:
+            for other, path in probes.items():
+                with self.subTest(campaign=ident, probes=other), self.device_campaign(ident):
+                    if other == ident:
+                        self.assertEqual(exporter(probe_progress=path).export()["report"]["device"]["id"], ident)
+                    else:
+                        with self.assertRaisesRegex(ValueError, "probe progress is for another modeled device"):
+                            exporter(probe_progress=path).export()
+
     def test_compressed_partial_exporter_caches_validated_rows_and_rejects_mutation(self):
         import gzip
         import accuracy_progress as progress
@@ -645,12 +709,17 @@ class ParallelAccuracyTests(unittest.TestCase):
                 self.assertEqual(measure.call_count, 2)
             self.assertIn("measuring the full memory suite serially", notices.getvalue())
 
-    def test_memory_only_roundtrip_with_real_source_metadata(self):
-        # Only simulator execution is synthetic. Git commits, source hashes,
-        # reference, model declarations and the complete 140-point transport are real.
+    @contextlib.contextmanager
+    def memory_only_campaign(self, declared=False):
+        """A real Git source for a memory-only campaign.
+
+        Only simulator execution is synthetic. Git commits, source hashes,
+        reference, model declarations and the complete 140-point transport are
+        real. With `declared` both revisions carry the repository's device
+        declaration; without it the source predates devices."""
         source = self.root / "memory-source"
         shutil.copytree(self.fixture.source, source)
-        for name in [*memory.INPUTS, memory.REFERENCE, models.PATH,
+        for name in [*memory.INPUTS, memory.REFERENCE, models.PATH, *([parallel.devices.PATH] if declared else []),
                      "pkg/loader/elf.go", "pkg/linuxuser/run.go", "cmd/poros/elf.go"]:
             target = source / name; target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(memory.ROOT / name, target)
@@ -675,21 +744,40 @@ class ParallelAccuracyTests(unittest.TestCase):
             self.assertFalse(state['dirty'])
             plan = copy.deepcopy(self.plan)
             plan.update(head=state, base_commit=base, base_capability=original_capability(base, source),
-                        model_profiles=models.resolve(source, state, base),
-                        memory=parallel.memory_plan(state, len(plan['shards']), base))
-            parallel.write(self.prepared / 'plan.json', plan)
-            def simulate(binary, root, case, revision, profile):
+                        model_profiles=models.resolve(source, state, base))
+            def prepare(device=None):
+                """Bind the plan to a device as `prepare --device` does, and write it."""
+                chosen = parallel.devices.resolve(source, state, base, device)
+                plan.pop('device', None)
+                if chosen is not None:
+                    plan['device'] = chosen
+                plan['memory'] = parallel.memory_plan(state, len(plan['shards']), base, value=plan)
+                parallel.write(self.prepared / 'plan.json', plan)
+                return plan
+            def simulate(binary, root, case, revision, profile, device=None):
                 samples = self.memory_samples(binary, root, case, revision, profile)
-                for sample in samples: sample['binary_sha256'] = state['files'][memory.case_elf(case)]
+                for sample in samples:
+                    sample['binary_sha256'] = state['files'][memory.case_elf(case)]
+                    if device is not None:
+                        sample['timing']['target'] = device
                 return samples
+            def run(results):
+                with patch.object(memory, 'measure_case', side_effect=simulate):
+                    for index in range(len(plan['memory']['shards'])):
+                        self.assertEqual(parallel.run_memory_shard(self.prepared, '123', 1, index,
+                                         results / str(index) / 'memory-shard.json'), 0)
+            yield SimpleNamespace(source=source, state=state, base=base, prepare=prepare, run=run)
+
+    def test_memory_only_roundtrip_with_real_source_metadata(self):
+        with self.memory_only_campaign() as campaign:
+            source, plan = campaign.source, campaign.prepare()
+            self.assertNotIn('device', plan)
             results = self.root / 'memory-only-shards'
-            with patch.object(memory, 'measure_case', side_effect=simulate):
-                for index in range(len(plan['memory']['shards'])):
-                    self.assertEqual(parallel.run_memory_shard(self.prepared, '123', 1, index,
-                                     results / str(index) / 'memory-shard.json'), 0)
+            campaign.run(results)
             output = self.root / 'memory-only.json'
             with patch.object(memory, 'measure_case', side_effect=AssertionError('aggregate reran simulation')):
                 self.assertEqual(parallel.aggregate_memory(self.prepared, results, '123', 1, output), 0)
+            self.assertNotIn('device', parallel.read(output))  # A source without devices is the default device, as always.
             preview = self.root / 'memory-only-preview'
             site.memory_preview(output, source, preview)
             rendered = (preview / 'index.html').read_text()
@@ -708,6 +796,57 @@ class ParallelAccuracyTests(unittest.TestCase):
             shard.rename(shard.with_name('wrong-name.json'))
             with self.assertRaisesRegex(ValueError, 'missing required memory shards'):
                 parallel.aggregate_memory(self.prepared, results, '123', 1, output)
+
+    def test_memory_only_artifact_belongs_to_the_device_that_owns_the_memory_reference(self):
+        with self.memory_only_campaign(declared=True) as campaign:
+            source, state, base = campaign.source, campaign.state, campaign.base
+            plan = campaign.prepare()
+            self.assertEqual((plan['device']['id'], plan['device']['base']['commit']), ('m2', base))
+            results, output = self.root / 'memory-only-shards', self.root / 'memory-only.json'
+            campaign.run(results)
+            # Each role's simulator was asked for the device, and its executions say so.
+            shard = parallel.read(results / '0/memory-shard.json')
+            targets = {role: {sample['timing']['target']['name'] for sample in samples}
+                       for record in shard['memory_records'] for role, samples in record['executions'].items()}
+            self.assertEqual(targets, {'head': {'m2'}, 'base': {'m2'}})
+            self.assertEqual(parallel.aggregate_memory(self.prepared, results, '123', 1, output), 0)
+            report = parallel.read(output)
+            self.assertEqual(report['device'], plan['device'])
+            preview = self.root / 'memory-only-preview'
+            site.memory_preview(output, source, preview)
+            self.assertIn('140 diagnostic points', (preview / 'index.html').read_text())
+            # The preview accepts the artifact only as that device's, at both revisions.
+            def rejected(change, reason):
+                altered = copy.deepcopy(report)
+                change(altered)
+                parallel.write(self.root / 'altered.json', altered)
+                with self.assertRaisesRegex(ValueError, reason):
+                    site.memory_preview(self.root / 'altered.json', source, self.root / 'bad-preview')
+                self.assertFalse((self.root / 'bad-preview').exists())
+            rejected(lambda r: r['device'].update(id='m1'), 'memory-only artifact is for a device without a native memory reference')
+            rejected(lambda r: r.pop('device'), 'missing device selection')
+            rejected(lambda r: r['device'].update(base=None), 'base device declaration differs from exact Git revision')
+            # A device without a memory reference has no memory-only artifact. It is refused before anything runs.
+            unmeasured = campaign.prepare('m1')
+            self.assertNotIn('reference_sha256', unmeasured['memory'])
+            with patch.object(memory, 'measure_case', side_effect=AssertionError('executed for a device without a reference')):
+                for attempt in (lambda: parallel.run_memory_shard(self.prepared, '123', 1, 0, self.root / 'm1/memory-shard.json'),
+                                lambda: parallel.aggregate_memory(self.prepared, results, '123', 1, self.root / 'm1.json')):
+                    with self.assertRaisesRegex(ValueError, 'memory-only artifacts need a native memory reference; device m1 has none'):
+                        attempt()
+            self.assertFalse((self.root / 'm1.json').exists())
+            # A declaration cannot hand the M2 memory file to other hardware, or name another file for
+            # it. Both are refused while the plan is built, so before a shard or an aggregation exists.
+            declaration = plan['device']['head']['declaration']
+            def planned(change):
+                changed = copy.deepcopy(declaration)
+                change({entry['id']: entry for entry in changed['devices']})
+                value = dict(device=fixtures.device_selection('m1', state['commit'], {}, declaration=changed))
+                return parallel.memory_plan(state, len(plan['shards']), base, value=value)
+            with self.assertRaisesRegex(ValueError, "memory reference was measured on 'Apple M2', not 'Apple M1'"):
+                planned(lambda entries: entries['m1']['references'].update(memory=memory.REFERENCE))
+            with self.assertRaisesRegex(ValueError, 'device m1 declares its memory reference at evaluation/microbenchmarks/memory/m1.json, not ' + memory.REFERENCE):
+                planned(lambda entries: entries['m1']['references'].update(memory='evaluation/microbenchmarks/memory/m1.json'))
 
     def test_memory_aggregate_rejects_unsupported_shard_status_option(self):
         argv = ["accuracy_parallel.py", "memory-aggregate", "--prepared", "unused", "--run-id", "123",

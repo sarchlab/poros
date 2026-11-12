@@ -16,6 +16,9 @@ import native_usertime as native
 import workload_contract as contract
 
 PATH = "evaluation/usertime/performance-v1.json"
+# The hardware PATH was measured on. A device that declares its own reference
+# file names its own hardware; nothing else about the capture protocol changes.
+HARDWARE = "Apple M2"
 PROTOCOL = "performance-summary-v1"  # Historical Linux VM archives.
 NATIVE_PROTOCOL = "performance-macho-summary-v1"
 NUMERICAL = {"gramschmidt", "blackscholes", "bodytrack", "canneal", "raytrace", "facesim", "x264"}
@@ -62,7 +65,7 @@ def summarize(case, samples, sha, length, numerical):
     return row
 
 
-def validate(reference, declared):
+def validate(reference, declared, hardware=HARDWARE):
     compute.validate_expanded(declared)
     if reference.get("schema") != 1 or reference.get("protocol") not in (PROTOCOL, NATIVE_PROTOCOL) or reference.get("inventory_sha256") != compute.object_digest(declared):
         raise ValueError("compact reference protocol/input identity mismatch")
@@ -75,7 +78,7 @@ def validate(reference, declared):
         raise ValueError("replacement provenance requires native protocol")
     if is_native:
         import macho_reference
-        macho_reference.validate_metadata(reference, declared)
+        macho_reference.validate_metadata(reference, declared, hardware)
     elif not re.fullmatch(r"sha256:[0-9a-f]{64}", reference.get("container_image", "")) or reference.get("environment") != "virtualized" or reference.get("machine") not in ("aarch64", "arm64"):
         raise ValueError("invalid compact measurement environment")
     try:
@@ -138,10 +141,10 @@ def reference_origin(reference, case):
                 capture_sha256=reference["capture_evidence"]["capture_sha256"])
 
 
-def load(root, *, require_native=False):
+def load(root, *, require_native=False, path=PATH, hardware=HARDWARE):
     root = Path(root)
     declared = inventory(root)
-    reference = validate(compute.read(root / PATH), declared)
+    reference = validate(compute.read(root / path), declared, hardware)
     if require_native and reference["protocol"] != NATIVE_PROTOCOL:
         raise ValueError("active accuracy requires the native Mach-O reference")
     for name, sha in reference["input_sources"].items():

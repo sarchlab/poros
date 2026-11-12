@@ -30,7 +30,8 @@ import memory_microbenchmark as memory
 import model_profiles
 import devices
 from usertime import error_percent
-from performance_compare import MICRO_WORKLOADS, OUTPUT_ORACLE_SCOPE, is_micro_case, benchmark_summary, case_base_status
+from performance_compare import (MICRO_WORKLOADS, OUTPUT_ORACLE_SCOPE, application_reference, benchmark_summary,
+                                 case_base_status, is_micro_case)
 
 SCHEMA = 1
 FORMULA = "absolute-difference-over-min-v2"
@@ -618,16 +619,17 @@ def reference_files(report):
 
     Every declared suite runs for every device. Only a device with a native
     reference of a kind retains, shows or compares that reference."""
-    files = {"reference.json": performance.PATH} if devices.measured(report, "application") else {}
+    application = application_reference(report)
+    files = {} if application is None else {"reference.json": application[0]}
     declared = declared_diagnostics(report)
-    files.update({name + ".json": suite.REFERENCE for name, suite in declared.items() if devices.measured(report, name)})
     device = devices.entry(report)
-    for name, path in files.items():
-        # Each kind is read from one committed file. A device that declares
-        # another file for it is refused, not handed this one.
-        kind = "application" if name == "reference.json" else name.removesuffix(".json")
-        if device is not None and device["references"][kind] != path:
-            raise ValueError(f"device {device['id']} declares its {kind} reference at {device['references'][kind]}, not {path}")
+    for name, suite in declared.items():
+        if devices.measured(report, name):
+            # A suite's reference is read from one committed file. A device
+            # that declares another file for it is refused, not handed this one.
+            if device is not None and device["references"][name] != suite.REFERENCE:
+                raise ValueError(f"device {device['id']} declares its {name} reference at {device['references'][name]}, not {suite.REFERENCE}")
+            files[name + ".json"] = suite.REFERENCE
     if "throughput" not in declared and FRONTEND_REFERENCE in report["head"]["files"]:
         files["frontend.json"] = FRONTEND_REFERENCE
     return files
@@ -722,8 +724,9 @@ def validate_compact_evidence(report, references, *, partial=False):
         raise ValueError("frontend probe is absent from the tested source")
     declared = report_manifest(report)
     if "reference.json" in expected:
-        measured = performance.validate(json.loads(references["reference.json"]), declared)
-        if hashlib.sha256(references["reference.json"]).hexdigest() != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:
+        path, hardware = application_reference(report)
+        measured = performance.validate(json.loads(references["reference.json"]), declared, hardware)
+        if hashlib.sha256(references["reference.json"]).hexdigest() != report["reference_sha256"] or report["head"]["files"].get(path) != report["reference_sha256"]:
             raise ValueError("compact reference differs from tested source")
         metadata = {key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")}
         if report["reference"] != metadata:
@@ -849,6 +852,7 @@ def number(value, suffix=""):
 CSS = """
 :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172b35;background:#f5f7f7;font-size:15px}body{margin:0}main{max-width:1180px;margin:auto;padding:40px 24px 64px}a{color:#006e75;text-underline-offset:3px}header{border-bottom:1px solid #cedbde;padding-bottom:25px;margin-bottom:24px}.eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;font-weight:700;color:#49717a}h1{font-size:clamp(28px,4vw,42px);letter-spacing:-.04em;margin:12px 0}h2{font-size:22px;margin:32px 0 14px}p{line-height:1.6}.muted{color:#58707a}.notice{border-left:4px solid #b77a13;background:#fff7df;padding:13px 18px;margin:18px 0}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}.card,figure{background:white;border:1px solid #d7e1e4;border-radius:9px;padding:18px;margin:0}.card strong{display:block;font-size:26px;margin-top:6px}.table{overflow:auto;border:1px solid #d7e1e4;border-radius:9px;background:white}table{border-collapse:collapse;width:100%;white-space:nowrap}td,th{padding:12px 14px;text-align:left;border-bottom:1px solid #e5ecee;font-variant-numeric:tabular-nums}th{background:#edf3f3;font-size:12px;text-transform:uppercase;color:#49616b}tr:last-child td{border-bottom:0}.badge{font-size:12px;padding:4px 8px;border-radius:20px;background:#edf1f2}.pass{background:#e1f3e9;color:#15523b}.fail{background:#fbe6df;color:#8f321b}.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:16px}svg{width:100%;height:auto}svg text{font:11px system-ui;fill:#526a75}figcaption{font-weight:650;margin-bottom:10px}.band-key{display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;padding:0;font-size:13px}.band-key li{white-space:nowrap}.band-key span{display:inline-block;width:12px;height:12px;margin-right:5px;border:1px solid #0002;vertical-align:-2px}#point-tip{position:fixed;z-index:10;pointer-events:none;background:#18343e;color:white;border-radius:5px;padding:8px 11px;max-width:min(380px,85vw);font-size:13px;line-height:1.4;white-space:pre-line}circle[data-tip]{cursor:crosshair}circle[data-tip]:focus{outline:none;stroke:#2c5059;stroke-width:2}details{margin:20px 0}pre{overflow:auto;background:#edf3f3;padding:16px;font-size:12px}.downloads{display:flex;flex-wrap:wrap;gap:16px}footer{margin-top:35px;color:#617780;font-size:12px}code{font-size:12px;overflow-wrap:anywhere}@media(max-width:500px){main{padding:24px 12px}.charts{grid-template-columns:1fr}td,th{padding:10px}.card{padding:13px}}
 .cdf-percentiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;list-style:none;padding:0;font-size:13px}.cdf-percentiles li{border-left:3px solid;padding-left:8px}.cdf-percentiles strong{white-space:nowrap}
+.views{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:6px;background:#f5f7f7;padding:10px 0;margin-bottom:10px;border-bottom:1px solid #cedbde}.views a{padding:6px 12px;border:1px solid #cedbde;border-radius:6px;background:white;text-decoration:none}.views a:focus-visible{outline:2px solid #006e75;outline-offset:2px}.view,.view [id]{scroll-margin-top:72px}
 """
 
 
@@ -1105,11 +1109,11 @@ def correlation_statistics(points):
     return dict(count=n, pearson=pearson, tau=tau, pair=pair)
 
 
-def comparison_table(cases):
+def comparison_table(cases, unit="application cases"):
     shared = [c for c in cases if c.get("reference_quality") == "usable"
               and all("error_percent" in c.get(role, {}) for role in ("base", "head"))]
-    body = (f'<h3>Base and head comparison</h3><p>Both rows use the same {len(shared)} qualified application cases '
-            'with base and head predictions. The overview charts use all qualified head cases.</p>'
+    body = (f'<h3>Base and head comparison</h3><p>Both rows use the same {len(shared)} qualified {unit} '
+            f'with base and head predictions. The overview charts use all qualified head {unit.split()[-1]}.</p>'
             '<div class="table"><table><thead><tr><th>Model</th><th>Mean error</th><th>Median error</th>'
             '<th>Pearson r</th><th>Kendall τ-b</th><th>Pairs ordered correctly</th></tr></thead><tbody>')
     for role in ("base", "head"):
@@ -1161,11 +1165,16 @@ def absolute_error_cdf(points):
                  step_start=zeros/n, note=note, percentile_guides=guides)
 
 
-def overview_charts(cases):
+def qualified(case):
+    """The inclusion rule of every accuracy view: a usable native reference and a positive head prediction."""
+    return bool(case.get("reference_quality") == "usable" and case.get("head")
+                and case["reference_user_seconds"] > 0 and case["head"]["predicted_user_seconds"] > 0)
+
+
+def overview_charts(cases, heading='<h2 id="overall">Overall benchmark accuracy</h2>'):
     # All overview views and statistics use exactly the same qualified head cases.
     points = [(c["reference_user_seconds"] * 1000, c["head"]["predicted_user_seconds"] * 1000, c["id"])
-              for c in cases if not is_micro_case(c) and c.get("reference_quality") == "usable" and c.get("head")
-              and c["reference_user_seconds"] > 0 and c["head"]["predicted_user_seconds"] > 0]
+              for c in cases if not is_micro_case(c) and qualified(c)]
     ranks, scatter = [], []
     band_counts = [0] * len(ERROR_BANDS)
     for i, (ref, pred, name) in enumerate(sorted(points, key=lambda p: (p[1]/p[0], p[2])), 1):
@@ -1208,7 +1217,7 @@ def overview_charts(cases):
             f"<p class='muted'>{n} qualified cases. The percentage compares pairs with distinct measured times.</p>")
     comparison = chart("Qualified reference vs. prediction", [("head", scatter, "#087e8b")],
                        "Reference user time (ms)", "Predicted user time (ms)", scatter=True, ideal=True, note=note)
-    return ('<h2 id="overall">Overall benchmark accuracy</h2><div class="charts">'
+    return (heading + '<div class="charts">'
             + s_curve + absolute_error_cdf(points) + '</div><div class="charts" style="margin-top:16px">'
             + comparison + "</div>")
 
@@ -1711,6 +1720,13 @@ def memory_preview(report_path, source, output):
         raise ValueError("memory-only reference identity mismatch")
     reference = memory.load_reference(source)
     memory.validate_reference(reference, report['head']['files'])
+    # A source that declares devices names the artifact's device at both
+    # revisions, and that device must own this reference. Artifacts of sources
+    # without a declaration are the default device, as they always were.
+    devices.verify_source(source, report)
+    if not devices.measured(report, "memory"):
+        raise ValueError("memory-only artifact is for a device without a native memory reference")
+    devices.bind_reference(report, "memory", memory.REFERENCE, reference)
     profiles = model_profiles.verify_source(source, report)
     if report.get("memory_base_large_image_support") is not memory.supports_large_images(source, report["base_commit"]):
         raise ValueError("memory-only base capability differs from source")
@@ -1986,8 +2002,11 @@ def report_device(report):
     return device_name(devices.ident(report))
 
 
-def device_panel(report, entry):
-    """Which device a report describes, beside every device declared with it."""
+def device_panel(report, embedded=False):
+    """Which device a report describes.
+
+    A report shown on its own also lists the devices declared with it. Inside a
+    commit report that list is the commit overview's, so it is not repeated."""
     if "device" not in report:
         return ('<p id="device" class="muted">Device: <code>' + devices.DEFAULT + '</code> · '
                 + ('the default: this failure names no device' if report["artifact_status"] == "fail"
@@ -1996,20 +2015,16 @@ def device_panel(report, entry):
     if described is None:  # A failure recorded before the declarations were read.
         return '<p id="device">Device: <code>' + esc(report_device(report)) + '</code></p>'
     kinds = ["application", *declared_diagnostics(report)]
-    links = entry.get("device_links", {})
     body = (f'<section id="device" data-device="{esc(described["id"])}"><p><strong>Device: {esc(described["hardware"])}</strong> '
             f'(<code>{esc(described["id"])}</code>) · Parameters: {esc(described["parameters"])} · '
-            f'Native references: {esc(described["references"])}</p>'
-            '<div class="table"><table><thead><tr><th>Device</th><th>Hardware</th><th>Parameter source</th>'
-            '<th>Native references</th><th>This commit</th></tr></thead><tbody>')
+            f'Native references: {esc(described["references"])}</p>')
+    if embedded:
+        return body + '</section>'
+    body += ('<div class="table"><table><thead><tr><th>Device</th><th>Hardware</th><th>Parameter source</th>'
+             '<th>Native references</th><th>Shown</th></tr></thead><tbody>')
     declaration = report["device"]["head"]["declaration"]
     for declared in declaration["devices"]:
-        if declared["id"] == described["id"]:
-            where = "this report"
-        elif declared["id"] in links:
-            where = '<a href="' + esc(links[declared["id"]]) + '">report</a>'
-        else:
-            where = "separate report" if "device_links" not in entry else "not published"
+        where = "on this page" if declared["id"] == described["id"] else "in its own view of the commit's report"
         body += (f'<tr data-row-key="{esc(declared["id"])}"><td><code>{esc(declared["id"])}</code></td><td>{esc(declared["hardware"])}</td>'
                  f'<td>{esc(devices.parameter_text(declared, declaration))}</td>'
                  f'<td>{esc(devices.reference_status(declared, kinds))}</td><td>{where}</td></tr>')
@@ -2029,19 +2044,34 @@ def unmeasured_overview(report, benchmarks, required):
             f'Also predicted by the base revision: {paired}.</p>')
 
 
-def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None, capacity_reference=None, recurrence_reference=None):
+def detail(report, entry, preview=False, **references):
+    """One device's report as a page of its own: bundle previews and the single-device live view."""
+    body, identity, state = detail_body(report, entry, preview, **references)
+    body = (f'<div id="accuracy-report" data-report-identity="{identity}" data-live-state="{state}">'
+            + body + f'<span hidden data-report-end="{identity}"></span></div>')
+    refresh = LIVE_REFRESH if state == 'polling' else ''
+    return page("Poros accuracy · " + entry["commit"][:12], body, POINT_TIPS + refresh)
+
+
+def detail_body(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None, capacity_reference=None, recurrence_reference=None, embedded=False):
+    """Render one device's report. Returns the body, its identity and its live state.
+
+    `embedded` is the same rendering placed inside a commit report, which
+    supplies the page header and the list of declared devices itself."""
     commit = entry["commit"]
     full_inventory = report["artifact_status"] == "pass" or live is not None
-    body = (
-        '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
-        + esc(commit)
-        + "</code></p>"
-    )
-    body += (
-        "<p>PR / local preview · Not a published main result</p>"
-        if preview
-        else '<p><a href="../../index.html">← Report history</a></p>'
-    ) + "</header>"
+    body = ""
+    if not embedded:
+        body = (
+            '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
+            + esc(commit)
+            + "</code></p>"
+        )
+        body += (
+            "<p>PR / local preview · Not a published main result</p>"
+            if preview
+            else '<p><a href="../../index.html">← Report history</a></p>'
+        ) + "</header>"
     if report.get("reporting"):
         rendering = report["reporting"]
         body += '<p class="muted">Measured simulator: <code>' + esc(commit) + '</code>; reporting implementation: <code>' + esc(rendering["commit"]) + '</code>' + (" (working tree edits; file hashes recorded)" if rendering["dirty"] else "") + ".</p>"
@@ -2067,7 +2097,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         body += '<p class="notice">This failure occurred before source identity was recorded. The bundle identifies the requested target; it does not certify an executed binary or measured source.</p>'
     if report.get("error"):
         body += '<p class="notice">' + esc(report["error"]) + "</p>"
-    body += device_panel(report, entry)
+    body += device_panel(report, embedded)
     # Accuracy exists only against a native reference of the report's own device.
     referenced = devices.measured(report, "application")
     body += ('<nav class="downloads"><a href="#overall">' + ("Benchmark accuracy" if referenced else "Benchmark predictions")
@@ -2223,7 +2253,10 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
                     "compute_base_status": report.get("compute_base_status"),
                     "configuration": cases[0].get("head", {}) if cases else None,
                     "model_profiles": report.get("model_profiles"),
-                    **({"device": report["device"], "output_oracle": report.get("output_oracle")} if "device" in report else {}),
+                    # The commit report shows the declaration once, in its overview.
+                    **({"device": dict(id=report["device"]["id"], declaration_sha256=(report["device"].get("head") or {}).get("sha256"))
+                                  if embedded else report["device"],
+                        "output_oracle": report.get("output_oracle")} if "device" in report else {}),
                 },
                 indent=2,
             )
@@ -2237,10 +2270,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         'head_binary_sha256', 'base_binary_sha256')}, **({"device": report["device"]["id"]} if "device" in report else {})),
         sort_keys=True).encode()).hexdigest()
     state = 'static' if live is None else 'validated' if live.get('validated_bundle') else 'polling'
-    body = (f'<div id="accuracy-report" data-report-identity="{identity}" data-live-state="{state}">'
-            + body + f'<span hidden data-report-end="{identity}"></span></div>')
-    refresh = LIVE_REFRESH if state == 'polling' else ''
-    return page("Poros accuracy · " + commit[:12], body, POINT_TIPS + refresh)
+    return body, identity, state
 
 
 def series_key(report):
@@ -2310,60 +2340,440 @@ def merge_evaluation(entry, incoming):
         entry[field] = incoming[field]
 
 
-def archive_root(site, device):
-    """One archive per device. The default device keeps the original location,
-    so every published URL still resolves; other devices live beside its runs."""
-    root = Path(site) / "calibration"
-    return root if device == devices.DEFAULT else root / "devices" / device_name(device)
+INDEX_SCHEMA = 2
+# What a schema-1 index entry said about the commit, not about its one report.
+COMMIT_FIELDS = ("commit", "main", "releases", *EVALUATION_FIELDS)
+# Names in a commit directory that belong to the commit, not to the default device's bundle.
+COMMIT_FILES = {"devices", "commit.json", "devices.json", "index.html"}
+# A revision without a declaration is the default device alone; nothing more is known of it.
+LEGACY_DEVICE = dict(id=devices.DEFAULT, hardware=None, parameter_source=devices.DEFAULT, references=None)
+REFERENCE_ARGUMENTS = dict(frontend="frontend", throughput="throughput_reference", forwarding="forwarding_reference",
+                           scheduling="scheduling_reference", capacity="capacity_reference",
+                           recurrence="recurrence_reference", memory="memory_reference")
 
 
-def device_url(site, source, destination, *parts):
-    """Relative link from a page directory of one device's archive into another's."""
-    return os.path.relpath(archive_root(site, destination).joinpath(*parts), source) + "/"
+def commit_dir(site, commit):
+    return Path(site) / "calibration" / "runs" / sha(commit)
 
 
-def archived_devices(site):
-    """Devices with an archive on this site, the default first."""
-    folder = Path(site) / "calibration/devices"
-    others = sorted(p.name for p in folder.iterdir() if p.is_dir() and devices.NAME.fullmatch(p.name)) if folder.is_dir() else []
-    return [devices.DEFAULT, *others]
+def bundle_dir(site, commit, device):
+    """Where a commit keeps one device's bundle.
+
+    The default device's files stay directly in the commit directory, where
+    every published report already has them. Other devices sit beside them."""
+    folder = commit_dir(site, commit)
+    return folder if device == devices.DEFAULT else folder / "devices" / device_name(device)
 
 
-def render_entry(site, device, entry):
-    """Rewrite one retained report page from its validated bundle."""
-    p = archive_root(site, device) / "runs" / entry["commit"]
-    report, manifest = validate_bundle(p, entry["commit"])
-    if report_device(report) != device:
-        raise ValueError("retained report belongs to another device's archive")
-    references = {name: read(p / (name + ".json")) if name + ".json" in manifest["files"] else None
-                  for name in ("frontend", "throughput", "forwarding", "scheduling", "capacity", "recurrence", "memory")}
-    # The same commit under other devices; never part of the stored entry.
-    links = {other: device_url(site, p, other, "runs", entry["commit"]) for other in archived_devices(site)
-             if other != device and (archive_root(site, other) / "runs" / entry["commit"] / "bundle.json").is_file()}
-    (p / "index.html").write_text(detail(report, dict(entry, device_links=links), frontend=references["frontend"],
-        throughput_reference=references["throughput"], forwarding_reference=references["forwarding"],
-        scheduling_reference=references["scheduling"], memory_reference=references["memory"],
-        capacity_reference=references["capacity"], recurrence_reference=references["recurrence"]))
-    return report
+def clear_bundle(folder, device):
+    """Remove one device's retained bundle and nothing that belongs to its siblings."""
+    if device != devices.DEFAULT:
+        if folder.exists():
+            shutil.rmtree(folder)
+    elif folder.exists():
+        for child in folder.iterdir():
+            if child.name not in COMMIT_FILES:
+                shutil.rmtree(child) if child.is_dir() else child.unlink()
+    folder.mkdir(parents=True, exist_ok=True)
 
 
-def archive(site, bundle_path, metadata, main_order, keep=20):
+def copy_bundle(folder, device, destination):
+    """Copy one device's retained bundle without the commit's report or its sibling devices."""
+    top = str(folder)
+    shutil.copytree(folder, destination, ignore=lambda directory, names: (
+        COMMIT_FILES & set(names) if device == devices.DEFAULT and directory == top else ()))
+
+
+def migrate_index(index):
+    """Schema 1 held one default-device report per commit. Give each entry its device level."""
+    if index.get("schema") == INDEX_SCHEMA:
+        return index
+    if index.get("schema") != 1:
+        raise ValueError("unsupported archive schema")
+    entries = []
+    for old in index["entries"]:
+        entry = {key: old[key] for key in COMMIT_FIELDS if key in old}
+        entry["devices"] = {devices.DEFAULT: {key: value for key, value in old.items()
+                                               if key not in COMMIT_FIELDS and key not in ("release", "device")}}
+        entries.append(entry)
+    return dict(index, schema=INDEX_SCHEMA, entries=entries)
+
+
+def report_declaration(report):
+    """What one report proves about the devices declared at its commit; None if nothing."""
+    chosen = report.get("device")
+    if isinstance(chosen, dict) and isinstance(chosen.get("head"), dict):
+        if report["artifact_status"] != "pass":
+            # Validation stops early for a failure. Its declaration counts only
+            # if it is bound to the failure's own source inventory.
+            try:
+                devices.validate(report)
+            except (KeyError, TypeError, ValueError):
+                return None
+        head = chosen["head"]
+        return dict(status="declared", origin="report", path=head["path"], sha256=head["sha256"], declaration=head["declaration"])
+    # A passing report without a declaration in its source inventory, or from
+    # before reports had an inventory, predates devices.
+    files = report.get("head", {}).get("files", {})
+    if report["artifact_status"] != "fail" and "device" not in report and isinstance(files, dict) and devices.PATH not in files:
+        return dict(status="legacy", origin="report")
+    return None
+
+
+def source_declaration(source, commit):
+    """The declaration read from Git at exactly this commit; None when that source cannot be read."""
+    if source is None:
+        return None
+    try:
+        found = devices.revision(source, commit)
+    except (subprocess.CalledProcessError, OSError, ValueError):
+        return None
+    if found is None:
+        return dict(status="legacy", origin="source")
+    return dict(status="declared", origin="source", path=found["path"], sha256=found["sha256"], declaration=found["declaration"])
+
+
+def commit_declaration(stored, found):
+    """One declaration per commit, from verified evidence of that commit only.
+
+    A retained record, a report's source-bound copy and the repository at the
+    commit must agree. With none of them, support is unknown: it is never taken
+    from another revision, and never from the reporting checkout."""
+    known = [record for record in [stored, *found] if record and record["status"] != "unknown"]
+    for record in known:
+        if record["status"] == "declared" and (
+                record.get("path") != devices.PATH
+                or hashlib.sha256(devices.encode(devices.check(record["declaration"]))).hexdigest() != record["sha256"]):
+            raise ValueError("retained device declaration does not match its recorded digest")
+    if not known:
+        return dict(status="unknown")
+    first = known[0]
+    if any((other["status"], other.get("sha256")) != (first["status"], first.get("sha256")) for other in known[1:]):
+        raise ValueError("conflicting device declarations for one commit")
+    return first
+
+
+def declared_devices(record):
+    """A commit's devices in declared order; the default device alone for a legacy revision; none if unknown."""
+    if record["status"] == "declared":
+        return record["declaration"]["devices"]
+    return [LEGACY_DEVICE] if record["status"] == "legacy" else []
+
+
+def require_supported(record, device):
+    if record["status"] == "declared":
+        devices.select(record["declaration"], device)
+    elif record["status"] == "legacy" and device != devices.DEFAULT:
+        raise ValueError(f"this revision predates device declarations and models only {devices.DEFAULT}, not {device!r}")
+
+
+def device_counts(view):
+    """Application-case counts of one device's report; None without a usable report, which is unknown and not zero."""
+    report = view.get("report")
+    if view["state"] not in ("report", "running") or report is None:
+        return None
+    rows = [row for row in report["cases"] if not is_micro_case(row)]
+    referenced = devices.measured(report, "application")
+    return dict(required=sum(not is_micro_case(case) for case in report_manifest(report)["cases"]),
+                reported=len(rows), referenced=referenced,
+                qualified=sum(qualified(row) for row in rows) if referenced else None)
+
+
+def pooled_observations(views):
+    """Every application row of every device that is compared with its own native reference.
+
+    One observation is one device and one application input, so the same input
+    on two devices is two observations, each named by its device. Devices
+    without a report, with failed evidence or without a native application
+    reference contribute nothing."""
+    rows = []
+    for view in views:
+        counts = device_counts(view)
+        if counts is not None and counts["referenced"]:
+            rows += [dict(row, id=view["id"] + "/" + row["id"], device=view["id"])
+                     for row in view["report"]["cases"] if not is_micro_case(row)]
+    return rows
+
+
+def pooled_summary(views):
+    """The commit's application summary over pooled observations, in the shape one report's summary has."""
+    rows = pooled_observations(views)
+    contributing = [view for view in views if (device_counts(view) or {}).get("referenced")]
+    summary = compute.case_summary(rows, performance=all(view["report"].get("schema") == 4 for view in contributing)) if rows else {}
+    errors = [row["head"]["error_percent"] for row in rows if "error_percent" in row["head"]]
+    overview = dict(devices={view["id"]: dict(state=view["state"], **(device_counts(view) or {})) for view in views},
+                    contributors=[view["id"] for view in contributing],
+                    median_error_percent=statistics.median(errors) if errors else None)
+    return rows, summary, overview
+
+
+def reference_text(view, record):
+    """Native reference availability of one device at this commit, in words."""
+    declared = view["declared"]
+    if declared is None:
+        return "unknown"
+    if declared is LEGACY_DEVICE or declared.get("references") is None:
+        return "measured (legacy evidence)" if view["state"] == "report" else "unknown without a report"
+    report = view.get("report")
+    kinds = ["application", *declared_diagnostics(report)] if report is not None and report.get("schema") == 4 and "files" in report.get("head", {}) else list(devices.KINDS)
+    status = devices.reference_status(declared, kinds)
+    if status == "partial":
+        status += ": " + ", ".join(kind for kind in kinds if kind in declared["references"])
+    return status
+
+
+def commit_overview(record, views, *, retained=True):
+    """The commit level of a report: its declared devices and the accuracy pooled over them."""
+    rows, summary, overview = pooled_summary(views)
+    if record["status"] == "declared":
+        body = ('<p id="declaration">Devices declared at this commit by <code>' + esc(record["path"]) + '</code>, SHA-256 <code>'
+                + esc(record["sha256"]) + '</code>'
+                + (' (<a href="devices.json">retained copy</a>)' if retained else '') + ', read from '
+                + ("the repository at this commit" if record["origin"] == "source" else "a report's source inventory of this commit") + '.</p>')
+    elif record["status"] == "legacy":
+        body = ('<p id="declaration">This revision predates device declarations. Its evidence is the default device, <code>'
+                + devices.DEFAULT + '</code>; no other device is assumed.</p>')
+    else:
+        body = ('<div class="notice" id="declaration"><strong>Supported devices are unknown for this commit.</strong> '
+                'Only failed evidence exists, and the device declaration of this revision could not be read from its source. '
+                'The devices listed are those a run was attempted for; no support is inferred from any other revision.</div>')
+    body += ('<div class="table"><table id="commit-devices"><thead><tr><th>Device</th><th>Hardware</th><th>Parameter source</th>'
+             '<th>Native references</th><th>Report</th><th>Application cases</th></tr></thead><tbody>')
+    for view in views:
+        declared, counts = view["declared"], device_counts(view)
+        report = view.get("report")
+        if declared is None:
+            hardware, parameters = "unknown", "unknown"
+        elif declared["hardware"] is None:
+            reference = report.get("reference") if report is not None else None
+            hardware = reference.get("hardware", "not recorded") if isinstance(reference, dict) else "not recorded"
+            parameters = devices.DEFAULT + " (implied)"
+        else:
+            hardware, parameters = declared["hardware"], devices.parameter_text(declared, record["declaration"])
+        if counts is None:
+            cases = "—"
+        elif counts["referenced"]:
+            cases = f'{counts["qualified"]} qualified of {counts["required"]}'
+            if counts["reported"] != counts["required"]:
+                cases += f' ({counts["reported"]} reported)'
+        else:
+            cases = f'{counts["reported"]} of {counts["required"]} predicted; no native reference'
+        badge = {"report": "pass", "failed": "fail"}.get(view["state"], "")
+        body += (f'<tr data-row-key="{esc(view["id"])}"><td><a href="#device-{esc(view["id"])}"><code>{esc(view["id"])}</code></a></td>'
+                 f'<td>{esc(hardware)}</td><td>{esc(parameters)}</td><td>{esc(reference_text(view, record))}</td>'
+                 f'<td><span class="badge {badge}">{esc(view["state"])}</span></td><td>{esc(cases)}</td></tr>')
+    body += '</tbody></table></div>'
+    included = [view for view in views if view["id"] in overview["contributors"]]
+    reasons = {"pending": "no report yet", "failed": "failed evidence"}
+    excluded = [f'{view["id"]} ({reasons.get(view["state"], "no native application reference: predictions only")})'
+                for view in views if view not in included]
+    count = sum(qualified(row) for row in rows)
+    body += '<h3 id="pooled-accuracy">Pooled application accuracy</h3>'
+    scope = ('Each observation is one device and one application input, compared with that device\'s own native reference; '
+             'the same input on two devices is two observations. Statistics are computed over the pooled observations, '
+             'never by averaging per-device results.')
+    if not count:
+        body += ('<div class="notice" id="pooled-empty"><strong>No qualified observation at this commit.</strong> '
+                 'Pooled error and correlation statistics are undefined here, not zero. '
+                 + ('Not pooled: ' + esc('; '.join(excluded)) + '. ' if excluded else '')
+                 + ('The reported devices that have a native application reference have no qualified application case. '
+                    if included else '') + '</div>')
+        return body, summary, overview
+    body += ('<p id="pooled-scope">' + f'{count} qualified observations from {len(included)} of {len(views)} devices: '
+             + esc(', '.join(f'{view["id"]} {device_counts(view)["qualified"]} of {device_counts(view)["required"]}' for view in included))
+             + '. ' + scope + (' Not pooled: ' + esc('; '.join(excluded)) + '.' if excluded else '') + '</p>')
+    if any(view["state"] in ("pending", "failed", "running") for view in views):
+        body += ('<p class="notice" id="pooled-partial">Partial: not every declared device has a complete report, '
+                 'so these statistics describe only the devices listed above.</p>')
+    body += (f'<p id="pooled-error">Absolute error |predicted − measured| / min(predicted, measured) across {summary["comparable"]} '
+             f'qualified observations: mean {number(summary["head"]["mean_error_percent"], "%")}, '
+             f'median {number(overview["median_error_percent"], "%")}, maximum {number(summary["head"]["maximum_error_percent"], "%")}.</p>')
+    body += overview_charts(rows, heading='')
+    measures = correlation_statistics([(row["reference_user_seconds"], row["head"]["predicted_user_seconds"], row["id"])
+                                       for row in rows if qualified(row)])
+    undefined = [label for key, label in (("pearson", "Pearson r"), ("tau", "Kendall τ-b"), ("pair", "the share of correctly ordered pairs"))
+                 if measures[key] == "—"]
+    if undefined:
+        body += ('<p class="notice" id="pooled-undefined">Undefined for these observations, shown as —: ' + esc(', '.join(undefined))
+                 + '. Each needs at least two observations that differ in the compared times.</p>')
+    return body + comparison_table(rows, "pooled observations"), summary, overview
+
+
+def embed(body, device):
+    """Place one device's rendered report inside the commit report.
+
+    The default device keeps its element names, so links into reports published
+    before commits had several devices still land. Every other device gets its
+    own names and its own bundle directory, so no two sections share either.
+    A device name has no underscore, so `device-a_b` is element `b` of device
+    `a` and never the view of a device called `a-b`."""
+    if device == devices.DEFAULT:
+        return body
+    prefix, folder = f"device-{device}_", f"devices/{device}/"
+    body = re.sub(r' (id|aria-labelledby|aria-describedby)="([^"]+)"', lambda m: f' {m.group(1)}="{prefix}{m.group(2)}"', body)
+    body = re.sub(r' href="#([^"]+)"', lambda m: f' href="#{prefix}{m.group(1)}"', body)
+    return re.sub(r' href="(?!#|https?://|\.\./|/)([^"]+)"', lambda m: f' href="{folder}{m.group(1)}"', body)
+
+
+VIEW_SCRIPT = """<script>
+(() => {
+  // Navigation is plain fragment links; this only tells assistive technology which view is shown.
+  const links = [...document.querySelectorAll('nav.views a')];
+  function mark() {
+    let target = null;
+    try { target = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null; } catch (_) {}
+    const view = (target && target.closest('.view')) || document.getElementById('overview');
+    for (const link of links) {
+      if (link.getAttribute('href') === '#' + view.id) link.setAttribute('aria-current', 'true');
+      else link.removeAttribute('aria-current');
+    }
+  }
+  addEventListener('hashchange', mark);
+  mark();
+})();
+</script>"""
+
+
+def commit_report(commit, record, views, *, releases=(), live=False, retained=True):
+    """The one report of a commit: its overview and every declared device, as views of one document.
+
+    A view is a section reached by a fragment link, so the address names the
+    view, and back, forward and a copied link all return to it. Where the
+    browser supports it only the addressed view is shown; otherwise the views
+    simply follow each other. Nothing depends on scripts."""
+    overview, summary, pooled = commit_overview(record, views, retained=retained)
+    selected = '.report:has(.view:target,.view :target)'
+    style = ('<style>@supports selector(:has(*)){'
+             + selected + '>.view:not(:target):not(:has(:target)){display:none}'
+             '.report:not(:has(.view:target,.view :target))>.view:not(#overview){display:none}'
+             + ','.join(['.report:not(:has(.view:target,.view :target)) .views a[href="#overview"]']
+                        + [f'.report:has(#{name}:target,#{name} :target) .views a[href="#{name}"]'
+                           for name in ["overview", *("device-" + view["id"] for view in views)]])
+             + '{background:#18343e;color:white;border-color:#18343e}}</style>')
+    body = (style + '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
+            + esc(commit) + '</code></p>'
+            + ('<p>Live commit view · Not a published result</p>' if live else '<p><a href="../../index.html">← Report history</a></p>')
+            + (('<p>Pinned by release: ' + esc(', '.join(release["tag"] for release in releases)) + '</p>') if releases else '')
+            + '</header><div class="report"><nav class="views" aria-label="Views of this report"><a href="#overview">Commit overview</a>')
+    for view in views:
+        body += f'<a href="#device-{esc(view["id"])}">{esc(view["id"])} · {esc(view["state"])}</a>'
+    body += ('</nav><section class="view" id="overview" aria-labelledby="overview-title"><h2 id="overview-title">Commit overview</h2>'
+             + overview
+             + ('<p class="downloads"><a href="commit.json">Commit record: declaration, device bundles and digests</a></p>' if retained else '')
+             + '</section>')
+    for view in views:
+        declared = view["declared"]
+        name = declared["hardware"] if declared is not None and declared["hardware"] else "device"
+        body += (f'<section class="view" id="device-{esc(view["id"])}" aria-labelledby="view-{esc(view["id"])}-title" '
+                 f'data-device="{esc(view["id"])}" data-state="{esc(view["state"])}">'
+                 f'<h2 id="view-{esc(view["id"])}-title">{esc(name)} <code>{esc(view["id"])}</code> · {esc(view["state"])}</h2>'
+                 '<p><a href="#overview">← Commit overview</a></p>')
+        if view["state"] == "pending":
+            body += ('<p class="notice">No report has been published for this device at this commit. '
+                     'It is declared here, so one can still arrive; nothing is assumed about its results.</p>')
+        else:
+            inner, _, _ = detail_body(view["report"], view["entry"], embedded=True, live=view.get("live"), **view["references"])
+            body += embed(inner, view["id"])
+        body += '</section>'
+    # A live view is re-read while any device is still running. The address keeps its fragment.
+    reload = '<script>setTimeout(() => location.reload(), 15000);</script>' if live and any(view["state"] == "running" for view in views) else ''
+    return page("Poros accuracy · " + commit[:12], body + '</div>', POINT_TIPS + VIEW_SCRIPT + reload), summary, pooled
+
+
+def archived_views(site, entry, bundles):
+    """Every device of an archived commit: its state and, where a bundle is retained, its validated report."""
+    views = [dict(id=declared["id"], declared=declared) for declared in declared_devices(entry["declaration"])]
+    listed = {view["id"] for view in views}
+    # Without a verified declaration only what was attempted can be shown.
+    views += [dict(id=device, declared=None) for device in sorted(entry["devices"]) if device not in listed]
+    for view in views:
+        stored = entry["devices"].get(view["id"])
+        if stored is None:
+            view.update(state="pending", report=None)
+            continue
+        folder = bundle_dir(site, entry["commit"], view["id"])
+        report, manifest = bundles[view["id"]]
+        references = {argument: read(folder / (name + ".json")) if name + ".json" in manifest["files"] else None
+                      for name, argument in REFERENCE_ARGUMENTS.items()}
+        view.update(state="report" if report["artifact_status"] == "pass" else "failed", report=report, references=references,
+                    entry=dict({key: entry[key] for key in COMMIT_FIELDS if key in entry}, **stored),
+                    bundle_sha256=digest(folder / "bundle.json"))
+    return views
+
+
+def render_commit(site, entry, source=None):
+    """Rewrite one commit's report and record from its retained device bundles."""
+    commit, folder = entry["commit"], commit_dir(site, entry["commit"])
+    bundles = {device: validate_bundle(bundle_dir(site, commit, device), commit) for device in entry["devices"]}
+    for device, (report, _) in bundles.items():
+        if report_device(report) != device:
+            raise ValueError("retained report belongs to another device")
+    stored = entry.get("declaration")
+    # The repository is consulted only while the retained evidence says nothing.
+    found = [report_declaration(report) for report, _ in bundles.values()]
+    if not any(found) and (stored is None or stored["status"] == "unknown"):
+        found.append(source_declaration(source, commit))
+    entry["declaration"] = record = commit_declaration(stored, found)
+    for device in list(entry["devices"]):
+        try:
+            require_supported(record, device)
+        except ValueError:
+            if bundles[device][0]["artifact_status"] != "fail":
+                raise
+            # A failure filed while the declaration was unknown, for a device the
+            # commit turns out not to declare, is not evidence about this commit.
+            shutil.rmtree(bundle_dir(site, commit, device))
+            del entry["devices"][device], bundles[device]
+    views = archived_views(site, entry, bundles)
+    html, summary, pooled = commit_report(commit, record, views, releases=entry.get("releases", ()))
+    (folder / "index.html").write_text(html)
+    if record["status"] == "declared":
+        (folder / "devices.json").write_bytes(devices.encode(record["declaration"]))
+    else:
+        (folder / "devices.json").unlink(missing_ok=True)
+    states = [view["state"] for view in views]
+    contributors = [(view["id"], series_key(view["report"])) for view in views if view["id"] in pooled["contributors"]]
+    entry.update(
+        # Any failed device fails the commit; a declared device without a report leaves it partial.
+        artifact_status="fail" if "failed" in states else "partial" if "pending" in states else "pass",
+        benchmark_summary=summary, overview=pooled,
+        series=None if not contributors else contributors[0][1] if [name for name, _ in contributors] == [devices.DEFAULT]
+        else hashlib.sha256(json.dumps(contributors, sort_keys=True).encode()).hexdigest())
+    for view in views:
+        if view["state"] != "pending":
+            saved = entry["devices"][view["id"]]
+            saved.update(benchmark_summary=benchmark_summary(view["report"]), bundle_sha256=view["bundle_sha256"])
+            write(bundle_dir(site, commit, view["id"]) / "metadata.json",
+                  dict({key: entry[key] for key in COMMIT_FIELDS if key in entry}, device=view["id"], **saved))
+    write(folder / "commit.json", dict(
+        schema=1, commit=commit, main=entry["main"], releases=entry["releases"], declaration=record,
+        artifact_status=entry["artifact_status"], benchmark_summary=summary, overview=pooled,
+        devices={view["id"]: dict(state=view["state"], **({} if view["state"] == "pending" else dict(
+            artifact_status=entry["devices"][view["id"]]["artifact_status"],
+            bundle=("" if view["id"] == devices.DEFAULT else f'devices/{view["id"]}/') + "bundle.json",
+            bundle_sha256=view["bundle_sha256"]))) for view in views}))
+
+
+def archive(site, bundle_path, metadata, main_order, keep=20, source=None):
     """Update only our subtree. Call in a disposable checkout, then commit atomically.
 
-    The validated report decides which device's archive it joins. Publication
-    metadata naming another device is rejected rather than refiled."""
+    A commit has one report. Each device's bundle joins it, under the device its
+    validated report names, without touching the bundles of its siblings;
+    publication metadata naming another device is rejected rather than refiled.
+    `source` is a repository that has the commits, used to read a commit's
+    device declaration when no retained report carries it."""
     site = Path(site)
+    root = site / "calibration"
     if any(
         (site / name).is_symlink()
         for name in ("calibration", "index.html", ".nojekyll")
-    ) or any(p.is_symlink() for p in (site / "calibration").rglob("*")):
+    ) or any(p.is_symlink() for p in root.rglob("*")):
         raise ValueError("archive must not contain symlinks")
     commit = sha(metadata["commit"])
     report, bundle_manifest = validate_bundle(bundle_path, commit)
     device = report_device(report)
     if metadata.get("device", devices.DEFAULT) != device:
         raise ValueError(f"publication names device {metadata.get('device', devices.DEFAULT)!r} but the report is for {device!r}")
-    root = archive_root(site, device)
     if metadata["kind"] not in ("main", "release") or metadata["conclusion"] not in (
         "success",
         "failure",
@@ -2382,16 +2792,16 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
     if "run_url" not in metadata:
         raise ValueError("missing publication URL")
     index_path = root / "index.json"
-    index = (
-        read(index_path) if index_path.exists() else {"schema": SCHEMA, "entries": []}
+    index = migrate_index(
+        read(index_path) if index_path.exists() else {"schema": INDEX_SCHEMA, "entries": []}
     )
-    if index["schema"] != SCHEMA:
-        raise ValueError("unsupported archive schema")
     entries = {sha(e["commit"]): e for e in index["entries"]}
     for e in entries.values():
         validate_run_urls(e)
-        if e["artifact_status"] not in ("pass", "fail") or "run_url" not in e:
-            raise ValueError("invalid retained entry")
+        for saved in e["devices"].values():
+            validate_run_urls(saved)
+            if saved["artifact_status"] not in ("pass", "fail") or "run_url" not in saved:
+                raise ValueError("invalid retained entry")
     if metadata["kind"] == "release":
         for e in entries.values():
             if e["commit"] != commit and any(
@@ -2400,31 +2810,31 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
                 raise ValueError(
                     "a permanently pinned release cannot move to another commit"
                 )
-    existing = entries.get(commit)
+    entry = entries.get(commit) or dict(commit=commit, main=False, releases=[], devices={})
+    # Refuse a device this commit does not declare before anything is stored.
+    record = commit_declaration(entry.get("declaration"), [report_declaration(report), source_declaration(source, commit)])
+    require_supported(record, device)
+    entry["declaration"] = record
+    entries[commit] = entry
+    existing = entry["devices"].get(device)
     if existing and existing["artifact_status"] == "pass":
         # Reuse the original measured report, including its original comparison base.
-        report = read(root / "runs" / commit / "report.json")
-        entry = existing
-        if metadata["kind"] == "main":
-            entry["main"] = True
+        saved = existing
     else:
-        destination = root / "runs" / commit
-        if destination.exists():
-            shutil.rmtree(destination)
-        destination.mkdir(parents=True)
+        destination = bundle_dir(site, commit, device)
+        clear_bundle(destination, device)
         for name in bundle_manifest["files"]:
             target = destination / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(Path(bundle_path) / name, target)
         shutil.copyfile(Path(bundle_path) / "bundle.json", destination / "bundle.json")
-        entry = {
-            **metadata,
-            "main": metadata["kind"] == "main" or bool(existing and existing["main"]),
+        saved = entry["devices"][device] = {
+            **{key: value for key, value in metadata.items()
+               if key not in COMMIT_FIELDS and key not in ("device", "release")},
             "artifact_status": report["artifact_status"],
             "accuracy_status": report["accuracy_status"],
             "series": series_key(report),
             "summary": report.get("summary", {}),
-            "releases": existing["releases"] if existing else [],
             "evidence_run_url": metadata.get("evidence_run_url", metadata["run_url"]),
             "evidence_files": sorted(bundle_manifest["files"]),
             "measurement_completed_at": (
@@ -2433,21 +2843,20 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
                 else None
             ),
         }
-        for field in EVALUATION_FIELDS:
-            entry.pop(field, None)
-            if existing and field in existing:
-                entry[field] = existing[field]
-        entries[commit] = entry
+    entry["main"] = entry["main"] or metadata["kind"] == "main"
     entry.pop("successful_evaluation", None)
+    # The commit shows its newest Evaluation. Each device also keeps the one
+    # that produced its own evidence, which may be another run.
     merge_evaluation(entry, metadata)
+    merge_evaluation(saved, metadata)
     if metadata["kind"] == "main":
         if (int(metadata.get("run_id", 0)), int(metadata.get("run_attempt", 0))) >= (
-            int(entry.get("run_id", 0)),
-            int(entry.get("run_attempt", 0)),
+            int(saved.get("run_id", 0)),
+            int(saved.get("run_attempt", 0)),
         ):
             for key in ("conclusion", "run_id", "run_attempt", "run_url"):
                 if key in metadata:
-                    entry[key] = metadata[key]
+                    saved[key] = metadata[key]
     if metadata["kind"] == "release":
         release = metadata["release"]
         if (
@@ -2469,43 +2878,31 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
     }
     for old in list(entries):
         if old not in retain:
-            shutil.rmtree(root / "runs" / sha(old))
+            # A commit is retained or dropped whole, with every device's bundle.
+            shutil.rmtree(commit_dir(site, old))
             del entries[old]
     ordered = sorted(
         entries.values(),
         key=lambda e: (positions.get(e["commit"], len(positions)), e["commit"]),
     )
+    for e in ordered:
+        render_commit(site, e, source)
     success = [
         e
         for e in ordered
         if e["main"]
         and e["commit"] in positions
-        and e["artifact_status"] == "pass"
+        and e["artifact_status"] in ("pass", "partial")
         and e.get("evaluation_conclusion") == "success"
     ]
     index = {
-        "schema": SCHEMA,
+        "schema": INDEX_SCHEMA,
         "main_head": main_order[0] if main_order else None,
         "latest_success": success[0]["commit"] if success else None,
         "entries": ordered,
     }
-    for e in ordered:
-        e["benchmark_summary"] = benchmark_summary(render_entry(site, device, e))
-        write(root / "runs" / e["commit"] / "metadata.json", e)
     write(index_path, index)
-    # Every device's dashboard lists every device, so refresh them together. A
-    # report of this commit under another device gains its link to this one.
-    declaration = devices.load()
-    for other in dict.fromkeys([*(d["id"] for d in declaration["devices"]), *archived_devices(site)]):
-        other_root = archive_root(site, other)
-        other_index = index if other == device else read(other_root / "index.json") if (other_root / "index.json").exists() else None
-        if other != device and other_index is not None:
-            for e in other_index["entries"]:
-                if e["commit"] == commit:
-                    render_entry(site, other, e)
-        other_root.mkdir(parents=True, exist_ok=True)
-        (other_root / "index.html").write_text(home(
-            other_index or {"schema": SCHEMA, "main_head": None, "latest_success": None, "entries": []}, other, declaration, site))
+    (root / "index.html").write_text(home(index))
     (site / ".nojekyll").touch()
     if not (site / "index.html").exists():
         (site / "index.html").write_text(
@@ -2526,31 +2923,21 @@ STATUS_SCRIPT = """<script>
 </script>"""
 
 
-def device_dashboards(device, declaration, site):
-    """Every declared device with its parameter source and native references, linking each dashboard."""
-    body = ('<section id="devices"><h2>Modeled devices</h2><div class="table"><table><thead><tr><th>Device</th><th>Hardware</th>'
-            '<th>Parameter source</th><th>Native references</th><th>Dashboard</th></tr></thead><tbody>')
-    for declared in declaration["devices"]:
-        where = ("this dashboard" if declared["id"] == device else
-                 '<a href="' + esc(device_url(site, archive_root(site, device), declared["id"])) + '">open</a>')
-        body += (f'<tr data-row-key="{esc(declared["id"])}"><td><code>{esc(declared["id"])}</code></td><td>{esc(declared["hardware"])}</td>'
-                 f'<td>{esc(devices.parameter_text(declared, declaration))}</td>'
-                 f'<td>{esc(devices.reference_status(declared))}</td><td>{where}</td></tr>')
-    return body + '</tbody></table></div></section>'
+def device_coverage(entry):
+    """How many of a commit's own devices have reported, in words; no device is named or assumed."""
+    record = entry.get("declaration") or {"status": "unknown"}
+    reported = sum(saved["artifact_status"] == "pass" for saved in entry["devices"].values())
+    failed = sum(saved["artifact_status"] == "fail" for saved in entry["devices"].values())
+    if record["status"] == "unknown":
+        return f"declaration unknown; {failed} failed"
+    text = f"{reported} of {len(declared_devices(record))} reported"
+    return text + (f", {failed} failed" if failed else "")
 
 
-def home(index, device=devices.DEFAULT, declaration=None, site="."):
-    declaration = devices.load() if declaration is None else declaration
-    declared = next((d for d in declaration["devices"] if d["id"] == device), None)
-    name = (declared["hardware"] + " · " if declared else "") + device
-    body = '<header><div class="eyebrow">Poros / Calibration dashboard</div><h1>Accuracy over time</h1><p class="muted">Whole-program user CPU time · Raw predictions against retained hardware observations</p><p id="dashboard-device">Device: <strong>' + esc(name) + '</strong></p></header><div class="notice"><strong>Hardware accuracy remains unverified.</strong> Report success describes evidence completeness, not an accuracy threshold. Overall accuracy covers application benchmarks. Microbenchmarks have a separate section.</div>'
-    # A mean error or an error trend needs a native reference of this device.
-    referenced = declared is None or "application" in declared["references"]
-    if not referenced:
-        body += ('<div class="notice" id="unmeasured"><strong>No native ' + esc(declared["hardware"]) + ' reference.</strong> '
-                 'Reports for this device hold simulator predictions with checked outputs. No error or accuracy statistic '
-                 'exists for it and none is shown; parameters: ' + esc(devices.parameter_text(declared, declaration)) + '.</div>')
-    body += device_dashboards(device, declaration, site)
+def home(index):
+    """The archive landing: one row per commit, whatever devices that commit has."""
+    index = migrate_index(index)
+    body = '<header><div class="eyebrow">Poros / Calibration dashboard</div><h1>Accuracy over time</h1><p class="muted">Whole-program user CPU time · Raw predictions against retained hardware observations</p></header><div class="notice"><strong>Hardware accuracy remains unverified.</strong> Report success describes evidence completeness, not an accuracy threshold. Overall accuracy covers application benchmarks. Microbenchmarks have a separate section.</div>'
     body += (
         '<p id="current-main">Published snapshot of main: <code>'
         + esc(index["main_head"] or "unknown")
@@ -2564,9 +2951,11 @@ def home(index, device=devices.DEFAULT, declaration=None, site="."):
             if latest
             else "None yet"
         )
-        + '</p><h2>Report history</h2><p class="muted">Latest 20 ordinary main commits; release reports are retained permanently outside that limit. Failed and incomplete results stay visible.</p><div class="table"><table><thead><tr><th>Commit</th><th>Full Evaluation</th><th>Report</th><th>' + ("Mean application error (qualified/total)" if referenced else "Application cases simulated") + '</th><th>Permanent releases</th></tr></thead><tbody>'
+        + '</p><h2>Report history</h2><p class="muted">One report per commit, covering the devices that commit declares. Latest 20 ordinary main commits; release reports are retained permanently outside that limit. Failed and incomplete results stay visible.</p><div class="table"><table><thead><tr><th>Commit</th><th>Full Evaluation</th><th>Report</th><th>Devices at this commit</th><th>Mean application error (qualified/total)</th><th>Permanent releases</th></tr></thead><tbody>'
     )
     for e in index["entries"]:
+        # Before its first rendering an entry has only its devices' own results.
+        status = e.get("artifact_status") or ("fail" if any(d["artifact_status"] == "fail" for d in e["devices"].values()) else "pass")
         body += (
             '<tr><td><a href="runs/'
             + e["commit"]
@@ -2575,29 +2964,25 @@ def home(index, device=devices.DEFAULT, declaration=None, site="."):
             + "</a></td><td>"
             + esc(e.get("evaluation_conclusion", "not checked"))
             + '</td><td><span class="badge '
-            + e["artifact_status"]
+            + esc(status)
             + '">'
-            + esc(e["artifact_status"])
-            + "</span></td>"
+            + esc(status)
+            + "</span></td><td>"
+            + esc(device_coverage(e))
+            + "</td>"
         )
         summary = e.get("benchmark_summary", {})
         coverage = f'{summary.get("comparable", "—")}/{summary.get("required", "—")}'
-        if referenced:
-            body += "<td>" + number(summary.get("head", {}).get("mean_error_percent"), "%") + " (" + coverage + ")</td>"
-        else:
-            body += "<td>" + esc(summary.get("required", "—")) + "</td>"
+        body += "<td>" + number(summary.get("head", {}).get("mean_error_percent"), "%") + " (" + coverage + ")</td>"
         body += (
             "<td>"
             + esc(", ".join(r["tag"] for r in e["releases"]) or "—")
             + "</td></tr>"
         )
-    body += '</tbody></table></div>'
-    if referenced:
-        body += '<h2>Benchmark accuracy trends</h2><p class="muted">Each chart uses one reference, formula and hardware profile. Points are ordered by main ancestry, oldest first; gaps and coverage must be read alongside the reports.</p>'
-    body += '<div class="charts">'
+    body += '</tbody></table></div><h2>Benchmark accuracy trends</h2><p class="muted">Each chart uses one set of contributing devices, references, formula and hardware profiles. The mean pools every qualified device and application input of a commit. Points are ordered by main ancestry, oldest first; gaps and coverage must be read alongside the reports.</p><div class="charts">'
     groups = {}
     for e in reversed(index["entries"]):
-        if referenced and e.get("series") and e["main"]:
+        if e.get("series") and e["main"]:
             groups.setdefault(e["series"], []).append(e)
     for identity, entries in groups.items():
         points = []
@@ -2609,9 +2994,8 @@ def home(index, device=devices.DEFAULT, declaration=None, site="."):
         body += chart(
             "Series " + identity[:12], series, "Main report order", "Mean error (%)"
         )
-    published = index["entries"] or index["main_head"]  # A device without reports has no index file yet.
     body += (
-        '</div><p>' + ('<a href="index.json">Download history index JSON</a> · ' if published else '') + '<a href="https://github.com/'
+        '</div><p><a href="index.json">Download history index JSON</a> · <a href="https://github.com/'
         + REPO
         + '/actions/workflows/evaluation.yml">All evaluation runs</a></p>'
     )
@@ -2639,8 +3023,9 @@ def main():
     reuse.add_argument("--bundle", required=True)
     reuse.add_argument("--commit", required=True)
     serve = sub.add_parser("serve", help="Serve a live snapshot with the canonical report renderer")
-    serve.add_argument("--snapshot", required=True)
-    serve.add_argument("--bundle", help="Optional complete validated bundle to transition to")
+    serve.add_argument("--snapshot", required=True, action="append",
+                       help="one device's snapshot; repeat with other devices of the same commit for the live commit report")
+    serve.add_argument("--bundle", help="Optional complete validated bundle to transition to (single snapshot only)")
     serve.add_argument("--port", type=int, default=18763)
     a = p.parse_args()
     if a.command == "memory-preview":

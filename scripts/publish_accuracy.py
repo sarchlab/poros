@@ -25,11 +25,11 @@ def api(path, method="GET"):
     return json.loads(run("gh", "api", "--method", method, path).stdout)
 
 
-def verify_replacement_source(source, reference, commit):
+def verify_replacement_source(source, reference, commit, path=site.performance.PATH):
     replacement = reference["streamcluster_replacement"]
     site.performance.require_collection_ancestor(source, replacement["base_commit"], commit)
     original_bytes = subprocess.check_output(["git", "-C", str(source), "show",
-        replacement["base_commit"]+":"+site.performance.PATH])
+        replacement["base_commit"]+":"+path])
     original = json.loads(original_bytes)
     replaced = set(replacement["case_ids"])
     current_keys = {"cases", "input_sources", "inventory_sha256", "micro_manifest_sha256", "build_manifest_sha256"}
@@ -73,14 +73,15 @@ def verify_source(source, bundle, commit):
             # source files whose hashes were just checked against the commit.
             return
         reference = site.read(Path(bundle) / "reference.json")
+        reference_path = site.application_reference(report)[0]
         site.performance.require_collection_ancestor(source, reference["collection_commit"], commit)
-        if site.digest(Path(bundle) / "reference.json") != report["head"]["files"].get(site.performance.PATH):
+        if site.digest(Path(bundle) / "reference.json") != report["head"]["files"].get(reference_path):
             raise ValueError("compact reference differs from source commit")
         # Native capture tools were local, uncommitted experiment files. Their
         # hashes describe retained local evidence, not files at collection_commit.
         sources = dict(reference["historical_input_sources"] if "streamcluster_replacement" in reference else reference["input_sources"])
         if "streamcluster_replacement" in reference:
-            verify_replacement_source(source, reference, commit)
+            verify_replacement_source(source, reference, commit, reference_path)
         if reference["protocol"] == site.performance.PROTOCOL:
             sources.update(reference["collector_sources"])
         for path, expected in sources.items():
@@ -345,7 +346,8 @@ def publish(source, bundle, metadata, destination=None, build=True):
             main_order = site.git(
                 source, "rev-list", "--first-parent", "origin/main"
             ).splitlines()
-            site.archive(checkout, bundle, metadata, main_order)
+            # The exact source has the commit, and so its own device declaration.
+            site.archive(checkout, bundle, metadata, main_order, source=source)
             run(
                 "git",
                 "add",
@@ -465,10 +467,11 @@ def main():
     result = publish(source, bundle, metadata)
     print("Published gh-pages commit " + result)
     if os.environ.get("GITHUB_STEP_SUMMARY"):
-        location = site.archive_root(".", metadata.get("device", site.devices.DEFAULT)).as_posix()
+        # One report per commit; the fragment opens this device's view of it.
+        view = "#device-" + metadata.get("device", site.devices.DEFAULT)
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write(
-                f'## Accuracy dashboard\n\n[View report](https://sarchlab.github.io/poros/{location}/runs/{metadata["commit"]}/)\n\nPages commit: `{result}`\n'
+                f'## Accuracy dashboard\n\n[View report](https://sarchlab.github.io/poros/calibration/runs/{metadata["commit"]}/{view})\n\nPages commit: `{result}`\n'
             )
 
 

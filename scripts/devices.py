@@ -172,6 +172,18 @@ def require_reference(value, kind, reference):
         raise ValueError(f"{kind} reference was measured on {reference.get('hardware')!r}, not {declared['hardware']!r}")
 
 
+def bind_reference(value, kind, path, reference):
+    """Accept a loaded native reference for a plan's or report's device.
+
+    The device must declare exactly this file for the kind, and the file must
+    have been measured on the device's hardware. Values without a declaration
+    are the default device with its original files."""
+    declared = entry(value)
+    if declared is not None and declared["references"].get(kind) != path:
+        raise ValueError(f"device {declared['id']} declares its {kind} reference at {declared['references'].get(kind)}, not {path}")
+    require_reference(value, kind, reference)
+
+
 def reference_status(declared, kinds=KINDS):
     present = [kind for kind in kinds if kind in declared["references"]]
     return "measured" if len(present) == len(kinds) else "partial" if present else UNMEASURED

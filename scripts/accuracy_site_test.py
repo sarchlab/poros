@@ -208,7 +208,7 @@ class AccuracySiteTest(unittest.TestCase):
             self.pages, bundle, self.metadata(commit, conclusion="failure"), [commit]
         )
         self.assertEqual(index["latest_success"], commit)
-        self.assertEqual(index["entries"][0]["conclusion"], "success")
+        self.assertEqual(index["entries"][0]["devices"]["m2"]["conclusion"], "success")
         self.assertEqual(
             (self.pages / "calibration/runs" / commit / "report.json").read_bytes(),
             original,
