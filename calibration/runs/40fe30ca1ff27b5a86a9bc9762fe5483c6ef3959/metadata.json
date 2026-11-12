@@ -1,16 +1,63 @@
 {
+  "kind": "release",
   "commit": "40fe30ca1ff27b5a86a9bc9762fe5483c6ef3959",
-  "kind": "main",
-  "conclusion": "failure",
-  "run_id": 43087504397,
+  "release": {
+    "id": 442122785,
+    "tag": "v0.1.2",
+    "publication_run_url": "https://github.com/sarchlab/poros/actions/runs/43261184102/attempts/1"
+  },
+  "conclusion": "success",
+  "run_id": 43261184102,
   "run_attempt": 1,
-  "run_url": "https://github.com/sarchlab/poros/actions/runs/43087504397/attempts/1",
-  "evidence_run_url": "https://github.com/sarchlab/poros/actions/runs/43087504397/attempts/1",
+  "run_url": "https://github.com/sarchlab/poros/actions/runs/43261184102/attempts/1",
   "main": true,
-  "artifact_status": "fail",
+  "artifact_status": "pass",
   "accuracy_status": "unverified",
-  "series": null,
-  "summary": {},
+  "series": "a654288a4caaf0eaf4cc0dfa032719b4753cc1ea88e53d048678163565fd8ce8",
+  "summary": {
+    "calibration": {
+      "required": 24,
+      "comparable": 24,
+      "head_comparable": 24,
+      "base_comparable": 24,
+      "base": {
+        "mean_error_percent": 18.21692087521728,
+        "maximum_error_percent": 47.152402990434844
+      },
+      "head": {
+        "mean_error_percent": 18.21692087521728,
+        "maximum_error_percent": 47.152402990434844
+      }
+    },
+    "held_out": {
+      "required": 12,
+      "comparable": 12,
+      "head_comparable": 12,
+      "base_comparable": 12,
+      "base": {
+        "mean_error_percent": 17.498266418949857,
+        "maximum_error_percent": 28.97104097984277
+      },
+      "head": {
+        "mean_error_percent": 17.498266418949857,
+        "maximum_error_percent": 28.97104097984277
+      }
+    },
+    "validation-legacy": {
+      "required": 228,
+      "comparable": 228,
+      "head_comparable": 228,
+      "base_comparable": 228,
+      "base": {
+        "mean_error_percent": 15.567124555432642,
+        "maximum_error_percent": 49.791761513162335
+      },
+      "head": {
+        "mean_error_percent": 15.567124555432642,
+        "maximum_error_percent": 49.791761513162335
+      }
+    }
+  },
   "releases": [
     {
       "id": 442122785,
@@ -18,14 +65,35 @@
       "publication_run_url": "https://github.com/sarchlab/poros/actions/runs/43087556285/attempts/1"
     }
   ],
+  "evidence_run_url": "https://github.com/sarchlab/poros/actions/runs/43261184102/attempts/1",
   "evidence_files": [
+    "capacity.json",
+    "forwarding.json",
+    "memory.json",
+    "recurrence.json",
+    "reference.json",
     "report.json",
-    "report.md"
+    "report.md",
+    "scheduling.json",
+    "throughput.json"
   ],
-  "measurement_completed_at": null,
+  "measurement_completed_at": "2026-11-08T00:43:18.801015+00:00",
   "evaluation_run_id": 43087504397,
   "evaluation_run_attempt": 1,
   "evaluation_conclusion": "failure",
   "evaluation_run_url": "https://github.com/sarchlab/poros/actions/runs/43087504397/attempts/1",
-  "benchmark_summary": {}
+  "benchmark_summary": {
+    "required": 246,
+    "comparable": 246,
+    "head_comparable": 246,
+    "base_comparable": 246,
+    "base": {
+      "mean_error_percent": 15.913331651266413,
+      "maximum_error_percent": 49.791761513162335
+    },
+    "head": {
+      "mean_error_percent": 15.913331651266413,
+      "maximum_error_percent": 49.791761513162335
+    }
+  }
 }
