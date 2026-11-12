@@ -160,8 +160,10 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
         if chosen is not None:
             report["device"] = chosen
         # The device's own reference, or the default device's file as output oracle.
+        # A caller need not name it; one that does must name exactly this file.
         path, hardware = application_source(report)
-        if Path(args.reference).resolve() != (root / path).resolve():
+        supplied = getattr(args, "reference", None)
+        if supplied is not None and Path(supplied).resolve() != (root / path).resolve():
             raise ValueError("active comparison requires the committed compact reference")
         declared, measured = reference.load(root, require_native=True, path=path, hardware=hardware)
         if state["dirty"]:

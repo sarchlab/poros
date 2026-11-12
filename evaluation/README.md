@@ -117,7 +117,10 @@ later steps read it from the prepared plan. Omitting it means `m2`, and a source
 revision without `devices.json` models only `m2`. An unknown name is an error.
 Plans, shards, diagnostic checkpoints and reports all carry the device, so
 evidence of one device is rejected by another's campaign even while two devices
-share a binary and a profile.
+share a binary and a profile. A failure report carries it too, including one
+written because the build failed before any comparison started. A scheduler's
+live status files must name their plan with `plan_id` once the plan names a
+device; see [the live contract](../scripts/accuracy-live.md).
 
 ```sh
 python3 scripts/devices.py list

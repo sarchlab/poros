@@ -221,12 +221,20 @@ def validate(report):
 
 
 def verify_source(root, report):
+    """Check a report's device against both exact Git revisions.
+
+    A report that names no device and lists no declaration claims to predate
+    device selection. That holds only if its head revision has no declaration;
+    leaving both out of a report of a later revision is not a way to be DEFAULT."""
     declared = validate(report)
-    if declared is not None:
-        for role in ("head", "base"):
-            commit = report["head"]["commit"] if role == "head" else report["base_commit"]
-            if report["device"][role] != revision(root, commit):
-                raise ValueError(role + " device declaration differs from exact Git revision")
+    if declared is None:
+        if revision(root, report["head"]["commit"]) is not None:
+            raise ValueError("report names no device, but its head revision declares devices")
+        return None
+    for role in ("head", "base"):
+        commit = report["head"]["commit"] if role == "head" else report["base_commit"]
+        if report["device"][role] != revision(root, commit):
+            raise ValueError(role + " device declaration differs from exact Git revision")
     return declared
 
 

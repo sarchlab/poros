@@ -678,6 +678,22 @@ def diagnostic_inventory(report, name, native=None):
     return native["cases"] if native is not None else definition_cases(report, name)
 
 
+def inventoried(report):
+    """Whether a report records the source it tested. A failure can precede that."""
+    return isinstance(report.get("head"), dict) and isinstance(report["head"].get("files"), dict)
+
+
+def reference_availability(report, declared):
+    """Native reference availability of a declared device, as far as a report establishes it.
+
+    Which suites exist is read from the tested source. A failure that stopped
+    before recording that source establishes the application reference alone."""
+    if inventoried(report):
+        return devices.reference_status(declared, ["application", *declared_diagnostics(report)])
+    return ("application " + ("measured" if "application" in declared["references"] else devices.UNMEASURED)
+            + "; diagnostic suites not established, the run failed before recording its source")
+
+
 def device_summary(report):
     """How a report describes its device, or None for a report that predates device selection."""
     declared = devices.entry(report)
@@ -685,7 +701,7 @@ def device_summary(report):
         return None
     return dict(id=declared["id"], hardware=declared["hardware"],
                 parameters=devices.parameter_text(declared, report["device"]["head"]["declaration"]),
-                references=devices.reference_status(declared, ["application", *declared_diagnostics(report)]))
+                references=reference_availability(report, declared))
 
 
 def validate_compact_evidence(report, references, *, partial=False):
@@ -817,9 +833,10 @@ def reusable_bundle(path, commit):
         return False
 
 
-def failure(output, commit, message, device=None):
+def failure(output, commit, message, device=None, base_commit=None):
     """Record a run that produced no report. A named device keeps the failure
-    with that device's reports; unnamed, it is the default device's as before."""
+    with that device's reports; unnamed, it is the default device's as before.
+    A producer that had already resolved its base revision records it."""
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     write(
@@ -828,6 +845,7 @@ def failure(output, commit, message, device=None):
             "schema": 1,
             "artifact_status": "fail",
             "accuracy_status": "unverified",
+            **({} if base_commit is None else {"base_commit": sha(base_commit)}),
             "head_commit": sha(commit),
             "cases": [],
             "error": message,
@@ -2014,7 +2032,6 @@ def device_panel(report, embedded=False):
     described = device_summary(report)
     if described is None:  # A failure recorded before the declarations were read.
         return '<p id="device">Device: <code>' + esc(report_device(report)) + '</code></p>'
-    kinds = ["application", *declared_diagnostics(report)]
     body = (f'<section id="device" data-device="{esc(described["id"])}"><p><strong>Device: {esc(described["hardware"])}</strong> '
             f'(<code>{esc(described["id"])}</code>) · Parameters: {esc(described["parameters"])} · '
             f'Native references: {esc(described["references"])}</p>')
@@ -2027,7 +2044,7 @@ def device_panel(report, embedded=False):
         where = "on this page" if declared["id"] == described["id"] else "in its own view of the commit's report"
         body += (f'<tr data-row-key="{esc(declared["id"])}"><td><code>{esc(declared["id"])}</code></td><td>{esc(declared["hardware"])}</td>'
                  f'<td>{esc(devices.parameter_text(declared, declaration))}</td>'
-                 f'<td>{esc(devices.reference_status(declared, kinds))}</td><td>{where}</td></tr>')
+                 f'<td>{esc(reference_availability(report, declared))}</td><td>{where}</td></tr>')
     return body + '</tbody></table></div></section>'
 
 
@@ -2393,8 +2410,11 @@ def migrate_index(index):
     entries = []
     for old in index["entries"]:
         entry = {key: old[key] for key in COMMIT_FIELDS if key in old}
+        # The Evaluation recorded for the one report becomes that device's own,
+        # so a later Evaluation of the commit no longer replaces it.
         entry["devices"] = {devices.DEFAULT: {key: value for key, value in old.items()
-                                               if key not in COMMIT_FIELDS and key not in ("release", "device")}}
+                                               if (key not in COMMIT_FIELDS or key in EVALUATION_FIELDS)
+                                               and key not in ("release", "device")}}
         entries.append(entry)
     return dict(index, schema=INDEX_SCHEMA, entries=entries)
 
@@ -2843,12 +2863,13 @@ def archive(site, bundle_path, metadata, main_order, keep=20, source=None):
                 else None
             ),
         }
+        # The Evaluation that produced this evidence stays with it. A later
+        # publication that reuses the evidence does not replace its proof.
+        merge_evaluation(saved, metadata)
     entry["main"] = entry["main"] or metadata["kind"] == "main"
     entry.pop("successful_evaluation", None)
-    # The commit shows its newest Evaluation. Each device also keeps the one
-    # that produced its own evidence, which may be another run.
+    # The commit shows its newest Evaluation, whichever device it was for.
     merge_evaluation(entry, metadata)
-    merge_evaluation(saved, metadata)
     if metadata["kind"] == "main":
         if (int(metadata.get("run_id", 0)), int(metadata.get("run_attempt", 0))) >= (
             int(saved.get("run_id", 0)),
@@ -3019,6 +3040,7 @@ def main():
     f.add_argument("--commit", required=True)
     f.add_argument("--message", required=True)
     f.add_argument("--device", help="modeled device the failed run was for (default: the default device)")
+    f.add_argument("--base-commit", help="base revision the failed run had resolved, if any")
     reuse = sub.add_parser("reusable")
     reuse.add_argument("--bundle", required=True)
     reuse.add_argument("--commit", required=True)
@@ -3040,7 +3062,7 @@ def main():
     if a.command == "bundle":
         bundle(a.report, a.source, a.output, a.commit)
     else:
-        failure(a.output, a.commit, a.message, a.device)
+        failure(a.output, a.commit, a.message, a.device, a.base_commit)
 
 
 if __name__ == "__main__":

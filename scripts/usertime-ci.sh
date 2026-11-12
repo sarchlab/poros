@@ -17,12 +17,9 @@ base_tree=$(mktemp -d /tmp/poros-user-base-tree.XXXXXX)
 cleanup() {
  status=$?
  if [ "$status" -ne 0 ] && [ ! -f "$output/report.json" ]; then
-  python3 - "$output" "$base" <<'PYREPORT'
-import json,sys,subprocess
-from pathlib import Path
-r=dict(schema=1,artifact_status="fail",accuracy_status="unverified",base_commit=sys.argv[2],head_commit=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),error="Build or setup failed before comparison; see job log")
-p=Path(sys.argv[1]);(p/"report.json").write_text(json.dumps(r,indent=2)+"\n");(p/"report.md").write_text("# User-time accuracy report\nArtifact: **fail**; hardware accuracy: **unverified**\n"+r["error"]+"\n")
-PYREPORT
+  # The shared failure record, filed under the device this run was asked for.
+  python3 scripts/accuracy_site.py failure --output "$output" --commit "$(git rev-parse HEAD)" --base-commit "$base" \
+   --message "Build or setup failed before comparison; see job log" ${device_args[@]+"${device_args[@]}"}
  fi
  git worktree remove --force "$base_tree" >/dev/null 2>&1 || true
  rm -f "$head_binary" "$base_binary"
@@ -39,4 +36,5 @@ else
 fi
 python3 scripts/usertime_test.py
 python3 scripts/compute_usertime_test.py
-python3 scripts/usertime.py compare --head "$head_binary" "${base_args[@]}" --base-commit "$base" --reference evaluation/usertime/performance-v1.json --output "$output/report.json" ${device_args[@]+"${device_args[@]}"}
+# The comparison takes the application reference its device declares.
+python3 scripts/usertime.py compare --head "$head_binary" "${base_args[@]}" --base-commit "$base" --output "$output/report.json" ${device_args[@]+"${device_args[@]}"}

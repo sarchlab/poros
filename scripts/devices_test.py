@@ -232,6 +232,19 @@ class RevisionTests(unittest.TestCase):
         devices.validate(claimed)  # Self-consistent offline; only Git shows the base never declared it.
         with self.assertRaisesRegex(ValueError, "base device declaration differs from exact Git revision"):
             devices.verify_source(self.root, claimed)
+        # A report may claim to predate devices by naming none and listing no declaration. Offline
+        # that is self-consistent; against Git it holds only for a revision without the declaration.
+        historical = dict(head=dict(commit=self.before, files={}), base_commit=self.before)
+        self.assertIsNone(devices.verify_source(self.root, historical))
+        stripped = dict(head=dict(commit=self.after, files={}), base_commit=self.before)
+        self.assertIsNone(devices.validate(stripped))
+        with self.assertRaisesRegex(ValueError, "report names no device, but its head revision declares devices"):
+            devices.verify_source(self.root, stripped)
+        # Removing only one of the two is already inconsistent offline.
+        with self.assertRaisesRegex(ValueError, "missing device selection"):
+            devices.verify_source(self.root, dict(stripped, head=self.state))
+        with self.assertRaisesRegex(ValueError, "device declaration absent from tested source"):
+            devices.verify_source(self.root, dict(stripped, device=report["device"]))
         (self.root / devices.PATH).write_text(json.dumps(devices.load()))
         loose = self.commit("non-canonical declaration")
         with self.assertRaisesRegex(ValueError, "canonical JSON"):
@@ -686,12 +699,12 @@ class CommitReportTests(ReportFixture):
         metadata = self.metadata(device=None if device == "m2" else device, run=run, commit=report["head"]["commit"])
         return site.archive(pages, bundle, dict(metadata, **changes), self.order, source=repository)
 
-    def publish_failure(self, pages, commit, device, name, *, run=1, repository=None):
+    def publish_failure(self, pages, commit, device, name, *, run=1, repository=None, **changes):
         raw = self.root / name
         site.failure(raw, commit, "simulation failed", device=device)
         site.bundle(raw / "report.json", self.source, raw / "bundle", commit)
         metadata = self.metadata(device=None if device in (None, "m2") else device, run=run, commit=commit)
-        return site.archive(pages, raw / "bundle", dict(metadata, conclusion="failure"), self.order, source=repository)
+        return site.archive(pages, raw / "bundle", dict(metadata, conclusion="failure", **changes), self.order, source=repository)
 
     def setUp(self):
         super().setUp()
@@ -991,6 +1004,48 @@ class CommitReportTests(ReportFixture):
         self.assertEqual(site.validate_bundle(folder, self.commit)[0], self.device_report("m2"))
         check_site(self, self.pages)
 
+    def test_retained_evidence_keeps_the_evaluation_that_produced_it(self):
+        folder = self.folder_of(self.commit)
+        def proof(run):
+            return f"https://github.com/sarchlab/poros/actions/runs/{run}/attempts/1"
+        def device(index, ident):
+            saved = index["entries"][0]["devices"][ident]
+            return {key: saved[key] for key in ("artifact_status", "conclusion", "run_id", "evaluation_run_id",
+                                               "evaluation_conclusion", "evaluation_run_url", "evidence_run_url")}
+        # A device publishes passing evidence from a successful Evaluation.
+        self.publish(self.pages, self.device_report("syn-b"), "syn-b")
+        kept = {name: (folder / "devices/syn-b" / name).read_bytes() for name in ("report.json", "bundle.json", "reference.json")}
+        # A newer run of the same device fails. Its publication is recorded, and the commit shows the
+        # newer Evaluation, but the retained evidence is still the first run's, with the first run's proof.
+        index = self.publish_failure(self.pages, self.commit, "syn-b", "syn-b-failed", run=2, evaluation_conclusion="failure")
+        self.assertEqual(device(index, "syn-b"), dict(
+            artifact_status="pass", conclusion="failure", run_id=2, evaluation_run_id=1, evaluation_conclusion="success",
+            evaluation_run_url=proof(1), evidence_run_url=proof(1)))
+        entry = index["entries"][0]
+        self.assertEqual((entry["evaluation_run_id"], entry["evaluation_conclusion"], entry["evaluation_run_url"]), (2, "failure", proof(2)))
+        self.assertEqual({name: (folder / "devices/syn-b" / name).read_bytes() for name in kept}, kept)
+        retained = site.read(folder / "devices/syn-b/metadata.json")
+        self.assertEqual((retained["evaluation_run_id"], retained["evaluation_conclusion"], retained["run_id"]), (1, "success", 2))
+        section = view(self.page(), "device-syn-b")
+        self.assertIn(f'<a href="{proof(1)}">Full Evaluation proof</a>', section)
+        self.assertIn(f'<a href="{proof(1)}">Original evidence run</a>', section)
+        self.assertNotIn("simulation failed", section)
+        self.assertIn(f'<td><a href="runs/{self.commit}/">{self.commit[:12]}</a></td><td>failure</td>', self.home())
+        # Another device's evidence carries its own Evaluation and leaves that proof alone.
+        index = self.publish(self.pages, self.device_report("m2"), "m2", run=3)
+        self.assertEqual(device(index, "syn-b")["evaluation_run_id"], 1)
+        self.assertEqual((device(index, "m2")["evaluation_run_id"], index["entries"][0]["evaluation_run_id"]), (3, 3))
+        # Evidence that replaces a failure is new evidence: its Evaluation is the one that produced it.
+        index = self.publish_failure(self.pages, self.commit, "syn-c", "syn-c-failed", run=4, evaluation_conclusion="failure")
+        self.assertEqual(device(index, "syn-c"), dict(
+            artifact_status="fail", conclusion="failure", run_id=4, evaluation_run_id=4, evaluation_conclusion="failure",
+            evaluation_run_url=proof(4), evidence_run_url=proof(4)))
+        index = self.publish(self.pages, self.device_report("syn-c"), "syn-c", run=5)
+        self.assertEqual(device(index, "syn-c"), dict(
+            artifact_status="pass", conclusion="success", run_id=5, evaluation_run_id=5, evaluation_conclusion="success",
+            evaluation_run_url=proof(5), evidence_run_url=proof(5)))
+        check_site(self, self.pages)
+
     def test_a_commit_is_evicted_or_pinned_with_all_its_devices(self):
         for run, ident in enumerate(("m2", "syn-b"), 1):
             self.publish(self.pages, self.device_report(ident, LATER), "later-" + ident, run=run)
@@ -1101,6 +1156,15 @@ class CommitReportTests(ReportFixture):
         for name in ("overall", "benchmark-table", "microbenchmarks", "throughput-table"):
             self.assertIn(name, parsed.ids)
             self.assertIn(f'id="{name}"', m2)
+        # The Evaluation published with that report is now its device's own: a later failed
+        # Evaluation of the old commit changes the commit's row, not the retained evidence or its proof.
+        index = self.publish_failure(self.pages, LEGACY, None, "legacy-failed", run=9, evaluation_conclusion="failure")
+        migrated = next(e for e in index["entries"] if e["commit"] == LEGACY)
+        saved = migrated["devices"]["m2"]
+        self.assertEqual((saved["artifact_status"], saved["evaluation_run_id"], saved["evaluation_conclusion"], saved["evidence_run_url"]),
+                         ("pass", 1, "success", metadata["run_url"]))
+        self.assertEqual((migrated["evaluation_run_id"], migrated["evaluation_conclusion"]), (9, "failure"))
+        self.assertEqual({name: (old / name).read_bytes() for name in published}, published)
 
     def test_failed_evidence_alone_leaves_the_devices_unknown_until_the_source_is_read(self):
         repository = self.root / "repository"
@@ -1362,6 +1426,64 @@ class CommitReportTests(ReportFixture):
         # For a browser: keep this site, built by the real archive and renderer from synthetic values, where asked.
         if os.environ.get("POROS_DEVICE_PAGES_PREVIEW"):
             shutil.copytree(self.pages, os.environ["POROS_DEVICE_PAGES_PREVIEW"], dirs_exist_ok=True)
+
+
+class SerialWrapperTests(unittest.TestCase):
+    """scripts/usertime-ci.sh, the serial comparison's shell entry point."""
+    WRAPPER = ROOT / "scripts/usertime-ci.sh"
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        # The first thing the wrapper does after resolving its revisions is build. This build fails.
+        tools = self.root / "tools"
+        tools.mkdir()
+        (tools / "go").write_text("#!/bin/sh\necho 'forced build failure' >&2\nexit 1\n")
+        (tools / "go").chmod(0o755)
+        self.environment = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"])
+        self.head = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
+
+    def run_wrapper(self, name, *device):
+        output = self.root / name
+        result = subprocess.run([str(self.WRAPPER), "HEAD", str(output), *device], env=self.environment, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("forced build failure", result.stderr)
+        return output, result
+
+    def test_setup_failure_before_comparison_is_filed_under_the_requested_device(self):
+        failure = dict(schema=1, artifact_status="fail", accuracy_status="unverified", base_commit=self.head, head_commit=self.head,
+                       cases=[], error="Build or setup failed before comparison; see job log")
+        for name, device, filed in (("grace", ["grace"], "grace"), ("default", [], "m2"), ("empty", [""], "m2")):
+            with self.subTest(device=device):
+                output, _ = self.run_wrapper(name, *device)
+                report = site.read(output / "report.json")
+                # The default device's failure is the record it always was; a named device is named.
+                self.assertEqual(report, dict(failure, **({"device": {"id": filed}} if device and device[0] else {})))
+                self.assertIn("Build or setup failed before comparison", (output / "report.md").read_text())
+                bundle = self.root / (name + "-bundle")
+                site.bundle(output / "report.json", ROOT, bundle, self.head)
+                retained, _ = site.validate_bundle(bundle, self.head)
+                self.assertEqual((retained, site.report_device(retained)), (report, filed))
+                page = (bundle / "index.html").read_text()
+                self.assertIn("Device: <code>" + filed + "</code>", page)
+                if filed != "m2":
+                    self.assertNotIn("<code>m2</code>", page)
+        # A name that cannot be a device is not written down as one, or as the default.
+        output, result = self.run_wrapper("unsafe", "../m2")
+        self.assertIn("unsafe device name", result.stderr)
+        self.assertFalse((output / "report.json").exists())
+
+    def test_wrapper_leaves_the_reference_to_the_comparison(self):
+        # The comparison resolves the application reference its device declares; the wrapper names none.
+        self.assertNotIn("--reference", self.WRAPPER.read_text())
+        self.assertNotIn("performance-v1.json", self.WRAPPER.read_text())
+        argv = ["usertime.py", "compare", "--head", "head", "--base", "base", "--base-commit", "b" * 40, "--output", "report.json"]
+        for extra, device in (([], None), (["--device", "grace"], "grace")):
+            with patch("sys.argv", argv + extra), patch.object(user, "compare", return_value=0) as compare:
+                self.assertEqual(user.main(), 0)
+            self.assertIsNone(compare.call_args.args[0].reference)
+            self.assertEqual(compare.call_args.kwargs, dict(device=device))
 
 
 class PublicationTests(unittest.TestCase):

@@ -344,6 +344,139 @@ class ParallelAccuracyTests(unittest.TestCase):
                         with self.assertRaisesRegex(ValueError, "probe progress is for another modeled device"):
                             exporter(probe_progress=path).export()
 
+    def test_failure_after_device_resolution_and_before_source_inventory_keeps_the_device(self):
+        # The comparison resolves its device first. A reference, clean-source or base check can
+        # then fail before the report records the source it tested.
+        def args(**changes):
+            return SimpleNamespace(**dict(dict(head=str(self.prepared / "head"), base=str(self.prepared / "base"), base_unavailable=False,
+                                               base_commit=BASE, reference=None, output=None), **changes))
+        unestablished = "diagnostic suites not established, the run failed before recording its source"
+        for ident, hardware, application in (("grace", "NVIDIA Grace (Arm Neoverse V2)", "unmeasured"), ("m2", "Apple M2", "measured")):
+            with self.device_campaign(ident):
+                dirty = dict(self.plan["head"], dirty=True)
+                for label, changed, state, reason in (
+                        ("base", args(base_unavailable=True), None, "performance comparison requires a compute-ELF-capable base"),
+                        ("reference", args(reference=str(self.fixture.source / "evaluation/usertime/other.json")), None,
+                         "active comparison requires the committed compact reference"),
+                        ("dirty source", args(), dirty, "accuracy comparison requires clean committed source")):
+                    with self.subTest(device=ident, failure=label):
+                        output = self.root / ident / label.replace(" ", "-") / "report.json"
+                        changed.output = str(output)
+                        with patch.object(user, "source_state", return_value=state or self.plan["head"]):
+                            self.assertEqual(user.compare(changed, lambda *a, **k: self.fail("executed a case"), device=ident), 1)
+                        report = parallel.read(output)
+                        self.assertEqual((report["artifact_status"], report["error"], report["device"]), ("fail", reason, self.plan["device"]))
+                        self.assertNotIn("head", report)
+                        # Markdown and both renderers name the device and claim only what the failure established.
+                        markdown = output.with_suffix(".md").read_text()
+                        described = f"native references: application {application}; {unestablished}."
+                        self.assertIn(f"Device: `{ident}` ({hardware}); parameters: ", markdown)
+                        self.assertIn(described, markdown)
+                        self.assertIn("Failure: " + reason, markdown)
+                        bundle = output.parent / "bundle"
+                        site.bundle(output, self.fixture.source, bundle, HEAD)
+                        retained, manifest = site.validate_bundle(bundle, HEAD)
+                        self.assertEqual((retained, sorted(manifest["files"]), site.report_device(retained)),
+                                         (report, ["report.json", "report.md"], ident))
+                        page = (bundle / "index.html").read_text()
+                        self.assertIn(f"<strong>Device: {site.esc(hardware)}</strong> (<code>{ident}</code>)", page)
+                        self.assertIn(f"Native references: application {application}; {unestablished}", page)
+                        self.assertIn(reason, page)
+                        # Published, it is that device's failed view of the commit's report.
+                        url = "https://github.com/sarchlab/poros/actions/runs/1/attempts/1"
+                        metadata = dict(commit=HEAD, kind="main", conclusion="failure", evaluation_conclusion="failure",
+                                        evaluation_run_id=1, evaluation_run_attempt=1, evaluation_run_url=url,
+                                        run_id=1, run_attempt=1, run_url=url, **({} if ident == "m2" else {"device": ident}))
+                        index = site.archive(output.parent / "pages", bundle, metadata, [HEAD])
+                        entry = index["entries"][0]
+                        # A failure without its source inventory cannot vouch for the commit's declaration.
+                        self.assertEqual((entry["declaration"], list(entry["devices"]), entry["artifact_status"]),
+                                         (dict(status="unknown"), [ident], "fail"))
+                        archived = (output.parent / "pages/calibration/runs" / HEAD / "index.html").read_text()
+                        self.assertIn(f'<a href="#device-{ident}">{ident} · failed</a>', archived)
+                        self.assertIn(f"Native references: application {application}; {unestablished}", archived)
+
+    def test_scheduler_status_is_consumed_only_for_the_plan_it_names(self):
+        import accuracy_progress as progress
+        results, checkpoints = self.root / "no-shards", self.root / "no-checkpoints"
+        results.mkdir()
+        checkpoints.mkdir()
+        def exporter(kind, path):
+            options = dict(status=path) if kind == "campaign" else dict(checkpoints=checkpoints, diagnostic_status=path)
+            return progress.SnapshotExporter(self.prepared, self.fixture.source, results, "123", 1, **options)
+        # Two device campaigns of the same revisions and run id. Their scheduler
+        # status files differ in nothing an exporter used to check.
+        written, plans = {}, {}
+        for ident in ("m1", "grace"):
+            with self.device_campaign(ident):
+                plans[ident] = parallel.identity(self.plan)
+                identity = dict(head=HEAD, base=BASE, run_id="123", plan_id=plans[ident])
+                written[ident] = dict(campaign=self.root / (ident + "-status.json"),
+                                      diagnostic=self.root / (ident + "-diagnostic-status.json"))
+                parallel.write(written[ident]["campaign"],
+                               dict(identity, completed=[], active={"0": {}}, failed=[dict(index=1, error=ident + " worker failed")]))
+                parallel.write(written[ident]["diagnostic"], dict(identity, completed=[], active={}, failed=[]))
+        self.assertNotEqual(plans["m1"], plans["grace"])
+        for ident in written:
+            for other in written:
+                for kind in ("campaign", "diagnostic"):
+                    with self.subTest(plan=ident, status=other, kind=kind), self.device_campaign(ident):
+                        if other != ident:
+                            with self.assertRaisesRegex(ValueError, kind + " status belongs to another prepared plan"):
+                                exporter(kind, written[other][kind]).export()
+                            continue
+                        value = exporter(kind, written[ident][kind]).export()
+                        self.assertEqual(value["report"]["device"]["id"], ident)
+                        if kind == "campaign":
+                            # Its own scheduler's activity and failure, and nobody else's.
+                            self.assertEqual((value["progress"]["state"], value["progress"]["errors"]),
+                                             ("failed", [f"Shard 1: {ident} worker failed"]))
+                            self.assertEqual(value["progress"]["active_cases"], self.plan["shards"][0])
+        # A status written before plans had devices names no plan. For a plan that names a device it
+        # is ambiguous and refused, whichever device that is, the default one included.
+        for ident in ("m1", "m2"):
+            for kind in ("campaign", "diagnostic"):
+                with self.subTest(plan=ident, kind=kind, status="no plan_id"), self.device_campaign(ident):
+                    legacy = dict(head=HEAD, base=BASE, run_id="123", completed=[], active={}, failed=[])
+                    parallel.write(self.root / "legacy-status.json", legacy)
+                    with self.assertRaisesRegex(ValueError, kind + " status has no plan_id"):
+                        exporter(kind, self.root / "legacy-status.json").export()
+                    # The revisions and the run still have to be this plan's.
+                    parallel.write(self.root / "legacy-status.json", dict(legacy, plan_id=parallel.identity(self.plan), run_id="124"))
+                    with self.assertRaisesRegex(ValueError, kind + " status identity mismatch"):
+                        exporter(kind, self.root / "legacy-status.json").export()
+
+    def test_legacy_plan_accepts_the_scheduler_status_it_always_did(self):
+        import accuracy_progress as progress
+        # A source that predates devices is the default device alone: no other campaign can share its
+        # revisions and run id, so its schedulers' status files, which carry no plan_id, still bind.
+        self.declarations()
+        self.assertNotIn("device", self.plan)
+        results, checkpoints = self.root / "no-shards", self.root / "no-checkpoints"
+        results.mkdir()
+        checkpoints.mkdir()
+        legacy = dict(head=HEAD, base=BASE, run_id="123", completed=[], active={"2": {}}, failed=[])
+        for kind in ("campaign", "diagnostic"):
+            path = self.root / (kind + "-status.json")
+            options = dict(status=path) if kind == "campaign" else dict(checkpoints=checkpoints, diagnostic_status=path)
+            with self.subTest(kind=kind), patch.object(parallel, "load_plan", return_value=(self.plan, self.witnesses)), \
+                 patch.object(models, "resolve", return_value=self.plan["model_profiles"]):
+                exporter = progress.SnapshotExporter(self.prepared, self.fixture.source, results, "123", 1, **options)
+                parallel.write(path, dict(legacy, active={}) if kind == "diagnostic" else legacy)
+                value = exporter.export()
+                self.assertNotIn("device", value["report"])
+                if kind == "campaign":
+                    self.assertEqual(value["progress"]["active_cases"], self.plan["shards"][2])
+                # A scheduler that does send plan_id is held to it, and to the revisions, as before.
+                parallel.write(path, dict(legacy, active={}, plan_id=parallel.identity(self.plan)))
+                exporter.export()
+                parallel.write(path, dict(legacy, active={}, plan_id="0" * 64))
+                with self.assertRaisesRegex(ValueError, kind + " status belongs to another prepared plan"):
+                    exporter.export()
+                parallel.write(path, dict(legacy, active={}, base="c" * 40))
+                with self.assertRaisesRegex(ValueError, kind + " status identity mismatch"):
+                    exporter.export()
+
     def test_compressed_partial_exporter_caches_validated_rows_and_rejects_mutation(self):
         import gzip
         import accuracy_progress as progress
@@ -601,6 +734,60 @@ class ParallelAccuracyTests(unittest.TestCase):
         aggregated = parallel.read(self.root / "aggregate/report.json")
         self.assertEqual(serial, aggregated)
         site.check_report(aggregated, HEAD)
+        # A caller need not name the reference: the comparison resolves the one its device
+        # declares. A reference it does name must still be exactly that file.
+        def rerun(name, **reference):
+            options = {key: value for key, value in vars(args).items() if key != "reference"}
+            changed = SimpleNamespace(**dict(options, output=str(self.root / name / "report.json")), **reference)
+            Path(changed.output).parent.mkdir()
+            with contextlib.redirect_stdout(io.StringIO()):
+                return user.compare(changed, live), parallel.read(changed.output)
+        for name, reference in (("omitted", dict(reference=None)), ("absent", {})):
+            self.assertEqual(rerun(name, **reference), (0, serial), name)
+        other = str(parallel.ROOT / "evaluation/usertime/m2-linuxvm-performance-v1.json")
+        self.assertTrue(Path(other).is_file())
+        status, refused = rerun("other", reference=other)
+        self.assertEqual((status, refused["error"]), (1, "active comparison requires the committed compact reference"))
+
+    def test_serial_comparison_takes_the_reference_its_device_declares(self):
+        # A device with a native application reference of its own, in its own file.
+        path = "evaluation/usertime/synthetic-b.json"
+        target = self.fixture.source / path
+        measured_case = self.cases[30]["id"]
+        parallel.write(target, fixtures.device_reference(parallel.read(self.fixture.source / parallel.REFERENCE),
+                                                         "Synthetic device B", {measured_case: .004}))
+        self.addCleanup(target.unlink)
+        self.declarations()
+        declaration = copy.deepcopy(parallel.devices.load())
+        declaration["devices"].append(dict(id="syn-b", hardware="Synthetic device B", parameter_source="m2",
+                                           references=dict(application=path)))
+        self.plan["head"]["files"][path] = user.digest(target)
+        chosen = fixtures.device_selection("syn-b", HEAD, self.plan["head"]["files"], declaration=declaration)
+        self.plan["device"] = chosen
+        def live(binary, case, mode=None, expected_identity=None, expected_profile=None, device=None):
+            return self.device_result(case, "functional" if mode == "functional" else Path(binary).name)
+        def run(name, **reference):
+            args = SimpleNamespace(head=str(self.prepared / "head"), base=str(self.prepared / "base"), base_unavailable=False,
+                                   base_commit=BASE, output=str(self.root / name / "report.json"), **reference)
+            Path(args.output).parent.mkdir()
+            with patch.object(user, "source_state", return_value=self.plan["head"]), \
+                 patch.object(models, "resolve", return_value=self.plan["model_profiles"]), \
+                 patch.object(parallel.devices, "resolve", return_value=copy.deepcopy(chosen)), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                return user.compare(args, live, device="syn-b"), parallel.read(args.output)
+        # The wrapper names no reference; the comparison takes the device's own file.
+        status, report = run("resolved")
+        self.assertEqual((status, report["artifact_status"], report["device"]["id"]), (0, "pass", "syn-b"))
+        self.assertEqual((report["reference_sha256"], report["reference"]["hardware"]), (user.digest(target), "Synthetic device B"))
+        self.assertNotIn("output_oracle", report)
+        row = next(row for row in report["cases"] if row["id"] == measured_case)
+        self.assertEqual((row["reference_user_seconds"], row["reference_quality"]), (.004, "usable"))
+        self.assertIn("error_percent", row["head"])
+        self.assertEqual(run("own", reference=str(target)), (0, report))
+        # The default device's file is not this device's reference, however it is spelled.
+        status, refused = run("default-file", reference=str(self.fixture.source / parallel.REFERENCE))
+        self.assertEqual((status, refused["error"], refused["device"]["id"]),
+                         (1, "active comparison requires the committed compact reference", "syn-b"))
 
     @contextlib.contextmanager
     def memory_fixture(self):
@@ -777,7 +964,12 @@ class ParallelAccuracyTests(unittest.TestCase):
             output = self.root / 'memory-only.json'
             with patch.object(memory, 'measure_case', side_effect=AssertionError('aggregate reran simulation')):
                 self.assertEqual(parallel.aggregate_memory(self.prepared, results, '123', 1, output), 0)
-            self.assertNotIn('device', parallel.read(output))  # A source without devices is the default device, as always.
+            # A genuinely historical artifact: its head revision has no declaration, in Git or in its
+            # inventory, so it names no device and is the default device, as always.
+            historical = parallel.read(output)
+            self.assertNotIn('device', historical)
+            self.assertNotIn(parallel.devices.PATH, historical['head']['files'])
+            self.assertIsNone(parallel.devices.revision(source, historical['head']['commit']))
             preview = self.root / 'memory-only-preview'
             site.memory_preview(output, source, preview)
             rendered = (preview / 'index.html').read_text()
@@ -826,6 +1018,13 @@ class ParallelAccuracyTests(unittest.TestCase):
             rejected(lambda r: r['device'].update(id='m1'), 'memory-only artifact is for a device without a native memory reference')
             rejected(lambda r: r.pop('device'), 'missing device selection')
             rejected(lambda r: r['device'].update(base=None), 'base device declaration differs from exact Git revision')
+            # Dropping the device together with the declaration's entry in the source inventory makes
+            # the artifact look historical. Git at its head revision says it is not.
+            def as_historical(r):
+                r.pop('device')
+                r['head']['files'].pop(parallel.devices.PATH)
+            self.assertIn(parallel.devices.PATH, report['head']['files'])
+            rejected(as_historical, 'report names no device, but its head revision declares devices')
             # A device without a memory reference has no memory-only artifact. It is refused before anything runs.
             unmeasured = campaign.prepare('m1')
             self.assertNotIn('reference_sha256', unmeasured['memory'])

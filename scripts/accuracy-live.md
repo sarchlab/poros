@@ -221,7 +221,17 @@ artifact in the aggregate's download pattern. Re-running failed jobs reuses
 successful points and shards from earlier attempts; their simulations need not
 run again. Status artifacts remain available for diagnosing failed attempts.
 
-The optional campaign status file binds `head`, `base`, `run_id`, completed shard
+Both optional scheduler status files below name the prepared plan they belong
+to with `plan_id`, the value `prepare` prints and `diagnostic-tasks` records in
+`diagnostics.json`. Campaigns of two devices can share `head`, `base` and
+`run_id`, so those three do not identify a campaign. For a plan that names a
+device the exporter refuses a status file without `plan_id`, or with another
+plan's, before reading anything else from it. A plan of a source that predates
+device selection names no device and is `m2` alone; its schedulers' status
+files, which never carried `plan_id`, are still accepted on the three fields,
+and a `plan_id` they do carry must match.
+
+The optional campaign status file binds `head`, `base`, `run_id`, `plan_id`, completed shard
 indices and active shard indices (`active` object). It supplies activity only;
 completed results still require raw validation. `phase: complete` is accepted only
 when strict validation confirms every application and diagnostic result. A full
@@ -229,7 +239,7 @@ when strict validation confirms every application and diagnostic result. A full
 retries transient failures without replacing its last good atomic snapshot.
 
 The separate optional diagnostic status file binds `head`, `base`, `run_id`,
-`completed` task indices, `active` (index-to-worker object), and `failed`
+`plan_id`, `completed` task indices, `active` (index-to-worker object), and `failed`
 entries with `index` and `error`. It supplies worker activity only; completed
 rows always come from validated raw checkpoints. The exporter supports
 out-of-order point completion and unequal base/head subsets in canonical
@@ -289,8 +299,19 @@ file, and all their retained evidence, are `m2` and are read exactly as before.
 - Diagnostic checkpoint keys include the requested target identity. Keys of
   simulators that predate targets are unchanged.
 - `report.device` repeats the plan's value. Offline validation checks the
-  declaration hash against `report.head.files`; publication reads both revisions
-  from Git.
+  declaration hash against `report.head.files`; publication and the memory-only
+  preview read both revisions from Git. A report that names no device and lists
+  no declaration is accepted against Git only if its head revision has none.
+- A failure keeps the device it was for. Before a plan or a comparison exists
+  it records `device: {"id": NAME}`: `aggregate --device`, `accuracy_site.py
+  failure --device` and a build or setup failure of `scripts/usertime-ci.sh BASE
+  OUTPUT NAME` all do. A comparison that fails after resolving its device and
+  before recording its source keeps the resolved `device` without `head`; such a
+  report states the application reference availability its declaration gives
+  and says the diagnostic suites are not established.
+- The serial comparison takes the application reference its device declares.
+  `usertime.py compare --reference` is optional and, when given, must name that
+  file; `scripts/usertime-ci.sh` names none.
 
 For a kind of reference the device does not have, the report and snapshot change
 as follows; nothing native is substituted:
@@ -381,10 +402,14 @@ while a declared device has no report, and `pass` otherwise. Merges to `main`
 publish `m2` only, so their commits are `partial` until other devices are
 published. The latest successful main report is the newest main commit whose
 evaluation succeeded and none of whose devices failed; pending devices do not
-disqualify it. Each device keeps the publication run and the Evaluation that
-produced its own evidence; the history row shows the commit's newest
-Evaluation. A commit is retained, evicted or pinned by a release as a whole,
-with every device's bundle.
+disqualify it. Each device keeps the Evaluation that produced its retained
+evidence. A later publication that finds passing evidence already retained
+reuses it: the device then records that publication's run and conclusion, the
+history row shows the commit's newest Evaluation, and the evidence keeps the
+Evaluation and evidence run it came from. Only evidence that is newly stored,
+such as a report replacing a failure, brings its own Evaluation. A commit is
+retained, evicted or pinned by a release as a whole, with every device's
+bundle.
 
 The commit overview pools raw observations. One observation is one device and
 one application input with a usable native reference of that device, so the

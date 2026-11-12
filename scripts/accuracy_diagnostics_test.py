@@ -302,8 +302,9 @@ class DiagnosticTests(unittest.TestCase):
         forwarding.measure_case(self.prepared/'head',self.source,task['case'],task['index'],
             saved.identity['revision'],saved.identity['profile'],checkpoint=saved,**devices.options(self.plan,'head'))
         status=self.root/'diagnostic-status.json'
+        self.assertIn('device',self.plan)
         state=dict(head=self.plan['head']['commit'],base=self.plan['base_commit'],run_id='test',
-            total=148,completed=[18],active={'17':'worker'},failed=[])
+            plan_id=parallel.identity(self.plan),total=148,completed=[18],active={'17':'worker'},failed=[])
         parallel.write(status,state)
         exporter=progress.SnapshotExporter(self.prepared,self.source,self.root/'shards','test',1,
             checkpoints=self.saved,diagnostic_status=status)
@@ -321,6 +322,11 @@ class DiagnosticTests(unittest.TestCase):
                        lambda s:s.update(active={'148':'worker'}),lambda s:s.update(active={'17':'a','017':'b'})):
             bad=copy.deepcopy(state);mutate(bad);parallel.write(status,bad)
             with self.assertRaises(ValueError):exporter.export()
+        # The plan names a device, so head, base and run id are not enough to own a status file.
+        for mutate,reason in ((lambda s:s.pop('plan_id'),'diagnostic status has no plan_id'),
+                              (lambda s:s.update(plan_id='0'*64),'diagnostic status belongs to another prepared plan')):
+            bad=copy.deepcopy(state);mutate(bad);parallel.write(status,bad)
+            with self.assertRaisesRegex(ValueError,reason):exporter.export()
 
 
 if __name__=='__main__':unittest.main()

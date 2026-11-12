@@ -446,7 +446,8 @@ def main():
     p.add_argument("--base")
     p.add_argument("--base-unavailable", action="store_true")
     p.add_argument("--base-commit", required=True)
-    p.add_argument("--reference", required=True)
+    p.add_argument("--reference", help="the device's committed application reference; resolved from its declaration if omitted, "
+                                       "and refused if it names any other file")
     p.add_argument("--output", required=True)
     p.add_argument("--device", help="modeled device (default: the source's default); this is not the Git revision")
     p = sub.add_parser("measure")

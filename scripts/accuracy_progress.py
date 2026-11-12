@@ -131,6 +131,23 @@ class SnapshotExporter:
         if self.diagnostic_status and not self.checkpoints:
             raise ValueError("diagnostic status requires raw checkpoints")
 
+    def require_status_identity(self, status, label):
+        """A scheduler's status file must describe this exact prepared plan.
+
+        Campaigns of two devices can share head, base and run id, so a plan that
+        names a device accepts only a status carrying its `plan_id`. A plan
+        without a device is the default device of a source that predates device
+        selection; schedulers written for it never sent `plan_id`, and nothing
+        else can share its revisions, so the three fields still identify it."""
+        if (not isinstance(status, dict) or status.get("head") != self.plan["head"]["commit"]
+                or status.get("base") != self.plan["base_commit"] or status.get("run_id") != self.run_id):
+            raise ValueError(label + " identity mismatch")
+        if "plan_id" in status:
+            if status["plan_id"] != parallel.identity(self.plan):
+                raise ValueError(label + " belongs to another prepared plan")
+        elif "device" in self.plan:
+            raise ValueError(label + " has no plan_id; head, base and run id do not tell one device's campaign from another's")
+
     def read_shard(self, path):
         stat = path.stat()
         receipt = path.parent / "receipt.json"
@@ -171,9 +188,8 @@ class SnapshotExporter:
         selected, seen = {}, set()
         paths = sorted([*self.results.rglob("shard.json"), *self.results.rglob("shard.json.gz")])
         status = site.read(self.status) if self.status else None
-        if status and (status.get("head") != self.plan["head"]["commit"] or status.get("base") != self.plan["base_commit"] or status.get("run_id") != self.run_id):
-            raise ValueError("campaign status identity mismatch")
         if status:
+            self.require_status_identity(status, "campaign status")
             count = len(self.plan["shards"])
             def index(value):
                 if isinstance(value, str) and value.isascii() and value.isdigit():
@@ -222,9 +238,7 @@ class SnapshotExporter:
             report["diagnostic_progress"] = diagnostics
             if self.diagnostic_status:
                 status_d = site.read(self.diagnostic_status)
-                if (status_d.get("head") != self.plan["head"]["commit"]
-                        or status_d.get("base") != self.plan["base_commit"] or status_d.get("run_id") != self.run_id):
-                    raise ValueError("diagnostic status identity mismatch")
+                self.require_status_identity(status_d, "diagnostic status")
                 tasks = parallel.diagnostic_tasks(self.plan, self.source)
                 def task_index(value):
                     if isinstance(value, str) and value.isascii() and value.isdigit():
