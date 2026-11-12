@@ -74,6 +74,72 @@ never hardware references. Unknown core identity/frequency and VM effects keep
 hardware accuracy unverified. Unusable points stay visible but are excluded from
 error summaries. Raw measurements are never rescaled or offset.
 
+## Modeled devices
+
+`evaluation/devices.json` declares every device the simulator models: `m2`
+(default), `m1`, `grace` and `m5-max`. The simulator calls a device a target
+(`poros elf --target m1`); the evaluation scripts and workflows say **device**,
+because their `target` is a Git revision. A Go test keeps the declaration equal
+to the targets the simulator builds. Each entry states three things, and every
+report repeats them:
+
+- **hardware**: what the device stands for, for example `Apple M1`.
+- **parameter_source**: the device whose model profile is simulated. Only `m2`
+  has parameters of its own. The other three name `m2`: they run the M2 core,
+  memory and frequency until their own are established, and are labeled as
+  placeholders wherever they appear.
+- **references**: the native reference file of each kind (whole-program user
+  time and each diagnostic suite). Only `m2` has any.
+
+Every device runs the complete campaign: all 264 programs functionally and
+timed, and every diagnostic point, with every output checked. What differs is
+what the result is compared with:
+
+- A native reference is used only for the device whose `hardware` it records.
+  An M2 file cannot be attached to, shown with or compared against another
+  device, in a report, a live snapshot or a bundle.
+- A device without a reference of some kind gets predictions for that kind:
+  time, cycles, instructions and cycles per instruction. Its report has no
+  reference time, error, direction, correlation or mean, and none is displayed
+  as zero or as a placeholder. Program outputs are still checked against the
+  committed complete-output identities, which are what each program must print
+  on any device; the report names that file as its output oracle and reads no
+  timing from it.
+- The base revision is compared only if it models the device. A base that
+  predates device declarations is `m2` and is run without a target, exactly as
+  before. For any other device its predictions are absent and each case says
+  `device_unavailable`.
+
+Select a device with `--device` on `accuracy_parallel.py prepare`,
+`usertime.py compare` or as the third argument of `scripts/usertime-ci.sh`;
+later steps read it from the prepared plan. Omitting it means `m2`, and a source
+revision without `devices.json` models only `m2`. An unknown name is an error.
+Plans, shards, diagnostic checkpoints and reports all carry the device, so
+evidence of one device is rejected by another's campaign even while two devices
+share a binary and a profile.
+
+```sh
+python3 scripts/devices.py list
+go build -o /tmp/poros ./cmd/poros
+python3 scripts/devices.py smoke --poros /tmp/poros   # every device, real simulator
+```
+
+The smoke runs in pull-request CI. Full campaigns for a device other than `m2`
+run on request: the `accuracy_device` input of the Evaluation workflow produces
+the evidence bundle, and the `device` input of "Publish accuracy reports"
+evaluates and publishes it. Merges to `main` continue to run and publish `m2`
+only. Published reports of `m2` stay at `calibration/runs/<commit>/`; another
+device's are at `calibration/devices/<device>/runs/<commit>/`, each device with
+its own history, retention and release pins, and each page links the same
+commit under the other devices.
+
+Giving a device its own parameters needs a declared model profile for it, which
+the scripts do not resolve yet: they refuse a device whose `parameter_source`
+is not `m2` rather than validate it against the M2 profile. Giving a device
+measured references needs the reference file's `hardware` to equal the declared
+hardware and its case identities to match the committed inventories; the
+existing reference validators are still written for the M2 captures.
+
 ## Memory diagnostics
 
 The [single-core memory suite](microbenchmarks/memory/README.md) adds random

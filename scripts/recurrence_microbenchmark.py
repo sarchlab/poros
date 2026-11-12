@@ -14,6 +14,8 @@ import statistics
 import struct
 import subprocess
 
+import devices
+
 ROOT = Path(__file__).resolve().parents[1]
 DIRECTORY = "evaluation/microbenchmarks/recurrence/"
 ELF = DIRECTORY + "recurrence.elf"
@@ -93,17 +95,17 @@ def expected(case, iterations):
     }[case["kind"]]
 
 
-def execute(binary, root, case, index, iterations, mode, revision=None, profile=None):
-    args = [str(binary), "elf", "--mode", mode, "--max-instructions", str(MAX_INSTRUCTIONS), "--timeout", "90s",
+def execute(binary, root, case, index, iterations, mode, revision=None, profile=None, device=None):
+    args = [str(binary), "elf", "--mode", mode, *devices.arguments(device), "--max-instructions", str(MAX_INSTRUCTIONS), "--timeout", "90s",
             str(Path(root) / ELF), str(index), str(iterations)]
     process = subprocess.run(args, capture_output=True, check=True, timeout=100)
     row = json.loads(process.stdout)
     if process.stderr:
         raise ValueError("probe process wrote stderr")
-    return validate_execution(row, root, case, index, iterations, mode, revision, profile)
+    return validate_execution(row, root, case, index, iterations, mode, revision, profile, device=device)
 
 
-def validate_execution(row, root, case, index, iterations, mode, revision=None, profile=None):
+def validate_execution(row, root, case, index, iterations, mode, revision=None, profile=None, device=None):
     if (row["termination"] != "exit" or row["exit_status"] != 0 or row["stderr_base64"]
             or row["binary_sha256"] != digest(Path(root) / ELF)
             or row["args"] != ["program", str(index), str(iterations)] or row["env"]
@@ -117,6 +119,7 @@ def validate_execution(row, root, case, index, iterations, mode, revision=None, 
         if (timing["retired_instructions"] != row["instructions"] or type(timing["user_cycles"]) is not int
                 or timing["user_cycles"] <= 0 or (profile is not None and any(timing[k] != profile[k] for k in ("configuration", "cache_config")))):
             raise ValueError("invalid recurrence timing/profile")
+        devices.check_timing(timing, device)
     elif "timing" in row:
         raise ValueError("functional probe unexpectedly timed")
     return row
@@ -146,23 +149,26 @@ def summarize_samples(case, samples):
     return row
 
 
-def measure_case(binary, root, case, index, revision, profile, *, checkpoint=None):
+def measure_case(binary, root, case, index, revision, profile, *, checkpoint=None, device=None):
     samples = []
+    # Passed only when a device is requested, like every later execution option.
+    options = {} if device is None else {"device": device}
     for n in ITERATIONS:
-        collect = lambda: execute(binary, root, case, index, n, "ooo", revision, profile)
-        validate = lambda row: validate_execution(row, root, case, index, n, "ooo", revision, profile)
+        collect = lambda: execute(binary, root, case, index, n, "ooo", revision, profile, **options)
+        validate = lambda row: validate_execution(row, root, case, index, n, "ooo", revision, profile, **options)
         samples.append(checkpoint(case, index, n, collect, validate) if checkpoint else collect())
     summarize_samples(case, samples)
     return samples
 
 
-def measure(binary, root, revision, profile, *, checkpoint=None, progress=None):
+def measure(binary, root, revision, profile, *, checkpoint=None, progress=None, device=None):
     declared = cases(root)
     rows = []
     for index, case in enumerate(declared, 1):
         if progress:
             progress(rows, case["id"])
-        samples = measure_case(binary, root, case, index, revision, profile, checkpoint=checkpoint)
+        samples = measure_case(binary, root, case, index, revision, profile, checkpoint=checkpoint,
+                               **({} if device is None else {"device": device}))
         rows.append(summarize_samples(case, samples))
         validate_simulation(rows, declared, partial=True)
         if progress:

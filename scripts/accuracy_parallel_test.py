@@ -129,6 +129,157 @@ class ParallelAccuracyTests(unittest.TestCase):
             "base": models.revision(Path(__file__).resolve().parents[1], BASE)}
         parallel.write(self.prepared / "plan.json", self.plan)
 
+    @contextlib.contextmanager
+    def device_campaign(self, ident, base_declared=False):
+        """This fixture's plan as a campaign for one declared device.
+
+        The fixture source is not a Git repository, so the declarations a real
+        prepare reads from the head and base revisions are supplied directly."""
+        if "model_profiles" not in self.plan:
+            self.declarations()
+        chosen = fixtures.device_selection(ident, HEAD, self.plan["head"]["files"], BASE if base_declared else None)
+        self.plan["device"] = chosen
+        parallel.write(self.prepared / "plan.json", self.plan)
+        def resolve(root, state, base, requested=None):
+            return copy.deepcopy(chosen) if requested in (None, ident) else fixtures.device_selection(requested, HEAD, {})
+        with patch.object(user, "source_state", return_value=self.plan["head"]), \
+             patch.object(models, "resolve", return_value=self.plan["model_profiles"]), \
+             patch.object(parallel.devices, "resolve", side_effect=resolve), \
+             contextlib.redirect_stdout(io.StringIO()):
+            yield
+
+    def device_result(self, case, role):
+        """What a simulator given this campaign's target reports for a role."""
+        result = self.result(case, role)
+        target = parallel.devices.identity(self.plan, role)
+        if role != "functional" and target is not None:
+            result["timing"]["target"] = target
+        return result
+
+    def device_shards(self):
+        shards = self.shards()
+        cases = {c["id"]: c for c in self.cases}
+        for shard in shards:
+            for record in shard["records"]:
+                record["executions"] = {role: self.device_result(cases[record["case_id"]], role) for role in record["executions"]}
+        return shards
+
+    def test_unmeasured_device_campaign_runs_all_264_cases_and_reports_no_reference(self):
+        output = self.root / "m1/report.json"
+        with self.device_campaign("m1"):
+            self.assertEqual(parallel.load_plan(self.prepared, "123", 1)[0], self.plan)
+            shards = self.device_shards()
+            # Every case is executed functionally and timed; the base revision cannot model M1.
+            self.assertEqual({tuple(record["executions"]) for shard in shards for record in shard["records"]}, {("functional", "head")})
+            results = self.write_shards(shards)
+            self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output, device="m1"), 0)
+            report = parallel.read(output)
+            self.assertEqual((report["artifact_status"], len(report["cases"]), report["device"]["id"]), ("pass", 264, "m1"))
+            self.assertNotIn("reference", report)
+            self.assertNotIn("reference_sha256", report)
+            self.assertEqual(report["output_oracle"]["sha256"], self.plan["references"]["performance264"])
+            for row in report["cases"]:
+                self.assertEqual(sorted(row), ["base_status", "functional_status", "head", "id", "mapped_image_bytes", "reason",
+                                               "reference_quality", "split", "status"])
+                self.assertEqual((row["reference_quality"], row["base_status"], row["functional_status"]),
+                                 ("unmeasured", "device_unavailable", "pass"))
+                self.assertEqual(sorted(row["head"]), ["cache_config", "configuration", "cycles", "instructions", "predicted_user_seconds"])
+                self.assertIn("No native Apple M1 reference", row["reason"])
+            self.assertTrue(all(split == dict(required=split["required"], comparable=0, head_comparable=0, base_comparable=0)
+                                for split in report["summary"].values()))
+            markdown = output.with_suffix(".md").read_text()
+            self.assertIn("Device: `m1` (Apple M1); parameters: Apple M2 model profile (placeholder; Apple M1 parameters not established); native references: unmeasured.", markdown)
+            self.assertIn("| integer-1000000 | unmeasured | unmeasured | unavailable |", markdown)
+            site.bundle(output, self.fixture.source, self.root / "m1/bundle", HEAD)
+            retained, manifest = site.validate_bundle(self.root / "m1/bundle", HEAD)
+            self.assertEqual((retained, sorted(manifest["files"])), (report, ["report.json", "report.md"]))
+            # The caller's device must be the plan's; neither is silently preferred.
+            self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output, device="m2"), 1)
+            failed = parallel.read(output)
+            self.assertIn("requested device 'm2' differs from prepared plan device 'm1'", failed["error"])
+            self.assertEqual(site.report_device(failed), "m2")
+            # A default-device execution is not evidence for M1, and neither is a base run.
+            for label, mutate, reason in (
+                    ("default target", lambda r: r["executions"]["head"]["timing"]["target"].update(name="m2", hardware="Apple M2"), "simulated device mismatch"),
+                    ("no target", lambda r: r["executions"]["head"]["timing"].pop("target"), "simulated device mismatch"),
+                    ("base run", lambda r: r["executions"].update(base=self.result(self.cases[0], "base")), "missing/extra execution roles")):
+                with self.subTest(label):
+                    altered = copy.deepcopy(shards)
+                    mutate(next(r for r in altered[0]["records"] if r["case_id"] == self.cases[0]["id"]))
+                    self.assertEqual(parallel.aggregate(self.prepared, self.write_shards(altered), "123", 1, output, device="m1"), 1)
+                    failed = parallel.read(output)
+                    self.assertIn(reason, failed["error"])
+                    self.assertEqual(site.report_device(failed), "m1")
+
+    def test_declared_default_device_matches_the_legacy_report_and_requires_its_target(self):
+        legacy_output, output = self.root / "legacy/report.json", self.root / "m2/report.json"
+        self.declarations()
+        with patch.object(user, "source_state", return_value=self.plan["head"]), \
+             patch.object(models, "resolve", return_value=self.plan["model_profiles"]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(parallel.aggregate(self.prepared, self.write_shards(self.shards()), "123", 1, legacy_output), 0)
+        legacy = parallel.read(legacy_output)
+        self.assertNotIn("device", legacy)
+        with self.device_campaign("m2"):
+            shards = self.device_shards()
+            case = self.cases[30]
+            record = next(r for shard in shards for r in shard["records"] if r["case_id"] == case["id"])
+            # The base revision predates targets: it ran, and reported, as it always has.
+            self.assertEqual(record["executions"]["head"]["timing"]["target"], dict(name="m2", hardware="Apple M2", parameter_source="m2"))
+            self.assertNotIn("target", record["executions"]["base"]["timing"])
+            self.assertEqual(parallel.aggregate(self.prepared, self.write_shards(shards), "123", 1, output), 0)
+            report = parallel.read(output)
+            self.assertEqual(report["device"]["id"], "m2")
+            for key in ("cases", "summary", "reference", "reference_sha256", "workload_manifest", "base_capability"):
+                self.assertEqual(report[key], legacy[key], key)
+            self.assertNotIn("output_oracle", report)
+            del record["executions"]["head"]["timing"]["target"]
+            self.assertEqual(parallel.aggregate(self.prepared, self.write_shards(shards), "123", 1, output), 1)
+            self.assertIn("simulated device mismatch: requested 'm2'", parallel.read(output)["error"])
+
+    def test_shards_request_the_plan_device_from_each_simulator_that_models_it(self):
+        for ident, base_declared, base_runs in (("grace", False, False), ("grace", True, True), ("m2", False, True)):
+            with self.subTest(device=ident, base_declared=base_declared), self.device_campaign(ident, base_declared):
+                requested = []
+                def live(binary, case, mode=None, expected_identity=None, expected_profile=None, device=None):
+                    role = "functional" if mode == "functional" else Path(binary).name
+                    requested.append((role, device))
+                    return self.device_result(case, role)
+                output = self.root / ident / str(base_declared) / "shard.json"
+                with patch.object(user, "execute", side_effect=live):
+                    self.assertEqual(parallel.run_shard(self.prepared, "123", 1, 0, output), 0)
+                head = parallel.devices.identity(self.plan, "head")
+                self.assertEqual(head["name"], ident)
+                self.assertEqual({device["name"] for role, device in requested if role != "base"}, {ident})
+                bases = [device for role, device in requested if role == "base"]
+                self.assertEqual(bool(bases), base_runs)
+                # A base that declares the device is asked for it; one that predates
+                # targets is run exactly as before, with no target at all.
+                self.assertEqual(set(map(repr, bases)), {repr(head if base_declared else None)} if base_runs else set())
+
+    def test_plan_device_must_be_the_one_its_source_resolves(self):
+        with self.device_campaign("m1"):
+            parallel.load_plan(self.prepared, "123", 1)
+            shards = self.device_shards()
+            differs = "plan device declaration differs from source"
+            for change, reason in ((lambda p: p.pop("device"), differs),
+                                   (lambda p: p["device"].update(base=copy.deepcopy(p["device"]["head"])), differs),
+                                   (lambda p: p["device"].update(id="m3"), "unknown device 'm3'")):
+                altered = copy.deepcopy(self.plan)
+                change(altered)
+                parallel.write(self.prepared / "plan.json", altered)
+                with self.assertRaisesRegex(ValueError, reason):
+                    parallel.load_plan(self.prepared, "123", 1)
+            # Renaming the device makes a valid plan for that device, and a
+            # different plan: the shards executed as M1 do not belong to it.
+            other = copy.deepcopy(self.plan)
+            other["device"]["id"] = "grace"
+            parallel.write(self.prepared / "plan.json", other)
+            self.assertEqual(parallel.load_plan(self.prepared, "123", 1)[0], other)
+            self.assertNotEqual(parallel.identity(other), parallel.identity(self.plan))
+            with self.assertRaisesRegex(ValueError, "foreign shard identity"):
+                parallel.select_shards(other, shards, 1)
+
     def test_compressed_partial_exporter_caches_validated_rows_and_rejects_mutation(self):
         import gzip
         import accuracy_progress as progress

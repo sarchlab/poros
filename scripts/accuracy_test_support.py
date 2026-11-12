@@ -171,6 +171,54 @@ def compact_report(evidence):
     return report
 
 
+def device_selection(ident, commit, files, base_commit=None):
+    """A device bound to the repository's declaration, as devices.resolve binds it.
+
+    The declaration's hash joins `files`, the head's source inventory. With a
+    base commit the base revision declares the same devices; without one it
+    predates device selection."""
+    import devices
+    declaration = devices.load()
+    sha = hashlib.sha256(devices.encode(declaration)).hexdigest()
+    files[devices.PATH] = sha
+    def bound(revision):
+        return dict(commit=revision, path=devices.PATH, sha256=sha, declaration=copy.deepcopy(declaration))
+    devices.select(declaration, ident)
+    return dict(id=ident, head=bound(commit), base=None if base_commit is None else bound(base_commit))
+
+
+def as_device(report, ident, *, base_declared=False):
+    """Rebind a synthetic compact report to a device.
+
+    A device without a native reference loses every reference time, quality and
+    error, and a base that cannot model it loses its predictions, exactly as
+    the comparison would have produced the report."""
+    import devices
+    import performance_compare as comparison
+    import performance_reference as performance
+    report = copy.deepcopy(report)
+    report["device"] = device_selection(ident, report["head"]["commit"], report["head"]["files"],
+                                        report["base_commit"] if base_declared else None)
+    if devices.measured(report, "application"):
+        return report
+    for key in ("reference", "reference_sha256"):
+        report.pop(key)
+    report["output_oracle"] = dict(path=performance.PATH, sha256=report["head"]["files"][performance.PATH],
+                                   scope=comparison.OUTPUT_ORACLE_SCOPE)
+    for row in report["cases"]:
+        for key in [key for key in row if key.startswith("reference_")] + ["error_change_percentage_points"]:
+            row.pop(key, None)
+        row["reference_quality"] = devices.UNMEASURED
+        if not devices.available(report, "base"):
+            row.pop("base", None)
+            row["base_status"] = devices.BASE_UNAVAILABLE
+        for label in ("head", "base"):
+            for key in ("error_percent", "direction"):
+                row.get(label, {}).pop(key, None)
+    report["summary"] = compute.summaries(report["cases"], True)
+    return report
+
+
 def synthetic_native(reference, declared):
     """Explicitly synthetic transport fixture; never a hardware reference."""
     import macho_reference as macho

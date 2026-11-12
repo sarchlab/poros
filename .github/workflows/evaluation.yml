@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      accuracy_device:
+        description: 'Also run the full accuracy campaign for this modeled device (not a Git revision); none skips it'
+        required: false
+        default: none
+        type: choice
+        options: [none, m2, m1, grace, m5-max]
 permissions:
   contents: read
 concurrency:
@@ -43,6 +50,7 @@ jobs:
       - run: python3 scripts/recurrence_microbenchmark_test.py
       - run: python3 scripts/memory_microbenchmark_test.py
       - run: python3 scripts/model_profiles_test.py
+      - run: python3 scripts/devices_test.py
       - run: python3 scripts/merged_main_pr_test.py
       - run: scripts/evaluation-ci.sh static
         env:
@@ -109,6 +117,7 @@ jobs:
           go build -o /tmp/poros ./cmd/poros
           go test -count=1 ./pkg/loader ./pkg/linuxuser ./pkg/emu ./cmd/poros
           go test -count=1 -run '^TestStreamclusterRepeatELF$' ./pkg/elfsim
+          python3 scripts/devices.py smoke --poros /tmp/poros
           python3 scripts/throughput_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/forwarding_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/scheduling_microbenchmark.py smoke --poros /tmp/poros
@@ -147,6 +156,17 @@ jobs:
     with:
       target: ${{ github.sha }}
       base: ${{ github.event.before }}
+  # On request, the same campaign for any modeled device at this revision. The
+  # post-merge job above stays m2; published device reports come from the
+  # "Publish accuracy reports" workflow, which takes the same device choice.
+  device-accuracy:
+    name: Accuracy for the requested device
+    if: github.event_name == 'workflow_dispatch' && inputs.accuracy_device != 'none'
+    uses: ./.github/workflows/accuracy-evaluate.yml
+    with:
+      target: ${{ github.sha }}
+      base: 'HEAD^'
+      device: ${{ inputs.accuracy_device }}
   diagnostics:
     name: Extended CLI diagnostics
     if: github.event_name == 'workflow_dispatch'

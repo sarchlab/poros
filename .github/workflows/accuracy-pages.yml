@@ -13,6 +13,12 @@ on:
         required: false
         default: ''
         type: string
+      device:
+        description: 'Modeled device to evaluate and publish (not the Git revision); see evaluation/devices.json'
+        required: false
+        default: m2
+        type: choice
+        options: [m2, m1, grace, m5-max]
 permissions:
   contents: read
 # Preserve queued publications instead of replacing pending main/release runs.
@@ -28,6 +34,7 @@ jobs:
       target: ${{ steps.target.outputs.commit }}
       route: ${{ steps.route.outputs.route }}
       base: ${{ steps.route.outputs.base }}
+      device: ${{ steps.route.outputs.device }}
     steps:
       - name: Trusted publishing tools
         uses: actions/checkout@v4
@@ -72,6 +79,7 @@ jobs:
     with:
       target: ${{ needs.resolve.outputs.target }}
       base: ${{ needs.resolve.outputs.base }}
+      device: ${{ needs.resolve.outputs.device }}
   legacy:
     needs: resolve
     if: needs.resolve.outputs.route == 'legacy'

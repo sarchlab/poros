@@ -5,10 +5,71 @@ import (
 	"encoding/json"
 	"github.com/sarchlab/poros/internal/benchmarks"
 	"github.com/sarchlab/poros/pkg/elfsim"
+	"github.com/sarchlab/poros/pkg/target"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestTargetsCommandAndNamedRunTarget(t *testing.T) {
+	var out, diag bytes.Buffer
+	if command([]string{"targets"}, &out, &diag) != 0 || diag.Len() != 0 {
+		t.Fatal(diag.String())
+	}
+	var listed struct {
+		Default string
+		Targets []target.Identity
+	}
+	if err := json.Unmarshal(out.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if listed.Default != target.Default || len(listed.Targets) != len(target.All()) {
+		t.Fatalf("incomplete target list %+v", listed)
+	}
+	for i, device := range target.All() {
+		if listed.Targets[i] != device.Identity {
+			t.Fatalf("listed %+v, want %+v", listed.Targets[i], device.Identity)
+		}
+	}
+	for _, device := range target.All() {
+		for _, cores := range []string{"1", "2"} {
+			out.Reset()
+			diag.Reset()
+			if command([]string{"run", "--root", "../..", "--target", device.Name, "--cores", cores, "gemm", "2", "3", "4"}, &out, &diag) != 0 {
+				t.Fatal(diag.String())
+			}
+			var r struct {
+				Timing *elfsim.Statistics `json:"timing"`
+				Cores  []elfsim.Result    `json:"cores"`
+			}
+			if err := json.Unmarshal(out.Bytes(), &r); err != nil {
+				t.Fatal(err)
+			}
+			reported := []target.Identity{}
+			if r.Timing != nil {
+				reported = append(reported, r.Timing.Target)
+			}
+			for _, core := range r.Cores {
+				reported = append(reported, core.Timing.Target)
+			}
+			if len(reported) != map[string]int{"1": 1, "2": 2}[cores] {
+				t.Fatalf("%s: %d timing results for %s cores", device.Name, len(reported), cores)
+			}
+			for _, identity := range reported {
+				if identity != device.Identity {
+					t.Fatalf("named run reported %+v, want %+v", identity, device.Identity)
+				}
+			}
+		}
+	}
+	for _, args := range [][]string{{"targets", "extra"}, {"run", "--root", "../..", "--target", "m3", "gemm"}, {"run", "--root", "../..", "--target", "m3", "--cores", "2", "gemm"}, {"eval", "--root", "../..", "--target", "M1"}} {
+		out.Reset()
+		diag.Reset()
+		if command(args, &out, &diag) != 2 || out.Len() != 0 || diag.Len() == 0 {
+			t.Fatalf("accepted invalid args %v", args)
+		}
+	}
+}
 
 func TestNamedELFInventoryAndRun(t *testing.T) {
 	var out, diag bytes.Buffer

@@ -267,6 +267,66 @@ validated bundle assets. Incomplete, failed or waiting pages refresh every
 15 seconds. Malformed/intermediate input preserves the last validated snapshot
 with a warning; a producer silent for 45 seconds is visibly stale.
 
+## Devices
+
+Everything above describes a report for a device that has native references,
+which today is `m2`. A head that contains `evaluation/devices.json` also binds
+every plan, shard, checkpoint, snapshot and report to one
+[modeled device](../evaluation/README.md#modeled-devices). Heads without that
+file, and all their retained evidence, are `m2` and are read exactly as before.
+
+- `prepare --device NAME` chooses the device; the default is `m2`. The plan
+  records `device` with exactly `id`, `head` and `base`. `head` and `base` are the
+  declaration at each revision (`commit`, `path`, `sha256`, `declaration`), and
+  `base` is null when the base revision has none. The device is part of the plan
+  identity, so shard and diagnostic artifacts of two devices cannot be mixed.
+- Each simulator that models the device is run with `--target NAME` and must
+  report that target, its hardware and its parameter source in
+  `timing.target`. A base revision that predates targets is `m2`: it is run
+  without the argument and reports none. For any other device such a base is not
+  run; tasks then have the single role `head`, paired suites keep an empty `base`
+  list, and application rows have `base_status: device_unavailable`.
+- Diagnostic checkpoint keys include the requested target identity. Keys of
+  simulators that predate targets are unchanged.
+- `report.device` repeats the plan's value. Offline validation checks the
+  declaration hash against `report.head.files`; publication reads both revisions
+  from Git.
+
+For a kind of reference the device does not have, the report and snapshot change
+as follows; nothing native is substituted:
+
+- No `reference_text`, `<suite>_reference_text` or `<suite>_provenance` is
+  carried, and supplying one is rejected. The bundle holds only `report.json`
+  and `report.md` when the device has no references at all.
+- The report has no `reference` or `reference_sha256`. `output_oracle` names the
+  committed complete-output identity file (`path`, `sha256`, `scope`). Outputs
+  are validated against it; no timing is read from it.
+- Application rows have `reference_quality: unmeasured` and no other
+  `reference_*` field, no `error_percent`, `direction` or
+  `error_change_percentage_points`. Summaries count zero comparable cases.
+- `report.diagnostic_definitions` holds the exact case-definition text of each
+  such suite (`cases.def`, or `cases.json` for memory), whose SHA-256 must equal
+  the `report.head.files` entry. It supplies the case inventory that a native
+  reference otherwise would.
+- The page shows the device, its parameter source and its reference
+  availability, replaces the accuracy charts with a notice, and lists
+  predictions and simulated counters without reference or error columns.
+
+Serve a device's snapshot the same way; the device is in the snapshot:
+
+```sh
+python3 NEW/scripts/accuracy_parallel.py prepare --base BASE --device m1 --shards 132 \
+  --prepared RUN/prepared --run-id RUN_ID --attempt 1
+python3 scripts/accuracy_site.py serve --snapshot RUN/snapshot.json --port 18763
+```
+
+The Pages archive keeps one history per device: `calibration/` for `m2`, with
+every existing URL unchanged, and `calibration/devices/<device>/` for each other
+device. `archive` files a bundle by the device in its validated report and
+refuses publication metadata that names another. Dashboards list all declared
+devices; a report page links the same commit under the other devices when they
+have one.
+
 ## Memory diagnostics
 
 A head declaring the memory suite additionally requires `memory_reference_text`,
@@ -285,7 +345,9 @@ finish. Both roles remain present, with absent cases pending. Base image-capacit
 unavailability stays explicit; it is not a missing head prediction.
 For a memory-only development campaign, `accuracy_parallel.py memory-shard` and
 `memory-aggregate` use the same prepared plan and exact binaries without running
-application points. Render that artifact with:
+application points. The artifact plots native against simulated values, so
+these two commands refuse a device without a native memory reference; such a
+device reports memory through its ordinary shards. Render that artifact with:
 
 ```sh
 python3 scripts/accuracy_site.py memory-preview --report /path/memory-report.json --source . --output /path/memory-preview

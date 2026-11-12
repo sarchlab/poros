@@ -21,6 +21,8 @@ import compute_usertime as compute
 import usertime as user
 import model_profiles
 import memory_microbenchmark as memory
+import devices
+from performance_compare import case_base_status
 
 ROOT = user.ROOT
 REFERENCE = reference.PATH
@@ -49,9 +51,17 @@ def git(*args):
     return subprocess.check_output(["git", "-C", str(ROOT), *args], text=True).strip()
 
 
-def inputs(root=None):
+def inputs(root=None, value=None):
+    """Declared cases and complete-output identities.
+
+    The identities are what each program must print on any device. No native
+    timing leaves this function, so a device without references still has its
+    outputs checked. A device that does compare against the timings must be
+    the hardware they were measured on."""
     root = ROOT if root is None else Path(root)
     declared, measured = reference.load(root, require_native=True)
+    if value is not None and devices.measured(value, "application"):
+        devices.require_reference(value, "application", measured)
     cases = declared["cases"]
     identities = {r["id"]: user.OutputIdentity(r["output_bytes"], r["output_sha256"]) for r in measured["cases"]}
     return cases, identities
@@ -68,14 +78,16 @@ def partition(cases, count):
     return [[c["id"] for c in cases[i::count]] for i in range(count)]
 
 
-def prepare(base, directory, run_id, attempt, shards):
+def prepare(base, directory, run_id, attempt, shards, device=None):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=False)
     state = user.source_state()
     if state["dirty"]:
         raise ValueError("prepare requires clean committed source")
     base = git("rev-parse", base + "^{commit}")
-    cases, _ = inputs()
+    chosen = devices.resolve(ROOT, state, base, device)
+    bound = {} if chosen is None else {"device": chosen}
+    cases, _ = inputs(value=bound)
     reference.require_collection_ancestor(ROOT, read(ROOT / REFERENCE)["collection_commit"], state["commit"])
     compute_base = compute.base_declares_cohort(base)
     if not compute_base:
@@ -96,12 +108,12 @@ def prepare(base, directory, run_id, attempt, shards):
                 head=state, base_commit=base, compute_base_available=compute_base, base_capability=compute.base_capability(base),
                 binaries={"head": user.digest(head_binary), "base": user.digest(base_binary)},
                 references={"performance264": user.digest(ROOT / REFERENCE)},
-                cases=cases, shards=partition(cases, shards))
+                cases=cases, shards=partition(cases, shards), **bound)
     declarations = model_profiles.resolve(ROOT, state, base)
     if declarations is not None:
         plan["model_profiles"] = declarations
     if memory.declared(state["files"]):
-        plan["memory"] = memory_plan(state, shards, base)
+        plan["memory"] = memory_plan(state, shards, base, measured=devices.measured(plan, "memory"))
     if not plan["run_id"]:
         raise ValueError("run identity is required")
     write(directory / "plan.json", plan)
@@ -122,12 +134,14 @@ def load_plan(directory, run_id, attempt, source=None):
     site.sha(plan["base_commit"])
     if plan.get("model_profiles") != model_profiles.resolve(root, state, plan["base_commit"]):
         raise ValueError("plan model declarations differ from source")
+    if plan.get("device") != devices.resolve(root, state, plan["base_commit"], plan["device"]["id"] if "device" in plan else None):
+        raise ValueError("plan device declaration differs from source")
     if memory.declared(state["files"]):
-        if plan.get("memory") != memory_plan(state, len(plan["shards"]), plan["base_commit"], root):
+        if plan.get("memory") != memory_plan(state, len(plan["shards"]), plan["base_commit"], root, measured=devices.measured(plan, "memory")):
             raise ValueError("memory plan source/coverage mismatch")
     elif "memory" in plan:
         raise ValueError("memory plan absent from source")
-    cases, witnesses = inputs(root)
+    cases, witnesses = inputs(root, plan)
     if plan["cases"] != cases or plan["shards"] != partition(cases, len(plan["shards"])):
         raise ValueError("plan coverage/partition mismatch")
     if plan["base_capability"] != compute.base_capability(plan["base_commit"], root):
@@ -147,7 +161,7 @@ def load_plan(directory, run_id, attempt, source=None):
 
 def roles(plan, case, witnesses):
     result = ["functional", "head"]
-    if plan["compute_base_available"] and compute.case_base_status(case, plan["base_capability"]) == "available":
+    if plan["compute_base_available"] and case_base_status(plan, case) == "available":
         result.append("base")
     return result
 
@@ -155,7 +169,7 @@ def roles(plan, case, witnesses):
 def validate_result(result, plan, case, role, golden):
     mode = "functional" if role == "functional" else None
     profile = plan.get("model_profiles", {}).get("base" if role == "base" else "head", {}).get("profile")
-    user.validate_execution(result, case, mode, expected_identity=golden, expected_profile=profile)
+    user.validate_execution(result, case, mode, expected_identity=golden, expected_profile=profile, **devices.options(plan, role))
     revision = plan["base_commit"] if role == "base" else plan["head"]["commit"]
     if result["build"].get("vcs.revision") != revision or result["build"].get("vcs.modified") != "false":
         raise ValueError("execution build provenance mismatch")
@@ -181,6 +195,7 @@ def run_shard(directory, run_id, attempt, index, output):
             for role in roles(plan, case, witnesses):
                 label = "base" if role == "base" else "head"
                 options = {"expected_profile": plan["model_profiles"][label]["profile"]} if "model_profiles" in plan else {}
+                options.update(devices.options(plan, role))
                 result = user.execute(Path(directory) / label, case,
                                       mode="functional" if role == "functional" else None,
                                       expected_identity=golden, **options)
@@ -247,7 +262,7 @@ def recorded_executor(plan, selected, witnesses, directory):
                 records[(case["id"], role)] = result
     remaining = set(records)
 
-    def execute(binary, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None):
+    def execute(binary, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None, device=None):
         label = "head" if Path(binary) == Path(directory) / "head" else "base" if Path(binary) == Path(directory) / "base" else None
         role = "functional" if mode == "functional" and label == "head" else label
         key = (case["id"], role)
@@ -255,6 +270,8 @@ def recorded_executor(plan, selected, witnesses, directory):
         output_matches = expected_output is None and expected_identity == witness
         if label is None or case != cases[case["id"]] or not output_matches:
             raise ValueError("recorded execution request mismatch")
+        if device != devices.identity(plan, label):
+            raise ValueError("recorded device request mismatch")
         if expected_profile != plan.get("model_profiles", {}).get(label, {}).get("profile") and mode != "functional":
             raise ValueError("recorded model profile request mismatch")
         if key not in remaining:
@@ -266,20 +283,24 @@ def recorded_executor(plan, selected, witnesses, directory):
 
 
 
-def memory_plan(state, shards, base, root=None):
-    """Memory cases partitioned across existing workers, with explicit source binding."""
+def memory_plan(state, shards, base, root=None, *, measured=True):
+    """Memory cases partitioned across existing workers, with explicit source binding.
+
+    Only a device with a native memory reference binds that reference."""
     root = ROOT if root is None else Path(root)
-    memory.load_reference(root)
     declared = memory.cases(root)
-    result = dict(reference_sha256=state["files"][memory.REFERENCE],
-                cases=declared,
-                shards=partition(declared, min(shards, len(declared))))
+    result = dict(cases=declared, shards=partition(declared, min(shards, len(declared))))
+    if measured:
+        memory.load_reference(root)
+        result["reference_sha256"] = state["files"][memory.REFERENCE]
     result["elfs"] = {name: state["files"][name] for name in {memory.case_elf(c) for c in declared}}
     result["base_large_image_support"] = memory.supports_large_images(root, base)
     return result
 
 
 def memory_roles(plan, case):
+    if not devices.available(plan, "base"):
+        return ("head",)
     if case["max_image_bytes"] > 256 * 1024 * 1024:
         if type(plan["memory"].get("base_large_image_support")) is not bool:
             raise ValueError("missing memory base image capability")
@@ -300,7 +321,8 @@ def run_memory_records(plan, directory, index, report, output):
             for role in memory_roles(plan, declared[ident]):
                 revision = plan["head"]["commit"] if role == "head" else plan["base_commit"]
                 profile = plan["model_profiles"][role]["profile"]
-                record["executions"][role] = memory.measure_case(Path(directory) / role, ROOT, declared[ident], revision, profile)
+                record["executions"][role] = memory.measure_case(Path(directory) / role, ROOT, declared[ident], revision, profile,
+                                                                 **devices.options(plan, role))
             print("memory shard", index, ident, "pass", flush=True)
         except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as exc:
             report["errors"].append(dict(case_id=ident, error=str(exc)))
@@ -313,6 +335,7 @@ def run_memory_shard(directory, run_id, attempt, index, output):
     plan, _ = load_plan(directory, run_id, attempt)
     if "memory" not in plan or type(index) is not int or not 0 <= index < len(plan["memory"]["shards"]):
         raise ValueError("unknown memory shard")
+    require_memory_reference(plan)
     report = dict(schema=SCHEMA, plan_id=identity(plan), run_id=str(run_id), attempt=attempt,
                   shard=index, status="fail", errors=[], memory_records=[], started_at=time.time())
     write(output, report)
@@ -361,20 +384,33 @@ def recorded_memory(plan, reports, attempt, *, partial=False):
                 for factor, sample in enumerate(samples, 1):
                     elf_hash = plan["memory"]["elfs"][memory.case_elf(case)]
                     memory.validate_execution(sample, case, factor * case["passes"], elf_hash,
-                                              revision=revision, profile=plan["model_profiles"][role]["profile"])
+                                              revision=revision, profile=plan["model_profiles"][role]["profile"],
+                                              **devices.options(plan, role))
                 if case["id"] in result[role]:
                     raise ValueError("duplicate memory execution")
                 result[role][case["id"]] = memory.summarize_samples(case, samples)
-            if "base" not in memory_roles(plan, case):
+            # An image the base cannot load is an explicit row. A device the
+            # base cannot model leaves the base without rows.
+            if "base" not in memory_roles(plan, case) and devices.available(plan, "base"):
                 result["base"][case["id"]] = memory.unavailable(case)
     result = {role: [rows[c["id"]] for c in plan["memory"]["cases"] if c["id"] in rows] for role, rows in result.items()}
-    memory.validate_comparison(result, plan["memory"]["cases"], plan["memory"]["base_large_image_support"], partial=partial)
+    site.validate_diagnostic_rows(plan, "memory", result, plan["memory"]["cases"], partial=partial,
+                                  base_large_image_support=plan["memory"]["base_large_image_support"])
     return result
+
+
+def require_memory_reference(plan):
+    # The memory-only artifact and its preview plot native against simulated
+    # values. A device without that reference runs memory in its accuracy shards.
+    if not devices.measured(plan, "memory"):
+        raise ValueError("memory-only artifacts need a native memory reference; device "
+                         + devices.ident(plan) + " has none and reports memory through its accuracy shards")
 
 
 def aggregate_memory(directory, results, run_id, attempt, output):
     """A memory-only evidence artifact; never masquerades as an application run."""
     plan, _ = load_plan(directory, run_id, attempt)
+    require_memory_reference(plan)
     reports = [read(p) for p in sorted(Path(results).rglob("memory-shard.json"))]
     simulations = recorded_memory(plan, reports, attempt)
     load_plan(directory, run_id, attempt)
@@ -393,10 +429,11 @@ def diagnostic_tasks(plan, source):
     for name, suite in site.declared_diagnostics({"head": plan["head"]}).items():
         if name == "memory":
             continue
-        suite.load_reference(source)
+        if devices.measured(plan, name):
+            devices.require_reference(plan, name, suite.load_reference(source))
         for index, case in enumerate(suite.cases(source), 1):
             tasks.append(dict(diagnostic_index=len(tasks), suite=name, index=index, case=case,
-                              roles=["head"] if name == "throughput" else ["head", "base"]))
+                              roles=list(site.diagnostic_roles(plan, name))))
     return tasks
 
 
@@ -408,7 +445,7 @@ def diagnostic_checkpoint(plan, directory, checkpoints, name, role):
     return Checkpoint(checkpoints, name, role,
                       dict(commit=state["commit"], files_sha256=digest(state["files"])),
                       Path(directory) / role, revision, plan["model_profiles"][role]["profile"],
-                      state["files"][suite.ELF])
+                      state["files"][suite.ELF], **devices.options(plan, role))
 
 
 def diagnostic_inventory(directory, run_id, attempt, source, output):
@@ -458,7 +495,8 @@ def run_diagnostic_point(directory, run_id, attempt, index, checkpoints, output,
         for role in task["roles"]:
             checkpoint = diagnostic_checkpoint(plan, directory, checkpoints, task["suite"], role)
             suite.measure_case(Path(directory) / role, source, task["case"], task["index"],
-                               checkpoint.identity["revision"], checkpoint.identity["profile"], checkpoint=checkpoint)
+                               checkpoint.identity["revision"], checkpoint.identity["profile"], checkpoint=checkpoint,
+                               **devices.options(plan, role))
             report["completed_roles"].append(role)
             atomic_write(output, report)
         load_plan(directory, run_id, attempt, source)
@@ -515,7 +553,8 @@ def recorded_diagnostics(plan, directory, source, checkpoints, *, partial=False)
                     if not partial:
                         raise ValueError("missing diagnostic checkpoint: " + filename)
                     continue
-                validate = lambda row: suite.validate_execution(row, source, case, index, n, "ooo", saved.identity["revision"], saved.identity["profile"])
+                validate = lambda row: suite.validate_execution(row, source, case, index, n, "ooo", saved.identity["revision"],
+                                                                saved.identity["profile"], **devices.options(plan, role))
                 samples.append(saved.read(case, index, n, validate, path=paths[filename]))
             if len(samples) == 2:
                 row = suite.summarize_samples(case, samples)
@@ -525,7 +564,7 @@ def recorded_diagnostics(plan, directory, source, checkpoints, *, partial=False)
                 progress[name]["active"].append(dict(role=role, id=case["id"]))
     for name, rows in simulations.items():
         suite = site.DIAGNOSTIC_SUITES[name]
-        roles = {"head": rows} if name == "throughput" else rows
+        roles = {role: rows if name == "throughput" else rows[role] for role in site.diagnostic_roles(plan, name)}
         declared = suite.cases(source)
         for values in roles.values():
             suite.validate_simulation(values, declared, partial=partial)
@@ -534,14 +573,16 @@ def recorded_diagnostics(plan, directory, source, checkpoints, *, partial=False)
     return simulations, progress
 
 
-def aggregate(directory, results, run_id, attempt, output, shard_status="success", *, source=None, checkpoints=None, progress=None):
+def aggregate(directory, results, run_id, attempt, output, shard_status="success", *, source=None, checkpoints=None, progress=None, device=None):
     root = ROOT if source is None else Path(source)
     output = Path(output)
     # A reporting-only checkout never relabels the measured target on failure.
     target = site.git(root, "rev-parse", "HEAD") if source is not None else git("rev-parse", "HEAD")
     def failure(message):
         from accuracy_progress import reporting_identity
-        site.failure(output.parent, target, message)
+        # A failure stays with the device the caller asked for, even when no
+        # plan could be read to confirm it.
+        site.failure(output.parent, target, message, device=device)
         failed = read(output.parent / "report.json")
         failed["reporting"] = reporting_identity()
         write(output.parent / "report.json", failed)
@@ -550,6 +591,8 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
         if shard_status != "success":
             raise ValueError("upstream shard jobs did not succeed: " + shard_status)
         plan, witnesses = load_plan(directory, run_id, attempt, source)
+        if device is not None and device != devices.ident(plan):
+            raise ValueError(f"requested device {device!r} differs from prepared plan device {devices.ident(plan)!r}")
         paths = sorted(Path(results).rglob("shard.json"))
         selected = select_shards(plan, [read(path) for path in paths], attempt)
         executor, remaining = recorded_executor(plan, selected, witnesses, directory)
@@ -568,7 +611,8 @@ def aggregate(directory, results, run_id, attempt, output, shard_status="success
         diagnostic_simulation, _ = recorded_diagnostics(plan, directory, root, checkpoints)
         status = user.compare(args, executor, memory_simulation=memory_simulation,
                               memory_base_large_image_support=memory_base_large_image_support, source=source,
-                              diagnostic_simulation=diagnostic_simulation, replay_only=True, progress_path=progress)
+                              diagnostic_simulation=diagnostic_simulation, replay_only=True, progress_path=progress,
+                              **({"device": plan["device"]["id"]} if "device" in plan else {}))
         if status:
             # The shared comparator already wrote its detailed failure report.
             return status
@@ -596,6 +640,7 @@ def main():
         if name == "prepare":
             p.add_argument("--base", required=True)
             p.add_argument("--shards", type=int, default=132)
+            p.add_argument("--device", help="modeled device (default: the source's default); this is not the Git revision")
         else:
             p.add_argument("--output", required=True)
         if name in ("shard", "memory-shard"):
@@ -607,6 +652,7 @@ def main():
             p.add_argument("--source", type=Path)
             p.add_argument("--checkpoints", type=Path)
             p.add_argument("--progress", type=Path)
+            p.add_argument("--device", help="device the prepared plan must name; also labels failures before a plan is read")
         if name in ("diagnostic-tasks", "diagnostic"):
             p.add_argument("--source", type=Path)
         if name == "diagnostic":
@@ -614,7 +660,7 @@ def main():
             p.add_argument("--checkpoints", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "prepare":
-        plan_id = prepare(args.base, args.prepared, args.run_id, args.attempt, args.shards)
+        plan_id = prepare(args.base, args.prepared, args.run_id, args.attempt, args.shards, args.device)
         if os.environ.get("GITHUB_OUTPUT"):
             with open(os.environ["GITHUB_OUTPUT"], "a") as out:
                 out.write("plan_id=" + plan_id + "\n")
@@ -633,7 +679,8 @@ def main():
                                     args.checkpoints, args.output, source=args.source)
     if args.command == "shard":
         return run_shard(args.prepared, args.run_id, args.attempt, args.index, args.output)
-    return aggregate(args.prepared, args.results, args.run_id, args.attempt, args.output, args.shard_status, source=args.source, checkpoints=args.checkpoints, progress=args.progress)
+    return aggregate(args.prepared, args.results, args.run_id, args.attempt, args.output, args.shard_status, source=args.source,
+                     checkpoints=args.checkpoints, progress=args.progress, device=args.device)
 
 
 if __name__ == "__main__":

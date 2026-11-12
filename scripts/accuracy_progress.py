@@ -15,6 +15,7 @@ import accuracy_live as live
 import accuracy_parallel as parallel
 import accuracy_site as site
 import compute_usertime as compute
+import devices
 import performance_compare as comparison
 import performance_reference as reference
 import usertime as user
@@ -48,11 +49,21 @@ def report_header(plan, source):
                   cases=[], workload_manifest=declared, head=plan["head"], base_commit=plan["base_commit"],
                   head_binary_sha256=plan["binaries"]["head"], base_binary_sha256=plan["binaries"]["base"],
                   base_capability=plan["base_capability"], base_status="per_case_resource_limit",
-                  model_profiles=plan["model_profiles"], reference_sha256=plan["references"]["performance264"],
-                  reference={k: v for k, v in measured.items() if k not in ("cases", "input_sources", "collector_sources")},
-                  reporting=reporting_identity())
+                  model_profiles=plan["model_profiles"])
+    if "device" in plan:
+        report["device"] = plan["device"]
+    if devices.measured(report, "application"):
+        devices.require_reference(report, "application", measured)
+        report.update(reference_sha256=plan["references"]["performance264"],
+                      reference={k: v for k, v in measured.items() if k not in ("cases", "input_sources", "collector_sources")})
+    else:
+        report["output_oracle"] = comparison.output_oracle(source)
+    report["reporting"] = reporting_identity()
     for name in site.declared_diagnostics(report):
         report[name + "_simulation"] = [] if name == "throughput" else {"head": [], "base": []}
+    definitions = site.diagnostic_definitions(report, source)
+    if definitions:
+        report["diagnostic_definitions"] = definitions
     if "memory" in plan:
         report["memory_base_large_image_support"] = plan["memory"]["base_large_image_support"]
     report["summary"] = compute.summaries([], True)
@@ -60,12 +71,16 @@ def report_header(plan, source):
 
 
 def snapshot(report, source, progress):
-    result = dict(kind=live.KIND, report=copy.deepcopy(report), progress=progress,
-                  reference_text=(Path(source) / reference.PATH).read_bytes().decode("utf-8"))
+    result = dict(kind=live.KIND, report=copy.deepcopy(report), progress=progress)
+    # Native reference bytes travel only with the device they were measured on.
+    if devices.measured(report, "application"):
+        result["reference_text"] = (Path(source) / reference.PATH).read_bytes().decode("utf-8")
     result["report"]["artifact_status"] = "partial"
     provenance = {key: report[key] for key in ("base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")}
     provenance["head_commit"] = report["head"]["commit"]
     for name, suite in site.declared_diagnostics(report).items():
+        if not devices.measured(report, name):
+            continue
         result[name + "_reference_text"] = (Path(source) / suite.REFERENCE).read_bytes().decode("utf-8")
         result[name + "_provenance"] = provenance
     if "throughput" not in site.declared_diagnostics(report) and site.FRONTEND_REFERENCE in report["head"]["files"]:
@@ -88,7 +103,7 @@ def active_memory_progress(plan, report, active_shards):
             for role in parallel.memory_roles(plan, cases[ident]):
                 if ident not in done[role]:
                     active.append(dict(role=role, id=ident))
-    complete = all(len(values) == len(cases) for values in done.values())
+    complete = all(len(done[role]) == len(cases) for role in site.diagnostic_roles(plan, "memory"))
     report.setdefault("diagnostic_progress", {})["memory"] = dict(
         state="running" if active else "complete" if complete else "partial" if any(done.values()) else "pending",
         active=active, errors=[])

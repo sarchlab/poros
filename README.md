@@ -46,7 +46,33 @@ go test ./... -timeout 45m # Run all tests (including long regressions)
 
 # Run all 44 workloads at input point 3
 ./poros eval
+
+# Model another device; m2 is the default and stays the default
+./poros targets
+./poros run --target m1 gemm
+./poros elf --mode ooo --target grace tests/usertime/mvt.elf 63
 ```
+
+### Targets
+
+`--target` selects the modeled device on `run`, `eval` and `elf`: `m2`
+(default), `m1`, `grace` or `m5-max`. A name that is not one of these fails with
+exit status 2 and no result; it never runs as another device. Each target has its
+own builder in `pkg/target` and supplies the out-of-order and in-order
+configuration, the cache hierarchy and the clock. An explicit `--frequency-hz`
+still overrides the clock.
+
+Only `m2` has parameters of its own. `m1`, `grace` and `m5-max` currently carry
+the M2 core, memory and frequency unchanged, so their cycle counts equal M2's
+and say nothing yet about that hardware. Every timing result states this:
+
+```json
+"target": {"name": "m1", "hardware": "Apple M1", "parameter_source": "m2"}
+```
+
+`parameter_source` names the target whose parameters were simulated. The
+evaluation scripts call a target a *device*, because their target is a Git
+revision; see [devices and native references](evaluation/README.md#modeled-devices).
 
 ### Testing
 
@@ -121,6 +147,7 @@ pkg/cpu/       — Multi-core assembly and regression tests
 pkg/cpu/inorder/ — In-order Akita v5 ticking component
 pkg/cpu/ooo/     — OoO Akita v5 ticking component and branch predictor
 pkg/cpu/internal/inst/ — Shared instruction dependency and latency helpers
+pkg/target/    — Modeled devices and the timing configuration of each
 pkg/emu/       — ARM64 functional emulator
 pkg/mem/       — Cache hierarchy (L1, shared L2, DRAM)
 internal/benchmarks/ — ELF inventory, provenance and complete-output validation
@@ -179,7 +206,10 @@ if err := simulation.Run(); err != nil { panic(err) }
 The imports are `context`, `os`, `github.com/sarchlab/poros/pkg/linuxuser`,
 `github.com/sarchlab/akita/v5/sim`, `.../sim/modeling`, and Poros's
 `pkg/cpu/ooo` and `pkg/mem`. Initialize once after all components have been built,
-and terminate afterwards. `elfsim.Run` owns this lifecycle for normal callers.
+and terminate afterwards. `elfsim.Run` owns this lifecycle for normal callers;
+its `Options.Target` names the device, and empty means `m2`. `ooo.DefaultSpec()`
+and `mem.DefaultCacheConfig()` remain the M2 configuration; `target.Lookup`
+returns the out-of-order, in-order and cache configuration of a named device.
 Each OoO run owns one timed cache client: the core advances and finalizes the
 supplied cache. Warm it with `Lookup` before starting, and construct a new cache
 for a second timed run. Untimed `Lookup` remains available after finalization.

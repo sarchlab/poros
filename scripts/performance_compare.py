@@ -11,9 +11,24 @@ import scheduling_microbenchmark as scheduling
 import capacity_microbenchmark as capacity
 import memory_microbenchmark as memory
 import model_profiles
+import devices
 
 
 MICRO_WORKLOADS = {"integer", "branch", "memory"}
+OUTPUT_ORACLE_SCOPE = ("complete-output identities only: what each program must print on any device; "
+                       "no native timing from this file is read, shown or compared")
+
+
+def case_base_status(value, case):
+    """Why a plan's or report's case has or lacks a base prediction."""
+    status = compute.case_base_status(case, value["base_capability"])
+    return status if devices.available(value, "base") else devices.BASE_UNAVAILABLE
+
+
+def output_oracle(root):
+    """The program results a device without a native reference is checked against."""
+    import usertime as user
+    return dict(path=reference.PATH, sha256=user.digest(Path(root) / reference.PATH), scope=OUTPUT_ORACLE_SCOPE)
 
 
 def is_micro_case(case):
@@ -28,24 +43,35 @@ def benchmark_summary(report):
 
 
 def application_row(case, native, measured, report, head, base, executor):
-    """Construct the same complete application row from live or recorded runs."""
+    """Construct the same complete application row from live or recorded runs.
+
+    A device without a native reference gets the same executions and checks. Of
+    `native` only the output identity is then read: the row carries no reference
+    time, quality or error."""
     import usertime as user
     profiles = model_profiles.validate(report)
     expected = user.OutputIdentity(native["output_bytes"], native["output_sha256"])
+    referenced = devices.measured(report, "application")
     row = dict(id=case["id"], split=case["split"], status="unverified", mapped_image_bytes=case["mapped_image_bytes"],
-               base_status=compute.case_base_status(case, report["base_capability"]),
-               reference_user_seconds=native["median_user_seconds"], reference_quality=native["quality"],
-               reference_p10_seconds=native["p10_user_seconds"], reference_p90_seconds=native["p90_user_seconds"],
-               reason="Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved")
-    if "streamcluster_replacement" in measured:
-        row["reference_origin"] = reference.reference_origin(measured, case)
-    functional = executor(head, case, mode="functional", expected_identity=expected)
+               base_status=case_base_status(report, case))
+    if referenced:
+        row.update(reference_user_seconds=native["median_user_seconds"], reference_quality=native["quality"],
+                   reference_p10_seconds=native["p10_user_seconds"], reference_p90_seconds=native["p90_user_seconds"],
+                   reason="Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved")
+        if "streamcluster_replacement" in measured:
+            row["reference_origin"] = reference.reference_origin(measured, case)
+    else:
+        row.update(reference_quality=devices.UNMEASURED,
+                   reason="No native " + devices.entry(report)["hardware"] + " reference; simulator prediction only, no accuracy claim")
+    comparable = referenced and native["quality"] == "usable"
+    functional = executor(head, case, mode="functional", expected_identity=expected, **devices.options(report, "head"))
     for label, binary, revision in (("head", head, report["head"]["commit"]), ("base", base, report["base_commit"])):
         if label == "base" and row["base_status"] != "available":
             continue
         options = {"expected_profile": profiles[label]} if "model_profiles" in report else {}
+        options.update(devices.options(report, label))
         result = executor(binary, case, expected_identity=expected, **options)
-        user.validate_execution(result, case, expected_identity=expected, expected_profile=profiles[label])
+        user.validate_execution(result, case, expected_identity=expected, expected_profile=profiles[label], **devices.options(report, label))
         user.validate_timing(result, case)
         if result["build"].get("vcs.revision") != revision or result["build"].get("vcs.modified") != "false":
             raise ValueError(label + " binary provenance mismatch")
@@ -53,18 +79,22 @@ def application_row(case, native, measured, report, head, base, executor):
             raise ValueError("functional/timing architectural mismatch")
         timing = result["timing"]
         row[label] = dict(predicted_user_seconds=timing["predicted_user_seconds"], instructions=result["instructions"], cycles=timing["user_cycles"], configuration=timing["configuration"], cache_config=timing["cache_config"])
-        if native["quality"] == "usable":
+        if comparable:
             seconds, real = timing["predicted_user_seconds"], native["median_user_seconds"]
             row[label].update(error_percent=user.error_percent(seconds, real), direction="slower" if seconds > real else "faster" if seconds < real else "equal")
     if "base" in row:
-        if native["quality"] == "usable":
+        if comparable:
             row["error_change_percentage_points"] = row["head"]["error_percent"] - row["base"]["error_percent"]
     row["functional_status"] = "pass"
     return row
 
 
-def compare(args, executor, *, memory_simulation=None, memory_base_large_image_support=None, source=None, checkpoints=None, progress_path=None, diagnostic_simulation=None, replay_only=False):
-    """Consume supplied rows; replay_only forbids all diagnostic execution fallbacks."""
+def compare(args, executor, *, memory_simulation=None, memory_base_large_image_support=None, source=None, checkpoints=None, progress_path=None, diagnostic_simulation=None, replay_only=False, device=None):
+    """Consume supplied rows; replay_only forbids all diagnostic execution fallbacks.
+
+    `device` names the modeled device; None is the source's default. Every
+    device runs every case. Native references are compared only for the device
+    they were measured on; without them the report holds predictions alone."""
     import usertime as user
     root = Path(source) if source is not None else Path(user.ROOT)
     output = Path(args.output)
@@ -96,6 +126,9 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
         atomic_write(progress_path, value)
         last_snapshot = value
     report = dict(schema=4, artifact_status="fail", accuracy_status="unverified", formula=user.FORMULA, cases=[])
+    if device is not None:
+        # An early failure is still filed under the device that was asked for.
+        report["device"] = dict(id=device)
     compute.write(output, report)
     output.with_suffix(".md").write_text("# User-time accuracy report\nArtifact: **fail**; comparison incomplete.\n")
     try:
@@ -107,11 +140,19 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
             raise ValueError("accuracy comparison requires clean committed source")
         if not args.base or args.base_unavailable or not compute.base_declares_cohort(args.base_commit, root):
             raise ValueError("performance comparison requires a compute-ELF-capable base")
+        chosen = devices.resolve(root, state, args.base_commit, device)
+        report.pop("device", None)
+        if chosen is not None:
+            report["device"] = chosen
         report.update(workload_manifest=declared, head=state, base_commit=args.base_commit,
                       head_binary_sha256=user.digest(args.head), base_binary_sha256=user.digest(args.base),
-                      base_capability=compute.base_capability(args.base_commit, root), base_status="per_case_resource_limit",
-                      reference_sha256=user.digest(root / reference.PATH),
-                      reference={key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")})
+                      base_capability=compute.base_capability(args.base_commit, root), base_status="per_case_resource_limit")
+        if devices.measured(report, "application"):
+            devices.require_reference(report, "application", measured)
+            report.update(reference_sha256=user.digest(root / reference.PATH),
+                          reference={key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")})
+        else:
+            report["output_oracle"] = output_oracle(root)
         declarations = model_profiles.resolve(root, state, args.base_commit)
         if declarations is not None:
             report["model_profiles"] = declarations
@@ -127,6 +168,9 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
             raise ValueError("aggregation requires recorded diagnostic evidence")
         for name in site.declared_diagnostics(report):
             report[name + "_simulation"] = [] if name == "throughput" else {"head": [], "base": []}
+        definitions = site.diagnostic_definitions(report, root)
+        if definitions:
+            report["diagnostic_definitions"] = definitions
         if memory.declared(state["files"]):
             report["memory_base_large_image_support"] = memory.supports_large_images(root, args.base_commit)
             if memory_simulation is not None:
@@ -137,22 +181,20 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
             row = application_row(case, native, measured, report, args.head, args.base, executor)
             report["cases"].append(row)
             publish()
-            print("accuracy", case["id"], native["quality"], flush=True)
+            print("accuracy", case["id"], row["reference_quality"], flush=True)
         for name, suite in site.declared_diagnostics(report).items():
             if name == "memory":
                 continue
-            suite.load_reference(root)
+            if devices.measured(report, name):
+                devices.require_reference(report, name, suite.load_reference(root))
             if diagnostic_simulation is not None:
                 rows = diagnostic_simulation[name]
-                if name == "throughput":
-                    suite.validate_simulation(rows, suite.cases(root))
-                else:
-                    suite.validate_comparison(rows, suite.cases(root))
+                site.validate_diagnostic_rows(report, name, rows, suite.cases(root))
                 report[name + "_simulation"] = rows
                 report["diagnostic_progress"][name] = dict(state="complete", active=[], errors=[])
                 publish()
                 continue
-            for label in (("head",) if name == "throughput" else ("head", "base")):
+            for label in site.diagnostic_roles(report, name):
                 binary = args.head if label == "head" else args.base
                 revision = state["commit"] if label == "head" else args.base_commit
                 checkpoint = None
@@ -160,19 +202,21 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
                     from probe_checkpoint import Checkpoint, digest
                     checkpoint = Checkpoint(checkpoints, name, label,
                         dict(commit=state["commit"], files_sha256=digest(state["files"])),
-                        binary, revision, profiles[label], state["files"][suite.ELF])
+                        binary, revision, profiles[label], state["files"][suite.ELF], **devices.options(report, label))
                 def update(rows, active, name=name, label=label, suite=suite):
                     if name == "throughput":
                         report[name + "_simulation"] = list(rows)
                         complete = len(rows) == len(suite.cases(root))
                     else:
                         report[name + "_simulation"][label] = list(rows)
-                        complete = all(len(r) == len(suite.cases(root)) for r in report[name + "_simulation"].values())
+                        complete = all(len(report[name + "_simulation"][role]) == len(suite.cases(root))
+                                       for role in site.diagnostic_roles(report, name))
                     report["diagnostic_progress"][name] = dict(
                         state="running" if active else "complete" if complete else "partial",
                         active=[dict(role=label, id=active)] if active else [], errors=[])
                     publish()
                 options = dict(checkpoint=checkpoint, progress=update) if (checkpoints or progress_path) else {}
+                options.update(devices.options(report, label))
                 rows = suite.measure(binary, root, revision, profiles[label], **options)
                 if checkpoints or progress_path:
                     update(rows, None)
@@ -187,7 +231,12 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
         if (memory_simulation is not None or memory_base_large_image_support is not None) and not memory.declared(state["files"]):
             raise ValueError("recorded memory rows supplied without a declared suite")
         if memory.declared(state["files"]):
-            native_memory = memory.load_reference(root)
+            if devices.measured(report, "memory"):
+                native_memory = memory.load_reference(root)
+                devices.require_reference(report, "memory", native_memory)
+                memory_cases = native_memory["cases"]
+            else:
+                memory_cases = memory.cases(root)
             capability = memory.supports_large_images(root, args.base_commit)
             report["memory_base_large_image_support"] = capability
             if memory_simulation is not None:
@@ -199,15 +248,17 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
                     raise ValueError("aggregation requires recorded memory evidence")
                 print("accuracy memory: measuring the full memory suite serially for both revisions; use accuracy_parallel.py for sharded execution", flush=True)
                 report["memory_simulation"] = {
-                    label: memory.measure(binary, root, revision, profiles[label])
+                    label: memory.measure(binary, root, revision, profiles[label], **devices.options(report, label))
+                    if label in site.diagnostic_roles(report, "memory") else []
                     for label, binary, revision in (("head", args.head, state["commit"]),
                                                     ("base", args.base, args.base_commit))
                 }
-            memory.validate_comparison(report["memory_simulation"], native_memory["cases"], capability)
+            site.validate_diagnostic_rows(report, "memory", report["memory_simulation"], memory_cases,
+                                          base_large_image_support=capability)
         report["summary"] = compute.summaries(report["cases"], True)
         if (user.source_state(root)) != state or user.digest(args.head) != report["head_binary_sha256"] or user.digest(args.base) != report["base_binary_sha256"]:
             raise ValueError("source or simulator changed during comparison")
-        if user.digest(root / reference.PATH) != report["reference_sha256"]:
+        if user.digest(root / reference.PATH) != (report["reference_sha256"] if "reference_sha256" in report else report["output_oracle"]["sha256"]):
             raise ValueError("reference changed during comparison")
         report["artifact_status"] = "pass"
         publish()
@@ -220,12 +271,18 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
         publish(error)
     compute.write(output, report)
     lines = ["# Whole-program user-time accuracy report", "", f"Artifact: **{report['artifact_status']}**; hardware accuracy: **unverified**", f"Formula: `{user.FORMULA}`. All 264 required performance points."]
+    if devices.entry(report) is not None:
+        import accuracy_site as site
+        described = site.device_summary(report)
+        lines.append(f"Device: `{described['id']}` ({described['hardware']}); parameters: {described['parameters']}; "
+                     f"native references: {described['references']}.")
     for section, micro in [("Benchmarks", False), ("Microbenchmarks", True)]:
         lines.extend(["", "## " + section, "", "| Case | Reference (s) | Quality | Base (s) | Head (s) | Head error % |", "|---|---:|---|---:|---:|---:|"])
         for row in report["cases"]:
             if is_micro_case(row) != micro:
                 continue
-            lines.append(f"| {row['id']} | {row['reference_user_seconds']:.9g} | {row['reference_quality']} | {row.get('base', {}).get('predicted_user_seconds', 'unavailable')} | {row['head']['predicted_user_seconds']:.9g} | {row['head'].get('error_percent', 'unverified')} |")
+            measured_seconds = f"{row['reference_user_seconds']:.9g}" if "reference_user_seconds" in row else devices.UNMEASURED
+            lines.append(f"| {row['id']} | {measured_seconds} | {row['reference_quality']} | {row.get('base', {}).get('predicted_user_seconds', 'unavailable')} | {row['head']['predicted_user_seconds']:.9g} | {row['head'].get('error_percent', 'unverified')} |")
         if not micro and report["artifact_status"] == "pass":
             summary = benchmark_summary(report)
             lines.append(f"\nComparable application cases: {summary['comparable']} / {summary['required']}.")

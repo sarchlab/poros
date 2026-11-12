@@ -28,8 +28,9 @@ import recurrence_microbenchmark as recurrence
 from report_records import covered_cases
 import memory_microbenchmark as memory
 import model_profiles
+import devices
 from usertime import error_percent
-from performance_compare import MICRO_WORKLOADS, is_micro_case, benchmark_summary
+from performance_compare import MICRO_WORKLOADS, OUTPUT_ORACLE_SCOPE, is_micro_case, benchmark_summary, case_base_status
 
 SCHEMA = 1
 FORMULA = "absolute-difference-over-min-v2"
@@ -173,6 +174,10 @@ def check_report(report, commit, *, partial=False):
         for field in ("head_binary_sha256", "base_binary_sha256"):
             if not re.fullmatch(r"[0-9a-f]{64}", report.get(field, "")):
                 raise ValueError("invalid simulator binary identity")
+        devices.validate(report)
+    elif "device" in report:
+        raise ValueError("device selection requires a schema-4 report")
+    referenced = devices.measured(report, "application")
     inventory = report_manifest(report)
     selected = covered_cases(report["cases"], inventory["cases"], partial=partial)
     performance = report.get("schema") == 4 or inventory.get("suite") == "whole-program-performance-six-point-v1" or (report.get("schema") == 3 and inventory["compute"]["suite"] == compute.PROTOCOL)
@@ -181,13 +186,21 @@ def check_report(report, commit, *, partial=False):
         if report.get("schema") == 3 and report["original_report"]["base_capability"] != capability:
             raise ValueError("base capability differs between cohorts")
         for row, case in zip(report["cases"], selected):
-            expected_status = compute.case_base_status(case, capability)
+            expected_status = case_base_status(report, case)
             if row.get("mapped_image_bytes") != case["mapped_image_bytes"] or row.get("base_status") != expected_status or ("base" in row) != (expected_status == "available"):
                 raise ValueError("missing or unjustified per-case base result")
             if "base" not in row and "error_change_percentage_points" in row:
                 raise ValueError("unpaired error change")
     for row, declared in zip(report["cases"], selected):
-        if (
+        if not referenced:
+            # No native reference for this device: a prediction only. Any
+            # reference time, origin or error here would be another device's.
+            if ("head" not in row or row.get("reference_quality") != devices.UNMEASURED
+                    or any(key.startswith("reference_") and key != "reference_quality" for key in row)
+                    or "error_change_percentage_points" in row
+                    or any(key in row.get(label, {}) for label in ("head", "base") for key in ("error_percent", "direction"))):
+                raise ValueError("unmeasured device row carries reference or accuracy values")
+        elif (
             "head" not in row
             or not isinstance(row.get("reference_user_seconds"), (int, float))
             or not math.isfinite(row["reference_user_seconds"])
@@ -203,7 +216,7 @@ def check_report(report, commit, *, partial=False):
         expected_split = declared["split"]
         if row.get("split") != expected_split:
             raise ValueError("invalid case split")
-        if row["reference_quality"] not in (
+        if referenced and row["reference_quality"] not in (
             "usable",
             "noisy",
             "below_precision_floor",
@@ -414,6 +427,8 @@ def validate_bundle(path, commit):
 def measurement_completed(report, path):
     if report.get("schema") == 3:
         return report["compute_reference"]["completed_at_utc"]
+    if not devices.measured(report, "application"):
+        return None  # Nothing was measured natively for this device.
     reference = read(path / "reference.json")
     return reference.get("streamcluster_replacement", {}).get("completed_at_utc", reference.get("completed_at_utc"))
 
@@ -554,29 +569,9 @@ def bundle_compact(report_path, source, output, commit):
     shutil.copyfile(regular(Path(report_path).with_suffix(".md")), output / "report.md")
     names = {"report.json", "report.md"}
     if report["artifact_status"] == "pass":
-        shutil.copyfile(source / performance.PATH, output / "reference.json")
-        names.add("reference.json")
-        if memory.declared(report["head"]["files"]):
-            shutil.copyfile(source / memory.REFERENCE, output / "memory.json")
-            names.add("memory.json")
-        if scheduling.declared(report["head"]["files"]):
-            shutil.copyfile(source / scheduling.REFERENCE, output / "scheduling.json")
-            names.add("scheduling.json")
-        if capacity.declared(report["head"]["files"]):
-            shutil.copyfile(source / capacity.REFERENCE, output / "capacity.json")
-            names.add("capacity.json")
-        if recurrence.declared(report["head"]["files"]):
-            shutil.copyfile(source / recurrence.REFERENCE, output / "recurrence.json")
-            names.add("recurrence.json")
-        if forwarding.declared(report["head"]["files"]):
-            shutil.copyfile(source / forwarding.REFERENCE, output / "forwarding.json")
-            names.add("forwarding.json")
-        if throughput.ELF in report["head"]["files"]:
-            shutil.copyfile(source / throughput.REFERENCE, output / "throughput.json")
-            names.add("throughput.json")
-        elif FRONTEND_REFERENCE in report["head"]["files"]:
-            shutil.copyfile(source / FRONTEND_REFERENCE, output / "frontend.json")
-            names.add("frontend.json")
+        for name, path in reference_files(report).items():
+            shutil.copyfile(source / path, output / name)
+            names.add(name)
     write(output / "bundle.json", dict(schema=SCHEMA, commit=commit,
           run_id=os.environ.get("GITHUB_RUN_ID"), run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
           files={name: digest(output / name) for name in names}))
@@ -586,36 +581,14 @@ def bundle_compact(report_path, source, output, commit):
 
 def validate_compact_bundle(path, commit, manifest):
     report = read(regular(path / "report.json"))
-    names = {"report.json", "report.md"} | ({"reference.json"} if report["artifact_status"] == "pass" else set())
+    names = {"report.json", "report.md"}
     if report["artifact_status"] == "pass":
-        if memory.declared(report["head"]["files"]):
-            if digest(regular(path / "memory.json")) != report["head"]["files"].get(memory.REFERENCE):
-                raise ValueError("memory reference differs from tested source")
-            names.add("memory.json")
-        if scheduling.declared(report["head"]["files"]):
-            if digest(regular(path / "scheduling.json")) != report["head"]["files"].get(scheduling.REFERENCE):
-                raise ValueError("scheduling reference differs from tested source")
-            names.add("scheduling.json")
-        if capacity.declared(report["head"]["files"]):
-            if digest(regular(path / "capacity.json")) != report["head"]["files"].get(capacity.REFERENCE):
-                raise ValueError("capacity reference differs from tested source")
-            names.add("capacity.json")
-        if recurrence.declared(report["head"]["files"]):
-            if digest(regular(path / "recurrence.json")) != report["head"]["files"].get(recurrence.REFERENCE):
-                raise ValueError("recurrence reference differs from tested source")
-            names.add("recurrence.json")
-        if forwarding.declared(report["head"]["files"]):
-            if digest(regular(path / "forwarding.json")) != report["head"]["files"].get(forwarding.REFERENCE):
-                raise ValueError("forwarding reference differs from tested source")
-            names.add("forwarding.json")
-        if throughput.ELF in report["head"]["files"]:
-            if digest(regular(path / "throughput.json")) != report["head"]["files"].get(throughput.REFERENCE):
-                raise ValueError("throughput reference differs from tested source")
-            names.add("throughput.json")
-        elif FRONTEND_REFERENCE in report["head"]["files"]:
-            if digest(regular(path / "frontend.json")) != report["head"]["files"][FRONTEND_REFERENCE]:
-                raise ValueError("frontend diagnostic differs from tested source")
-            names.add("frontend.json")
+        for name, source in reference_files(report).items():
+            names.add(name)
+            # The application reference is bound to the report's own digest below.
+            if name != "reference.json" and digest(regular(path / name)) != report["head"]["files"].get(source):
+                raise ValueError(name.removesuffix(".json") + (" diagnostic" if name == "frontend.json" else " reference")
+                                 + " differs from tested source")
     if set(manifest["files"]) != names:
         raise ValueError("compact bundle membership mismatch")
     for name, expected in manifest["files"].items():
@@ -640,71 +613,140 @@ def declared_diagnostics(report):
             if (suite.ELF in files if name == "throughput" else suite.declared(files))}
 
 
+def reference_files(report):
+    """Bundle name -> source path of each native reference this report's device has.
+
+    Every declared suite runs for every device. Only a device with a native
+    reference of a kind retains, shows or compares that reference."""
+    files = {"reference.json": performance.PATH} if devices.measured(report, "application") else {}
+    declared = declared_diagnostics(report)
+    files.update({name + ".json": suite.REFERENCE for name, suite in declared.items() if devices.measured(report, name)})
+    device = devices.entry(report)
+    for name, path in files.items():
+        # Each kind is read from one committed file. A device that declares
+        # another file for it is refused, not handed this one.
+        kind = "application" if name == "reference.json" else name.removesuffix(".json")
+        if device is not None and device["references"][kind] != path:
+            raise ValueError(f"device {device['id']} declares its {kind} reference at {device['references'][kind]}, not {path}")
+    if "throughput" not in declared and FRONTEND_REFERENCE in report["head"]["files"]:
+        files["frontend.json"] = FRONTEND_REFERENCE
+    return files
+
+
+def diagnostic_roles(value, name):
+    """Simulators that predict a suite for a plan or report: throughput is
+    head-only, and a base revision that cannot model the device predicts nothing."""
+    return ("head",) if name == "throughput" or not devices.available(value, "base") else ("head", "base")
+
+
+def validate_diagnostic_rows(value, name, simulations, cases, *, partial=False, base_large_image_support=None):
+    """Coverage and counter checks of one suite's simulated rows, with or without a native reference."""
+    suite = DIAGNOSTIC_SUITES[name]
+    if name == "throughput":
+        return suite.validate_simulation(simulations, cases, partial=partial)
+    if devices.available(value, "base"):
+        if name == "memory":
+            return memory.validate_comparison(simulations, cases, base_large_image_support, partial=partial)
+        return suite.validate_comparison(simulations, cases, partial=partial)
+    if not isinstance(simulations, dict) or set(simulations) != {"base", "head"} or simulations["base"] != []:
+        raise ValueError(name + " has base rows for a device the base revision does not model")
+    (memory.validate_rows if name == "memory" else suite.validate_simulation)(simulations["head"], cases, partial=partial)
+
+
+def definition_path(name):
+    return memory.DEFINITION if name == "memory" else DIAGNOSTIC_SUITES[name].DIRECTORY + "cases.def"
+
+
+def diagnostic_definitions(report, root):
+    """Exact case definitions of the suites whose cases no native reference carries."""
+    return {name: (Path(root) / definition_path(name)).read_bytes().decode("utf-8")
+            for name in declared_diagnostics(report) if not devices.measured(report, name)}
+
+
+def definition_cases(report, name):
+    """A suite's declared cases, from the source-bound definition a report without its native reference retains."""
+    text = report.get("diagnostic_definitions", {}).get(name)
+    if not isinstance(text, str) or hashlib.sha256(text.encode()).hexdigest() != report["head"]["files"].get(definition_path(name)):
+        raise ValueError(name + " case definition differs from tested source")
+    return DIAGNOSTIC_SUITES[name].parse_cases(json.loads(text) if name == "memory" else text)
+
+
+def diagnostic_inventory(report, name, native=None):
+    """A suite's declared cases: its native reference's where the device has one, else the retained definition's."""
+    return native["cases"] if native is not None else definition_cases(report, name)
+
+
+def device_summary(report):
+    """How a report describes its device, or None for a report that predates device selection."""
+    declared = devices.entry(report)
+    if declared is None:
+        return None
+    return dict(id=declared["id"], hardware=declared["hardware"],
+                parameters=devices.parameter_text(declared, report["device"]["head"]["declaration"]),
+                references=devices.reference_status(declared, ["application", *declared_diagnostics(report)]))
+
+
 def validate_compact_evidence(report, references, *, partial=False):
     """Same source, native, row and profile contract for live and CI evidence."""
     check_report(report, report["head"]["commit"], partial=partial)
-    expected = {"reference.json": performance.PATH}
-    expected.update({name + ".json": suite.REFERENCE for name, suite in declared_diagnostics(report).items()})
-    if "throughput" not in declared_diagnostics(report) and FRONTEND_REFERENCE in report["head"]["files"]:
-        expected["frontend.json"] = FRONTEND_REFERENCE
+    expected = reference_files(report)
     if set(references) != set(expected):
         raise ValueError("report reference membership mismatch")
     for name, source in expected.items():
         if not isinstance(references[name], bytes) or hashlib.sha256(references[name]).hexdigest() != report["head"]["files"].get(source):
             raise ValueError("report reference bytes differ from tested source: " + name)
-    if memory.declared(report["head"]["files"]):
-        native_memory = memory.validate_reference(json.loads(references["memory.json"]), report["head"]["files"])
-        memory.validate_comparison(report.get("memory_simulation"), native_memory["cases"], report.get("memory_base_large_image_support"), partial=partial)
-    elif "memory_simulation" in report or "memory_base_large_image_support" in report:
-        raise ValueError("memory suite absent from tested source")
-    if scheduling.declared(report["head"]["files"]):
-        native_scheduling = scheduling.validate_reference(json.loads(references["scheduling.json"]), report["head"]["files"])
-        scheduling.validate_comparison(report.get("scheduling_simulation"), native_scheduling["cases"], partial=partial)
-    elif "scheduling_simulation" in report:
-        raise ValueError("scheduling suite absent from tested source")
-    if capacity.declared(report["head"]["files"]):
-        native_capacity = capacity.validate_reference(json.loads(references["capacity.json"]), report["head"]["files"])
-        capacity.validate_comparison(report.get("capacity_simulation"), native_capacity["cases"], partial=partial)
-    elif "capacity_simulation" in report:
-        raise ValueError("capacity suite absent from tested source")
-    if recurrence.declared(report["head"]["files"]):
-        native_recurrence = recurrence.validate_reference(json.loads(references["recurrence.json"]), report["head"]["files"])
-        recurrence.validate_comparison(report.get("recurrence_simulation"), native_recurrence["cases"], partial=partial)
-    elif "recurrence_simulation" in report:
-        raise ValueError("recurrence suite absent from tested source")
-    if forwarding.declared(report["head"]["files"]):
-        native_forwarding = forwarding.validate_reference(json.loads(references["forwarding.json"]), report["head"]["files"])
-        forwarding.validate_comparison(report.get("forwarding_simulation"), native_forwarding["cases"], partial=partial)
-    elif "forwarding_simulation" in report:
-        raise ValueError("forwarding suite absent from tested source")
+    # A native reference describes one piece of hardware: the report's device.
+    for name in expected:
+        if name != "frontend.json":
+            devices.require_reference(report, "application" if name == "reference.json" else name.removesuffix(".json"), json.loads(references[name]))
+    declared_suites = declared_diagnostics(report)
+    if set(report.get("diagnostic_definitions", {})) != {name for name in declared_suites if name + ".json" not in expected}:
+        raise ValueError("retained case definitions differ from the suites without a native reference")
+    for name, suite in DIAGNOSTIC_SUITES.items():
+        simulations = report.get(name + "_simulation")
+        capability = {"base_large_image_support": report.get("memory_base_large_image_support")} if name == "memory" else {}
+        if name not in declared_suites:
+            if simulations is not None or (name == "memory" and "memory_base_large_image_support" in report):
+                raise ValueError(name + " suite absent from tested source")
+        elif name + ".json" in expected:
+            native = suite.validate_reference(json.loads(references[name + ".json"]), report["head"]["files"])
+            validate_diagnostic_rows(report, name, simulations, native["cases"], partial=partial, **capability)
+        else:
+            validate_diagnostic_rows(report, name, simulations, definition_cases(report, name), partial=partial, **capability)
     if throughput.ELF in report["head"]["files"]:
-        native_throughput = throughput.validate_reference(json.loads(references["throughput.json"]), report["head"]["files"])
-        throughput.validate_simulation(report.get("throughput_simulation"), native_throughput["cases"], partial=partial)
         if "frontend_simulation" in report:
             raise ValueError("superseded frontend simulation in throughput report")
-    else:
-        if "throughput_simulation" in report:
-            raise ValueError("throughput suite absent from tested source")
-        if probe.ELF in report["head"]["files"]:
-            probe.validate(report.get("frontend_simulation"))
-        elif "frontend_simulation" in report:
-            raise ValueError("frontend probe is absent from the tested source")
+    elif probe.ELF in report["head"]["files"]:
+        probe.validate(report.get("frontend_simulation"))
+    elif "frontend_simulation" in report:
+        raise ValueError("frontend probe is absent from the tested source")
     declared = report_manifest(report)
-    measured = performance.validate(json.loads(references["reference.json"]), declared)
-    if hashlib.sha256(references["reference.json"]).hexdigest() != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:
-        raise ValueError("compact reference differs from tested source")
-    metadata = {key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")}
-    if report["reference"] != metadata:
-        raise ValueError("displayed compact provenance mismatch")
-    if any(report["head"]["files"].get(name) != sha for name, sha in measured["input_sources"].items()):
-        raise ValueError("compact input differs from tested source/ELF")
+    if "reference.json" in expected:
+        measured = performance.validate(json.loads(references["reference.json"]), declared)
+        if hashlib.sha256(references["reference.json"]).hexdigest() != report["reference_sha256"] or report["head"]["files"].get(performance.PATH) != report["reference_sha256"]:
+            raise ValueError("compact reference differs from tested source")
+        metadata = {key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")}
+        if report["reference"] != metadata:
+            raise ValueError("displayed compact provenance mismatch")
+        if any(report["head"]["files"].get(name) != sha for name, sha in measured["input_sources"].items()):
+            raise ValueError("compact input differs from tested source/ELF")
+        if "output_oracle" in report:
+            raise ValueError("measured device report names an output oracle instead of its reference")
+        observations = {row["id"]: row for row in measured["cases"]}
+    else:
+        # Outputs were checked against the committed program results; that file's
+        # native timings belong to another device and are not part of this report.
+        oracle = report.get("output_oracle")
+        if (oracle != dict(path=performance.PATH, sha256=report["head"]["files"].get(performance.PATH), scope=OUTPUT_ORACLE_SCOPE)
+                or "reference" in report or "reference_sha256" in report):
+            raise ValueError("unmeasured device report must name only its output oracle")
+        measured, observations = {}, {}
     profiles = model_profiles.validate(report)
-    observations = {row["id"]: row for row in measured["cases"]}
     for row, case in zip(report["cases"], covered_cases(report["cases"], declared["cases"], partial=partial)):
-        observed = observations[row["id"]]
+        observed = observations.get(row["id"])
         if "streamcluster_replacement" in measured and row.get("reference_origin") != performance.reference_origin(measured, case):
             raise ValueError("plotted native acquisition identity mismatch")
-        if row["reference_quality"] != observed["quality"] or row["reference_user_seconds"] != observed["median_user_seconds"] or row.get("reference_p10_seconds") != observed["p10_user_seconds"] or row.get("reference_p90_seconds") != observed["p90_user_seconds"]:
+        if observed is not None and (row["reference_quality"] != observed["quality"] or row["reference_user_seconds"] != observed["median_user_seconds"] or row.get("reference_p10_seconds") != observed["p10_user_seconds"] or row.get("reference_p90_seconds") != observed["p90_user_seconds"]):
             raise ValueError("compact plotted statistics mismatch")
         for label in ("head", "base"):
             if label not in row:
@@ -712,16 +754,17 @@ def validate_compact_evidence(report, references, *, partial=False):
             value = row[label]
             if type(value["cycles"]) is not int or type(value["instructions"]) is not int or any(value[k] != profiles[label][k] for k in ("configuration", "cache_config")):
                 raise ValueError("compact report timing profile/count mismatch")
-            seconds, real = value["predicted_user_seconds"], observed["median_user_seconds"]
+            seconds = value["predicted_user_seconds"]
             if not math.isclose(seconds, value["cycles"] / case["frequency_hz"], rel_tol=1e-12):
                 raise ValueError("compact timing frequency mismatch")
-            if observed["quality"] == "usable":
+            if observed is not None and observed["quality"] == "usable":
+                real = observed["median_user_seconds"]
                 error = 100 * abs(seconds-real) / min(seconds, real)
                 if not math.isclose(value.get("error_percent", -1), error, rel_tol=1e-12, abs_tol=1e-12) or value.get("direction") != ("slower" if seconds > real else "faster" if seconds < real else "equal"):
                     raise ValueError("compact error formula/direction mismatch")
             elif "error_percent" in value or "direction" in value:
                 raise ValueError("unqualified compact reference has accuracy claim")
-        if "base" in row and observed["quality"] == "usable":
+        if "base" in row and observed is not None and observed["quality"] == "usable":
             if not math.isclose(row.get("error_change_percentage_points", float("nan")), row["head"]["error_percent"]-row["base"]["error_percent"], rel_tol=1e-12, abs_tol=1e-12):
                 raise ValueError("compact paired error change mismatch")
         elif "error_change_percentage_points" in row:
@@ -738,8 +781,9 @@ def validate_diagnostic_progress(report, references, *, partial=False):
     if not isinstance(progress, dict) or set(progress) - set(declared):
         raise ValueError("unknown diagnostic progress section")
     for name, item in progress.items():
-        roles = ("head",) if name == "throughput" else ("base", "head")
-        ids = [case["id"] for case in json.loads(references[name + ".json"])["cases"]]
+        roles = diagnostic_roles(report, name)
+        native = json.loads(references[name + ".json"]) if name + ".json" in references else None
+        ids = [case["id"] for case in diagnostic_inventory(report, name, native)]
         simulations = report[name + "_simulation"]
         rows = {"head": simulations} if name == "throughput" else simulations
         done = {role: {row["id"] for row in rows[role]} for role in roles}
@@ -770,7 +814,9 @@ def reusable_bundle(path, commit):
         return False
 
 
-def failure(output, commit, message):
+def failure(output, commit, message, device=None):
+    """Record a run that produced no report. A named device keeps the failure
+    with that device's reports; unnamed, it is the default device's as before."""
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     write(
@@ -782,6 +828,7 @@ def failure(output, commit, message):
             "head_commit": sha(commit),
             "cases": [],
             "error": message,
+            **({} if device is None else {"device": {"id": device_name(device)}}),
         },
     )
     (output / "report.md").write_text(
@@ -937,11 +984,11 @@ LIVE_REFRESH = """<script>
 
 def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=None,
           ideal=False, note="", y_bands=(), y_ranges=(), x_domain=None, step_start=None,
-          percentile_guides=()):
+          percentile_guides=(), empty="No comparable points available."):
     """Plot the data domain; guide lines never contribute observations."""
     points = [(x, y) for _, values, _ in series for x, y, _ in values]
     if not points:
-        return f"<figure><figcaption>{esc(title)}</figcaption><p>No comparable points available.</p></figure>"
+        return f"<figure><figcaption>{esc(title)}</figcaption><p>{esc(empty)}</p></figure>"
     xmin, xmax = x_domain if x_domain is not None else (min(x for x, _ in points), max(x for x, _ in points))
     ymin, ymax = (y_ticks[0][0], y_ticks[-1][0]) if y_ticks else (0, max([y for _, y in points] + [high for _, _, high, _ in y_ranges]) or 1)
 
@@ -1199,19 +1246,56 @@ def simulation_index(simulations):
     return {role: {row["id"]: row for row in rows} for role, rows in simulations.items()}
 
 
-def diagnostic_progress(report, name, reference):
+def diagnostic_progress(report, name, reference=None):
+    """Execution progress of one suite. Without a native reference the cases
+    come from the retained definition and the text says nothing native exists."""
     simulations = report.get(name + "_simulation", [] if name == "throughput" else {"base": [], "head": []})
     rows = {"head": simulations} if name == "throughput" else simulations
-    required = len(reference["cases"])
+    predicted = diagnostic_roles(report, name)
+    rows = {role: values for role, values in rows.items() if role in predicted}
+    required = len(diagnostic_inventory(report, name, reference))
     completed = sum(len(values) for values in rows.values())
     total = required * len(rows)
     item = report.get("diagnostic_progress", {}).get(name, {})
     state = item.get("state", "complete" if completed == total else "partial" if completed else "pending")
     counts = "; ".join(f"{role} {len(values)}/{required}" for role, values in rows.items())
     errors = " ".join(item.get("errors", []))
+    note = ('Native references are shown; missing predictions are pending.' if reference is not None
+            else 'No native reference exists for this device: simulated counters only.')
+    if name != "throughput" and "base" not in predicted:
+        note += ' The base revision does not model this device.'
     return (f'<p id="{name}-progress" data-section-state="{esc(state)}"><strong>{esc(name.title())}: {esc(state)}</strong> · '
-            f'{esc(counts)} executions complete. Native references are shown; missing predictions are pending.'
+            f'{esc(counts)} executions complete. ' + note
             + (" " + esc(errors) if errors else "") + '</p>')
+
+
+def unmeasured_diagnostic_table(report, name):
+    """Simulated counters of a suite this device has no native reference for.
+
+    Nothing native is plotted or compared, so no hardware's numbers can stand in."""
+    cases = definition_cases(report, name)
+    simulations = report.get(name + "_simulation", [] if name == "throughput" else {"base": [], "head": []})
+    indexed = simulation_index({"head": simulations} if name == "throughput" else simulations)
+    predicted = [role for role in ("base", "head") if role in diagnostic_roles(report, name)]
+    table = (f'<details id="{name}-simulated-table"><summary>{esc(name.title())} simulated counters · {len(cases)} points</summary>'
+             '<div class="table"><table><thead><tr><th>Point</th><th>Instructions</th>'
+             + ''.join(f'<th>{role.title()} cycles</th><th>{role.title()} cycles/instruction</th>' for role in predicted)
+             + '</tr></thead><tbody>')
+    for case in cases:
+        head = indexed["head"].get(case["id"], {})
+        cells = [esc(case["id"]), f'{head["instructions"]:,}' if "instructions" in head else "pending"]
+        for role in predicted:
+            row = indexed[role].get(case["id"])
+            if row is None:
+                cells += ["pending", "—"]
+            elif "cycles" not in row:
+                cells += [esc(row.get("status", "unavailable")), "—"]
+            else:
+                cells += [f'{row["cycles"]:,}', f'{row["cycles"] / row["instructions"]:.4f}']
+        table += f'<tr data-row-key="{esc(case["id"])}">' + ''.join('<td>' + cell + '</td>' for cell in cells) + '</tr>'
+    return (table + '</tbody></table></div><p>Counters are differences between a short and a long run of the same assembly, '
+            'with checked instruction counts and outputs. No native reference exists for this device, so nothing here is '
+            'compared with hardware and nothing enters application statistics.</p></details>')
 
 
 def throughput_table(reference, simulated=None, *, partial=False):
@@ -1644,7 +1728,8 @@ def memory_preview(report_path, source, output):
     (output / 'index.html').write_text(page('Poros memory diagnostics', body, POINT_TIPS))
 
 
-def timing_curves(groups, cases):
+def timing_curves(groups, cases, drawn=("reference", "base", "head")):
+    """Time against input size. Only series that can exist for the report's device are drawn or named."""
     body = '<div class="charts">'
     for group in groups:
         workload = group["id"]
@@ -1662,6 +1747,8 @@ def timing_curves(groups, cases):
             ("base", "#71838d"),
             ("head", "#087e8b"),
         ):
+            if name not in drawn:
+                continue
             values = []
             for c in rows:
                 seconds = (
@@ -1710,6 +1797,7 @@ def timing_curves(groups, cases):
             xlabel,
             "User time (ms)",
             x_ticks=ticks,
+            **({} if "reference" in drawn else {"empty": "No predictions yet."}),
         )
         if legacy_progress:
             body += "</div>"
@@ -1717,7 +1805,38 @@ def timing_curves(groups, cases):
     return body
 
 
-def timing_table(cases, ids):
+def prediction_table(cases, ids):
+    """Per-case predictions of a device without a native reference.
+
+    There are no reference, error or direction columns to leave empty or fill."""
+    body = ('<p class="muted">No native reference exists for this device. Values are simulator predictions with checked '
+            'outputs; times are milliseconds.</p><div class="table"><table><thead><tr><th>Case</th><th>Functional</th>'
+            '<th>Base</th><th>Head</th><th>Head instructions</th><th>Head cycles</th><th>Head cycles/instruction</th>'
+            '<th>Head / base time</th></tr></thead><tbody>')
+    by_id = {c["id"]: c for c in cases}
+    for case in ids:
+        c = by_id.get(case)
+        if not c:
+            body += "<tr><td>" + esc(case) + '</td><td colspan="7">Pending — not simulated yet</td></tr>'
+            continue
+        base, head = c.get("base", {}), c["head"]
+        values = [
+            case,
+            c.get("functional_status", "not separately recorded"),
+            number(base["predicted_user_seconds"] * 1000) if base else c.get("base_status", "unavailable"),
+            number(head["predicted_user_seconds"] * 1000),
+            f'{head["instructions"]:,}',
+            f'{head["cycles"]:,}',
+            f'{head["cycles"] / head["instructions"]:.4f}',
+            f'{head["predicted_user_seconds"] / base["predicted_user_seconds"]:.4f}' if base else "—",
+        ]
+        body += "<tr>" + "".join("<td>" + esc(v) + "</td>" for v in values) + "</tr>"
+    return body + '</tbody></table></div>'
+
+
+def timing_table(cases, ids, referenced=True):
+    if not referenced:
+        return prediction_table(cases, ids)
     body = '<p class="muted">Error = 100 × |sim − reference| / min(sim, reference). Positive Δ means a larger error. No offset fitting or anchor removal. Times are milliseconds.</p><div class="table"><table><thead><tr><th>Case</th><th>Functional</th><th>Reference</th><th>Quality</th><th>Base</th><th>Head</th><th>Base error</th><th>Head error</th><th>Direction</th><th>Δ pp</th></tr></thead><tbody>'
     by_id = {c["id"]: c for c in cases}
     for case in ids:
@@ -1769,19 +1888,22 @@ def overall_progress(report, references, live=None):
         if not isinstance(rows, dict) or set(rows) != ({"head"} if name == "throughput" else {"head", "base"}):
             raise ValueError("overall progress requires every diagnostic role")
         native = references.get(name)
-        if native is None:
+        if native is not None:
+            cases = native["cases"]
+        elif not devices.measured(report, name):
+            cases = definition_cases(report, name)
+        else:
             # Complete historical callers may omit reference assets. Their rows
             # have already passed strict coverage validation, so are the inventory.
             if report["artifact_status"] != "pass":
                 raise ValueError("overall progress needs the declared " + name + " reference")
             cases = rows["head"]
-        else:
-            cases = native["cases"]
         ids = {case["id"] for case in cases}
         if len(ids) != len(cases):
             raise ValueError("duplicate overall diagnostic inventory")
         done = {}
-        for role, values in rows.items():
+        for role in diagnostic_roles(report, name):
+            values = rows[role]
             covered_cases(values, cases, partial=report["artifact_status"] == "partial")
             done[role] = {row["id"] for row in values}
         resolved = set.intersection(*done.values())
@@ -1853,6 +1975,60 @@ def live_progress(live, totals=None):
     return body + '</section>'
 
 
+def device_name(value):
+    if not isinstance(value, str) or not devices.NAME.fullmatch(value):
+        raise ValueError("unsafe device name")
+    return value
+
+
+def report_device(report):
+    """The device a report, including a failure, is filed under."""
+    return device_name(devices.ident(report))
+
+
+def device_panel(report, entry):
+    """Which device a report describes, beside every device declared with it."""
+    if "device" not in report:
+        return ('<p id="device" class="muted">Device: <code>' + devices.DEFAULT + '</code> · '
+                + ('the default: this failure names no device' if report["artifact_status"] == "fail"
+                   else 'implied: this report predates device selection') + '.</p>')
+    described = device_summary(report)
+    if described is None:  # A failure recorded before the declarations were read.
+        return '<p id="device">Device: <code>' + esc(report_device(report)) + '</code></p>'
+    kinds = ["application", *declared_diagnostics(report)]
+    links = entry.get("device_links", {})
+    body = (f'<section id="device" data-device="{esc(described["id"])}"><p><strong>Device: {esc(described["hardware"])}</strong> '
+            f'(<code>{esc(described["id"])}</code>) · Parameters: {esc(described["parameters"])} · '
+            f'Native references: {esc(described["references"])}</p>'
+            '<div class="table"><table><thead><tr><th>Device</th><th>Hardware</th><th>Parameter source</th>'
+            '<th>Native references</th><th>This commit</th></tr></thead><tbody>')
+    declaration = report["device"]["head"]["declaration"]
+    for declared in declaration["devices"]:
+        if declared["id"] == described["id"]:
+            where = "this report"
+        elif declared["id"] in links:
+            where = '<a href="' + esc(links[declared["id"]]) + '">report</a>'
+        else:
+            where = "separate report" if "device_links" not in entry else "not published"
+        body += (f'<tr data-row-key="{esc(declared["id"])}"><td><code>{esc(declared["id"])}</code></td><td>{esc(declared["hardware"])}</td>'
+                 f'<td>{esc(devices.parameter_text(declared, declaration))}</td>'
+                 f'<td>{esc(devices.reference_status(declared, kinds))}</td><td>{where}</td></tr>')
+    return body + '</tbody></table></div></section>'
+
+
+def unmeasured_overview(report, benchmarks, required):
+    """What stands in for accuracy charts when a device has no native reference: nothing numeric."""
+    declared = devices.entry(report)
+    paired = sum("base" in c for c in benchmarks)
+    return ('<h2 id="overall">Benchmark predictions</h2>'
+            f'<div class="notice" id="unmeasured"><strong>No native {esc(declared["hardware"])} reference.</strong> '
+            'Error, correlation and accuracy statistics do not exist for this device, and none are shown. '
+            f'Each case was simulated as <code>{esc(declared["id"])}</code> and its complete output checked; '
+            'times, cycles and instruction counts are predictions.</div>'
+            f'<p>Application cases simulated with checked output: {len(benchmarks)} / {required}. '
+            f'Also predicted by the base revision: {paired}.</p>')
+
+
 def detail(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None, capacity_reference=None, recurrence_reference=None):
     commit = entry["commit"]
     full_inventory = report["artifact_status"] == "pass" or live is not None
@@ -1891,15 +2067,22 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         body += '<p class="notice">This failure occurred before source identity was recorded. The bundle identifies the requested target; it does not certify an executed binary or measured source.</p>'
     if report.get("error"):
         body += '<p class="notice">' + esc(report["error"]) + "</p>"
-    body += '<nav class="downloads"><a href="#overall">Benchmark accuracy</a><a href="#microbenchmarks">Microbenchmarks</a></nav>'
-    body += overview_charts(benchmarks)
-    body += comparison_table(benchmarks)
-    summary = (compute.case_summary([c for c in benchmarks if c.get("head")], performance=report.get("schema") == 4)
-               if full_inventory else {})
-    if summary.get("head"):
-        mean = number(summary["head"]["mean_error_percent"], "%")
-        maximum = number(summary["head"]["maximum_error_percent"], "%")
-        body += f"<p>Application timing error across {summary['comparable']} qualified cases: mean {mean}, maximum {maximum}.</p>"
+    body += device_panel(report, entry)
+    # Accuracy exists only against a native reference of the report's own device.
+    referenced = devices.measured(report, "application")
+    body += ('<nav class="downloads"><a href="#overall">' + ("Benchmark accuracy" if referenced else "Benchmark predictions")
+             + '</a><a href="#microbenchmarks">Microbenchmarks</a></nav>')
+    if referenced:
+        body += overview_charts(benchmarks)
+        body += comparison_table(benchmarks)
+        summary = (compute.case_summary([c for c in benchmarks if c.get("head")], performance=report.get("schema") == 4)
+                   if full_inventory else {})
+        if summary.get("head"):
+            mean = number(summary["head"]["mean_error_percent"], "%")
+            maximum = number(summary["head"]["maximum_error_percent"], "%")
+            body += f"<p>Application timing error across {summary['comparable']} qualified cases: mean {mean}, maximum {maximum}.</p>"
+    else:
+        body += unmeasured_overview(report, benchmarks, len(benchmark_ids))
     body += '<h2>Benchmark timing curves</h2>'
     groups = (
         report_manifest(report).get(
@@ -1909,16 +2092,17 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         if full_inventory
         else []
     )
-    body += timing_curves([g for g in groups if g["id"] not in MICRO_WORKLOADS], benchmarks)
+    drawn = tuple(name for name, exists in (("reference", referenced), ("base", devices.available(report, "base")), ("head", True)) if exists)
+    body += timing_curves([g for g in groups if g["id"] not in MICRO_WORKLOADS], benchmarks, drawn)
     body += (f'<details id="benchmark-table"><summary>Benchmark timing table · {len(benchmark_ids)} cases</summary>'
-             + timing_table(benchmarks, benchmark_ids) + '</details>')
+             + timing_table(benchmarks, benchmark_ids, referenced) + '</details>')
     body += '<section id="microbenchmarks"><h2>Microbenchmarks</h2>'
     body += '<p>Hardware diagnostics are reported separately from benchmark accuracy.</p>'
-    if micro_ids:
+    if micro_ids and referenced:
         micro_usable = sum(c.get("reference_quality") == "usable" for c in micros)
         micro_required = len(micro_ids) if full_inventory else "—"
         body += f"<p>Usable microbenchmark references: {micro_usable} / {micro_required}</p>"
-    body += timing_curves([g for g in groups if g["id"] in MICRO_WORKLOADS], micros)
+    body += timing_curves([g for g in groups if g["id"] in MICRO_WORKLOADS], micros, drawn)
     if report.get("schema") == 1:
         body += "<p>Historical memory sweep: 64 KiB fixed working set, varying iterations.</p>"
     elif full_inventory:
@@ -1928,7 +2112,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
     if memory_reference is not None:
         memory_charts, memory_table = memory_panels(memory_reference, report.get("memory_simulation"), model_profiles.validate(report), report.get("memory_base_large_image_support"), partial=report["artifact_status"] == "partial")
         body += diagnostic_progress(report, "memory", memory_reference) + memory_charts
-    elif full_inventory and memory.declared(report.get("head", {}).get("files", {})):
+    elif full_inventory and memory.declared(report.get("head", {}).get("files", {})) and devices.measured(report, "memory"):
         raise ValueError("memory reference required by tested source")
     scheduling_table = ""
     if scheduling_reference:
@@ -1957,8 +2141,14 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
                  + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
     body += memory_table + scheduling_table + forwarding_table + recurrence_table + capacity_table
+    if full_inventory and report.get("schema") == 4:
+        # Suites run for every device. Without a native reference of the
+        # device's own there are only simulated counters to show.
+        for name in declared_diagnostics(report):
+            if not devices.measured(report, name):
+                body += diagnostic_progress(report, name) + unmeasured_diagnostic_table(report, name)
     body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
-             + timing_table(micros, micro_ids) + '</details></section>')
+             + timing_table(micros, micro_ids, referenced) + '</details></section>')
     replacement = report.get("reference", {}).get("streamcluster_replacement")
     if replacement:
         body += ('<p>Streamcluster uses 16 complete initialization/computation/output passes per process. '
@@ -1966,12 +2156,14 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
                  'the other 258 reference points retain their original acquisition.</p>')
     body += (
         "<h2>Evidence and provenance</h2><p>Measurement completed (UTC): "
-        + esc(entry.get("measurement_completed_at") or "unavailable")
+        + esc(entry.get("measurement_completed_at") or ("unavailable" if referenced else "none; no native measurement exists for this device"))
         + '</p><div class="downloads">'
         + ('<a href="report.json">Report JSON</a><a href="report.md">Markdown report</a><a href="bundle.json">Evidence hashes</a>' if live is None or live.get("validated_bundle") else "")
     )
     if report["artifact_status"] == "pass":
-        if report["schema"] == 4:
+        if report["schema"] == 4 and not referenced:
+            pass  # No native reference exists for this device, so none is offered.
+        elif report["schema"] == 4:
             body += '<a href="reference.json">Plotting data and native output identities</a>'
             collection = report["reference"]["collection_commit"]
             body += '<a href="https://github.com/' + REPO + '/tree/' + collection + '">' + ('Frozen ELF/computation source' if native_reference else 'Exact native collection source') + '</a>'
@@ -2002,6 +2194,10 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         + commit
         + '">Source commit</a></div>'
     )
+    if report.get("output_oracle"):
+        oracle = report["output_oracle"]
+        body += ('<p id="output-oracle">Outputs were checked against <code>' + esc(oracle["path"]) + '</code> (SHA-256 <code>'
+                 + esc(oracle["sha256"]) + '</code>): ' + esc(oracle["scope"]) + '.</p>')
     inputs = [
         name for name in entry.get("evidence_files", []) if name.startswith(("inputs/", "cohorts/compute/source/", "cohorts/compute/reference/outputs/"))
     ]
@@ -2027,6 +2223,7 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
                     "compute_base_status": report.get("compute_base_status"),
                     "configuration": cases[0].get("head", {}) if cases else None,
                     "model_profiles": report.get("model_profiles"),
+                    **({"device": report["device"], "output_oracle": report.get("output_oracle")} if "device" in report else {}),
                 },
                 indent=2,
             )
@@ -2037,7 +2234,8 @@ def detail(report, entry, preview=False, frontend=None, throughput_reference=Non
         body += '<p><a href="snapshot.json">Live snapshot JSON</a></p>'
     identity = hashlib.sha256(json.dumps(dict(commit=commit, **{name: report.get(name) for name in (
         'base_commit', 'reference_sha256', 'workload_manifest', 'model_profiles',
-        'head_binary_sha256', 'base_binary_sha256')}), sort_keys=True).encode()).hexdigest()
+        'head_binary_sha256', 'base_binary_sha256')}, **({"device": report["device"]["id"]} if "device" in report else {})),
+        sort_keys=True).encode()).hexdigest()
     state = 'static' if live is None else 'validated' if live.get('validated_bundle') else 'polling'
     body = (f'<div id="accuracy-report" data-report-identity="{identity}" data-live-state="{state}">'
             + body + f'<span hidden data-report-end="{identity}"></span></div>')
@@ -2054,7 +2252,7 @@ def series_key(report):
     ]
     return hashlib.sha256(
         json.dumps(
-            [report["formula"], report["reference_sha256"], profiles], sort_keys=True
+            [report["formula"], report.get("reference_sha256"), profiles], sort_keys=True
         ).encode()
     ).hexdigest()
 
@@ -2112,17 +2310,60 @@ def merge_evaluation(entry, incoming):
         entry[field] = incoming[field]
 
 
+def archive_root(site, device):
+    """One archive per device. The default device keeps the original location,
+    so every published URL still resolves; other devices live beside its runs."""
+    root = Path(site) / "calibration"
+    return root if device == devices.DEFAULT else root / "devices" / device_name(device)
+
+
+def device_url(site, source, destination, *parts):
+    """Relative link from a page directory of one device's archive into another's."""
+    return os.path.relpath(archive_root(site, destination).joinpath(*parts), source) + "/"
+
+
+def archived_devices(site):
+    """Devices with an archive on this site, the default first."""
+    folder = Path(site) / "calibration/devices"
+    others = sorted(p.name for p in folder.iterdir() if p.is_dir() and devices.NAME.fullmatch(p.name)) if folder.is_dir() else []
+    return [devices.DEFAULT, *others]
+
+
+def render_entry(site, device, entry):
+    """Rewrite one retained report page from its validated bundle."""
+    p = archive_root(site, device) / "runs" / entry["commit"]
+    report, manifest = validate_bundle(p, entry["commit"])
+    if report_device(report) != device:
+        raise ValueError("retained report belongs to another device's archive")
+    references = {name: read(p / (name + ".json")) if name + ".json" in manifest["files"] else None
+                  for name in ("frontend", "throughput", "forwarding", "scheduling", "capacity", "recurrence", "memory")}
+    # The same commit under other devices; never part of the stored entry.
+    links = {other: device_url(site, p, other, "runs", entry["commit"]) for other in archived_devices(site)
+             if other != device and (archive_root(site, other) / "runs" / entry["commit"] / "bundle.json").is_file()}
+    (p / "index.html").write_text(detail(report, dict(entry, device_links=links), frontend=references["frontend"],
+        throughput_reference=references["throughput"], forwarding_reference=references["forwarding"],
+        scheduling_reference=references["scheduling"], memory_reference=references["memory"],
+        capacity_reference=references["capacity"], recurrence_reference=references["recurrence"]))
+    return report
+
+
 def archive(site, bundle_path, metadata, main_order, keep=20):
-    """Update only our subtree. Call in a disposable checkout, then commit atomically."""
+    """Update only our subtree. Call in a disposable checkout, then commit atomically.
+
+    The validated report decides which device's archive it joins. Publication
+    metadata naming another device is rejected rather than refiled."""
     site = Path(site)
-    root = site / "calibration"
     if any(
         (site / name).is_symlink()
         for name in ("calibration", "index.html", ".nojekyll")
-    ) or any(p.is_symlink() for p in root.rglob("*")):
+    ) or any(p.is_symlink() for p in (site / "calibration").rglob("*")):
         raise ValueError("archive must not contain symlinks")
     commit = sha(metadata["commit"])
     report, bundle_manifest = validate_bundle(bundle_path, commit)
+    device = report_device(report)
+    if metadata.get("device", devices.DEFAULT) != device:
+        raise ValueError(f"publication names device {metadata.get('device', devices.DEFAULT)!r} but the report is for {device!r}")
+    root = archive_root(site, device)
     if metadata["kind"] not in ("main", "release") or metadata["conclusion"] not in (
         "success",
         "failure",
@@ -2249,20 +2490,22 @@ def archive(site, bundle_path, metadata, main_order, keep=20):
         "entries": ordered,
     }
     for e in ordered:
-        p = root / "runs" / e["commit"]
-        retained_report, retained_manifest = validate_bundle(p, e["commit"])
-        e["benchmark_summary"] = benchmark_summary(retained_report)
-        write(p / "metadata.json", e)
-        frontend = read(p / "frontend.json") if "frontend.json" in retained_manifest["files"] else None
-        throughput_reference = read(p / "throughput.json") if "throughput.json" in retained_manifest["files"] else None
-        forwarding_reference = read(p / "forwarding.json") if "forwarding.json" in retained_manifest["files"] else None
-        scheduling_reference = read(p / "scheduling.json") if "scheduling.json" in retained_manifest["files"] else None
-        capacity_reference = read(p / "capacity.json") if "capacity.json" in retained_manifest["files"] else None
-        recurrence_reference = read(p / "recurrence.json") if "recurrence.json" in retained_manifest["files"] else None
-        memory_reference = read(p / "memory.json") if "memory.json" in retained_manifest["files"] else None
-        (p / "index.html").write_text(detail(retained_report, e, frontend=frontend, throughput_reference=throughput_reference, forwarding_reference=forwarding_reference, scheduling_reference=scheduling_reference, memory_reference=memory_reference, capacity_reference=capacity_reference, recurrence_reference=recurrence_reference))
+        e["benchmark_summary"] = benchmark_summary(render_entry(site, device, e))
+        write(root / "runs" / e["commit"] / "metadata.json", e)
     write(index_path, index)
-    (root / "index.html").write_text(home(index))
+    # Every device's dashboard lists every device, so refresh them together. A
+    # report of this commit under another device gains its link to this one.
+    declaration = devices.load()
+    for other in dict.fromkeys([*(d["id"] for d in declaration["devices"]), *archived_devices(site)]):
+        other_root = archive_root(site, other)
+        other_index = index if other == device else read(other_root / "index.json") if (other_root / "index.json").exists() else None
+        if other != device and other_index is not None:
+            for e in other_index["entries"]:
+                if e["commit"] == commit:
+                    render_entry(site, other, e)
+        other_root.mkdir(parents=True, exist_ok=True)
+        (other_root / "index.html").write_text(home(
+            other_index or {"schema": SCHEMA, "main_head": None, "latest_success": None, "entries": []}, other, declaration, site))
     (site / ".nojekyll").touch()
     if not (site / "index.html").exists():
         (site / "index.html").write_text(
@@ -2283,8 +2526,31 @@ STATUS_SCRIPT = """<script>
 </script>"""
 
 
-def home(index):
-    body = '<header><div class="eyebrow">Poros / Calibration dashboard</div><h1>Accuracy over time</h1><p class="muted">Whole-program user CPU time · Raw predictions against retained hardware observations</p></header><div class="notice"><strong>Hardware accuracy remains unverified.</strong> Report success describes evidence completeness, not an accuracy threshold. Overall accuracy covers application benchmarks. Microbenchmarks have a separate section.</div>'
+def device_dashboards(device, declaration, site):
+    """Every declared device with its parameter source and native references, linking each dashboard."""
+    body = ('<section id="devices"><h2>Modeled devices</h2><div class="table"><table><thead><tr><th>Device</th><th>Hardware</th>'
+            '<th>Parameter source</th><th>Native references</th><th>Dashboard</th></tr></thead><tbody>')
+    for declared in declaration["devices"]:
+        where = ("this dashboard" if declared["id"] == device else
+                 '<a href="' + esc(device_url(site, archive_root(site, device), declared["id"])) + '">open</a>')
+        body += (f'<tr data-row-key="{esc(declared["id"])}"><td><code>{esc(declared["id"])}</code></td><td>{esc(declared["hardware"])}</td>'
+                 f'<td>{esc(devices.parameter_text(declared, declaration))}</td>'
+                 f'<td>{esc(devices.reference_status(declared))}</td><td>{where}</td></tr>')
+    return body + '</tbody></table></div></section>'
+
+
+def home(index, device=devices.DEFAULT, declaration=None, site="."):
+    declaration = devices.load() if declaration is None else declaration
+    declared = next((d for d in declaration["devices"] if d["id"] == device), None)
+    name = (declared["hardware"] + " · " if declared else "") + device
+    body = '<header><div class="eyebrow">Poros / Calibration dashboard</div><h1>Accuracy over time</h1><p class="muted">Whole-program user CPU time · Raw predictions against retained hardware observations</p><p id="dashboard-device">Device: <strong>' + esc(name) + '</strong></p></header><div class="notice"><strong>Hardware accuracy remains unverified.</strong> Report success describes evidence completeness, not an accuracy threshold. Overall accuracy covers application benchmarks. Microbenchmarks have a separate section.</div>'
+    # A mean error or an error trend needs a native reference of this device.
+    referenced = declared is None or "application" in declared["references"]
+    if not referenced:
+        body += ('<div class="notice" id="unmeasured"><strong>No native ' + esc(declared["hardware"]) + ' reference.</strong> '
+                 'Reports for this device hold simulator predictions with checked outputs. No error or accuracy statistic '
+                 'exists for it and none is shown; parameters: ' + esc(devices.parameter_text(declared, declaration)) + '.</div>')
+    body += device_dashboards(device, declaration, site)
     body += (
         '<p id="current-main">Published snapshot of main: <code>'
         + esc(index["main_head"] or "unknown")
@@ -2298,7 +2564,7 @@ def home(index):
             if latest
             else "None yet"
         )
-        + '</p><h2>Report history</h2><p class="muted">Latest 20 ordinary main commits; release reports are retained permanently outside that limit. Failed and incomplete results stay visible.</p><div class="table"><table><thead><tr><th>Commit</th><th>Full Evaluation</th><th>Report</th><th>Mean application error (qualified/total)</th><th>Permanent releases</th></tr></thead><tbody>'
+        + '</p><h2>Report history</h2><p class="muted">Latest 20 ordinary main commits; release reports are retained permanently outside that limit. Failed and incomplete results stay visible.</p><div class="table"><table><thead><tr><th>Commit</th><th>Full Evaluation</th><th>Report</th><th>' + ("Mean application error (qualified/total)" if referenced else "Application cases simulated") + '</th><th>Permanent releases</th></tr></thead><tbody>'
     )
     for e in index["entries"]:
         body += (
@@ -2316,16 +2582,22 @@ def home(index):
         )
         summary = e.get("benchmark_summary", {})
         coverage = f'{summary.get("comparable", "—")}/{summary.get("required", "—")}'
-        body += "<td>" + number(summary.get("head", {}).get("mean_error_percent"), "%") + " (" + coverage + ")</td>"
+        if referenced:
+            body += "<td>" + number(summary.get("head", {}).get("mean_error_percent"), "%") + " (" + coverage + ")</td>"
+        else:
+            body += "<td>" + esc(summary.get("required", "—")) + "</td>"
         body += (
             "<td>"
             + esc(", ".join(r["tag"] for r in e["releases"]) or "—")
             + "</td></tr>"
         )
-    body += '</tbody></table></div><h2>Benchmark accuracy trends</h2><p class="muted">Each chart uses one reference, formula and hardware profile. Points are ordered by main ancestry, oldest first; gaps and coverage must be read alongside the reports.</p><div class="charts">'
+    body += '</tbody></table></div>'
+    if referenced:
+        body += '<h2>Benchmark accuracy trends</h2><p class="muted">Each chart uses one reference, formula and hardware profile. Points are ordered by main ancestry, oldest first; gaps and coverage must be read alongside the reports.</p>'
+    body += '<div class="charts">'
     groups = {}
     for e in reversed(index["entries"]):
-        if e.get("series") and e["main"]:
+        if referenced and e.get("series") and e["main"]:
             groups.setdefault(e["series"], []).append(e)
     for identity, entries in groups.items():
         points = []
@@ -2337,8 +2609,9 @@ def home(index):
         body += chart(
             "Series " + identity[:12], series, "Main report order", "Mean error (%)"
         )
+    published = index["entries"] or index["main_head"]  # A device without reports has no index file yet.
     body += (
-        '</div><p><a href="index.json">Download history index JSON</a> · <a href="https://github.com/'
+        '</div><p>' + ('<a href="index.json">Download history index JSON</a> · ' if published else '') + '<a href="https://github.com/'
         + REPO
         + '/actions/workflows/evaluation.yml">All evaluation runs</a></p>'
     )
@@ -2361,6 +2634,7 @@ def main():
     f.add_argument("--output", required=True)
     f.add_argument("--commit", required=True)
     f.add_argument("--message", required=True)
+    f.add_argument("--device", help="modeled device the failed run was for (default: the default device)")
     reuse = sub.add_parser("reusable")
     reuse.add_argument("--bundle", required=True)
     reuse.add_argument("--commit", required=True)
@@ -2381,7 +2655,7 @@ def main():
     if a.command == "bundle":
         bundle(a.report, a.source, a.output, a.commit)
     else:
-        failure(a.output, a.commit, a.message)
+        failure(a.output, a.commit, a.message, a.device)
 
 
 if __name__ == "__main__":

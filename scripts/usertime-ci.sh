@@ -3,6 +3,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 base=${1:?base revision required}
 output=${2:-evaluation-results/usertime}
+# Optional modeled device (evaluation/devices.json); the default device if omitted.
+device_args=()
+if [ -n "${3:-}" ]; then device_args=(--device "$3"); fi
 mkdir -p "$output"
 rm -f "$output/report.json" "$output/report.md"
 base=$(git rev-parse "$base^{commit}")
@@ -36,4 +39,4 @@ else
 fi
 python3 scripts/usertime_test.py
 python3 scripts/compute_usertime_test.py
-python3 scripts/usertime.py compare --head "$head_binary" "${base_args[@]}" --base-commit "$base" --reference evaluation/usertime/performance-v1.json --output "$output/report.json"
+python3 scripts/usertime.py compare --head "$head_binary" "${base_args[@]}" --base-commit "$base" --reference evaluation/usertime/performance-v1.json --output "$output/report.json" ${device_args[@]+"${device_args[@]}"}

@@ -5,6 +5,11 @@ accuracy harness. The Go test `TestDeclaredModelProfileMatchesRuntimeDefaults`
 checks it against the actual CPU and cache defaults. Keep the declaration in
 canonical JSON (sorted keys, two-space indentation, final newline).
 
+This is the Apple M2 profile, the simulator's `m2` target. The other
+[modeled devices](README.md#modeled-devices) name `m2` as their parameter source
+and are validated against this same declaration until they have parameters of
+their own; `TestDeclaredModelProfileCoversTargetsCarryingIt` checks each of them.
+
 This declaration is independent of frozen workload manifests and native reference
 measurements. A calibration change updates the simulation declaration, without
 rewriting the inputs or the hardware observations. Plans and reports bind head

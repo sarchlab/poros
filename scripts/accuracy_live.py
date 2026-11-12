@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import accuracy_site as site
+import devices
 import model_profiles
 import usertime
 
@@ -52,10 +53,15 @@ def validate_snapshot(value):
 def snapshot_references(value):
     """Byte-preserving transport around the canonical schema-4 report."""
     report = value["report"]
+    devices.validate(report)
     text = value.get("reference_text")
-    if not isinstance(text, str):
-        raise ValueError("snapshot needs exact application reference bytes")
-    references = {"reference.json": text.encode()}
+    references = {}
+    if devices.measured(report, "application"):
+        if not isinstance(text, str):
+            raise ValueError("snapshot needs exact application reference bytes")
+        references["reference.json"] = text.encode()
+    elif text is not None:
+        raise ValueError("snapshot carries a native application reference its device does not have")
     expected = {key: report[key] for key in ("base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")}
     expected["head_commit"] = report["head"]["commit"]
     declared = site.declared_diagnostics(report)
@@ -63,7 +69,11 @@ def snapshot_references(value):
         if name + "_reference" in value:
             raise ValueError(name + " reference must use exact byte-bound text")
         text = value.get(name + "_reference_text")
-        if name in declared:
+        if name in declared and not devices.measured(report, name):
+            # The suite runs for this device, but nothing native is attached.
+            if text is not None or name + "_provenance" in value:
+                raise ValueError("snapshot carries a native " + name + " reference its device does not have")
+        elif name in declared:
             if not isinstance(text, str) or value.get(name + "_provenance") != expected:
                 raise ValueError("snapshot " + name + " reference/provenance mismatch")
             references[name + ".json"] = text.encode()
@@ -112,6 +122,7 @@ class SnapshotView:
                 completed, manifest = site.validate_bundle(self.bundle, entry["commit"])
                 identity_fields = ("head", "base_commit", "head_binary_sha256", "base_binary_sha256",
                                    "model_profiles", "workload_manifest", "reference_sha256", "reference", "cases", "summary",
+                                   "device", "output_oracle", "diagnostic_definitions",
                                    "throughput_simulation", "forwarding_simulation", "scheduling_simulation",
                                    "capacity_simulation", "recurrence_simulation", "memory_simulation", "frontend_simulation")
                 if completed["artifact_status"] != "pass" or any(completed.get(key) != report.get(key) for key in identity_fields):

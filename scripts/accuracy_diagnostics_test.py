@@ -15,6 +15,8 @@ from unittest.mock import patch
 import accuracy_parallel as parallel
 import accuracy_progress as progress
 import accuracy_site as site
+import accuracy_test_support as fixtures
+import devices
 import forwarding_microbenchmark as forwarding
 import memory_microbenchmark as memory
 import model_profiles as models
@@ -24,7 +26,8 @@ import throughput_microbenchmark as throughput
 import usertime as user
 
 
-def synthetic_execution(binary, root, case, index, n, mode, revision, profile, suite=throughput.THROUGHPUT):
+def synthetic_execution(binary, root, case, index, n, mode, revision, profile, suite=throughput.THROUGHPUT, device=None):
+    """A simulator given a target reports it; one that predates targets reports none."""
     if suite in (forwarding, recurrence):
         elf, checksum = suite.ELF, suite.expected(case, n)
     else:
@@ -34,7 +37,8 @@ def synthetic_execution(binary, root, case, index, n, mode, revision, profile, s
         args=['program', str(index), str(n)], env=[], instructions=instructions,
         stdout_base64=base64.b64encode(struct.pack('<Q', checksum)).decode(),
         build={'vcs.revision': revision, 'vcs.modified': 'false'},
-        timing=dict(retired_instructions=instructions, user_cycles=30+3*n, **copy.deepcopy(profile)))
+        timing=dict(retired_instructions=instructions, user_cycles=30+3*n, **copy.deepcopy(profile),
+                    **({} if device is None else {'target': copy.deepcopy(device)})))
 
 
 class DiagnosticTests(unittest.TestCase):
@@ -44,6 +48,9 @@ class DiagnosticTests(unittest.TestCase):
         cls.state = user.source_state()
         cls.state.update(commit='a'*40, dirty=False)
         cls.profile = parallel.read(cls.source/models.PATH)
+        # This source declares devices, so its plans name one. The base revision
+        # here predates them: it is the default device and is run without a target.
+        cls.device = fixtures.device_selection('m2', cls.state['commit'], cls.state['files'])
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
@@ -54,7 +61,8 @@ class DiagnosticTests(unittest.TestCase):
         base_profile = copy.deepcopy(self.profile)
         base_profile['configuration']['fetch_width'] = 1
         self.plan = dict(schema=1, run_id='test', prepared_attempt=1, head=copy.deepcopy(self.state),
-            base_commit='b'*40, model_profiles={role: {'profile': p} for role,p in [('head',self.profile),('base',base_profile)]})
+            base_commit='b'*40, model_profiles={role: {'profile': p} for role,p in [('head',self.profile),('base',base_profile)]},
+            device=copy.deepcopy(self.device))
         parallel.write(self.prepared/'plan.json', self.plan)
         self.tasks = parallel.diagnostic_tasks(self.plan,self.source)
         self.saved = self.root/'diagnostics'
@@ -117,7 +125,7 @@ class DiagnosticTests(unittest.TestCase):
         task=self.tasks[17];suite=forwarding
         saved=parallel.diagnostic_checkpoint(self.plan,self.prepared,self.saved/'17','forwarding','head')
         suite.measure_case(self.prepared/'head',self.source,task['case'],task['index'],
-            saved.identity['revision'],saved.identity['profile'],checkpoint=saved)
+            saved.identity['revision'],saved.identity['profile'],checkpoint=saved,**devices.options(self.plan,'head'))
         short=self.saved/'17'/saved.filename(task['index'],1024)
         long=self.saved/'17'/saved.filename(task['index'],2048)
         original=long.read_bytes();long.unlink()
@@ -131,6 +139,42 @@ class DiagnosticTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'missing diagnostic checkpoint'):
             parallel.recorded_diagnostics(self.plan,self.prepared,self.source,self.saved)
         self.assertTrue(short.exists())
+
+    def test_unmeasured_device_runs_every_point_on_head_and_keeps_its_evidence_apart(self):
+        self.assertEqual(self.run_point(1),0)  # Evidence of the default device, for later.
+        default_device=devices.identity(self.plan,'head')
+        # load_plan returns this same object, so the campaign is now M1's.
+        self.plan['device']=fixtures.device_selection('m1',self.plan['head']['commit'],self.plan['head']['files'])
+        self.calls.clear()
+        with contextlib.ExitStack() as stack:
+            for suite in site.DIAGNOSTIC_SUITES.values():
+                stack.enter_context(patch.object(suite,'load_reference',
+                    side_effect=AssertionError('read a native reference this device does not have')))
+            tasks=parallel.diagnostic_tasks(self.plan,self.source)
+            self.assertEqual(len(tasks),148)  # Every suite still runs.
+            self.assertTrue(all(task['roles']==['head'] for task in tasks))  # The base cannot model M1.
+            self.saved=self.root/'m1'
+            for index in (0,17,147):self.assertEqual(self.run_point(index),0)
+            rows,states=parallel.recorded_diagnostics(self.plan,self.prepared,self.source,self.saved,partial=True)
+        self.assertEqual(len(self.calls),6)
+        self.assertEqual({binary for binary,_,_ in self.calls},{str(self.prepared/'head')})
+        self.assertEqual([r['id'] for r in rows['throughput']],[tasks[0]['case']['id']])
+        self.assertEqual([r['id'] for r in rows['forwarding']['head']],[tasks[17]['case']['id']])
+        self.assertEqual(rows['forwarding']['base'],[])
+        saved=parallel.read(self.saved/'0/throughput-head-1-1024.json')
+        self.assertEqual(saved['key']['device']['name'],'m1')
+        self.assertEqual(saved['result']['timing']['target'],devices.identity(self.plan,'head'))
+        # A simulator that answers as another device does not satisfy the point.
+        with patch.object(throughput,'execute',side_effect=lambda *a,**kw:synthetic_execution(*a,**dict(kw,device=default_device))):
+            self.assertEqual(self.run_point(2),1)
+        self.assertIn('simulated device mismatch',parallel.read(self.saved/'2/diagnostic.json')['errors'][0])
+        # The default device's evidence for the same point is neither reused nor replayed.
+        import shutil
+        shutil.copytree(self.root/'diagnostics/1',self.saved/'1')
+        self.assertEqual(self.run_point(1),1)
+        self.assertEqual(len(self.calls),6)
+        with self.assertRaisesRegex(ValueError,'checkpoint identity'):
+            parallel.recorded_diagnostics(self.plan,self.prepared,self.source,self.saved,partial=True)
 
     def test_missing_corrupt_duplicate_foreign_keys_and_raw_validation_fail_closed(self):
         self.assertEqual(self.run_point(0),0)
@@ -256,7 +300,7 @@ class DiagnosticTests(unittest.TestCase):
         task=self.tasks[17]
         saved=parallel.diagnostic_checkpoint(self.plan,self.prepared,self.saved/'17','forwarding','head')
         forwarding.measure_case(self.prepared/'head',self.source,task['case'],task['index'],
-            saved.identity['revision'],saved.identity['profile'],checkpoint=saved)
+            saved.identity['revision'],saved.identity['profile'],checkpoint=saved,**devices.options(self.plan,'head'))
         status=self.root/'diagnostic-status.json'
         state=dict(head=self.plan['head']['commit'],base=self.plan['base_commit'],run_id='test',
             total=148,completed=[18],active={'17':'worker'},failed=[])

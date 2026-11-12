@@ -9,6 +9,10 @@ comparisons for all 264 input points. macOS reserves x18, so
 adapters, addresses and page placement differ. The entire executable instruction
 stream is therefore not claimed to be identical.
 
+These references were measured on Apple M2 and are compared only with the `m2`
+device. The other [modeled devices](../README.md#modeled-devices) run the same
+264 points and report predictions without any reference time or error.
+
 The reference measures direct-child `wait4.ru_utime`, including native startup,
 initialization, computation and output. Simulator-host elapsed time and system
 CPU time are not substituted. Core identity and instantaneous frequency remain

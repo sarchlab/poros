@@ -10,11 +10,13 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/sarchlab/poros/pkg/elfsim"
 	"github.com/sarchlab/poros/pkg/linuxuser"
 	"github.com/sarchlab/poros/pkg/loader"
+	"github.com/sarchlab/poros/pkg/target"
 )
 
 type environmentFlags []string
@@ -30,7 +32,8 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 	fs.SetOutput(diagnostics)
 	imageLimit := fs.Uint64("max-image-bytes", loader.MaxELFImageBytes, "page-aligned ELF image budget, at most 512 MiB (default 256 MiB)")
 	mode := fs.String("mode", "functional", "functional, inorder or ooo")
-	hz := fs.Float64("frequency-hz", 3.49e9, "assumed integer CPU Hz (1 MHz to 1 THz), not measured")
+	device := fs.String("target", target.Default, "modeled device: "+strings.Join(target.Names(), ", "))
+	hz := fs.Float64("frequency-hz", 0, "assumed integer CPU Hz (1 MHz to 1 THz), not measured (default: the target's frequency)")
 	steps := fs.Uint64("max-instructions", 1_000_000, "instruction budget")
 	timeout := fs.Duration("timeout", 2*time.Second, "host execution timeout")
 	output := fs.Int("max-output", 1<<20, "combined stdout/stderr byte budget")
@@ -48,7 +51,15 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 		fmt.Fprintln(diagnostics, "usage: poros elf [options] file.elf [guest arguments...]")
 		return 2
 	}
-	if *mode != "functional" && *hz == 0 {
+	// The target is checked in every mode: a functional run never silently
+	// accepts a device the timing models would reject.
+	if _, err := target.Lookup(*device); err != nil {
+		fmt.Fprintln(diagnostics, err)
+		return 2
+	}
+	frequencySet := false
+	fs.Visit(func(f *flag.Flag) { frequencySet = frequencySet || f.Name == "frequency-hz" })
+	if *mode != "functional" && frequencySet && *hz == 0 {
 		fmt.Fprintln(diagnostics, "timing frequency must be positive integer CPU Hz (1 MHz to 1 THz)")
 		return 2
 	}
@@ -80,7 +91,7 @@ func runELF(args []string, out io.Writer, diagnostics io.Writer) int {
 		result, err = p.Run(context.Background(), limits)
 	} else {
 		var timed elfsim.Result
-		timed, err = elfsim.Run(context.Background(), p, elfsim.Options{Model: *mode, FrequencyHz: *hz, Limits: limits})
+		timed, err = elfsim.Run(context.Background(), p, elfsim.Options{Model: *mode, Target: *device, FrequencyHz: *hz, Limits: limits})
 		result = timed.Result
 		timingStats = &timed.Timing
 	}

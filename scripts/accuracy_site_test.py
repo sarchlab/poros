@@ -668,7 +668,9 @@ class AccuracySiteTest(unittest.TestCase):
         self.assertIn("if: github.event_name != 'workflow_run' || steps.pr.outputs.merged == 'true'", publishing)
         self.assertNotIn("contents: write", evaluation)
         self.assertIn("retention-days: 30", parallel)
-        self.assertIn("name: user-time-accuracy-${{ github.run_attempt }}", parallel)
+        # The default device's suffix is empty: its artifact is still user-time-accuracy-<attempt>.
+        self.assertIn("name: user-time-accuracy-${{ env.DEVICE_SUFFIX }}${{ github.run_attempt }}", parallel)
+        self.assertIn("DEVICE_SUFFIX: ${{ inputs.device != 'm2' && format('{0}-', inputs.device) || '' }}", parallel)
         diagnostics = parallel.split("  accuracy-diagnostics:",1)[1].split("  user-time-accuracy:",1)[0]
         self.assertIn("needs: accuracy-prepare",diagnostics)
         self.assertNotIn("needs: accuracy-shards",diagnostics)
