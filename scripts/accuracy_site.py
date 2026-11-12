@@ -2220,14 +2220,6 @@ def detail_body(report, entry, preview=False, frontend=None, throughput_referenc
             body += '<a href="reference.json">Raw native samples</a><a href="manifest.json">Workloads and hardware profile</a><a href="native_usertime.py">Measurement harness</a>'
     if entry.get("run_url"):
         body += '<a href="' + esc(entry["run_url"]) + '">GitHub Actions run</a>'
-    if entry.get("evaluation_run_url") and entry["evaluation_run_url"] != entry.get(
-        "run_url"
-    ):
-        body += (
-            '<a href="'
-            + esc(entry["evaluation_run_url"])
-            + '">Full Evaluation proof</a>'
-        )
     if entry.get("evidence_run_url") and entry["evidence_run_url"] != entry.get(
         "run_url"
     ):
@@ -2241,6 +2233,8 @@ def detail_body(report, entry, preview=False, frontend=None, throughput_referenc
         + commit
         + '">Source commit</a></div>'
     )
+    # The commit's own Evaluation is shown with the commit, not here.
+    body += evidence_provenance(entry)
     if report.get("output_oracle"):
         oracle = report["output_oracle"]
         body += ('<p id="output-oracle">Outputs were checked against <code>' + esc(oracle["path"]) + '</code> (SHA-256 <code>'
@@ -2357,9 +2351,52 @@ def merge_evaluation(entry, incoming):
         entry[field] = incoming[field]
 
 
+UNKNOWN_EVALUATION = "unknown"
+
+
+def evidence_evaluation(candidate, evidence_run_url):
+    """The Evaluation a record establishes as the producer of retained evidence.
+
+    Evidence belongs to the run attempt that produced it. An Evaluation is its
+    producer only if it is that same attempt. Any other Evaluation of the
+    commit, however recent, is the commit's and not this evidence's: the
+    producer is then unknown, and the evidence run is what remains known."""
+    fields = {key: candidate[key] for key in EVALUATION_FIELDS if key in candidate}
+    if len(fields) == len(EVALUATION_FIELDS) and fields["evaluation_run_url"] == evidence_run_url:
+        return fields
+    return {"evaluation_conclusion": UNKNOWN_EVALUATION}
+
+
+def published_producer(metadata):
+    """The Evaluation a publication offers as the producer of its evidence.
+
+    A publisher that reuses the artifact of an earlier workflow attempt names
+    that attempt in `evidence_evaluation`; it must be the evidence run.
+    Otherwise the candidate is the Evaluation the publication carries, which
+    `evidence_evaluation()` accepts only if it is the evidence run too."""
+    explicit = metadata.get("evidence_evaluation")
+    if explicit is None:
+        return metadata
+    if (not isinstance(explicit, dict) or set(explicit) != set(EVALUATION_FIELDS)
+            or explicit["evaluation_conclusion"] not in TERMINAL):
+        raise ValueError("invalid evidence Evaluation")
+    merge_evaluation({}, explicit)
+    if explicit["evaluation_run_url"] != metadata.get("evidence_run_url", metadata["run_url"]):
+        raise ValueError("evidence Evaluation is not the attempt that produced the evidence")
+    return explicit
+
+
+def evaluation_known(record):
+    """Whether a device record names the Evaluation that produced its evidence."""
+    return all(key in record for key in EVALUATION_FIELDS) and record["evaluation_conclusion"] != UNKNOWN_EVALUATION
+
+
 INDEX_SCHEMA = 2
 # What a schema-1 index entry said about the commit, not about its one report.
 COMMIT_FIELDS = ("commit", "main", "releases", *EVALUATION_FIELDS)
+# The only commit-level context a device's view or metadata takes. Everything
+# else it shows, its Evaluation included, is that device's own record.
+SHARED_FIELDS = ("commit", "main", "releases")
 # Names in a commit directory that belong to the commit, not to the default device's bundle.
 COMMIT_FILES = {"devices", "commit.json", "devices.json", "index.html"}
 # A revision without a declaration is the default device alone; nothing more is known of it.
@@ -2409,12 +2446,13 @@ def migrate_index(index):
         raise ValueError("unsupported archive schema")
     entries = []
     for old in index["entries"]:
+        # The Evaluation a schema-1 entry records is the commit's newest and stays
+        # with the commit. Publications that reused passing evidence kept
+        # replacing it, so it is the device's only if it is the evidence run.
         entry = {key: old[key] for key in COMMIT_FIELDS if key in old}
-        # The Evaluation recorded for the one report becomes that device's own,
-        # so a later Evaluation of the commit no longer replaces it.
-        entry["devices"] = {devices.DEFAULT: {key: value for key, value in old.items()
-                                               if (key not in COMMIT_FIELDS or key in EVALUATION_FIELDS)
-                                               and key not in ("release", "device")}}
+        device = {key: value for key, value in old.items() if key not in COMMIT_FIELDS and key not in ("release", "device")}
+        device.update(evidence_evaluation(old, old.get("evidence_run_url")))
+        entry["devices"] = {devices.DEFAULT: device}
         entries.append(entry)
     return dict(index, schema=INDEX_SCHEMA, entries=entries)
 
@@ -2487,10 +2525,17 @@ def require_supported(record, device):
         raise ValueError(f"this revision predates device declarations and models only {devices.DEFAULT}, not {device!r}")
 
 
+# A live campaign that finished but whose final bundle has not been validated.
+# Its snapshot rows are validated and shown; it is not yet a report.
+VALIDATION_PENDING = "validation pending"
+# States of a device view that carry validated rows to read.
+READABLE_STATES = ("report", "running", VALIDATION_PENDING)
+
+
 def device_counts(view):
     """Application-case counts of one device's report; None without a usable report, which is unknown and not zero."""
     report = view.get("report")
-    if view["state"] not in ("report", "running") or report is None:
+    if view["state"] not in READABLE_STATES or report is None:
         return None
     rows = [row for row in report["cases"] if not is_micro_case(row)]
     referenced = devices.measured(report, "application")
@@ -2516,15 +2561,30 @@ def pooled_observations(views):
 
 
 def pooled_summary(views):
-    """The commit's application summary over pooled observations, in the shape one report's summary has."""
+    """The commit's application summary over pooled observations, in the shape one report's summary has.
+
+    Having a native reference and contributing are different things. Every
+    referenced device's cases count as required coverage. A device is a
+    contributor, and part of the trend identity built from the contributors,
+    only if at least one of its observations qualifies."""
     rows = pooled_observations(views)
-    contributing = [view for view in views if (device_counts(view) or {}).get("referenced")]
-    summary = compute.case_summary(rows, performance=all(view["report"].get("schema") == 4 for view in contributing)) if rows else {}
+    referenced = [view for view in views if (device_counts(view) or {}).get("referenced")]
+    summary = compute.case_summary(rows, performance=all(view["report"].get("schema") == 4 for view in referenced)) if rows else {}
     errors = [row["head"]["error_percent"] for row in rows if "error_percent" in row["head"]]
     overview = dict(devices={view["id"]: dict(state=view["state"], **(device_counts(view) or {})) for view in views},
-                    contributors=[view["id"] for view in contributing],
+                    contributors=[view["id"] for view in referenced if device_counts(view)["qualified"]],
                     median_error_percent=statistics.median(errors) if errors else None)
     return rows, summary, overview
+
+
+def exclusion_reason(view):
+    """Why a device adds no observation to the pooled statistics."""
+    counts = device_counts(view)
+    if counts is None:
+        return "failed evidence" if view["state"] == "failed" else "no report yet"
+    if counts["referenced"]:
+        return "no qualified application cases"
+    return "no native application reference: predictions only"
 
 
 def reference_text(view, record):
@@ -2584,9 +2644,7 @@ def commit_overview(record, views, *, retained=True):
                  f'<td><span class="badge {badge}">{esc(view["state"])}</span></td><td>{esc(cases)}</td></tr>')
     body += '</tbody></table></div>'
     included = [view for view in views if view["id"] in overview["contributors"]]
-    reasons = {"pending": "no report yet", "failed": "failed evidence"}
-    excluded = [f'{view["id"]} ({reasons.get(view["state"], "no native application reference: predictions only")})'
-                for view in views if view not in included]
+    excluded = [f'{view["id"]} ({exclusion_reason(view)})' for view in views if view not in included]
     count = sum(qualified(row) for row in rows)
     body += '<h3 id="pooled-accuracy">Pooled application accuracy</h3>'
     scope = ('Each observation is one device and one application input, compared with that device\'s own native reference; '
@@ -2595,14 +2653,12 @@ def commit_overview(record, views, *, retained=True):
     if not count:
         body += ('<div class="notice" id="pooled-empty"><strong>No qualified observation at this commit.</strong> '
                  'Pooled error and correlation statistics are undefined here, not zero. '
-                 + ('Not pooled: ' + esc('; '.join(excluded)) + '. ' if excluded else '')
-                 + ('The reported devices that have a native application reference have no qualified application case. '
-                    if included else '') + '</div>')
+                 + ('Not pooled: ' + esc('; '.join(excluded)) + '.' if excluded else '') + '</div>')
         return body, summary, overview
     body += ('<p id="pooled-scope">' + f'{count} qualified observations from {len(included)} of {len(views)} devices: '
              + esc(', '.join(f'{view["id"]} {device_counts(view)["qualified"]} of {device_counts(view)["required"]}' for view in included))
              + '. ' + scope + (' Not pooled: ' + esc('; '.join(excluded)) + '.' if excluded else '') + '</p>')
-    if any(view["state"] in ("pending", "failed", "running") for view in views):
+    if any(view["state"] != "report" for view in views):
         body += ('<p class="notice" id="pooled-partial">Partial: not every declared device has a complete report, '
                  'so these statistics describe only the devices listed above.</p>')
     body += (f'<p id="pooled-error">Absolute error |predicted − measured| / min(predicted, measured) across {summary["comparable"]} '
@@ -2654,7 +2710,32 @@ VIEW_SCRIPT = """<script>
 </script>"""
 
 
-def commit_report(commit, record, views, *, releases=(), live=False, retained=True):
+def commit_evaluation(evaluation):
+    """The commit's own newest Evaluation. It is not a statement about any device's evidence."""
+    conclusion = evaluation.get("evaluation_conclusion", "not checked")
+    proof = (' · <a href="' + esc(evaluation["evaluation_run_url"]) + '">Full Evaluation proof</a>'
+             if evaluation.get("evaluation_run_url") else '')
+    return ('<p id="commit-evaluation">Full Evaluation of this commit: <strong>' + esc(conclusion) + '</strong>' + proof
+            + '. This is the newest Evaluation recorded for the commit. Each device view says which Evaluation '
+            'produced that device\'s evidence, where that is established.</p>')
+
+
+def evidence_provenance(entry):
+    """Which run and which Evaluation produced a device's retained evidence, from that device's record alone."""
+    if "artifact_status" not in entry:
+        return ""  # A preview or a live view; nothing is retained yet.
+    if evaluation_known(entry):
+        return ('<p id="evidence-evaluation">Evaluation that produced this evidence: <strong>' + esc(entry["evaluation_conclusion"])
+                + '</strong> · <a href="' + esc(entry["evaluation_run_url"]) + '">run ' + esc(entry["evaluation_run_id"])
+                + ', attempt ' + esc(entry["evaluation_run_attempt"]) + '</a>.</p>')
+    evidence = entry.get("evidence_run_url")
+    return ('<p id="evidence-evaluation">Evaluation that produced this evidence: <strong>not established</strong>. '
+            + ('The run that produced it is retained: <a href="' + esc(evidence) + '">evidence run</a>. ' if evidence
+               else 'Its evidence run was not recorded either. ')
+            + 'No Evaluation of the commit is attributed to this evidence.</p>')
+
+
+def commit_report(commit, record, views, *, releases=(), live=False, retained=True, evaluation=None):
     """The one report of a commit: its overview and every declared device, as views of one document.
 
     A view is a section reached by a fragment link, so the address names the
@@ -2662,6 +2743,8 @@ def commit_report(commit, record, views, *, releases=(), live=False, retained=Tr
     browser supports it only the addressed view is shown; otherwise the views
     simply follow each other. Nothing depends on scripts."""
     overview, summary, pooled = commit_overview(record, views, retained=retained)
+    if evaluation is not None:
+        overview = commit_evaluation(evaluation) + overview
     selected = '.report:has(.view:target,.view :target)'
     style = ('<style>@supports selector(:has(*)){'
              + selected + '>.view:not(:target):not(:has(:target)){display:none}'
@@ -2692,6 +2775,9 @@ def commit_report(commit, record, views, *, releases=(), live=False, retained=Tr
             body += ('<p class="notice">No report has been published for this device at this commit. '
                      'It is declared here, so one can still arrive; nothing is assumed about its results.</p>')
         else:
+            if view["state"] == VALIDATION_PENDING:
+                body += ('<p class="notice">This campaign has finished, and its final bundle has not been validated here. '
+                         'The rows below are its validated snapshot; it is not a report until that bundle passes.</p>')
             inner, _, _ = detail_body(view["report"], view["entry"], embedded=True, live=view.get("live"), **view["references"])
             body += embed(inner, view["id"])
         body += '</section>'
@@ -2715,8 +2801,10 @@ def archived_views(site, entry, bundles):
         report, manifest = bundles[view["id"]]
         references = {argument: read(folder / (name + ".json")) if name + ".json" in manifest["files"] else None
                       for name, argument in REFERENCE_ARGUMENTS.items()}
+        # The view takes the commit's identity and nothing else from the commit:
+        # a device record that lacks a field does not inherit the commit's.
         view.update(state="report" if report["artifact_status"] == "pass" else "failed", report=report, references=references,
-                    entry=dict({key: entry[key] for key in COMMIT_FIELDS if key in entry}, **stored),
+                    entry=dict({key: entry[key] for key in SHARED_FIELDS if key in entry}, **stored),
                     bundle_sha256=digest(folder / "bundle.json"))
     return views
 
@@ -2745,7 +2833,8 @@ def render_commit(site, entry, source=None):
             shutil.rmtree(bundle_dir(site, commit, device))
             del entry["devices"][device], bundles[device]
     views = archived_views(site, entry, bundles)
-    html, summary, pooled = commit_report(commit, record, views, releases=entry.get("releases", ()))
+    newest = {key: entry[key] for key in EVALUATION_FIELDS if key in entry}
+    html, summary, pooled = commit_report(commit, record, views, releases=entry.get("releases", ()), evaluation=newest)
     (folder / "index.html").write_text(html)
     if record["status"] == "declared":
         (folder / "devices.json").write_bytes(devices.encode(record["declaration"]))
@@ -2763,15 +2852,21 @@ def render_commit(site, entry, source=None):
         if view["state"] != "pending":
             saved = entry["devices"][view["id"]]
             saved.update(benchmark_summary=benchmark_summary(view["report"]), bundle_sha256=view["bundle_sha256"])
+            # A device's metadata is its own record: publication, evidence run and
+            # the Evaluation that produced the evidence, or that this is unknown.
             write(bundle_dir(site, commit, view["id"]) / "metadata.json",
-                  dict({key: entry[key] for key in COMMIT_FIELDS if key in entry}, device=view["id"], **saved))
+                  dict({key: entry[key] for key in SHARED_FIELDS if key in entry}, device=view["id"], **saved))
+    def provenance(saved):
+        return dict(evidence_run_url=saved.get("evidence_run_url"),
+                    evidence_evaluation={key: saved[key] for key in EVALUATION_FIELDS if key in saved}
+                    if evaluation_known(saved) else {"evaluation_conclusion": UNKNOWN_EVALUATION})
     write(folder / "commit.json", dict(
         schema=1, commit=commit, main=entry["main"], releases=entry["releases"], declaration=record,
-        artifact_status=entry["artifact_status"], benchmark_summary=summary, overview=pooled,
+        artifact_status=entry["artifact_status"], evaluation=newest, benchmark_summary=summary, overview=pooled,
         devices={view["id"]: dict(state=view["state"], **({} if view["state"] == "pending" else dict(
             artifact_status=entry["devices"][view["id"]]["artifact_status"],
             bundle=("" if view["id"] == devices.DEFAULT else f'devices/{view["id"]}/') + "bundle.json",
-            bundle_sha256=view["bundle_sha256"]))) for view in views}))
+            bundle_sha256=view["bundle_sha256"], **provenance(entry["devices"][view["id"]])))) for view in views}))
 
 
 def archive(site, bundle_path, metadata, main_order, keep=20, source=None):
@@ -2811,6 +2906,7 @@ def archive(site, bundle_path, metadata, main_order, keep=20, source=None):
     validate_run_urls(metadata)
     if "run_url" not in metadata:
         raise ValueError("missing publication URL")
+    producer = published_producer(metadata)
     index_path = root / "index.json"
     index = migrate_index(
         read(index_path) if index_path.exists() else {"schema": INDEX_SCHEMA, "entries": []}
@@ -2838,8 +2934,15 @@ def archive(site, bundle_path, metadata, main_order, keep=20, source=None):
     entries[commit] = entry
     existing = entry["devices"].get(device)
     if existing and existing["artifact_status"] == "pass":
-        # Reuse the original measured report, including its original comparison base.
+        # Reuse the original measured report, including its original comparison
+        # base. Its evidence keeps its own run and producing Evaluation. Only
+        # news of that same Evaluation attempt, such as its conclusion, applies.
         saved = existing
+        if not evaluation_known(saved):
+            # Unknown until a publication carries the Evaluation of the evidence run itself.
+            saved.update(evidence_evaluation(producer, saved.get("evidence_run_url")))
+        elif all(saved[key] == producer.get(key) for key in EVALUATION_FIELDS[:2]):
+            merge_evaluation(saved, producer)
     else:
         destination = bundle_dir(site, commit, device)
         clear_bundle(destination, device)
@@ -2850,7 +2953,7 @@ def archive(site, bundle_path, metadata, main_order, keep=20, source=None):
         shutil.copyfile(Path(bundle_path) / "bundle.json", destination / "bundle.json")
         saved = entry["devices"][device] = {
             **{key: value for key, value in metadata.items()
-               if key not in COMMIT_FIELDS and key not in ("device", "release")},
+               if key not in COMMIT_FIELDS and key not in ("device", "release", "evidence_evaluation")},
             "artifact_status": report["artifact_status"],
             "accuracy_status": report["accuracy_status"],
             "series": series_key(report),
@@ -2863,9 +2966,9 @@ def archive(site, bundle_path, metadata, main_order, keep=20, source=None):
                 else None
             ),
         }
-        # The Evaluation that produced this evidence stays with it. A later
-        # publication that reuses the evidence does not replace its proof.
-        merge_evaluation(saved, metadata)
+        # New evidence records the Evaluation that produced it, if that is
+        # established: the one whose attempt is the evidence run.
+        saved.update(evidence_evaluation(producer, saved["evidence_run_url"]))
     entry["main"] = entry["main"] or metadata["kind"] == "main"
     entry.pop("successful_evaluation", None)
     # The commit shows its newest Evaluation, whichever device it was for.

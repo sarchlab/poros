@@ -5,11 +5,13 @@ Simulator metrics here are synthetic transport fixtures, never timing evidence.
 The real simulator runs as every device in `devices.py smoke` and the Go tests.
 """
 import collections
+import contextlib
 import copy
 from datetime import datetime, timezone
 import hashlib
 import html.parser
 from http.server import ThreadingHTTPServer
+import io
 import json
 import os
 from pathlib import Path
@@ -840,19 +842,39 @@ class CommitReportTests(ReportFixture):
         index = self.publish(self.pages, self.device_report("m2", QUIET, world), "noisy", run=2, world=world)
         entry = next(e for e in index["entries"] if e["commit"] == QUIET)
         self.assertEqual(entry["benchmark_summary"], dict(required=246, comparable=0, head_comparable=0, base_comparable=0))
-        self.assertEqual(entry["overview"]["devices"]["m2"]["qualified"], 0)
+        # It has a reference and its cases are required coverage. It contributes no observation,
+        # so it is not a contributor and gives the commit no trend identity.
+        self.assertEqual(entry["overview"]["devices"]["m2"], dict(state="report", required=246, reported=246, referenced=True, qualified=0))
+        self.assertEqual((entry["overview"]["contributors"], entry["series"]), ([], None))
+        self.assertEqual(site.read(self.folder_of(QUIET) / "commit.json")["overview"]["contributors"], [])
         text = view(self.page(QUIET), "overview")
         self.assertIn('id="pooled-empty"', text)
-        self.assertIn("The reported devices that have a native application reference have no qualified application case.", text)
+        self.assertIn("Not pooled: m2 (no qualified application cases); syn-b (no report yet); syn-c (no report yet); "
+                      "syn-d (no report yet).", text)
         self.assertIn("0 qualified of 246", text)
         self.assertNotIn("0.00", text)
         self.assertIn("<td>— (0/246)</td>", self.home())
-        # One observation has an error, and no correlation or ordering.
+        self.assertNotIn("Series ", self.home())
+        # One observation has an error, and no correlation or ordering. The device that supplied it
+        # is the only contributor; the other referenced device still counts toward required coverage.
         index = self.publish(self.pages, self.device_report("syn-b", QUIET, world), "single", run=3, world=world)
         entry = next(e for e in index["entries"] if e["commit"] == QUIET)
-        self.assertEqual(entry["benchmark_summary"]["comparable"], 1)
+        self.assertEqual((entry["benchmark_summary"]["required"], entry["benchmark_summary"]["comparable"]), (492, 1))
         self.assertAlmostEqual(entry["benchmark_summary"]["head"]["mean_error_percent"], 100)
+        self.assertEqual(entry["overview"]["contributors"], ["syn-b"])
+        self.assertEqual({ident: (counts["referenced"], counts["qualified"]) for ident, counts in entry["overview"]["devices"].items()
+                          if "referenced" in counts}, {"m2": (True, 0), "syn-b": (True, 1)})
+        # The trend identity names the contributor alone: it is the one this commit would have had
+        # if the non-contributing device had not reported at all.
+        alone = self.root / "alone"
+        alone.mkdir()
+        solo = site.archive(alone, self.bundle(self.device_report("syn-b", QUIET, world), "alone-bundle", world[0]),
+                            self.metadata(device="syn-b", run=3, commit=QUIET), self.order)
+        self.assertEqual((entry["series"], solo["entries"][0]["overview"]["contributors"]), (solo["entries"][0]["series"], ["syn-b"]))
+        self.assertIsNotNone(entry["series"])
         text = view(self.page(QUIET), "overview")
+        self.assertIn("1 qualified observations from 1 of 4 devices: syn-b 1 of 246.", text)
+        self.assertIn("Not pooled: m2 (no qualified application cases); syn-c (no report yet); syn-d (no report yet).", text)
         self.assertIn("across 1 qualified observations: mean 100.0000%, median 100.0000%, maximum 100.0000%.", text)
         self.assertIn('id="pooled-undefined"', text)
         self.assertIn("Undefined for these observations, shown as —: Pearson r, Kendall τ-b, the share of correctly ordered pairs.", text)
@@ -901,12 +923,34 @@ class CommitReportTests(ReportFixture):
         entry, page = arrived("partial", "2 of 4 reported",
                               [("m2", "report"), ("syn-b", "report"), ("syn-c", "pending"), ("syn-d", "pending")])
         self.assertEqual(kept(*default), default)
-        # Each device keeps the Evaluation that produced its own evidence; the commit shows the newest.
-        self.assertEqual([entry["devices"]["m2"]["evaluation_run_id"], entry["devices"]["syn-b"]["evaluation_run_id"],
-                          entry["evaluation_run_id"]], [1, 20, 20])
-        self.assertIn(f'<a href="{proof}">Full Evaluation proof</a>', view(page, "device-syn-b"))
-        self.assertNotIn("/runs/20/", view(page, "device-m2"))
-        self.assertEqual(site.read(folder / "metadata.json")["evaluation_run_id"], 1)
+        # This publication carried Evaluation 20, and run 2 produced its evidence. Evaluation 20 is
+        # therefore the commit's newest and nothing more: no Evaluation is attributed to syn-b's
+        # evidence, whose run is still known. m2's evidence came from its own Evaluation, run 1.
+        def run(number):
+            return f"https://github.com/sarchlab/poros/actions/runs/{number}/attempts/1"
+        def evaluation(record):
+            return {key: value for key, value in record.items() if key.startswith("evaluation_")}
+        first = dict(evaluation_run_id=1, evaluation_run_attempt=1, evaluation_conclusion="success", evaluation_run_url=run(1))
+        newest = dict(evaluation_run_id=20, evaluation_run_attempt=1, evaluation_conclusion="success", evaluation_run_url=proof)
+        self.assertEqual((evaluation(entry["devices"]["m2"]), evaluation(entry["devices"]["syn-b"]), evaluation(entry)),
+                         (first, dict(evaluation_conclusion="unknown"), newest))
+        self.assertEqual(entry["devices"]["syn-b"]["evidence_run_url"], run(2))
+        section = view(page, "device-syn-b")
+        self.assertIn("Evaluation that produced this evidence: <strong>not established</strong>.", section)
+        self.assertIn(f'<a href="{run(2)}">evidence run</a>', section)
+        self.assertIn(f'Evaluation that produced this evidence: <strong>success</strong> · <a href="{run(1)}">run 1, attempt 1</a>.',
+                      view(page, "device-m2"))
+        self.assertNotIn("/runs/20/", section + view(page, "device-m2"))
+        self.assertIn(f'Full Evaluation of this commit: <strong>success</strong> · <a href="{proof}">Full Evaluation proof</a>',
+                      view(page, "overview"))
+        # The machine-readable records say the same, each device from its own record.
+        self.assertEqual((evaluation(site.read(folder / "metadata.json")), evaluation(site.read(folder / "devices/syn-b/metadata.json"))),
+                         (first, dict(evaluation_conclusion="unknown")))
+        record = site.read(folder / "commit.json")
+        self.assertEqual(record["evaluation"], newest)
+        self.assertEqual({ident: (device["evidence_run_url"], device["evidence_evaluation"])
+                          for ident, device in record["devices"].items() if device["state"] != "pending"},
+                         {"m2": (run(1), first), "syn-b": (run(2), dict(evaluation_conclusion="unknown"))})
         self.assertEqual(sorted(path.name for path in (folder / "devices/syn-b").iterdir()),
                          ["bundle.json", "metadata.json", "reference.json", "report.json", "report.md"])
         self.assertEqual(site.read(folder / "devices/syn-b/metadata.json")["device"], "syn-b")
@@ -922,6 +966,10 @@ class CommitReportTests(ReportFixture):
                               [("m2", "report"), ("syn-b", "report"), ("syn-c", "pending"), ("syn-d", "pending")])
         self.assertEqual((kept(*default), kept(*second)), (default, second))
         self.assertEqual((entry["devices"]["m2"]["run_id"], entry["devices"]["syn-b"]["run_id"]), (3, 2))
+        # The retained evidence is still run 1's, so its Evaluation is still run 1's; syn-b's stays unknown.
+        self.assertEqual((evaluation(entry["devices"]["m2"]), entry["devices"]["m2"]["evidence_run_url"],
+                          evaluation(entry["devices"]["syn-b"]), entry["evaluation_run_id"]),
+                         (first, run(1), dict(evaluation_conclusion="unknown"), 20))
 
         # One device fails. The commit's report says so; its siblings and the pooled numbers stay.
         self.publish_failure(self.pages, self.commit, "syn-d", "syn-d-failed", run=4)
@@ -936,7 +984,8 @@ class CommitReportTests(ReportFixture):
         self.assertIsNone(site.read(index_path)["latest_success"])
         self.assertEqual(site.read(folder / "commit.json")["devices"]["syn-d"],
                          dict(state="failed", artifact_status="fail", bundle="devices/syn-d/bundle.json",
-                              bundle_sha256=site.digest(folder / "devices/syn-d/bundle.json")))
+                              bundle_sha256=site.digest(folder / "devices/syn-d/bundle.json"), evidence_run_url=run(4),
+                              evidence_evaluation=dict(first, evaluation_run_id=4, evaluation_run_url=run(4))))
 
         # Publication is refused, and nothing is stored, when the metadata names another device,
         # when the device is not one this commit declares, or when a report of this commit carries
@@ -1027,9 +1076,12 @@ class CommitReportTests(ReportFixture):
         retained = site.read(folder / "devices/syn-b/metadata.json")
         self.assertEqual((retained["evaluation_run_id"], retained["evaluation_conclusion"], retained["run_id"]), (1, "success", 2))
         section = view(self.page(), "device-syn-b")
-        self.assertIn(f'<a href="{proof(1)}">Full Evaluation proof</a>', section)
+        self.assertIn(f'Evaluation that produced this evidence: <strong>success</strong> · <a href="{proof(1)}">run 1, attempt 1</a>.', section)
         self.assertIn(f'<a href="{proof(1)}">Original evidence run</a>', section)
         self.assertNotIn("simulation failed", section)
+        self.assertNotIn(proof(2) + '">Full Evaluation proof', section)
+        self.assertIn(f'Full Evaluation of this commit: <strong>failure</strong> · <a href="{proof(2)}">Full Evaluation proof</a>',
+                      view(self.page(), "overview"))
         self.assertIn(f'<td><a href="runs/{self.commit}/">{self.commit[:12]}</a></td><td>failure</td>', self.home())
         # Another device's evidence carries its own Evaluation and leaves that proof alone.
         index = self.publish(self.pages, self.device_report("m2"), "m2", run=3)
@@ -1044,6 +1096,41 @@ class CommitReportTests(ReportFixture):
         self.assertEqual(device(index, "syn-c"), dict(
             artifact_status="pass", conclusion="success", run_id=5, evaluation_run_id=5, evaluation_conclusion="success",
             evaluation_run_url=proof(5), evidence_run_url=proof(5)))
+        # News of the very Evaluation that produced the evidence still reaches it: here its conclusion,
+        # which was not final when the evidence was stored. A later Evaluation's outcome does not.
+        index = self.publish(self.pages, self.device_report("syn-d"), "syn-d", run=6, evaluation_conclusion="in_progress")
+        self.assertEqual((device(index, "syn-d")["evaluation_run_id"], device(index, "syn-d")["evaluation_conclusion"]), (6, "in_progress"))
+        index = self.publish(self.pages, self.device_report("syn-d"), "syn-d-concluded", run=6)
+        self.assertEqual((device(index, "syn-d")["evaluation_run_id"], device(index, "syn-d")["evaluation_conclusion"]), (6, "success"))
+        index = self.publish_failure(self.pages, self.commit, "syn-d", "syn-d-later", run=7, evaluation_conclusion="failure")
+        self.assertEqual(device(index, "syn-d"), dict(
+            artifact_status="pass", conclusion="failure", run_id=7, evaluation_run_id=6, evaluation_conclusion="success",
+            evaluation_run_url=proof(6), evidence_run_url=proof(6)))
+        self.assertEqual((index["entries"][0]["evaluation_run_id"], index["entries"][0]["evaluation_conclusion"]), (7, "failure"))
+        # A device record that names no Evaluation borrows none from its commit, whose newest is the
+        # failed run 7: neither its view nor its metadata gains that run.
+        index_path = self.pages / "calibration/index.json"
+        index = site.read(index_path)
+        stripped = index["entries"][0]["devices"]["syn-b"]
+        for key in site.EVALUATION_FIELDS:
+            del stripped[key]
+        site.write(index_path, index)
+        index = self.publish_failure(self.pages, LATER, None, "another-commit", run=8)
+        entry = next(entry for entry in index["entries"] if entry["commit"] == self.commit)
+        self.assertEqual(entry["evaluation_run_id"], 7)
+        self.assertFalse(any(key.startswith("evaluation_") for key in entry["devices"]["syn-b"]))
+        shown = site.archived_views(self.pages, entry, {ident: site.validate_bundle(site.bundle_dir(self.pages, self.commit, ident), self.commit)
+                                                         for ident in entry["devices"]})
+        syn_b = next(shown_view for shown_view in shown if shown_view["id"] == "syn-b")["entry"]
+        self.assertEqual((syn_b["commit"], [key for key in syn_b if key.startswith("evaluation_")]), (self.commit, []))
+        section = view(self.page(), "device-syn-b")
+        self.assertIn("Evaluation that produced this evidence: <strong>not established</strong>.", section)
+        self.assertIn(f'<a href="{proof(1)}">evidence run</a>', section)
+        self.assertNotIn(proof(7), re.search(r'<p id="device-syn-b_evidence-evaluation">.*?</p>', section).group(0))
+        retained = site.read(folder / "devices/syn-b/metadata.json")
+        self.assertEqual(([key for key in retained if key.startswith("evaluation_")], retained["evidence_run_url"], retained["commit"]),
+                         ([], proof(1), self.commit))
+        self.assertEqual(site.read(folder / "commit.json")["devices"]["syn-b"]["evidence_evaluation"], dict(evaluation_conclusion="unknown"))
         check_site(self, self.pages)
 
     def test_a_commit_is_evicted_or_pinned_with_all_its_devices(self):
@@ -1156,8 +1243,10 @@ class CommitReportTests(ReportFixture):
         for name in ("overall", "benchmark-table", "microbenchmarks", "throughput-table"):
             self.assertIn(name, parsed.ids)
             self.assertIn(f'id="{name}"', m2)
-        # The Evaluation published with that report is now its device's own: a later failed
-        # Evaluation of the old commit changes the commit's row, not the retained evidence or its proof.
+        # The Evaluation recorded with that report is the run that produced its evidence, so it is the
+        # device's own: a later failed Evaluation of the old commit changes the commit's row, not the
+        # retained evidence or its proof.
+        self.assertEqual(entry["evaluation_run_url"], entry["evidence_run_url"])
         index = self.publish_failure(self.pages, LEGACY, None, "legacy-failed", run=9, evaluation_conclusion="failure")
         migrated = next(e for e in index["entries"] if e["commit"] == LEGACY)
         saved = migrated["devices"]["m2"]
@@ -1165,6 +1254,254 @@ class CommitReportTests(ReportFixture):
                          ("pass", 1, "success", metadata["run_url"]))
         self.assertEqual((migrated["evaluation_run_id"], migrated["evaluation_conclusion"]), (9, "failure"))
         self.assertEqual({name: (old / name).read_bytes() for name in published}, published)
+
+    def test_schema_1_evaluation_stays_with_the_commit_unless_it_is_the_evidence_run(self):
+        def run(number):
+            return f"https://github.com/sarchlab/poros/actions/runs/{number}/attempts/1"
+        def evaluation(record):
+            return {key: value for key, value in record.items() if key.startswith("evaluation_")}
+        def proof(number, conclusion):
+            return dict(evaluation_run_id=number, evaluation_run_attempt=1, evaluation_conclusion=conclusion, evaluation_run_url=run(number))
+        def published(commit, name, **fields):
+            """A schema-1 entry of passing evidence, with the files it was published with."""
+            report = at_commit(self.legacy, commit)
+            bundle = self.bundle(report, name)
+            shutil.copytree(bundle, self.folder_of(commit))
+            manifest = site.read(bundle / "bundle.json")
+            return dict(commit=commit, main=True, releases=[], artifact_status="pass", accuracy_status="unverified",
+                        series=site.series_key(report), summary=report["summary"], benchmark_summary=site.benchmark_summary(report),
+                        evidence_files=sorted(manifest["files"]), measurement_completed_at="2026-01-01T00:10:00Z", **fields)
+        entries = [
+            # Evidence of run 1 was retained when run 2 failed and was published: the old archive
+            # reused the bundle and replaced the entry's Evaluation with the failed one.
+            published(LEGACY, "reused", conclusion="failure", run_id=2, run_attempt=1, run_url=run(2), evidence_run_url=run(1),
+                      **proof(2, "failure")),
+            # A manual backfill: its publication run 30 built the evidence; Evaluation 5 is the commit's.
+            published(QUIET, "backfilled", conclusion="success", run_id=30, run_attempt=1, run_url=run(30), evidence_run_url=run(30),
+                      **proof(5, "success")),
+            # An entry from before evidence runs were recorded, of a commit with no Evaluation.
+            published(LATER, "oldest", conclusion="success", run_id=40, run_attempt=1, run_url=run(40), evaluation_conclusion="not checked"),
+        ]
+        index_path = self.pages / "calibration/index.json"
+        site.write(index_path, dict(schema=1, main_head=LATER, latest_success=QUIET, entries=entries))
+        unknown = dict(evaluation_conclusion="unknown")
+        # The conversion itself, on that reachable state.
+        converted = {entry["commit"]: entry for entry in site.migrate_index(site.read(index_path))["entries"]}
+        self.assertEqual({commit: (evaluation(entry), evaluation(entry["devices"]["m2"]), entry["devices"]["m2"].get("evidence_run_url"))
+                          for commit, entry in converted.items()},
+                         {LEGACY: (proof(2, "failure"), unknown, run(1)), QUIET: (proof(5, "success"), unknown, run(30)),
+                          LATER: (dict(evaluation_conclusion="not checked"), unknown, None)})
+        # Through a publication: the index, the pages and each device's metadata agree.
+        index = self.publish(self.pages, self.device_report("m2"), "m2", run=50)
+        migrated = {entry["commit"]: entry for entry in index["entries"]}
+        for commit, newest, evidence in ((LEGACY, proof(2, "failure"), run(1)), (QUIET, proof(5, "success"), run(30)),
+                                         (LATER, dict(evaluation_conclusion="not checked"), None)):
+            with self.subTest(commit=commit):
+                entry, folder = migrated[commit], self.folder_of(commit)
+                saved = entry["devices"]["m2"]
+                self.assertEqual((evaluation(entry), evaluation(saved), saved.get("evidence_run_url"), saved["artifact_status"]),
+                                 (newest, unknown, evidence, "pass"))
+                metadata = site.read(folder / "metadata.json")
+                self.assertEqual((evaluation(metadata), metadata.get("evidence_run_url"), metadata["run_id"], metadata["device"]),
+                                 (unknown, evidence, saved["run_id"], "m2"))
+                record = site.read(folder / "commit.json")
+                self.assertEqual((record["evaluation"], record["devices"]["m2"]["evidence_run_url"], record["devices"]["m2"]["evidence_evaluation"]),
+                                 (newest, evidence, unknown))
+                page = self.page(commit)
+                section, overview = view(page, "device-m2"), view(page, "overview")
+                # The device shows what survives, its evidence run, and borrows no Evaluation from the commit.
+                self.assertIn("Evaluation that produced this evidence: <strong>not established</strong>.", section)
+                if evidence is None:
+                    self.assertIn("Its evidence run was not recorded either.", section)
+                else:
+                    self.assertIn(f'<a href="{evidence}">evidence run</a>', section)
+                self.assertNotIn("Full Evaluation proof", section)
+                self.assertIn(f'Full Evaluation of this commit: <strong>{newest["evaluation_conclusion"]}</strong>', overview)
+                if "evaluation_run_url" in newest:
+                    statement = re.search(r'<p id="evidence-evaluation">.*?</p>', section).group(0)
+                    self.assertNotIn(newest["evaluation_run_url"], statement)
+                    self.assertIn(f'<a href="{newest["evaluation_run_url"]}">Full Evaluation proof</a>', overview)
+                else:
+                    self.assertNotIn("Full Evaluation proof", overview)
+        self.assertIn(f'<a href="{run(1)}">Original evidence run</a>', view(self.page(LEGACY), "device-m2"))
+        # The Evaluation of the evidence run itself, published again, establishes what the old record
+        # could not. It is older than the commit's newest, which stays, as does the publication record.
+        index = self.publish(self.pages, at_commit(self.legacy, LEGACY), "original-attempt", run=1)
+        entry = next(entry for entry in index["entries"] if entry["commit"] == LEGACY)
+        saved = entry["devices"]["m2"]
+        self.assertEqual((evaluation(entry), evaluation(saved), saved["evidence_run_url"], saved["run_id"], saved["conclusion"]),
+                         (proof(2, "failure"), proof(1, "success"), run(1), 2, "failure"))
+        self.assertIn(f'Evaluation that produced this evidence: <strong>success</strong> · <a href="{run(1)}">run 1, attempt 1</a>.',
+                      view(self.page(LEGACY), "device-m2"))
+        # Any other Evaluation of the commit, newer or not, still establishes nothing for the backfilled evidence.
+        index = self.publish(self.pages, at_commit(self.legacy, QUIET), "another-evaluation", run=60)
+        entry = next(entry for entry in index["entries"] if entry["commit"] == QUIET)
+        self.assertEqual((evaluation(entry), evaluation(entry["devices"]["m2"]), entry["devices"]["m2"]["evidence_run_url"]),
+                         (proof(60, "success"), unknown, run(30)))
+        check_site(self, self.pages)
+
+    def test_publication_of_an_earlier_attempt_artifact_attributes_the_evidence_to_that_attempt(self):
+        # A failed-jobs rerun: attempt 2 of Evaluation run 77 concluded and triggered publication. The
+        # accuracy job was not rerun, so the artifact on offer may be attempt 1's.
+        repo, actions = publisher.REPO, f"https://github.com/{publisher.REPO}/actions/runs/77"
+        triggering = dict(id=77, run_attempt=2, event="push", head_branch="main", head_repository=dict(full_name=repo),
+                          status="completed", conclusion="success", workflow_id=5, head_sha=self.commit, html_url=actions)
+        earlier = dict(triggering, run_attempt=1, conclusion="failure")
+        def proof(workflow):
+            return dict(evaluation_run_id=77, evaluation_run_attempt=workflow["run_attempt"], evaluation_conclusion=workflow["conclusion"],
+                        evaluation_run_url=f'{actions}/attempts/{workflow["run_attempt"]}')
+        def evaluation(record):
+            return {key: value for key, value in record.items() if key.startswith("evaluation_")}
+        event = self.root / "event.json"
+        site.write(event, dict(repository=dict(full_name=repo), workflow_run=triggering))
+
+        def publication(name, attempts, earlier=earlier):
+            """Run the publisher's own entry point; only GitHub and the final push are stood in for."""
+            asked, published = [], []
+            built = {}
+            for attempt in attempts:
+                with patch.dict(os.environ, dict(GITHUB_RUN_ID="77", GITHUB_RUN_ATTEMPT=str(attempt))):
+                    built[f"user-time-accuracy-{attempt}"] = self.bundle(self.device_report("m2"), f"{name}-attempt-{attempt}", self.world[0])
+            def api(path, method="GET"):
+                asked.append(path)
+                if path == f"repos/{repo}/actions/workflows/evaluation.yml":
+                    return dict(id=5, path=".github/workflows/evaluation.yml")
+                if path == f"repos/{repo}/actions/runs/77/attempts/2":
+                    return triggering
+                if path == f"repos/{repo}/actions/runs/77/attempts/1":
+                    return earlier
+                if path.startswith(f"repos/{repo}/actions/runs/77/artifacts"):
+                    return dict(artifacts=[dict(name=artifact, expired=False) for artifact in built])
+                raise AssertionError("unexpected API call: " + path)
+            def run(*command, **options):
+                shutil.copytree(built[command[command.index("--name") + 1]], command[command.index("--dir") + 1], dirs_exist_ok=True)
+                return subprocess.CompletedProcess(command, 0)
+            def publish(source, bundle, metadata, destination=None, build=True):
+                published.append(copy.deepcopy(metadata))
+                site.archive(self.root / name / "pages", bundle, metadata, self.order)
+                return "0" * 40
+            (self.root / name / "pages").mkdir(parents=True)
+            argv = ["publish_accuracy.py", "--source", str(self.root), "--bundle", str(self.root / name / "downloaded"),
+                    "--event", str(event), "--event-name", "workflow_run"]
+            environment = {key: value for key, value in os.environ.items() if key != "GITHUB_STEP_SUMMARY"}
+            with patch("sys.argv", argv), patch.dict(os.environ, environment, clear=True), patch.object(publisher, "api", side_effect=api), \
+                 patch.object(publisher, "run", side_effect=run), patch.object(publisher, "publish", side_effect=publish), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                publisher.main()
+            pages = self.root / name / "pages"
+            entry = site.read(pages / "calibration/index.json")["entries"][0] if published else None
+            return asked, published, entry, pages / "calibration/runs" / self.commit
+
+        # Only attempt 1 produced an artifact: its Evaluation is resolved and is the device's.
+        asked, published, entry, folder = publication("reused", [1])
+        self.assertIn(f"repos/{repo}/actions/runs/77/attempts/1", asked)
+        metadata = published[0]
+        self.assertEqual((evaluation(metadata), metadata["evidence_evaluation"], metadata["evidence_run_url"], metadata["run_attempt"]),
+                         (proof(triggering), proof(earlier), actions + "/attempts/1", 2))
+        saved = entry["devices"]["m2"]
+        # The commit keeps the triggering attempt's proof, the device's publication record its status,
+        # and the evidence the attempt that produced it.
+        self.assertEqual(evaluation(entry), proof(triggering))
+        self.assertEqual((saved["conclusion"], saved["run_attempt"], saved["run_url"]), ("success", 2, actions + "/attempts/2"))
+        self.assertEqual((evaluation(saved), saved["evidence_run_url"]), (proof(earlier), actions + "/attempts/1"))
+        self.assertNotIn("evidence_evaluation", saved)
+        page = (folder / "index.html").read_text()
+        section = view(page, "device-m2")
+        self.assertIn(f'Evaluation that produced this evidence: <strong>failure</strong> · <a href="{actions}/attempts/1">run 77, attempt 1</a>.',
+                      section)
+        self.assertIn(f'<a href="{actions}/attempts/1">Original evidence run</a>', section)
+        self.assertIn(f'<a href="{actions}/attempts/2">GitHub Actions run</a>', section)
+        self.assertIn(f'Full Evaluation of this commit: <strong>success</strong> · <a href="{actions}/attempts/2">Full Evaluation proof</a>',
+                      view(page, "overview"))
+        retained = site.read(folder / "metadata.json")
+        self.assertEqual((evaluation(retained), retained["evidence_run_url"], retained["run_attempt"]),
+                         (proof(earlier), actions + "/attempts/1", 2))
+        record = site.read(folder / "commit.json")
+        self.assertEqual((record["evaluation"], record["devices"]["m2"]["evidence_evaluation"]), (proof(triggering), proof(earlier)))
+
+        # The triggering attempt produced its own artifact: one Evaluation is all three, and nothing is looked up.
+        asked, published, entry, _ = publication("own", [1, 2])
+        self.assertNotIn(f"repos/{repo}/actions/runs/77/attempts/1", asked)
+        self.assertEqual((published[0]["evidence_evaluation"], published[0]["evidence_run_url"]), (proof(triggering), actions + "/attempts/2"))
+        self.assertEqual((evaluation(entry), evaluation(entry["devices"]["m2"])), (proof(triggering), proof(triggering)))
+
+        # No attempt produced one: the failure the publisher files is the triggering attempt's own.
+        asked, published, entry, folder = publication("missing", [])
+        self.assertNotIn("evidence_evaluation", published[0])
+        saved = entry["devices"]["m2"]
+        self.assertEqual((saved["artifact_status"], evaluation(saved), saved["evidence_run_url"]),
+                         ("fail", proof(triggering), actions + "/attempts/2"))
+
+        # An earlier attempt that is not of the same Evaluation of the same commit is not accepted as a producer.
+        for label, change in (("other commit", dict(head_sha="f" * 40)), ("unfinished", dict(status="in_progress")),
+                              ("other workflow", dict(workflow_id=6)), ("other attempt", dict(run_attempt=3))):
+            with self.subTest(label), self.assertRaisesRegex(ValueError, "producing workflow attempt identity mismatch"):
+                publication("mismatch-" + label.replace(" ", "-"), [1], dict(earlier, **change))
+        # The archive holds a publisher to the same rule: a producer is the evidence run or nothing.
+        bundle = self.bundle(self.device_report("m2"), "direct", self.world[0])
+        for label, change, reason in (
+                ("another run", dict(evidence_evaluation=proof(triggering), evidence_run_url=actions + "/attempts/1"),
+                 "evidence Evaluation is not the attempt that produced the evidence"),
+                ("unfinished", dict(evidence_evaluation=dict(proof(earlier), evaluation_conclusion="in_progress"),
+                                    evidence_run_url=actions + "/attempts/1"), "invalid evidence Evaluation"),
+                ("partial", dict(evidence_evaluation=dict(evaluation_conclusion="success")), "invalid evidence Evaluation"),
+                ("forged link", dict(evidence_evaluation=dict(proof(earlier), evaluation_run_url=actions + "/attempts/9"),
+                                     evidence_run_url=actions + "/attempts/9"), "Evaluation proof URL does not match its identity")):
+            with self.subTest(label), self.assertRaisesRegex(ValueError, reason):
+                site.archive(self.pages, bundle, dict(self.metadata(run=77), **change), self.order)
+        self.assertFalse((self.pages / "calibration").exists())
+
+    def test_manual_publication_attributes_no_evaluation_to_the_evidence_it_built(self):
+        # A manual publication builds its own evidence. Attempt 2 of publication run 90 reuses the
+        # build of attempt 1. The commit has a push Evaluation, run 55, which built none of it.
+        repo, runs = publisher.REPO, f"https://github.com/{publisher.REPO}/actions/runs"
+        target = dict(kind="main", commit=self.commit)
+        built = self.bundle(self.device_report("m2"), "built", self.world[0])
+        site.write(built / "publication-target.json", target)
+        event = self.root / "event.json"
+        site.write(event, dict(repository=dict(full_name=repo), inputs=dict(release_tag="", device="")))
+        published = []
+        def api(path, method="GET"):
+            if path.startswith(f"repos/{repo}/actions/runs/90/artifacts"):
+                return dict(artifacts=[dict(name="release-accuracy-evidence-1", expired=False)])
+            if path.startswith(f"repos/{repo}/actions/workflows/evaluation.yml/runs?"):
+                return dict(workflow_runs=[dict(id=55, run_attempt=1, status="completed", conclusion="success", head_sha=self.commit,
+                                                head_branch="main", event="push", head_repository=dict(full_name=repo))])
+            raise AssertionError("unexpected API call: " + path)
+        def run(*command, **options):
+            if command[:3] == ("gh", "run", "download"):
+                shutil.copytree(built, command[command.index("--dir") + 1], dirs_exist_ok=True)
+            return subprocess.CompletedProcess(command, 0)
+        def publish(source, bundle, metadata, destination=None, build=True):
+            published.append(copy.deepcopy(metadata))
+            site.archive(self.pages, bundle, metadata, self.order)
+            return "0" * 40
+        argv = ["publish_accuracy.py", "--source", str(self.root), "--bundle", str(self.root / "downloaded"), "--event", str(event),
+                "--event-name", "workflow_dispatch", "--build-conclusion", "success"]
+        environment = {key: value for key, value in os.environ.items() if key != "GITHUB_STEP_SUMMARY"}
+        environment.update(GITHUB_REF="refs/heads/main", GITHUB_SHA=self.commit, GITHUB_RUN_ID="90", GITHUB_RUN_ATTEMPT="2")
+        with patch("sys.argv", argv), patch.dict(os.environ, environment, clear=True), patch.object(publisher, "api", side_effect=api), \
+             patch.object(publisher, "run", side_effect=run), patch.object(publisher, "publish", side_effect=publish), \
+             contextlib.redirect_stdout(io.StringIO()):
+            publisher.main()
+        commit_proof = dict(evaluation_run_id=55, evaluation_run_attempt=1, evaluation_conclusion="success",
+                            evaluation_run_url=runs + "/55/attempts/1")
+        metadata = published[0]
+        self.assertEqual((metadata["run_url"], metadata["evidence_run_url"]), (runs + "/90/attempts/2", runs + "/90/attempts/1"))
+        self.assertNotIn("evidence_evaluation", metadata)
+        entry = site.read(self.pages / "calibration/index.json")["entries"][0]
+        saved = entry["devices"]["m2"]
+        self.assertEqual({key: value for key, value in entry.items() if key.startswith("evaluation_")}, commit_proof)
+        self.assertEqual(({key: value for key, value in saved.items() if key.startswith("evaluation_")}, saved["evidence_run_url"],
+                          saved["run_url"], saved["artifact_status"]),
+                         (dict(evaluation_conclusion="unknown"), runs + "/90/attempts/1", runs + "/90/attempts/2", "pass"))
+        page = self.page()
+        section = view(page, "device-m2")
+        self.assertIn("Evaluation that produced this evidence: <strong>not established</strong>.", section)
+        self.assertIn(f'<a href="{runs}/90/attempts/1">evidence run</a>', section)
+        self.assertNotIn("/55/", section)
+        self.assertIn(f'Full Evaluation of this commit: <strong>success</strong> · <a href="{runs}/55/attempts/1">Full Evaluation proof</a>',
+                      view(page, "overview"))
 
     def test_failed_evidence_alone_leaves_the_devices_unknown_until_the_source_is_read(self):
         repository = self.root / "repository"
@@ -1293,8 +1630,12 @@ class CommitReportTests(ReportFixture):
                          ["bundle.json", "metadata.json", "report.json", "report.md"])
         # The commit record points at the bundles by digest. It repeats none of their rows.
         record = site.read(folder / "commit.json")
-        self.assertEqual(record["devices"]["syn-b"], dict(state="report", artifact_status="pass", bundle="devices/syn-b/bundle.json",
-                                                          bundle_sha256=site.digest(folder / "devices/syn-b/bundle.json")))
+        produced = "https://github.com/sarchlab/poros/actions/runs/2/attempts/1"  # syn-b was published second, by run 2.
+        self.assertEqual(record["devices"]["syn-b"], dict(
+            state="report", artifact_status="pass", bundle="devices/syn-b/bundle.json",
+            bundle_sha256=site.digest(folder / "devices/syn-b/bundle.json"), evidence_run_url=produced,
+            evidence_evaluation=dict(evaluation_run_id=2, evaluation_run_attempt=1, evaluation_conclusion="success",
+                                     evaluation_run_url=produced)))
         self.assertEqual(record["devices"]["m2"]["bundle"], "bundle.json")
         self.assertNotIn("cases", json.dumps(record))
         self.assertLess(len(json.dumps(record)), 20000)
@@ -1387,17 +1728,45 @@ class CommitReportTests(ReportFixture):
         self.assertIn('<a href="#device-syn-b">syn-b · failed</a>', page)
         self.assertIn("shard 3 failed", view(page, "device-syn-b"))
         self.assertNotIn("shard 3 failed", view(page, "device-m2"))
-        # A device whose campaign completed is a report; the page stops reloading once none is running.
+        # A finished campaign is transport status. No final bundle of it has been validated here, so
+        # it is shown as awaiting that validation and never as a report. Its validated snapshot rows
+        # stay in the overview. The page stops reloading once no campaign is running.
+        def labels(page):
+            return re.findall(r'<a href="#device-([^"]+)">\1 · ([^<]+)</a>', page)
         done = dict(state, state="complete", completed_shards=132)
         site.write(paths["syn-b"], progress.snapshot(self.device_report("syn-b"), source, done))
         page = live.CommitView([paths["m2"], paths["syn-b"]]).load()[0].decode()
-        self.assertEqual(re.findall(r'<a href="#device-([^"]+)">\1 · (\w+)</a>', page)[:2], [("m2", "running"), ("syn-b", "report")])
+        self.assertEqual(labels(page)[:2], [("m2", "running"), ("syn-b", "validation pending")])
         self.assertIn("location.reload()", page)
         site.write(paths["m2"], progress.snapshot(self.device_report("m2"), source, done))
         page = live.CommitView([paths["m2"], paths["syn-b"]]).load()[0].decode()
-        self.assertEqual(re.findall(r'<a href="#device-([^"]+)">\1 · (\w+)</a>', page)[:2], [("m2", "report"), ("syn-b", "report")])
+        self.assertEqual(labels(page), [("m2", "validation pending"), ("syn-b", "validation pending"),
+                                        ("syn-c", "pending"), ("syn-d", "pending")])
         self.assertNotIn("location.reload()", page)
-        self.assertIn('id="pooled-partial"', page)  # Two declared devices still have no snapshot.
+        overview = view(page, "overview")
+        self.assertIn("6 qualified observations from 2 of 4 devices: m2 2 of 246, syn-b 4 of 246.", overview)
+        self.assertIn("across 6 qualified observations: mean 48.3333%, median 50.0000%, maximum 100.0000%.", overview)
+        self.assertIn('id="pooled-partial"', overview)  # Nothing here is a complete report yet.
+        rows = dict(re.findall(r'<tr data-row-key="([^"]+)">(.*?)</tr>', overview))
+        for ident in ("m2", "syn-b"):
+            self.assertIn('<span class="badge ">validation pending</span>', rows[ident])
+            section = view(page, "device-" + ident)
+            self.assertIn('data-state="validation pending"', section)
+            self.assertIn("its final bundle has not been validated here", section)
+        for absent in (">report</span>", "badge pass", "· report<", 'data-state="report"'):
+            self.assertNotIn(absent, page)
+        # The report label is reserved for a campaign whose final bundle passed validation.
+        self.assertEqual([live.view_state(dict(state=transport, validated_bundle=validated)) for transport, validated in
+                          (("complete", False), ("complete", True), ("running", False), ("waiting", False), ("failed", False))],
+                         [site.VALIDATION_PENDING, "report", "running", "running", "failed"])
+        # Live as in the archive, a device with a reference and no qualified case is not a contributor.
+        world = self.measured_source("live-quiet-source", {"m2": {}, "syn-b": {self.first: (1.5, 10470000, None)}})
+        for ident in ("m2", "syn-b"):
+            site.write(paths[ident], progress.snapshot(self.device_report(ident, world=world), world[0], state))
+        overview = view(live.CommitView([paths["m2"], paths["syn-b"]]).load()[0].decode(), "overview")
+        self.assertIn("1 qualified observations from 1 of 4 devices: syn-b 1 of 246.", overview)
+        self.assertIn("Not pooled: m2 (no qualified application cases); syn-c (no report yet); syn-d (no report yet).", overview)
+        self.assertIn("0 qualified of 246", overview)
 
     def test_staged_site_can_be_walked_from_history_to_commit_to_device(self):
         """The preview a reader clicks through: history, then a commit, then its devices."""

@@ -355,6 +355,13 @@ python3 scripts/accuracy_site.py serve --snapshot RUN-M2/snapshot.json \
   --snapshot RUN-M1/snapshot.json --port 18763
 ```
 
+In that commit view a device is `running`, `failed`, `pending` when it has no
+snapshot, or `validation pending` once its campaign has finished. A finished
+snapshot is transport status: the commit view validates no final bundle, so it
+never labels a device `report`. Its validated snapshot rows stay in the pooled
+overview, which remains marked partial. Promotion to a report needs the
+matching validated bundle, as for a single device served with `--bundle`.
+
 ### One report per commit
 
 A commit has one report, whatever number of devices it declares. The Pages
@@ -363,7 +370,7 @@ archive lists commits, one row each, and nothing per device:
 ```text
 calibration/index.json                       schema 2: one entry per commit
 calibration/runs/<commit>/index.html         the commit's report
-calibration/runs/<commit>/commit.json        declaration, device states, bundle digests, pooled summary
+calibration/runs/<commit>/commit.json        declaration, commit Evaluation, device states, bundle digests and evidence runs, pooled summary
 calibration/runs/<commit>/devices.json       the commit's own evaluation/devices.json, byte for byte
 calibration/runs/<commit>/<bundle files>     the m2 bundle, where every published report already has it
 calibration/runs/<commit>/devices/<id>/      each other device's bundle
@@ -402,14 +409,49 @@ while a declared device has no report, and `pass` otherwise. Merges to `main`
 publish `m2` only, so their commits are `partial` until other devices are
 published. The latest successful main report is the newest main commit whose
 evaluation succeeded and none of whose devices failed; pending devices do not
-disqualify it. Each device keeps the Evaluation that produced its retained
-evidence. A later publication that finds passing evidence already retained
-reuses it: the device then records that publication's run and conclusion, the
-history row shows the commit's newest Evaluation, and the evidence keeps the
-Evaluation and evidence run it came from. Only evidence that is newly stored,
-such as a report replacing a failure, brings its own Evaluation. A commit is
-retained, evicted or pinned by a release as a whole, with every device's
-bundle.
+disqualify it. A commit is retained, evicted or pinned by a release as a whole,
+with every device's bundle.
+
+Three records are kept apart, because one publication can carry three different
+runs:
+
+- The **commit** keeps its newest Evaluation (`evaluation_*` on the entry and
+  `evaluation` in `commit.json`). The history row and the commit overview show
+  it, with its link, as the Full Evaluation of the commit. It says nothing
+  about any device's evidence.
+- A **device's publication** record (`conclusion`, `run_id`, `run_attempt`,
+  `run_url`) is the newest publication for that device. A publication that
+  finds passing evidence already retained reuses the evidence and updates only
+  this record.
+- A **device's evidence** keeps the run that produced it (`evidence_run_url`)
+  and, where that is established, the Evaluation that produced it
+  (`evaluation_*` on the device record, `evidence_evaluation` in
+  `commit.json`). An Evaluation is established as the producer only if its run
+  attempt is the evidence run. Every other case is recorded as
+  `evaluation_conclusion: unknown` with no run identity.
+
+So a device view states the producing Evaluation, its conclusion and its run
+attempt when the stored record establishes it. Otherwise it says that the
+producing Evaluation is not established and links the evidence run, which is
+what remains; no Evaluation of the commit is shown in its place. A device view
+and a device's `metadata.json` take only `commit`, `main` and `releases` from
+the commit. The producing Evaluation is known in these cases:
+
+- A main publication whose Evaluation attempt uploaded the artifact.
+- A rerun that publishes the artifact of an earlier attempt of the same run:
+  the publisher looks that attempt up and passes it as `evidence_evaluation`,
+  while the triggering attempt stays the commit's Evaluation and the
+  publication record. `archive` refuses an `evidence_evaluation` that is not
+  the evidence run.
+- A schema-1 entry whose recorded Evaluation is its evidence run.
+
+It is unknown for evidence built by a manual or release publication, which no
+Evaluation produced, and for a schema-1 entry whose Evaluation was replaced by
+a later one while its evidence was reused, or which recorded no evidence run.
+A later publication establishes it only by carrying the Evaluation of the
+evidence run itself; that same attempt's later conclusion also still reaches
+the evidence. Evidence that is newly stored, such as a report replacing a
+failure, is attributed afresh by the same rule.
 
 The commit overview pools raw observations. One observation is one device and
 one application input with a usable native reference of that device, so the
@@ -422,7 +464,12 @@ per-device results. The base and head comparison uses the observations both
 revisions predict. Microbenchmarks, devices without a native application
 reference, failed devices and devices without a report contribute nothing; the
 overview says which devices were pooled and which were not, and states that a
-statistic is undefined rather than showing zero.
+statistic is undefined rather than showing zero. Having a reference and
+contributing are tracked separately: a device with a native application
+reference and no qualified case still counts its cases as required coverage,
+and is listed as not pooled, with the reason "no qualified application cases".
+Only devices with at least one qualified observation are `contributors`, and
+only they form the identity of the commit's trend series.
 
 `index.json` entries of schema 1 are read as commits whose one report is the
 `m2` device, and are rewritten as schema 2 on the next publication.

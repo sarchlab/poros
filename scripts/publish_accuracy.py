@@ -123,6 +123,22 @@ def evaluation_metadata(workflow):
     }
 
 
+def producing_evaluation(workflow, evidence_attempt):
+    """Evaluation metadata of the attempt whose artifact is being published.
+
+    A failed-jobs rerun reuses the accuracy artifact of an earlier attempt of
+    the same run. That attempt produced the evidence; the attempt that
+    triggered publication is the commit's newest Evaluation and the publication
+    record, not the evidence's producer."""
+    if evidence_attempt == workflow["run_attempt"]:
+        return evaluation_metadata(workflow)
+    earlier = api(f'repos/{REPO}/actions/runs/{workflow["id"]}/attempts/{evidence_attempt}')
+    if (earlier["id"] != workflow["id"] or earlier["run_attempt"] != evidence_attempt or earlier["status"] != "completed"
+            or any(earlier[key] != workflow[key] for key in ("head_sha", "head_branch", "event", "workflow_id"))):
+        raise ValueError("producing workflow attempt identity mismatch")
+    return evaluation_metadata(earlier)
+
+
 def published_release_target(tag):
     if not isinstance(tag, str) or not tag or len(tag) > 256:
         raise ValueError("invalid release tag")
@@ -433,16 +449,17 @@ def main():
             metadata["evidence_run_url"] = (
                 f'https://github.com/{REPO}/actions/runs/{metadata["run_id"]}/attempts/{evidence_attempt}'
             )
+            # The device's evidence belongs to the attempt that produced it. The
+            # triggering attempt stays the commit's Evaluation and the publication.
+            metadata["evidence_evaluation"] = producing_evaluation(event["workflow_run"], evidence_attempt)
     else:
-        if (
-            download_attempt_bundle(
-                int(os.environ["GITHUB_RUN_ID"]),
-                int(os.environ["GITHUB_RUN_ATTEMPT"]),
-                "release-accuracy-evidence",
-                bundle,
-            )
-            is None
-        ):
+        evidence_attempt = download_attempt_bundle(
+            int(os.environ["GITHUB_RUN_ID"]),
+            int(os.environ["GITHUB_RUN_ATTEMPT"]),
+            "release-accuracy-evidence",
+            bundle,
+        )
+        if evidence_attempt is None:
             raise ValueError(
                 "release/manual build did not produce a retained evidence bundle"
             )
@@ -455,6 +472,12 @@ def main():
             run_id=int(os.environ["GITHUB_RUN_ID"]),
             run_attempt=int(os.environ["GITHUB_RUN_ATTEMPT"]),
             run_url=f'https://github.com/{REPO}/actions/runs/{os.environ["GITHUB_RUN_ID"]}/attempts/{os.environ["GITHUB_RUN_ATTEMPT"]}',
+        )
+        # A rerun of this publication can reuse the build of an earlier attempt.
+        # No Evaluation built this evidence: the one found for the commit below
+        # is the commit's, so the device's producing Evaluation stays unknown.
+        metadata["evidence_run_url"] = (
+            f'https://github.com/{REPO}/actions/runs/{os.environ["GITHUB_RUN_ID"]}/attempts/{evidence_attempt}'
         )
         metadata.update(evaluation_for_commit(metadata["commit"]))
         if metadata["kind"] == "release":

@@ -159,6 +159,19 @@ class SnapshotView:
                                     capacity_reference=capacity, recurrence_reference=recurrence))
 
 
+def view_state(live):
+    """How one device's live campaign is labeled in its commit's report.
+
+    A finished snapshot is transport status. Only a final bundle that passed
+    archive validation and matches the snapshot is a report; until then the
+    finished campaign's validated rows are shown as awaiting that validation."""
+    if live["state"] == "failed":
+        return "failed"
+    if live["state"] == "complete":
+        return "report" if live.get("validated_bundle") else site.VALIDATION_PENDING
+    return "running"
+
+
 class CommitView:
     """Several devices' campaigns of one commit, shown as that commit's one report.
 
@@ -184,8 +197,7 @@ class CommitView:
             state = states[ids.index(declared["id"])]
             live = state["live"]
             views.append(dict(id=declared["id"], declared=declared, report=state["report"], entry=state["entry"],
-                              references=state["references"], live=live,
-                              state={"failed": "failed", "complete": "report"}.get(live["state"], "running")))
+                              references=state["references"], live=live, state=view_state(live)))
             folder = "" if declared["id"] == devices.DEFAULT else "devices/" + declared["id"] + "/"
             assets.update({folder + name: data for name, data in state["assets"].items()})
         if {view["id"] for view in views if view["state"] != "pending"} != set(ids):
