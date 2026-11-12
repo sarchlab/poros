@@ -2,4 +2,4 @@
 
 Artifact: **fail**; accuracy: **unverified**
 
-parallel backfill (failure) did not produce a complete evidence bundle; inspect workflow logs
+Parallel accuracy aggregation failed: upstream shard jobs did not succeed: failure
