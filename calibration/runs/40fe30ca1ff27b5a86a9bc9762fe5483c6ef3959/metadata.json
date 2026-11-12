@@ -1,0 +1,36 @@
+{
+  "kind": "release",
+  "commit": "40fe30ca1ff27b5a86a9bc9762fe5483c6ef3959",
+  "release": {
+    "id": 442122785,
+    "tag": "v0.1.2",
+    "publication_run_url": "https://github.com/sarchlab/poros/actions/runs/43087556285/attempts/1"
+  },
+  "conclusion": "failure",
+  "run_id": 43087556285,
+  "run_attempt": 1,
+  "run_url": "https://github.com/sarchlab/poros/actions/runs/43087556285/attempts/1",
+  "main": false,
+  "artifact_status": "fail",
+  "accuracy_status": "unverified",
+  "series": null,
+  "summary": {},
+  "releases": [
+    {
+      "id": 442122785,
+      "tag": "v0.1.2",
+      "publication_run_url": "https://github.com/sarchlab/poros/actions/runs/43087556285/attempts/1"
+    }
+  ],
+  "evidence_run_url": "https://github.com/sarchlab/poros/actions/runs/43087556285/attempts/1",
+  "evidence_files": [
+    "report.json",
+    "report.md"
+  ],
+  "measurement_completed_at": null,
+  "evaluation_run_id": 43087504397,
+  "evaluation_run_attempt": 1,
+  "evaluation_conclusion": "failure",
+  "evaluation_run_url": "https://github.com/sarchlab/poros/actions/runs/43087504397/attempts/1",
+  "benchmark_summary": {}
+}

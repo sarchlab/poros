@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "artifact_status": "fail",
+  "accuracy_status": "unverified",
+  "head_commit": "40fe30ca1ff27b5a86a9bc9762fe5483c6ef3959",
+  "cases": [],
+  "error": "parallel backfill (failure) did not produce a complete evidence bundle; inspect workflow logs"
+}
