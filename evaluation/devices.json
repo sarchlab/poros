@@ -18,7 +18,7 @@
     {
       "hardware": "Apple M1",
       "id": "m1",
-      "parameter_source": "m2",
+      "parameter_source": "m1",
       "references": {}
     },
     {

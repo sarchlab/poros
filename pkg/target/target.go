@@ -50,8 +50,32 @@ func M2() Target {
 	}
 }
 
-// M1 carries the M2 core, memory and clock until its own are established.
-func M1() Target { return M2().as("m1", "Apple M1") }
+// M1 is the Apple M1 performance core: the M2 configuration with the
+// differences M1 measurements establish (evaluation/model-profile.md):
+//   - its clock, inferred from one-cycle dependency chains on the M1 host and
+//     consistent with counted user cycles;
+//   - fetch groups that continue across one correctly predicted taken branch,
+//     which the M1 NOP and mixed-loop probes sustain at N/8 cycles per trip;
+//   - store dependence prediction by static store, which serializes
+//     consecutive memory-carried accumulations as M1 doitgen and 2mm show;
+//   - an 18-cycle L2 hit, from the M1 pointer chases over 256 KiB and 1 MiB.
+//
+// Compare/select fusion is kept although the M1 register-only select probes
+// do not fuse: M1 runs the memory-carried Nussinov recurrence in the same two
+// cycles as its register form, which the model reproduces only with the fused
+// pair and its one-cycle forwarding path.
+func M1() Target {
+	t := M2().as("m1", "Apple M1")
+	t.ParameterSource = "m1"
+	t.OoO.FetchTakenBranches = 1
+	t.OoO.StoreDependencePrediction = true
+	t.Cache.L2Latency = 18
+	return t.WithFrequency(M1Frequency)
+}
+
+// M1Frequency is the M1 performance-core clock inferred on the M1 Linux host
+// (3.2028 to 3.2037 GHz over nine one-cycle chain probes).
+const M1Frequency = 3_203_500_000 * timing.Hz
 
 // Grace carries the M2 core, memory and clock until its own are established.
 func Grace() Target { return M2().as("grace", "NVIDIA Grace (Arm Neoverse V2)") }
