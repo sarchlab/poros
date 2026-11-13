@@ -4,13 +4,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      accuracy_device:
-        description: 'Also run the full accuracy campaign for this modeled device (not a Git revision); none skips it'
-        required: false
-        default: none
-        type: choice
-        options: [none, m2, m1, grace, m5-max]
 permissions:
   contents: read
 concurrency:
@@ -132,41 +125,6 @@ jobs:
         with:
           name: elf-functional-differential
           path: evaluation-results/
-  merged-main-pr:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      merged: ${{ steps.pr.outputs.merged }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - id: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/merged_main_pr.py "$GITHUB_REPOSITORY" "$GITHUB_SHA"
-  accuracy:
-    name: Accuracy
-    needs: merged-main-pr
-    if: needs.merged-main-pr.outputs.merged == 'true'
-    uses: ./.github/workflows/accuracy-evaluate.yml
-    with:
-      target: ${{ github.sha }}
-      base: ${{ github.event.before }}
-  # On request, the same campaign for any modeled device at this revision. The
-  # post-merge job above stays m2; published device reports come from the
-  # "Publish accuracy reports" workflow, which takes the same device choice.
-  device-accuracy:
-    name: Accuracy for the requested device
-    if: github.event_name == 'workflow_dispatch' && inputs.accuracy_device != 'none'
-    uses: ./.github/workflows/accuracy-evaluate.yml
-    with:
-      target: ${{ github.sha }}
-      base: 'HEAD^'
-      device: ${{ inputs.accuracy_device }}
   diagnostics:
     name: Extended CLI diagnostics
     if: github.event_name == 'workflow_dispatch'

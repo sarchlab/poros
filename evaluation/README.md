@@ -59,8 +59,10 @@ Separate performance manifests define six larger inputs for each of all 44
 workloads, while correctness manifests keep the original small cases. Native
 Linux ARM64 captures use one warmup and 21 user/system CPU samples per point.
 Only derived plotting statistics and exact input/output identities are committed;
-raw observations and full witnesses remain local. Each PR merge into `main`
-reports all 264 points, including invalid/noisy references. Head functional and
+raw observations and full witnesses remain local. A campaign reports all 264
+points, including invalid/noisy references. Campaigns are run
+[locally](usertime/README.md#local-campaigns); no hosted workflow runs or
+publishes one any more. Head functional and
 OoO executions must validate every output; base OoO is required wherever the
 exact base image and output limits support the input. Unsupported base cases
 remain explicit and cannot contribute a paired error change. The application summary pools all qualified cases across the 41
@@ -78,7 +80,7 @@ error summaries. Raw measurements are never rescaled or offset.
 
 `evaluation/devices.json` declares every device the simulator models: `m2`
 (default), `m1`, `grace` and `m5-max`. The simulator calls a device a target
-(`poros elf --target m1`); the evaluation scripts and workflows say **device**,
+(`poros elf --target m1`); the evaluation scripts say **device**,
 because their `target` is a Git revision. A Go test keeps the declaration equal
 to the targets the simulator builds. Each entry states three things, and every
 report repeats them:
@@ -128,14 +130,17 @@ go build -o /tmp/poros ./cmd/poros
 python3 scripts/devices.py smoke --poros /tmp/poros   # every device, real simulator
 ```
 
-The smoke runs in pull-request CI. Full campaigns for a device other than `m2`
-run on request: the `accuracy_device` input of the Evaluation workflow produces
-the evidence bundle, and the `device` input of "Publish accuracy reports"
-evaluates and publishes it. Merges to `main` continue to run and publish `m2`
-only.
+The smoke runs in pull-request CI. Full campaigns are local for every device:
+each execution prepares one device in its own run directory and renders that
+run's report, and several devices of one commit can be served as one page. See
+[local campaigns](usertime/README.md#local-campaigns) for the commands. Hosted
+accuracy CI is off: Evaluation no longer has an `accuracy_device` input or a
+post-merge accuracy job, and the "Publish accuracy reports" workflow is removed.
 
-A commit has one published report, at `calibration/runs/<commit>/`, and the
-report history has one row per commit. The report opens on a commit overview
+The commit report described next is what a served multi-device page shows and
+what hosted publication archived until then; nothing updates that archive now.
+In the archive a commit has one published report, at
+`calibration/runs/<commit>/`, and the report history has one row per commit. The report opens on a commit overview
 and holds one view per device that commit declares, at
 `calibration/runs/<commit>/#device-<id>`. The devices are the ones in that
 commit's own `evaluation/devices.json`, a copy of which is retained beside the
@@ -170,8 +175,8 @@ pointer chasing (1/2/4/8/16 independent chains) and scalar Read/Write/Copy
 bandwidth over 140 points: 22 chase working sets × five chain counts, plus ten
 streaming working sets × three patterns. Native Mach-O and simulated ELF
 use byte-matched computation functions and a warmed long-minus-short protocol.
-Small correctness/QEMU checks run in ordinary PR CI; the existing post-merge
-accuracy workers execute the full suite, retaining exact base/head identities.
+Small correctness/QEMU checks run in ordinary PR CI; the shards of a local
+campaign execute the full suite, retaining exact base/head identities.
 These results have their own plots and collapsed table and never change the
 application error or correlation population. The initial suite changes no
 memory-model mechanism or parameter.

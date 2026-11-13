@@ -239,17 +239,7 @@ class DiagnosticTests(unittest.TestCase):
         self.assertEqual(parallel.recorded_diagnostics(archived,self.prepared,self.source,None),({},{}))
 
     def test_failed_job_retry_excludes_partial_artifact_and_reuses_prior_successes(self):
-        # Exercise the actual workflow upload/download contract without GitHub.
-        workflow=(self.source/'.github/workflows/accuracy-evaluate.yml').read_text()
-        job=workflow.split('  accuracy-diagnostics:',1)[1].split('  user-time-accuracy:',1)[0]
-        uploads=job.split('      - uses: actions/upload-artifact@v4\n')[1:]
-        raw=next(step for step in uploads if '\n          name: accuracy-diagnostic-${{' in step)
-        status=next(step for step in uploads if '\n          name: accuracy-diagnostic-status-' in step)
-        self.assertIn('        if: success()\n',raw)
-        self.assertIn('        if: always()\n',status)
-        self.assertIs(raw,uploads[-1]) # Successful raw upload is the job's final step.
-        self.assertIn('path: ${{ runner.temp }}/diagnostic/diagnostic.json',status)
-        self.assertIn('pattern: accuracy-diagnostic-${{ needs.accuracy-prepare.outputs.plan_id }}-*',workflow)
+        # Exercise the hosted artifact naming a retry depended on, without GitHub.
         plan_id=parallel.identity(self.plan)
         tasks=self.tasks[:2]
         with patch.object(parallel,'diagnostic_tasks',return_value=tasks), \

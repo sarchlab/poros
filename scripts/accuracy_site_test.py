@@ -11,7 +11,6 @@ import shutil
 from pathlib import Path
 import subprocess
 import tempfile
-import textwrap
 import unittest
 from unittest.mock import patch
 
@@ -658,81 +657,21 @@ class AccuracySiteTest(unittest.TestCase):
             publisher.verify_source(source, output, commit)
 
     def test_workflow_contracts(self):
-        # GitHub parses the full YAML on push; these lock our security/retention contract.
+        # GitHub parses the full YAML on push; these lock our security contract.
         evaluation = (ROOT / ".github/workflows/evaluation.yml").read_text()
-        publishing = (ROOT / ".github/workflows/accuracy-pages.yml").read_text()
-        parallel = (ROOT / ".github/workflows/accuracy-evaluate.yml").read_text()
         self.assertIn("permissions:\n  contents: read", evaluation)
-        self.assertIn("if: github.event_name == 'push' && github.ref == 'refs/heads/main'", evaluation)
-        self.assertIn("if: needs.merged-main-pr.outputs.merged == 'true'", evaluation)
-        self.assertIn("if: github.event_name != 'workflow_run' || steps.pr.outputs.merged == 'true'", publishing)
         self.assertNotIn("contents: write", evaluation)
-        self.assertIn("retention-days: 30", parallel)
-        # The default device's suffix is empty: its artifact is still user-time-accuracy-<attempt>.
-        self.assertIn("name: user-time-accuracy-${{ env.DEVICE_SUFFIX }}${{ github.run_attempt }}", parallel)
-        self.assertIn("DEVICE_SUFFIX: ${{ inputs.device != 'm2' && format('{0}-', inputs.device) || '' }}", parallel)
-        diagnostics = parallel.split("  accuracy-diagnostics:",1)[1].split("  user-time-accuracy:",1)[0]
-        self.assertIn("needs: accuracy-prepare",diagnostics)
-        self.assertNotIn("needs: accuracy-shards",diagnostics)
-        self.assertIn("fromJSON(needs.accuracy-prepare.outputs.diagnostics)",diagnostics)
-        self.assertIn("needs: [accuracy-prepare, accuracy-shards, accuracy-diagnostics]",parallel)
-        self.assertIn('--checkpoints "$RUNNER_TEMP/diagnostics"',parallel)
         self.assertIn(
             "github.event_name == 'pull_request' && github.ref || github.run_id",
             evaluation,
         )
-        self.assertIn("types: [completed]", publishing)
-        self.assertIn("branches: [main]", publishing)
-        self.assertIn("types: [published]", publishing)
-        self.assertIn("queue: max", publishing)
-        self.assertNotIn("pull_request_target", publishing)
-        self.assertNotIn("cancel-in-progress", publishing)
-        self.assertIn("persist-credentials: false", publishing)
-        self.assertIn("ref: ${{ steps.target.outputs.commit }}", publishing)
-        self.assertIn("release_tag:", publishing)
-        self.assertIn("--resolve-target", publishing)
-        self.assertIn("accuracy_backfill.py route", publishing)
-        self.assertIn("accuracy_backfill.py package", publishing)
-        self.assertIn(
-            "name: release-accuracy-evidence-${{ github.run_attempt }}", publishing
-        )
-        self.assertIn("pages: write", publishing)
-        self.assertIn(
-            "github.event.workflow_run.head_repository.full_name == github.repository",
-            publishing,
-        )
-
-    def test_aggregate_workflow_requires_no_execution_and_propagates_diagnostic_failure(self):
-        workflow = (ROOT / ".github/workflows/accuracy-evaluate.yml").read_text()
-        step = workflow.split("- name: Validate complete shard coverage and build the report", 1)[1]
-        preparation = textwrap.dedent(step.split("run: |\n", 1)[1].split("          python3 scripts/accuracy_parallel.py aggregate", 1)[0])
-        prepared = self.root / "prepared"
-        prepared.mkdir()
-        reached = self.root / "aggregate-reached"
-        for available in (("head", "base"), ("head",), ("base",), ()):
-            with self.subTest(available=available):
-                for name in ("head", "base"):
-                    (prepared / name).unlink(missing_ok=True)
-                reached.unlink(missing_ok=True)
-                for name in available:
-                    binary = prepared / name
-                    binary.write_text("#!/bin/sh\nexit 0\n")
-                    binary.chmod(0o644)  # download-artifact strips executable bits.
-                    with self.assertRaises(PermissionError):
-                        subprocess.run([str(binary)], check=True)
-                # A missing download must not stop the always-run aggregate step
-                # before it can produce its normal failure artifact.
-                command = preparation + '\ntouch "$RUNNER_TEMP/aggregate-reached"\n'
-                subprocess.run(["/bin/sh", "-eu", "-c", command],
-                               env={**os.environ, "RUNNER_TEMP": str(self.root),
-                                    "DIAGNOSTIC_STATUS":"success","SHARD_STATUS":"success"}, check=True)
-                self.assertTrue(reached.is_file())
-                for name in available:
-                    self.assertEqual((prepared/name).stat().st_mode & 0o111,0)
-        for status in ('failure','cancelled','skipped'):
-            result=subprocess.check_output(['/bin/sh','-eu','-c',preparation+'\nprintf "%s" "$SHARD_STATUS"'],
-                env={**os.environ,"DIAGNOSTIC_STATUS":status,"SHARD_STATUS":"success"},text=True)
-            self.assertEqual(result,'diagnostics-'+status)
+        # Hosted accuracy is off: no workflow runs a campaign or publishes a report.
+        for workflow in (ROOT / ".github/workflows").iterdir():
+            text = workflow.read_text()
+            for command in ("accuracy_parallel.py", "usertime-ci.sh", "accuracy_site.py",
+                            "accuracy_backfill.py", "publish_accuracy.py", "merged_main_pr.py"):
+                with self.subTest(workflow=workflow.name, command=command):
+                    self.assertNotIn(command, text)
 
     def test_attempt_scoped_artifacts_and_failed_job_rerun(self):
         artifacts = [

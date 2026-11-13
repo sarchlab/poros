@@ -1,5 +1,13 @@
 # Live and CI accuracy reports
 
+Hosted accuracy CI is off: no workflow runs a campaign or publishes a report.
+Campaigns are local, one run directory per execution; the commands are in
+[local campaigns](../evaluation/usertime/README.md#local-campaigns). Below, a
+"CI" report or page means the complete report that `aggregate` and `bundle`
+build, which hosted runs used to produce, and every statement about
+publication, the Pages archive or an Evaluation run describes that historical
+hosted use and the reports it already published.
+
 `accuracy_site.detail` renders both modes, including the same application charts,
 base/head statistics, timing curves/tables and separate microbenchmark section.
 The comparison table uses the intersection of qualified application cases with
@@ -211,15 +219,15 @@ status; a directory lock rejects concurrent writers.
 Conflicting point or campaign ownership is rejected without overwriting the
 existing status receipt. Checkpoints are named
 `<suite>-<role>-<suite_index>-<iterations>.json`, with one-based suite indices.
-The normal CI workflow schedules this matrix alongside application/memory
-shards. Aggregation waits for both matrices, validates all raw evidence and
-builds the report without executable binary permissions or simulator calls.
-Only successful diagnostic jobs upload aggregatable raw artifacts. Each job
-first uploads its status separately, then uploads raw evidence as its final
-step on success. Failed or interrupted points therefore leave no partial raw
-artifact in the aggregate's download pattern. Re-running failed jobs reuses
-successful points and shards from earlier attempts; their simulations need not
-run again. Status artifacts remain available for diagnosing failed attempts.
+A local campaign runs these points alongside its application/memory shards.
+Aggregation validates all raw evidence and builds the report without
+executable binary permissions or simulator calls. The hosted workflow, now
+removed, scheduled the same matrix as jobs. Only successful diagnostic jobs
+uploaded aggregatable raw artifacts: each job first uploaded its status
+separately, then its raw evidence as its final step on success, so failed or
+interrupted points left no partial raw artifact in the aggregate's download
+pattern. Re-running failed jobs reused successful points and shards from
+earlier attempts.
 
 Both optional scheduler status files below name the prepared plan they belong
 to with `plan_id`, the value `prepare` prints and `diagnostic-tasks` records in
@@ -365,7 +373,8 @@ matching validated bundle, as for a single device served with `--bundle`.
 ### One report per commit
 
 A commit has one report, whatever number of devices it declares. The Pages
-archive lists commits, one row each, and nothing per device:
+archive, which hosted publication built and nothing updates now, lists commits,
+one row each, and nothing per device:
 
 ```text
 calibration/index.json                       schema 2: one entry per commit
@@ -406,7 +415,7 @@ A device arrives by publishing its bundle: it joins the commit's report without
 touching the bundles of the others. Each declared device is shown as `report`,
 `failed` or `pending`. The commit is `fail` if any device failed, `partial`
 while a declared device has no report, and `pass` otherwise. Merges to `main`
-publish `m2` only, so their commits are `partial` until other devices are
+published `m2` only, so their commits are `partial` unless other devices were
 published. The latest successful main report is the newest main commit whose
 evaluation succeeded and none of whose devices failed; pending devices do not
 disqualify it. A commit is retained, evicted or pinned by a release as a whole,
@@ -502,8 +511,8 @@ instruction difference equals `passes * instructions_per_pass` for that case;
 pass counts vary by working-set size and must not be replaced by the older
 suites' fixed 1,024-iteration difference.
 
-The normal post-merge workflow executes memory points alongside application
-points in the existing source-bound workers, then aggregates their raw pairs.
+A campaign executes memory points alongside application points in the same
+source-bound shards, then aggregates their raw pairs.
 A local snapshot producer exports validated ordered memory subsets as shards
 finish. Both roles remain present, with absent cases pending. Base image-capacity
 unavailability stays explicit; it is not a missing head prediction.

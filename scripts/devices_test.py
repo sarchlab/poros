@@ -97,26 +97,6 @@ class DeclarationTests(unittest.TestCase):
                 devices.check(bad)
         devices.check(copy.deepcopy(good))
 
-    def test_workflow_device_choices_are_the_declared_devices(self):
-        pages = (ROOT / ".github/workflows/accuracy-pages.yml").read_text()
-        evaluation = (ROOT / ".github/workflows/evaluation.yml").read_text()
-        self.assertEqual(re.findall(r"options: \[(.*)\]", pages), [", ".join(IDS)])
-        self.assertEqual(re.findall(r"options: \[(.*)\]", evaluation), [", ".join(["none", *IDS])])
-        shared = (ROOT / ".github/workflows/accuracy-evaluate.yml").read_text()
-        # The device is its own input beside the Git target and base revisions.
-        inputs = shared.split("jobs:", 1)[0]
-        for name in ("target:", "base:", "device:"):
-            self.assertIn("      " + name, inputs)
-        self.assertIn("default: m2", inputs)
-        # m2 keeps the published artifact names; other devices cannot collide with them.
-        self.assertIn("DEVICE_SUFFIX: ${{ inputs.device != 'm2' && format('{0}-', inputs.device) || '' }}", shared)
-        self.assertIn("name: user-time-accuracy-${{ env.DEVICE_SUFFIX }}${{ github.run_attempt }}", shared)
-        # Targets that predate devices still receive the command line they understand.
-        self.assertIn("DEVICE_ARGUMENT: ${{ inputs.device != 'm2' && format('--device {0}', inputs.device) || '' }}", shared)
-        self.assertEqual(shared.count(" $DEVICE_ARGUMENT\n"), 3)
-        self.assertNotIn('--device "', shared)
-        self.assertIn("device: ${{ needs.resolve.outputs.device }}", pages)
-
     def test_roles_of_legacy_default_and_new_devices(self):
         legacy = {}
         self.assertEqual(devices.ident(legacy), "m2")

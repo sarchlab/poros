@@ -117,11 +117,12 @@ Apple M2 host is explicit:
 python3 scripts/memory_microbenchmark.py collect --evidence-dir /tmp/memory-capture
 ```
 
-Post-merge accuracy preparation binds the memory matrix and reference alongside
+Accuracy preparation binds the memory matrix and reference alongside
 the existing application plan. Existing worker shards execute the memory points
 with the exact prepared base/head binaries. Each point is assigned once;
 aggregation validates the raw pairs and consumes their compact results without
-running the large memory probes again. The workflow's trigger policy is unchanged.
+running the large memory probes again. Campaigns run
+[locally](../../usertime/README.md#local-campaigns); the hosted post-merge run is off.
 For a diagnostic-only local campaign, the same prepared plan supports
 `accuracy_parallel.py memory-shard` and `memory-aggregate`. Each memory-only
 shard must use the filename `memory-shard.json` (in its own shard directory);

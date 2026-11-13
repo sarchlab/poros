@@ -72,9 +72,10 @@ case's median, P10/P90, extrema, sample/nonpositive counts, quality, and complet
 native output SHA256/length, with exact collection/source/ELF identities. The
 serializer first validates every local raw sample and full output, then derives
 these statistics. Full raw campaigns, diagnostic pilots, and output witnesses
-stay local; they are not Git or Pages assets. CI retains execution records as
-transient workflow artifacts. Superseded active references are removed, while
-previously published historical bundles remain readable.
+stay local; they are not Git or Pages assets. A campaign's execution records
+stay in its local run directory; hosted runs kept them as transient workflow
+artifacts. Superseded active references are removed, while previously published
+historical bundles remain readable.
 
 Complete output validation remains byte-exact: every decoded simulator byte
 contributes to the native-output SHA256 comparison, with exact length, normal exit,
@@ -106,8 +107,8 @@ invented for this native macOS campaign.
 The completed capture has 21 retained processes per point in three chronological
 batches of seven randomized full-suite passes. Batch medians and spread remain
 visible in the downloadable reference. The existing noise rule is unchanged.
-Hardware captures are reused; CI runs the simulator on Linux and does not need a
-Mac or recollect hardware measurements.
+Hardware captures are reused; a campaign runs only the simulator, on Linux or
+macOS, and does not need a Mac or recollect hardware measurements.
 
 To import the original locally retained capture against its original frozen
 input checkout, without measuring again:
@@ -151,18 +152,114 @@ Verified output blocks reconstruct the complete 16-pass output hashes. It does
 not use the experiment's stale expanded-C build inventory. The explicit frozen
 assembly recipe in `tests/benchmarks/build.sh` reproduces the measured ELF.
 
-## Parallel CI and base compatibility
+## Hosted accuracy CI is off
 
-Evaluation builds head/base once and freezes the full 264-case plan. It then runs
-132 deterministic shards, two cases per shard, with at most 16 concurrent jobs.
+No GitHub Actions workflow runs an accuracy campaign or publishes a report: not
+after a merge to `main`, not for a release and not on request. The dedicated
+workflows (`accuracy-evaluate.yml`, `accuracy-pages.yml`) are removed, together
+with the post-merge and on-request accuracy jobs of Evaluation and the
+merged-PR gate that only they used. Evaluation keeps its ordinary jobs:
+
+- **Linux static and manifest**, which also runs the unit tests of the campaign,
+  report, archive and device scripts (`scripts/*_test.py`);
+- **Linux short regression**, **Linux full regression** and **macOS compatibility**;
+- **Linux ELF functional and QEMU differential**, including the device and
+  microbenchmark smokes;
+- **Extended CLI diagnostics**, on manual dispatch only.
+
+Campaigns and their reports are local, as described next. The archive in
+`accuracy_site.py` and the backfill, publisher and merge-gate scripts
+(`accuracy_backfill.py`, `publish_accuracy.py`, `merged_main_pr.py`) remain
+with their tests, so the reports already published stay readable, but nothing
+invokes them. Wherever this document or [the report contract](../../scripts/accuracy-live.md)
+describes publication, the Pages archive or a workflow, it describes that
+historical hosted use.
+
+## Local campaigns
+
+A campaign is one local execution: one clean committed head, one base revision,
+one device and one run directory. Its report is rendered from that directory
+alone. Running the same commit again, for the same or another device, is a new
+run directory and a new report; nothing is read from, merged with or written to
+an earlier run or the published archive.
+
+```sh
+RUN=$PWD/evaluation-results/accuracy/m2-1      # absolute and new for every execution
+python3 scripts/accuracy_parallel.py prepare --base HEAD^ --device m2 --shards 8 \
+  --prepared "$RUN/prepared" --run-id local --attempt 1
+seq 0 7 | xargs -P 8 -I{} python3 scripts/accuracy_parallel.py shard \
+  --prepared "$RUN/prepared" --run-id local --attempt 1 --index {} \
+  --output "$RUN/shards/{}/shard.json"
+python3 scripts/accuracy_parallel.py diagnostic-tasks --prepared "$RUN/prepared" \
+  --run-id local --attempt 1 --output "$RUN/diagnostics.json" | tr -d '[] ' | tr , '\n' |
+  xargs -P 8 -I{} python3 scripts/accuracy_parallel.py diagnostic \
+  --prepared "$RUN/prepared" --run-id local --attempt 1 --diagnostic-index {} \
+  --checkpoints "$RUN/diagnostics/{}" --output "$RUN/diagnostics/{}/diagnostic.json"
+python3 scripts/accuracy_parallel.py aggregate --prepared "$RUN/prepared" \
+  --results "$RUN/shards" --checkpoints "$RUN/diagnostics" \
+  --run-id local --attempt 1 --output "$RUN/final/report.json"
+python3 scripts/accuracy_site.py bundle --report "$RUN/final/report.json" \
+  --output "$RUN/bundle" --commit "$(git rev-parse HEAD)"
+open "$RUN/bundle/index.html"                  # xdg-open on Linux
+```
+
+`prepare` builds both binaries and freezes the plan; `--device` is any name
+`python3 scripts/devices.py list` prints, and `--shards` only sets how the
+cases are divided among workers. `aggregate` writes `report.json` and
+`report.md`, and `bundle` adds `index.html`: the complete report of that one
+device, marked as a local preview. An incomplete or failed campaign still
+yields a report, which states the failure.
+
+To watch a campaign while it runs, or to put several devices of one commit on
+one page, export a snapshot per run directory and serve the chosen ones:
+
+```sh
+python3 scripts/accuracy_progress.py --prepared "$RUN/prepared" --source . \
+  --results "$RUN/shards" --checkpoints "$RUN/diagnostics" \
+  --run-id local --attempt 1 --output "$RUN/snapshot.json" --interval 15
+python3 scripts/accuracy_site.py serve --snapshot "$RUN/snapshot.json" --port 18763
+python3 scripts/accuracy_site.py serve --snapshot "$RUN_M2/snapshot.json" \
+  --snapshot "$RUN_M1/snapshot.json" --port 18763
+```
+
+One snapshot serves that device's report at `http://127.0.0.1:18763/`. Several
+snapshots serve the commit's one report, with an overview and a view per
+device; devices the commit declares and no snapshot was given for are shown as
+pending. Without `--interval` the exporter writes one snapshot and exits.
+
+Limits of the local path:
+
+- Every campaign step and the snapshot exporter need clean committed source at
+  the prepared commit: `git status --porcelain` must stay empty. Keep run
+  directories under the ignored `evaluation-results/` or outside the checkout.
+- `--prepared` must be an absolute path, and `prepare` refuses a directory that
+  already exists.
+- A complete campaign is 264 whole-program cases, each with up to three
+  simulations, plus 140 memory and 148 diagnostic points. The diagnostic points
+  finish within a minute on eight workers; the shards dominate, and hosted runs
+  budgeted up to 300 minutes for a shard of two cases. A shard that is run
+  again starts over.
+- Only one device is prepared per run directory. `serve` shows one snapshot
+  per device, all of one commit. Given two runs of the same device it answers
+  with an error instead of a page; it does not combine runs.
+- A served multi-device page is a live view and stays marked partial. The
+  validated complete report of a device is its own `bundle/index.html`.
+- Only `m2` has native references. The other devices report predictions with
+  the M2 placeholder parameters and no error.
+- `scripts/usertime-ci.sh BASE OUTPUT [DEVICE]` remains the serial route to a
+  `report.json` and `report.md` in `OUTPUT`, for targeted reproduction.
+
+## Campaign protocol and base compatibility
+
+A campaign builds head/base once and freezes the full 264-case plan, divided
+into deterministic shards.
 Each case requires head functional and head OoO execution. Base OoO is required
 whenever the exact base can load that ELF and retain its complete output.
 
 Per-process bounds are 2 billion instructions and 45 minutes, except the
 16-pass Streamcluster ELF's bounded 6-billion-instruction and 90-minute
 allowance. The subprocess guard adds 50 seconds to the same execution timeout. Output is bounded by
-the case's declared complete output size, with a minimum 1 MiB default. Shard jobs
-have a 300-minute ceiling covering two cases and their required executions. These
+the case's declared complete output size, with a minimum 1 MiB default. These
 are finite safety budgets, not performance targets. Actual shard durations are
 retained in `shard-summary.json`.
 
@@ -179,23 +276,26 @@ never turn into an exemption. The base executable is not patched.
 
 Reports state separate head/base comparable counts. Error deltas exist only for
 paired cases; means with different coverage are not presented as paired results.
-Publication re-verifies the retained capability against the exact base commit.
 
-Aggregation requires every expected case/role exactly once, successful upstream
-jobs, complete outputs, positive counters, matching hardware profile, and exact
+Aggregation requires every expected case/role exactly once, successful shards,
+complete outputs, positive counters, matching hardware profile, and exact
 plan/source/base/reference/binary identities. Missing, duplicate, extra, stale,
 malformed, or mixed records fail. It never falls back to serial execution or
-fabricates success. Failed shard jobs retain partial records and diagnostics;
-missing prepare/download artifacts produce an explicit failure report.
+fabricates success. Failed shards retain partial records and diagnostics;
+a missing plan or missing results produce an explicit failure report.
 
-A failed-jobs/aggregate-only retry can reuse an earlier prepare/shard artifact
-from the same run and identical plan. The newest attempt for each shard wins,
-including failures; whole-workflow reruns create a new plan. The required final
-leaf job is **User-time accuracy report**; GitHub displays it under the reusable
-caller as **Accuracy / User-time accuracy report**. The publisher-facing artifact is
-`user-time-accuracy-${run_attempt}`. Shards have read-only repository permissions.
+## Historical hosted runs and publication
 
-## Publication and historical evidence
+Until hosted accuracy was turned off, Evaluation ran this protocol after every
+PR merge into `main` for `m2`, and on request for another device: 132 shards of
+two cases, at most 16 concurrent jobs, each with a 300-minute ceiling.
+A failed-jobs/aggregate-only retry could reuse an earlier prepare/shard artifact
+from the same run and identical plan. The newest attempt for each shard won,
+including failures; whole-workflow reruns created a new plan. The final
+leaf job was **User-time accuracy report**, displayed as
+**Accuracy / User-time accuracy report**, and the publisher-facing artifact was
+`user-time-accuracy-${run_attempt}`. Publication re-verified the retained base
+capability against the exact base commit.
 
 PRs introducing a new measurement campaign must preserve the actual clean
 collection commit in the target branch's history. Use a history-preserving merge
@@ -204,14 +304,15 @@ branch is then safe: full-history checkouts still contain the measured commit.
 Prepare and publication reject a missing or non-ancestor collection commit with
 an explicit diagnostic; a tag or separately retained branch is not required.
 
-The existing branch-based Pages publisher remains. It archives recent 20 main
-commits and permanently retains release reports. Publication verifies exact Git
+The branch-based Pages publisher archived the recent 20 main commits and
+permanently retained release reports. It is no longer run, and this change
+neither removes nor alters what it published. Publication verified exact Git
 source hashes, references, outputs, and base-capability proof. Historic report
 schema 4 stores only report JSON/Markdown and compact plotting reference. Historic
 report schemas 1/2/3 remain readable; explicit suite/protocol versions choose their exact
 old inventories. A missing new performance manifest cannot silently fall back to
-small cases. The serial comparison CLI remains for targeted reproduction. A shared reusable
-workflow runs modern Evaluation and missing-evidence release/manual backfills
-through the same parallel comparator. Releases reuse validated retained bundles
-when available; historical small-cohort targets retain their historical serial
-protocol. A failed parallel path never falls back to serial.
+small cases. A shared reusable workflow ran post-merge Evaluation and
+missing-evidence release/manual backfills through the same parallel comparator.
+Releases reused validated retained bundles when available; historical
+small-cohort targets retained their historical serial protocol. A failed
+parallel path never fell back to serial.

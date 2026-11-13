@@ -2,8 +2,8 @@
 """Modeled devices: the hardware a run describes, whose parameters it carries
 and which native references exist for it.
 
-The simulator calls a device a target (`poros elf --target`). These scripts and
-the workflows say device, because their target is a Git revision. A revision or
+The simulator calls a device a target (`poros elf --target`). These scripts
+say device, because their target is a Git revision. A revision or
 report without a declaration predates device selection and describes DEFAULT.
 """
 import argparse
