@@ -171,6 +171,113 @@ def compact_report(evidence):
     return report
 
 
+def device_selection(ident, commit, files, base_commit=None, declaration=None):
+    """A device bound to a declaration, as devices.resolve binds it.
+
+    The declaration is the repository's unless one is given, which lets a
+    fixture commit declare devices the current tip does not. Its hash joins
+    `files`, the head's source inventory. With a base commit the base revision
+    declares the same devices; without one it predates device selection."""
+    import devices
+    declaration = devices.load() if declaration is None else devices.check(copy.deepcopy(declaration))
+    sha = hashlib.sha256(devices.encode(declaration)).hexdigest()
+    files[devices.PATH] = sha
+    def bound(revision):
+        return dict(commit=revision, path=devices.PATH, sha256=sha, declaration=copy.deepcopy(declaration))
+    devices.select(declaration, ident)
+    return dict(id=ident, head=bound(commit), base=None if base_commit is None else bound(base_commit))
+
+
+def as_device(report, ident, *, base_declared=False, declaration=None):
+    """Rebind a synthetic compact report to a device.
+
+    A device without a native reference loses every reference time, quality and
+    error, and a base that cannot model it loses its predictions, exactly as
+    the comparison would have produced the report."""
+    import devices
+    import performance_compare as comparison
+    import performance_reference as performance
+    report = copy.deepcopy(report)
+    report["device"] = device_selection(ident, report["head"]["commit"], report["head"]["files"],
+                                        report["base_commit"] if base_declared else None, declaration)
+    measured = devices.measured(report, "application")
+    if not measured:
+        for key in ("reference", "reference_sha256"):
+            report.pop(key)
+        report["output_oracle"] = dict(path=performance.PATH, sha256=report["head"]["files"][performance.PATH],
+                                       scope=comparison.OUTPUT_ORACLE_SCOPE)
+    for row in report["cases"]:
+        if not devices.available(report, "base"):
+            row.pop("base", None)
+            row.pop("error_change_percentage_points", None)
+            row["base_status"] = devices.BASE_UNAVAILABLE
+        if not measured:
+            for key in [key for key in row if key.startswith("reference_")] + ["error_change_percentage_points"]:
+                row.pop(key, None)
+            row["reference_quality"] = devices.UNMEASURED
+            for label in ("head", "base"):
+                for key in ("error_percent", "direction"):
+                    row.get(label, {}).pop(key, None)
+    report["summary"] = compute.summaries(report["cases"], True)
+    return report
+
+
+def device_reference(reference, hardware, usable):
+    """A synthetic native reference measured on `hardware`.
+
+    `usable` maps application case ids to their median seconds; those cases
+    qualify. Every other application case gets a spread too wide to qualify, so
+    a fixture controls exactly which observations a device contributes."""
+    import performance_compare as comparison
+    import performance_reference as performance
+    result = copy.deepcopy(reference)
+    result.update(hardware=hardware, measurement_id="synthetic-unit-only-" + hardware.lower().replace(" ", "-"))
+    for row in result["cases"]:
+        if comparison.is_micro_case(row):
+            continue
+        median = usable.get(row["id"], row["median_user_seconds"])
+        low, high = (median, median) if row["id"] in usable else (median * .5, median * 1.5)
+        row.update(min_user_seconds=low, p10_user_seconds=low, median_user_seconds=median, p90_user_seconds=high,
+                   max_user_seconds=high, batch_median_user_seconds=[median] * 3, batch_median_spread=0)
+        row["quality"] = performance.quality(row)
+    return result
+
+
+def with_reference(report, reference, path, cycles):
+    """Make a measured device's synthetic report agree with its synthetic reference.
+
+    `path` is where the device declares the reference; its bytes must already
+    be in the report's source inventory. `cycles` maps (case id, "head" or
+    "base") to predicted cycles; other predictions keep theirs. Errors follow
+    from the reference by the production formula."""
+    import usertime as gate
+    report = copy.deepcopy(report)
+    observed = {row["id"]: row for row in reference["cases"]}
+    for row in report["cases"]:
+        measured = observed[row["id"]]
+        row.update(reference_user_seconds=measured["median_user_seconds"], reference_quality=measured["quality"],
+                   reference_p10_seconds=measured["p10_user_seconds"], reference_p90_seconds=measured["p90_user_seconds"])
+        row.pop("error_change_percentage_points", None)
+        for label in ("head", "base"):
+            if label not in row:
+                continue
+            value = row[label]
+            value["cycles"] = cycles.get((row["id"], label), value["cycles"])
+            value["predicted_user_seconds"] = seconds = value["cycles"] / 3490000000
+            value.pop("error_percent", None)
+            value.pop("direction", None)
+            if measured["quality"] == "usable":
+                real = measured["median_user_seconds"]
+                value.update(error_percent=gate.error_percent(seconds, real),
+                             direction="slower" if seconds > real else "faster" if seconds < real else "equal")
+        if "base" in row and measured["quality"] == "usable":
+            row["error_change_percentage_points"] = row["head"]["error_percent"] - row["base"]["error_percent"]
+    report["summary"] = compute.summaries(report["cases"], True)
+    report["reference_sha256"] = report["head"]["files"][path]
+    report["reference"] = {key: value for key, value in reference.items() if key not in ("cases", "input_sources", "collector_sources")}
+    return report
+
+
 def synthetic_native(reference, declared):
     """Explicitly synthetic transport fixture; never a hardware reference."""
     import macho_reference as macho

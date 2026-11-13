@@ -48,10 +48,13 @@ def source_name(workload):
     return f"tests/benchmarks/{workload}.c"
 
 
-def validate_metadata(reference, declared):
+def validate_metadata(reference, declared, hardware="Apple M2"):
+    """Check a native Mach-O capture. `hardware` is the device the caller compares it with."""
+    require(reference.get("hardware") == hardware,
+            f"native reference was measured on {reference.get('hardware')!r}, not {hardware!r}")
     require(reference.get("environment") == "native" and reference.get("executable_format") == "Mach-O"
             and reference.get("machine") == "arm64" and reference.get("page_size") == 16384
-            and reference.get("hardware") == "Apple M2" and reference.get("platform", "").startswith("macOS-")
+            and reference.get("platform", "").startswith("macOS-")
             and "container_image" not in reference, "invalid native Mach-O environment")
     require(reference.get("reference_scope") == SCOPE and reference.get("startup_included") is True,
             "invalid native measurement scope")
@@ -82,7 +85,7 @@ def validate_metadata(reference, declared):
                 "missing native program audit")
     require(sum(p["audited_functions"] for p in programs.values()) == proof["audited_functions"],
             "native per-program audit coverage mismatch")
-    validate_streamcluster_replacement(reference, declared)
+    validate_streamcluster_replacement(reference, declared, hardware)
     for row in reference["cases"]:
         batches = row.get("batch_median_user_seconds")
         require(isinstance(batches, list) and len(batches) == 3
@@ -101,7 +104,7 @@ REPEAT_FILES = ("computation.S", "repeat.S", "start.S", "repeat.c")
 REPEAT_PREFIX = "tests/benchmarks/streamcluster-repeat/"
 
 
-def validate_streamcluster_replacement(reference, declared):
+def validate_streamcluster_replacement(reference, declared, hardware="Apple M2"):
     replacement = reference.get("streamcluster_replacement")
     historical = reference.get("historical_input_sources")
     if replacement is None:
@@ -122,7 +125,7 @@ def validate_streamcluster_replacement(reference, declared):
         compute.relative(name)
     require(replacement.get("samples") == 126 and replacement.get("warmups") == 6
             and replacement.get("audited_functions") == 5 and replacement.get("passes") == 16
-            and replacement.get("page_size") == 16384 and replacement.get("hardware") == "Apple M2"
+            and replacement.get("page_size") == 16384 and replacement.get("hardware") == hardware
             and replacement.get("metric") == "child_user_cpu_seconds"
             and replacement.get("timer") == "wait4.ru_utime"
             and replacement.get("startup_included") is True

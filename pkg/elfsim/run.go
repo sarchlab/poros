@@ -14,16 +14,21 @@ import (
 	"github.com/sarchlab/poros/pkg/cpu/ooo"
 	"github.com/sarchlab/poros/pkg/linuxuser"
 	"github.com/sarchlab/poros/pkg/mem"
+	"github.com/sarchlab/poros/pkg/target"
 )
 
 type Options struct {
 	Model string
-	// FrequencyHz is integer CPU Hz in [1 MHz, 1 THz]; zero selects 3.49 GHz.
+	// Target names the modeled device; empty selects target.Default.
+	Target string
+	// FrequencyHz is integer CPU Hz in [1 MHz, 1 THz]; zero selects the
+	// target's own frequency.
 	FrequencyHz float64
 	Limits      linuxuser.RunOptions
 }
 type Statistics struct {
 	Model                  string          `json:"model"`
+	Target                 target.Identity `json:"target"`
 	AssumedHz              float64         `json:"assumed_hz"`
 	Cycles                 uint64          `json:"user_cycles"`
 	Retired                uint64          `json:"retired_instructions"`
@@ -42,15 +47,38 @@ type Result struct {
 	Timing Statistics `json:"timing"`
 }
 
-func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err error) {
+// configure resolves the requested device and clock. An unknown target is an
+// error; a zero frequency keeps the clock of the device's selected model.
+func configure(o *Options) (target.Target, error) {
 	if o.Model == "" {
 		o.Model = "ooo"
 	}
-	if o.FrequencyHz == 0 {
-		o.FrequencyHz = 3.49e9
+	if o.Model != "ooo" && o.Model != "inorder" {
+		return target.Target{}, fmt.Errorf("invalid timing model/frequency")
 	}
-	if (o.Model != "ooo" && o.Model != "inorder") || math.IsNaN(o.FrequencyHz) || math.IsInf(o.FrequencyHz, 0) || o.FrequencyHz < 1e6 || o.FrequencyHz > 1e12 || math.Trunc(o.FrequencyHz) != o.FrequencyHz {
-		return r, fmt.Errorf("invalid timing model/frequency")
+	if o.Target == "" {
+		o.Target = target.Default
+	}
+	t, err := target.Lookup(o.Target)
+	if err != nil {
+		return t, err
+	}
+	if o.FrequencyHz == 0 {
+		o.FrequencyHz = float64(t.OoO.Freq)
+		if o.Model == "inorder" {
+			o.FrequencyHz = float64(t.InOrder.Freq)
+		}
+	}
+	if math.IsNaN(o.FrequencyHz) || math.IsInf(o.FrequencyHz, 0) || o.FrequencyHz < 1e6 || o.FrequencyHz > 1e12 || math.Trunc(o.FrequencyHz) != o.FrequencyHz {
+		return t, fmt.Errorf("invalid timing model/frequency")
+	}
+	return t.WithFrequency(timing.Freq(o.FrequencyHz)), nil
+}
+
+func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err error) {
+	device, err := configure(&o)
+	if err != nil {
+		return r, err
 	}
 	x, err := p.NewExecution(ctx, o.Limits)
 	if err != nil {
@@ -63,12 +91,11 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 			err = e
 		}
 	}()
-	cache := mem.NewCache(mem.DefaultCacheConfig())
-	r.Timing = Statistics{Model: o.Model, AssumedHz: o.FrequencyHz, CacheConfig: cache.Config(), Policy: "whole ELF user execution; cold modeled cache; SVC serializes, counts as one user instruction; host syscall work and loader excluded; no kernel cache effects; not a validated hardware profile"}
+	cache := mem.NewCache(device.Cache)
+	r.Timing = Statistics{Model: o.Model, Target: device.Identity, AssumedHz: o.FrequencyHz, CacheConfig: cache.Config(), Policy: "whole ELF user execution; cold modeled cache; SVC serializes, counts as one user instruction; host syscall work and loader excluded; no kernel cache effects; not a validated hardware profile"}
 	var pipelineError string
 	if o.Model == "ooo" {
-		spec := ooo.DefaultSpec()
-		spec.Freq = timing.Freq(o.FrequencyHz)
+		spec := device.OoO
 		c := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(s).WithResources(ooo.Resources{Execution: cpu.NewELFTimingExecution(x), Cache: cache}).Build("CPU")
 		if err = s.Initialize(); err != nil {
 			return r, err
@@ -86,8 +113,7 @@ func Run(ctx context.Context, p *linuxuser.Process, o Options) (r Result, err er
 		r.Timing.BranchDirectionHits = c.State.Predictor.Hits
 		pipelineError = c.State.Err
 	} else {
-		spec := inorder.DefaultSpec()
-		spec.Freq = timing.Freq(o.FrequencyHz)
+		spec := device.InOrder
 		c := modeling.MakeBuilder[*inorder.Comp](spec).WithSimulation(s).WithResources(inorder.Resources{Execution: x, Cache: cache}).Build("CPU")
 		if err = s.Initialize(); err != nil {
 			return r, err

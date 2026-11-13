@@ -12,6 +12,7 @@ from pathlib import Path
 import math
 import statistics
 import subprocess
+import devices
 import native_usertime as native
 from workload_contract import case_ids, check_output, instruction_budget, execution_timeout_seconds
 from native_usertime import (
@@ -47,13 +48,14 @@ class OutputIdentity:
             raise ValueError("complete output identity mismatch")
 
 
-def execute(poros, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None):
+def execute(poros, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None, device=None):
     timeout_seconds = execution_timeout_seconds(case)
     argv = [
         str(poros),
         "elf",
         "--mode",
         mode or case["model"],
+        *devices.arguments(device),
         "--frequency-hz",
         str(case["frequency_hz"]),
         "--timeout",
@@ -77,11 +79,14 @@ def execute(poros, case, mode=None, expected_output=None, expected_identity=None
             + p.stderr.decode(errors="replace")
         )
     r = json.loads(p.stdout)
-    return validate_execution(r, case, mode, expected_output, expected_identity, expected_profile)
+    return validate_execution(r, case, mode, expected_output, expected_identity, expected_profile, device)
 
 
-def validate_execution(r, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None):
-    """Apply identical checks to live and recorded simulator executions."""
+def validate_execution(r, case, mode=None, expected_output=None, expected_identity=None, expected_profile=None, device=None):
+    """Apply identical checks to live and recorded simulator executions.
+
+    A device is the target identity the simulator was asked for and must report.
+    None is a simulator that predates targets, which models only the default."""
     if (
         r["binary_sha256"] != case["sha256"]
         or r["args"] != case["args"]
@@ -111,6 +116,7 @@ def validate_execution(r, case, mode=None, expected_output=None, expected_identi
             raise ValueError("functional execution unexpectedly contains timing")
         return r
     t = r["timing"]
+    devices.check_timing(t, device)
     profile = inventory()["profile"] if expected_profile is None else expected_profile
     if (
         t["configuration"] != profile["configuration"]
@@ -440,8 +446,10 @@ def main():
     p.add_argument("--base")
     p.add_argument("--base-unavailable", action="store_true")
     p.add_argument("--base-commit", required=True)
-    p.add_argument("--reference", required=True)
+    p.add_argument("--reference", help="the device's committed application reference; resolved from its declaration if omitted, "
+                                       "and refused if it names any other file")
     p.add_argument("--output", required=True)
+    p.add_argument("--device", help="modeled device (default: the source's default); this is not the Git revision")
     p = sub.add_parser("measure")
     p.add_argument("--measurement-id", required=True)
     p.add_argument("--build-info")
@@ -457,7 +465,7 @@ def main():
     if args.command == "measure":
         measure(args)
         return 0
-    return compare(args)
+    return compare(args, device=args.device)
 
 
 if __name__ == "__main__":

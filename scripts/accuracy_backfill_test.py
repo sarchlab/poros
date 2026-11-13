@@ -61,24 +61,5 @@ class BackfillTests(unittest.TestCase):
             self.assertEqual(publisher.download_attempt_bundle(12,2,"accuracy-backfill-resolved",destination,required="backfill.json"),1)
             self.assertIsNone(publisher.download_attempt_bundle(12,2,"accuracy-backfill-resolved",destination))
 
-    def test_shared_workflow_is_read_only_and_has_one_parallel_matrix(self):
-        root=Path(__file__).resolve().parents[1]
-        evaluation=(root/".github/workflows/evaluation.yml").read_text()
-        parallel=(root/".github/workflows/accuracy-evaluate.yml").read_text()
-        pages=(root/".github/workflows/accuracy-pages.yml").read_text()
-        self.assertIn("uses: ./.github/workflows/accuracy-evaluate.yml",evaluation)
-        self.assertIn("uses: ./.github/workflows/accuracy-evaluate.yml",pages)
-        self.assertNotIn("contents: write",parallel)
-        self.assertIn("fail-fast: false",parallel)
-        self.assertIn("max-parallel: 16",parallel)
-        self.assertIn("if: always()",parallel)
-        self.assertIn("name: User-time accuracy report",parallel)
-        self.assertIn("actions: read",pages)
-        resolve = pages.split("  resolve:\n", 1)[1].split("  parallel:\n", 1)[0]
-        self.assertIn("uses: actions/checkout@v4\n        with:\n          ref: gh-pages\n          path: pages\n          persist-credentials: false", resolve)
-        self.assertNotIn("git clone", resolve)
-        self.assertIn('if: always() && needs.resolve.result == \'success\'',pages)
-        self.assertIn('--route-status "$ROUTE_STATUS"',pages)
-
 
 if __name__=="__main__":unittest.main()

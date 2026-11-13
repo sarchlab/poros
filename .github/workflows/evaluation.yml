@@ -43,6 +43,7 @@ jobs:
       - run: python3 scripts/recurrence_microbenchmark_test.py
       - run: python3 scripts/memory_microbenchmark_test.py
       - run: python3 scripts/model_profiles_test.py
+      - run: python3 scripts/devices_test.py
       - run: python3 scripts/merged_main_pr_test.py
       - run: scripts/evaluation-ci.sh static
         env:
@@ -109,6 +110,7 @@ jobs:
           go build -o /tmp/poros ./cmd/poros
           go test -count=1 ./pkg/loader ./pkg/linuxuser ./pkg/emu ./cmd/poros
           go test -count=1 -run '^TestStreamclusterRepeatELF$' ./pkg/elfsim
+          python3 scripts/devices.py smoke --poros /tmp/poros
           python3 scripts/throughput_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/forwarding_microbenchmark.py smoke --poros /tmp/poros
           python3 scripts/scheduling_microbenchmark.py smoke --poros /tmp/poros
@@ -123,30 +125,6 @@ jobs:
         with:
           name: elf-functional-differential
           path: evaluation-results/
-  merged-main-pr:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      merged: ${{ steps.pr.outputs.merged }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - id: pr
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/merged_main_pr.py "$GITHUB_REPOSITORY" "$GITHUB_SHA"
-  accuracy:
-    name: Accuracy
-    needs: merged-main-pr
-    if: needs.merged-main-pr.outputs.merged == 'true'
-    uses: ./.github/workflows/accuracy-evaluate.yml
-    with:
-      target: ${{ github.sha }}
-      base: ${{ github.event.before }}
   diagnostics:
     name: Extended CLI diagnostics
     if: github.event_name == 'workflow_dispatch'

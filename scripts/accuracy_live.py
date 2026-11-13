@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import accuracy_site as site
+import devices
 import model_profiles
 import usertime
 
@@ -52,10 +53,15 @@ def validate_snapshot(value):
 def snapshot_references(value):
     """Byte-preserving transport around the canonical schema-4 report."""
     report = value["report"]
+    devices.validate(report)
     text = value.get("reference_text")
-    if not isinstance(text, str):
-        raise ValueError("snapshot needs exact application reference bytes")
-    references = {"reference.json": text.encode()}
+    references = {}
+    if devices.measured(report, "application"):
+        if not isinstance(text, str):
+            raise ValueError("snapshot needs exact application reference bytes")
+        references["reference.json"] = text.encode()
+    elif text is not None:
+        raise ValueError("snapshot carries a native application reference its device does not have")
     expected = {key: report[key] for key in ("base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")}
     expected["head_commit"] = report["head"]["commit"]
     declared = site.declared_diagnostics(report)
@@ -63,7 +69,11 @@ def snapshot_references(value):
         if name + "_reference" in value:
             raise ValueError(name + " reference must use exact byte-bound text")
         text = value.get(name + "_reference_text")
-        if name in declared:
+        if name in declared and not devices.measured(report, name):
+            # The suite runs for this device, but nothing native is attached.
+            if text is not None or name + "_provenance" in value:
+                raise ValueError("snapshot carries a native " + name + " reference its device does not have")
+        elif name in declared:
             if not isinstance(text, str) or value.get(name + "_provenance") != expected:
                 raise ValueError("snapshot " + name + " reference/provenance mismatch")
             references[name + ".json"] = text.encode()
@@ -84,6 +94,11 @@ class SnapshotView:
         self.previous = None
 
     def load(self):
+        state = self.resolve()
+        return site.detail(state["report"], state["entry"], preview=True, live=state["live"], **state["references"]).encode(), state["assets"]
+
+    def resolve(self):
+        """The validated state of one device's campaign: report, progress, native references and assets."""
         try:
             value = validate_snapshot(site.read(self.snapshot))
             self.previous = copy.deepcopy(value)
@@ -112,6 +127,7 @@ class SnapshotView:
                 completed, manifest = site.validate_bundle(self.bundle, entry["commit"])
                 identity_fields = ("head", "base_commit", "head_binary_sha256", "base_binary_sha256",
                                    "model_profiles", "workload_manifest", "reference_sha256", "reference", "cases", "summary",
+                                   "device", "output_oracle", "diagnostic_definitions",
                                    "throughput_simulation", "forwarding_simulation", "scheduling_simulation",
                                    "capacity_simulation", "recurrence_simulation", "memory_simulation", "frontend_simulation")
                 if completed["artifact_status"] != "pass" or any(completed.get(key) != report.get(key) for key in identity_fields):
@@ -137,7 +153,57 @@ class SnapshotView:
                 throughput, frontend, forwarding, scheduling, memory = completed_throughput, completed_frontend, completed_forwarding, completed_scheduling, completed_memory
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
                 live.update(state="failed", errors=["Final bundle validation failed: " + str(error)])
-        return site.detail(report, entry, preview=True, frontend=frontend, throughput_reference=throughput, live=live, forwarding_reference=forwarding, scheduling_reference=scheduling, memory_reference=memory, capacity_reference=capacity, recurrence_reference=recurrence).encode(), assets
+        return dict(report=report, entry=entry, live=live, assets=assets,
+                    references=dict(frontend=frontend, throughput_reference=throughput, forwarding_reference=forwarding,
+                                    scheduling_reference=scheduling, memory_reference=memory,
+                                    capacity_reference=capacity, recurrence_reference=recurrence))
+
+
+def view_state(live):
+    """How one device's live campaign is labeled in its commit's report.
+
+    A finished snapshot is transport status. Only a final bundle that passed
+    archive validation and matches the snapshot is a report; until then the
+    finished campaign's validated rows are shown as awaiting that validation."""
+    if live["state"] == "failed":
+        return "failed"
+    if live["state"] == "complete":
+        return "report" if live.get("validated_bundle") else site.VALIDATION_PENDING
+    return "running"
+
+
+class CommitView:
+    """Several devices' campaigns of one commit, shown as that commit's one report.
+
+    Each snapshot stays one device's validated evidence. The page is the commit
+    report the archive renders: the same pooled overview and the same device
+    views, with devices that have no snapshot here shown as pending."""
+    def __init__(self, snapshots):
+        self.views = [SnapshotView(snapshot) for snapshot in snapshots]
+
+    def load(self):
+        states = [view.resolve() for view in self.views]
+        reports = [state["report"] for state in states]
+        commit = reports[0]["head"]["commit"]
+        ids = [site.report_device(report) for report in reports]
+        if any(report["head"]["commit"] != commit for report in reports) or len(set(ids)) != len(ids):
+            raise ValueError("a live commit view needs one snapshot per device, all of one commit")
+        record = site.commit_declaration(None, [site.report_declaration(report) for report in reports])
+        views, assets = [], {}
+        for declared in site.declared_devices(record):
+            if declared["id"] not in ids:
+                views.append(dict(id=declared["id"], declared=declared, state="pending", report=None))
+                continue
+            state = states[ids.index(declared["id"])]
+            live = state["live"]
+            views.append(dict(id=declared["id"], declared=declared, report=state["report"], entry=state["entry"],
+                              references=state["references"], live=live, state=view_state(live)))
+            folder = "" if declared["id"] == devices.DEFAULT else "devices/" + declared["id"] + "/"
+            assets.update({folder + name: data for name, data in state["assets"].items()})
+        if {view["id"] for view in views if view["state"] != "pending"} != set(ids):
+            raise ValueError("a snapshot is for a device its commit does not declare")
+        page, _, _ = site.commit_report(commit, record, views, live=True, retained=False)
+        return page.encode(), assets
 
 
 def handler(view):
@@ -160,11 +226,18 @@ def handler(view):
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
-            except (OSError, ValueError, KeyError, TypeError, AttributeError):
-                self.send_error(503, "Live snapshot temporarily unavailable")
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+                # The reason matters to whoever started this loopback server:
+                # snapshots that cannot form one commit's report never will.
+                self.send_error(503, "Live snapshot temporarily unavailable", str(error))
     return Handler
 
 
-def serve(snapshot, bundle, port):
+def serve(snapshots, bundle, port):
+    """One snapshot is one device's live report. Several are the live report of their commit."""
+    snapshots = [snapshots] if isinstance(snapshots, (str, Path)) else list(snapshots)
+    if len(snapshots) > 1 and bundle:
+        raise ValueError("a final bundle belongs to one device; serve it with that device's snapshot alone")
+    view = SnapshotView(snapshots[0], bundle) if len(snapshots) == 1 else CommitView(snapshots)
     # Only loopback; request paths are looked up in a validated asset map.
-    ThreadingHTTPServer(("127.0.0.1", port), handler(SnapshotView(snapshot, bundle))).serve_forever()
+    ThreadingHTTPServer(("127.0.0.1", port), handler(view)).serve_forever()

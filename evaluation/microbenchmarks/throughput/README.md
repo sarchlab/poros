@@ -49,8 +49,8 @@ no assertion that a noisy result demonstrates a hardware width.
 
 PR CI runs every case for 16 and 32 iterations, checking analytic checksums and
 matching functional/OOO instruction counts. It does not collect native timing or
-run the application accuracy campaign. After a PR merges into main, the existing
-accuracy job additionally measures each probe at 1,024 and 2,048 iterations and
+run the application accuracy campaign. A [local accuracy campaign](../../usertime/README.md#local-campaigns),
+which no hosted job runs any more, additionally measures each probe at 1,024 and 2,048 iterations and
 checks the expected instruction-count difference. Results appear only in the
 microbenchmark section, excluded from the application S-curve/correlation.
 Hardware collection is explicit and never silently replaces the reference in CI.

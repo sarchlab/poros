@@ -36,11 +36,26 @@ type MultiCorePipeline struct {
 
 // NewMultiCorePipeline creates a multi-core pipeline with len(configs) cores.
 // Each core gets a private L1 cache and all share a single L2 cache. This setup
-// operation enables memory-access tracking on each supplied emulator.
+// operation enables memory-access tracking on each supplied emulator. Cores and
+// caches take the default parameters at the given frequency.
 func NewMultiCorePipeline(
 	name string,
 	simulation *sim.Simulation,
 	freq timing.Freq,
+	configs []CoreConfig,
+) *MultiCorePipeline {
+	spec := ooo.DefaultSpec()
+	spec.Freq = freq
+	return NewMultiCorePipelineFor(name, simulation, spec, mem.DefaultCacheConfig(), configs)
+}
+
+// NewMultiCorePipelineFor is NewMultiCorePipeline with explicit core and cache
+// parameters. Every core is built from spec; its hook cycles come from configs.
+func NewMultiCorePipelineFor(
+	name string,
+	simulation *sim.Simulation,
+	spec ooo.Spec,
+	cfg mem.CacheConfig,
 	configs []CoreConfig,
 ) *MultiCorePipeline {
 	if len(configs) == 0 {
@@ -65,7 +80,6 @@ func NewMultiCorePipeline(
 			panic("multicore: function hooks are not supported for processes")
 		}
 	}
-	cfg := mem.DefaultCacheConfig()
 	sharedL2 := mem.NewSharedL2(cfg)
 
 	mc := &MultiCorePipeline{
@@ -81,8 +95,6 @@ func NewMultiCorePipeline(
 		if cc.Emulator != nil {
 			cc.Emulator.Mem.TrackAccesses = true
 		}
-		spec := ooo.DefaultSpec()
-		spec.Freq = freq
 		spec.FuncHookCycles = HookCycleSpec(cc.FuncHookCycles)
 		p := modeling.MakeBuilder[*ooo.Comp](spec).WithSimulation(simulation).
 			WithResources(ooo.Resources{Emu: cc.Emulator, Execution: cc.Execution, Cache: cache}).Build(coreName)

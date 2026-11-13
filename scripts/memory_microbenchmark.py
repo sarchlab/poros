@@ -17,6 +17,8 @@ import statistics
 import struct
 import subprocess
 
+import devices
+
 ROOT = Path(__file__).resolve().parents[1]
 DIRECTORY = 'evaluation/microbenchmarks/memory/'
 ELF, REFERENCE = DIRECTORY + 'memory.elf', DIRECTORY + 'm2.json'
@@ -157,9 +159,9 @@ def instruction_budget(case, passes):
     return 200000 + 80 * (case['working_set_bytes'] // 8) + instructions_per_pass(case) * (passes + WARMUP_PASSES)
 
 
-def execute(binary, root, case, passes, mode='ooo', revision=None, profile=None):
+def execute(binary, root, case, passes, mode='ooo', revision=None, profile=None, device=None):
     timeout_seconds = 900 if case_elf(case) == LARGE_ELF else 600
-    cmd = [str(binary), 'elf', '--mode', mode, '--max-instructions', str(instruction_budget(case, passes)),
+    cmd = [str(binary), 'elf', '--mode', mode, *devices.arguments(device), '--max-instructions', str(instruction_budget(case, passes)),
            '--timeout', f'{timeout_seconds}s']
     if profile is not None:
         cmd += ['--frequency-hz', str(profile['configuration']['freq'])]
@@ -169,11 +171,11 @@ def execute(binary, root, case, passes, mode='ooo', revision=None, profile=None)
     process = subprocess.run(cmd, capture_output=True, timeout=timeout_seconds + 20)
     require(process.returncode == 0 and not process.stderr, 'memory execution failed: ' + case['id'] + ' ' + process.stdout.decode(errors='replace')[-1500:])
     result = json.loads(process.stdout)
-    validate_execution(result, case, passes, digest(Path(root) / case_elf(case)), mode, revision, profile)
+    validate_execution(result, case, passes, digest(Path(root) / case_elf(case)), mode, revision, profile, device)
     return result
 
 
-def validate_execution(result, case, passes, elf_hash, mode='ooo', revision=None, profile=None):
+def validate_execution(result, case, passes, elf_hash, mode='ooo', revision=None, profile=None, device=None):
     require(result.get('termination') == 'exit' and result.get('exit_status') == 0 and not result.get('stderr_base64')
             and result.get('binary_sha256') == elf_hash and result.get('args') == ['program', *arguments(case, passes)]
             and result.get('env') == [] and positive(result.get('instructions'))
@@ -188,6 +190,7 @@ def validate_execution(result, case, passes, elf_hash, mode='ooo', revision=None
         return
     timing = result.get('timing', {})
     require(timing.get('model') == 'ooo' and positive(timing.get('user_cycles')) and timing.get('retired_instructions') == result['instructions'], 'invalid memory timing')
+    devices.check_timing(timing, device)
     if profile is not None:
         require(all(timing.get(k) == profile[k] for k in ('configuration', 'cache_config')), 'memory model profile mismatch')
     hz = timing.get('assumed_hz')
@@ -213,16 +216,19 @@ def validate_rows(rows, declared, *, partial=False):
                 and positive(row.get('cycles')), 'invalid memory differential counters')
 
 
-def measure_case(binary, root, case, revision, profile):
-    samples = [execute(binary, root, case, case['passes'] * factor, revision=revision, profile=profile) for factor in (1, 2)]
+def measure_case(binary, root, case, revision, profile, device=None):
+    # Passed only when a device is requested, like every later execution option.
+    options = {} if device is None else {'device': device}
+    samples = [execute(binary, root, case, case['passes'] * factor, revision=revision, profile=profile, **options) for factor in (1, 2)]
     summarize_samples(case, samples)
     return samples
 
 
-def measure(binary, root, revision, profile):
+def measure(binary, root, revision, profile, device=None):
     large = supports_large_images(root, revision)
+    options = {} if device is None else {'device': device}
     return [unavailable(case) if case['max_image_bytes'] > 256 * 1024 * 1024 and not large
-            else summarize_samples(case, measure_case(binary, root, case, revision, profile)) for case in cases(root)]
+            else summarize_samples(case, measure_case(binary, root, case, revision, profile, **options)) for case in cases(root)]
 
 
 def declared(files):

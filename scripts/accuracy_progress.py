@@ -15,6 +15,7 @@ import accuracy_live as live
 import accuracy_parallel as parallel
 import accuracy_site as site
 import compute_usertime as compute
+import devices
 import performance_compare as comparison
 import performance_reference as reference
 import usertime as user
@@ -43,16 +44,27 @@ def reporting_identity():
 
 
 def report_header(plan, source):
-    declared, measured = reference.load(source, require_native=True)
+    path, hardware = comparison.application_source(plan)
+    declared, measured = reference.load(source, require_native=True, path=path, hardware=hardware)
     report = dict(schema=4, artifact_status="partial", accuracy_status="unverified", formula=user.FORMULA,
                   cases=[], workload_manifest=declared, head=plan["head"], base_commit=plan["base_commit"],
                   head_binary_sha256=plan["binaries"]["head"], base_binary_sha256=plan["binaries"]["base"],
                   base_capability=plan["base_capability"], base_status="per_case_resource_limit",
-                  model_profiles=plan["model_profiles"], reference_sha256=plan["references"]["performance264"],
-                  reference={k: v for k, v in measured.items() if k not in ("cases", "input_sources", "collector_sources")},
-                  reporting=reporting_identity())
+                  model_profiles=plan["model_profiles"])
+    if "device" in plan:
+        report["device"] = plan["device"]
+    if devices.measured(report, "application"):
+        devices.require_reference(report, "application", measured)
+        report.update(reference_sha256=plan["references"]["performance264"],
+                      reference={k: v for k, v in measured.items() if k not in ("cases", "input_sources", "collector_sources")})
+    else:
+        report["output_oracle"] = comparison.output_oracle(source)
+    report["reporting"] = reporting_identity()
     for name in site.declared_diagnostics(report):
         report[name + "_simulation"] = [] if name == "throughput" else {"head": [], "base": []}
+    definitions = site.diagnostic_definitions(report, source)
+    if definitions:
+        report["diagnostic_definitions"] = definitions
     if "memory" in plan:
         report["memory_base_large_image_support"] = plan["memory"]["base_large_image_support"]
     report["summary"] = compute.summaries([], True)
@@ -60,12 +72,16 @@ def report_header(plan, source):
 
 
 def snapshot(report, source, progress):
-    result = dict(kind=live.KIND, report=copy.deepcopy(report), progress=progress,
-                  reference_text=(Path(source) / reference.PATH).read_bytes().decode("utf-8"))
+    result = dict(kind=live.KIND, report=copy.deepcopy(report), progress=progress)
+    # Native reference bytes travel only with the device they were measured on.
+    if devices.measured(report, "application"):
+        result["reference_text"] = (Path(source) / comparison.application_reference(report)[0]).read_bytes().decode("utf-8")
     result["report"]["artifact_status"] = "partial"
     provenance = {key: report[key] for key in ("base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")}
     provenance["head_commit"] = report["head"]["commit"]
     for name, suite in site.declared_diagnostics(report).items():
+        if not devices.measured(report, name):
+            continue
         result[name + "_reference_text"] = (Path(source) / suite.REFERENCE).read_bytes().decode("utf-8")
         result[name + "_provenance"] = provenance
     if "throughput" not in site.declared_diagnostics(report) and site.FRONTEND_REFERENCE in report["head"]["files"]:
@@ -88,7 +104,7 @@ def active_memory_progress(plan, report, active_shards):
             for role in parallel.memory_roles(plan, cases[ident]):
                 if ident not in done[role]:
                     active.append(dict(role=role, id=ident))
-    complete = all(len(values) == len(cases) for values in done.values())
+    complete = all(len(done[role]) == len(cases) for role in site.diagnostic_roles(plan, "memory"))
     report.setdefault("diagnostic_progress", {})["memory"] = dict(
         state="running" if active else "complete" if complete else "partial" if any(done.values()) else "pending",
         active=active, errors=[])
@@ -114,6 +130,23 @@ class SnapshotExporter:
             raise ValueError("choose raw diagnostic checkpoints or legacy probe progress")
         if self.diagnostic_status and not self.checkpoints:
             raise ValueError("diagnostic status requires raw checkpoints")
+
+    def require_status_identity(self, status, label):
+        """A scheduler's status file must describe this exact prepared plan.
+
+        Campaigns of two devices can share head, base and run id, so a plan that
+        names a device accepts only a status carrying its `plan_id`. A plan
+        without a device is the default device of a source that predates device
+        selection; schedulers written for it never sent `plan_id`, and nothing
+        else can share its revisions, so the three fields still identify it."""
+        if (not isinstance(status, dict) or status.get("head") != self.plan["head"]["commit"]
+                or status.get("base") != self.plan["base_commit"] or status.get("run_id") != self.run_id):
+            raise ValueError(label + " identity mismatch")
+        if "plan_id" in status:
+            if status["plan_id"] != parallel.identity(self.plan):
+                raise ValueError(label + " belongs to another prepared plan")
+        elif "device" in self.plan:
+            raise ValueError(label + " has no plan_id; head, base and run id do not tell one device's campaign from another's")
 
     def read_shard(self, path):
         stat = path.stat()
@@ -155,9 +188,8 @@ class SnapshotExporter:
         selected, seen = {}, set()
         paths = sorted([*self.results.rglob("shard.json"), *self.results.rglob("shard.json.gz")])
         status = site.read(self.status) if self.status else None
-        if status and (status.get("head") != self.plan["head"]["commit"] or status.get("base") != self.plan["base_commit"] or status.get("run_id") != self.run_id):
-            raise ValueError("campaign status identity mismatch")
         if status:
+            self.require_status_identity(status, "campaign status")
             count = len(self.plan["shards"])
             def index(value):
                 if isinstance(value, str) and value.isascii() and value.isdigit():
@@ -206,9 +238,7 @@ class SnapshotExporter:
             report["diagnostic_progress"] = diagnostics
             if self.diagnostic_status:
                 status_d = site.read(self.diagnostic_status)
-                if (status_d.get("head") != self.plan["head"]["commit"]
-                        or status_d.get("base") != self.plan["base_commit"] or status_d.get("run_id") != self.run_id):
-                    raise ValueError("diagnostic status identity mismatch")
+                self.require_status_identity(status_d, "diagnostic status")
                 tasks = parallel.diagnostic_tasks(self.plan, self.source)
                 def task_index(value):
                     if isinstance(value, str) and value.isascii() and value.isdigit():
@@ -249,6 +279,11 @@ class SnapshotExporter:
             for key in ("head", "base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles"):
                 if incoming[key] != report[key]:
                     raise ValueError("probe progress source identity mismatch")
+            # Devices that share parameters share every identity above, and the
+            # summarized rows no longer name their target. Two reports without a
+            # device selection are both the default device.
+            if incoming.get("device") != report.get("device"):
+                raise ValueError("probe progress is for another modeled device")
             for name in site.declared_diagnostics(report):
                 if name != "memory":
                     report[name + "_simulation"] = incoming[name + "_simulation"]

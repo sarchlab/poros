@@ -1,0 +1,38 @@
+{
+  "default": "m2",
+  "devices": [
+    {
+      "hardware": "Apple M2",
+      "id": "m2",
+      "parameter_source": "m2",
+      "references": {
+        "application": "evaluation/usertime/performance-v1.json",
+        "capacity": "evaluation/microbenchmarks/capacity/m2.json",
+        "forwarding": "evaluation/microbenchmarks/forwarding/m2.json",
+        "memory": "evaluation/microbenchmarks/memory/m2.json",
+        "recurrence": "evaluation/microbenchmarks/recurrence/m2-linux.json",
+        "scheduling": "evaluation/microbenchmarks/scheduling/m2.json",
+        "throughput": "evaluation/microbenchmarks/throughput/m2.json"
+      }
+    },
+    {
+      "hardware": "Apple M1",
+      "id": "m1",
+      "parameter_source": "m2",
+      "references": {}
+    },
+    {
+      "hardware": "NVIDIA Grace (Arm Neoverse V2)",
+      "id": "grace",
+      "parameter_source": "m2",
+      "references": {}
+    },
+    {
+      "hardware": "Apple M5 Max",
+      "id": "m5-max",
+      "parameter_source": "m2",
+      "references": {}
+    }
+  ],
+  "schema": 1
+}

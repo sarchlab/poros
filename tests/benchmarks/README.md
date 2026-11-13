@@ -74,7 +74,7 @@ use native-output-block identities, full Poros functional/timing checks and an
 ELF/Mach-O wrapper audit. Ordinary CI additionally checks the actual repeat ELF
 at n=7, dim=3, k=2 against two complete original outputs in functional/OoO modes
 and, in the Linux differential job, QEMU. Native/oracle validation is separate
-from simulator validation; accuracy CI requires all head functional/OoO runs and every supported base run.
+from simulator validation; an accuracy campaign requires all head functional/OoO runs and every supported base run.
 
 ```
 go test -short ./...

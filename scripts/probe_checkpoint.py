@@ -12,11 +12,16 @@ def digest(value):
 
 
 class Checkpoint:
-    def __init__(self, directory, name, role, source, binary, revision, profile, elf_sha256):
+    def __init__(self, directory, name, role, source, binary, revision, profile, elf_sha256, device=None):
         self.directory = Path(directory)
         self.name, self.role = name, role
         self.identity = dict(source=source, binary_sha256=user.digest(binary), revision=revision,
                              profile=profile, elf_sha256=elf_sha256, suite=name, role=role)
+        # Devices that share parameters share a binary and a profile, so the
+        # requested device is part of the key. Simulators that predate targets
+        # keep their exact earlier keys.
+        if device is not None:
+            self.identity["device"] = device
 
     def filename(self, index, iterations):
         return f"{self.name}-{self.role}-{index}-{iterations}.json"

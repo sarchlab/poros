@@ -1,5 +1,13 @@
 # Live and CI accuracy reports
 
+Hosted accuracy CI is off: no workflow runs a campaign or publishes a report.
+Campaigns are local, one run directory per execution; the commands are in
+[local campaigns](../evaluation/usertime/README.md#local-campaigns). Below, a
+"CI" report or page means the complete report that `aggregate` and `bundle`
+build, which hosted runs used to produce, and every statement about
+publication, the Pages archive or an Evaluation run describes that historical
+hosted use and the reports it already published.
+
 `accuracy_site.detail` renders both modes, including the same application charts,
 base/head statistics, timing curves/tables and separate microbenchmark section.
 The comparison table uses the intersection of qualified application cases with
@@ -211,17 +219,27 @@ status; a directory lock rejects concurrent writers.
 Conflicting point or campaign ownership is rejected without overwriting the
 existing status receipt. Checkpoints are named
 `<suite>-<role>-<suite_index>-<iterations>.json`, with one-based suite indices.
-The normal CI workflow schedules this matrix alongside application/memory
-shards. Aggregation waits for both matrices, validates all raw evidence and
-builds the report without executable binary permissions or simulator calls.
-Only successful diagnostic jobs upload aggregatable raw artifacts. Each job
-first uploads its status separately, then uploads raw evidence as its final
-step on success. Failed or interrupted points therefore leave no partial raw
-artifact in the aggregate's download pattern. Re-running failed jobs reuses
-successful points and shards from earlier attempts; their simulations need not
-run again. Status artifacts remain available for diagnosing failed attempts.
+A local campaign runs these points alongside its application/memory shards.
+Aggregation validates all raw evidence and builds the report without
+executable binary permissions or simulator calls. The hosted workflow, now
+removed, scheduled the same matrix as jobs. Only successful diagnostic jobs
+uploaded aggregatable raw artifacts: each job first uploaded its status
+separately, then its raw evidence as its final step on success, so failed or
+interrupted points left no partial raw artifact in the aggregate's download
+pattern. Re-running failed jobs reused successful points and shards from
+earlier attempts.
 
-The optional campaign status file binds `head`, `base`, `run_id`, completed shard
+Both optional scheduler status files below name the prepared plan they belong
+to with `plan_id`, the value `prepare` prints and `diagnostic-tasks` records in
+`diagnostics.json`. Campaigns of two devices can share `head`, `base` and
+`run_id`, so those three do not identify a campaign. For a plan that names a
+device the exporter refuses a status file without `plan_id`, or with another
+plan's, before reading anything else from it. A plan of a source that predates
+device selection names no device and is `m2` alone; its schedulers' status
+files, which never carried `plan_id`, are still accepted on the three fields,
+and a `plan_id` they do carry must match.
+
+The optional campaign status file binds `head`, `base`, `run_id`, `plan_id`, completed shard
 indices and active shard indices (`active` object). It supplies activity only;
 completed results still require raw validation. `phase: complete` is accepted only
 when strict validation confirms every application and diagnostic result. A full
@@ -229,7 +247,7 @@ when strict validation confirms every application and diagnostic result. A full
 retries transient failures without replacing its last good atomic snapshot.
 
 The separate optional diagnostic status file binds `head`, `base`, `run_id`,
-`completed` task indices, `active` (index-to-worker object), and `failed`
+`plan_id`, `completed` task indices, `active` (index-to-worker object), and `failed`
 entries with `index` and `error`. It supplies worker activity only; completed
 rows always come from validated raw checkpoints. The exporter supports
 out-of-order point completion and unequal base/head subsets in canonical
@@ -267,6 +285,221 @@ validated bundle assets. Incomplete, failed or waiting pages refresh every
 15 seconds. Malformed/intermediate input preserves the last validated snapshot
 with a warning; a producer silent for 45 seconds is visibly stale.
 
+## Devices
+
+Everything above describes a report for a device that has native references,
+which today is `m2`. A head that contains `evaluation/devices.json` also binds
+every plan, shard, checkpoint, snapshot and report to one
+[modeled device](../evaluation/README.md#modeled-devices). Heads without that
+file, and all their retained evidence, are `m2` and are read exactly as before.
+
+- `prepare --device NAME` chooses the device; the default is `m2`. The plan
+  records `device` with exactly `id`, `head` and `base`. `head` and `base` are the
+  declaration at each revision (`commit`, `path`, `sha256`, `declaration`), and
+  `base` is null when the base revision has none. The device is part of the plan
+  identity, so shard and diagnostic artifacts of two devices cannot be mixed.
+- Each simulator that models the device is run with `--target NAME` and must
+  report that target, its hardware and its parameter source in
+  `timing.target`. A base revision that predates targets is `m2`: it is run
+  without the argument and reports none. For any other device such a base is not
+  run; tasks then have the single role `head`, paired suites keep an empty `base`
+  list, and application rows have `base_status: device_unavailable`.
+- Diagnostic checkpoint keys include the requested target identity. Keys of
+  simulators that predate targets are unchanged.
+- `report.device` repeats the plan's value. Offline validation checks the
+  declaration hash against `report.head.files`; publication and the memory-only
+  preview read both revisions from Git. A report that names no device and lists
+  no declaration is accepted against Git only if its head revision has none.
+- A failure keeps the device it was for. Before a plan or a comparison exists
+  it records `device: {"id": NAME}`: `aggregate --device`, `accuracy_site.py
+  failure --device` and a build or setup failure of `scripts/usertime-ci.sh BASE
+  OUTPUT NAME` all do. A comparison that fails after resolving its device and
+  before recording its source keeps the resolved `device` without `head`; such a
+  report states the application reference availability its declaration gives
+  and says the diagnostic suites are not established.
+- The serial comparison takes the application reference its device declares.
+  `usertime.py compare --reference` is optional and, when given, must name that
+  file; `scripts/usertime-ci.sh` names none.
+
+For a kind of reference the device does not have, the report and snapshot change
+as follows; nothing native is substituted:
+
+- No `reference_text`, `<suite>_reference_text` or `<suite>_provenance` is
+  carried, and supplying one is rejected. The bundle holds only `report.json`
+  and `report.md` when the device has no references at all.
+- The report has no `reference` or `reference_sha256`. `output_oracle` names the
+  committed complete-output identity file (`path`, `sha256`, `scope`). That file
+  is the default device's reference. It is validated as a whole, timing fields
+  included, and the device uses only its output identities: no timing from it
+  is shown or compared.
+- Application rows have `reference_quality: unmeasured` and no other
+  `reference_*` field, no `error_percent`, `direction` or
+  `error_change_percentage_points`. Summaries count zero comparable cases.
+- `report.diagnostic_definitions` holds the exact case-definition text of each
+  such suite (`cases.def`, or `cases.json` for memory), whose SHA-256 must equal
+  the `report.head.files` entry. It supplies the case inventory that a native
+  reference otherwise would.
+- The page shows the device, its parameter source and its reference
+  availability, replaces the accuracy charts with a notice, and lists
+  predictions and simulated counters without reference or error columns.
+
+A device's native application reference is the file its declaration names
+under `references.application`, and it must record the declared `hardware`.
+The plan binds that file's digest, a snapshot carries its bytes as
+`reference_text` and a bundle as `reference.json`. The diagnostic suites still
+have one committed reference file each, the M2 one; a declaration that names
+another file for a suite, or gives the M2 file to other hardware, is refused
+before a point of that suite runs.
+
+Serve a device's snapshot the same way; the device is in the snapshot. Repeat
+`--snapshot` with other devices of the same commit to serve that commit's
+report while they run:
+
+```sh
+python3 NEW/scripts/accuracy_parallel.py prepare --base BASE --device m1 --shards 132 \
+  --prepared RUN-M1/prepared --run-id RUN_ID --attempt 1
+python3 scripts/accuracy_site.py serve --snapshot RUN-M1/snapshot.json --port 18763
+python3 scripts/accuracy_site.py serve --snapshot RUN-M2/snapshot.json \
+  --snapshot RUN-M1/snapshot.json --port 18763
+```
+
+In that commit view a device is `running`, `failed`, `pending` when it has no
+snapshot, or `validation pending` once its campaign has finished. A finished
+snapshot is transport status: the commit view validates no final bundle, so it
+never labels a device `report`. Its validated snapshot rows stay in the pooled
+overview, which remains marked partial. Promotion to a report needs the
+matching validated bundle, as for a single device served with `--bundle`.
+
+### One report per commit
+
+A commit has one report, whatever number of devices it declares. The Pages
+archive, which hosted publication built and nothing updates now, lists commits,
+one row each, and nothing per device:
+
+```text
+calibration/index.json                       schema 2: one entry per commit
+calibration/runs/<commit>/index.html         the commit's report
+calibration/runs/<commit>/commit.json        declaration, commit Evaluation, device states, bundle digests and evidence runs, pooled summary
+calibration/runs/<commit>/devices.json       the commit's own evaluation/devices.json, byte for byte
+calibration/runs/<commit>/<bundle files>     the m2 bundle, where every published report already has it
+calibration/runs/<commit>/devices/<id>/      each other device's bundle
+```
+
+The report is one document. Its views are sections reached by fragment links:
+`#overview` for the commit and `#device-<id>` for each device, so a copied
+address, back and forward all return to the same view. The `m2` view keeps the
+element names of reports published before commits had devices, so old links
+into a report still land. Elements of another device are named
+`device-<id>_<name>`, and its files are linked under `devices/<id>/`. Where the
+browser supports `:has()` only the addressed view is shown; otherwise the views
+follow each other. No view depends on a script.
+
+Which devices a commit has is that commit's own declaration, never the current
+one:
+
+- A report carries the declaration bound to its source inventory. `archive`
+  retains it with its SHA-256 in `index.json`, `commit.json` and `devices.json`.
+- A passing report without a declaration predates devices. Its commit is `m2`
+  alone.
+- A failure proves nothing about the declaration. The publisher gives `archive`
+  its source repository, and `evaluation/devices.json` is then read from Git at
+  exactly that commit. When that cannot be read either, the report says the
+  supported devices are unknown and lists only the devices a run was attempted
+  for. A failure filed in that state for a device the commit turns out not to
+  declare is dropped once the declaration is known.
+- Reports of one commit with different declarations, a device the commit does
+  not declare, and publication metadata that names another device than the
+  validated report are all refused before anything is stored.
+
+A device arrives by publishing its bundle: it joins the commit's report without
+touching the bundles of the others. Each declared device is shown as `report`,
+`failed` or `pending`. The commit is `fail` if any device failed, `partial`
+while a declared device has no report, and `pass` otherwise. Merges to `main`
+published `m2` only, so their commits are `partial` unless other devices were
+published. The latest successful main report is the newest main commit whose
+evaluation succeeded and none of whose devices failed; pending devices do not
+disqualify it. A commit is retained, evicted or pinned by a release as a whole,
+with every device's bundle.
+
+Three records are kept apart, because one publication can carry three different
+runs:
+
+- The **commit** keeps its newest Evaluation (`evaluation_*` on the entry and
+  `evaluation` in `commit.json`). The history row and the commit overview show
+  it, with its link, as the Full Evaluation of the commit. It says nothing
+  about any device's evidence.
+- A **device's publication** record (`conclusion`, `run_id`, `run_attempt`,
+  `run_url`) is the newest publication for that device. A publication that
+  finds passing evidence already retained reuses the evidence and updates only
+  this record.
+- A **device's evidence** keeps the run that produced it (`evidence_run_url`)
+  and, where that is established, the Evaluation that produced it
+  (`evaluation_*` on the device record, `evidence_evaluation` in
+  `commit.json`). An Evaluation is established as the producer only if its run
+  attempt is the evidence run. Every other case is recorded as
+  `evaluation_conclusion: unknown` with no run identity.
+
+So a device view states the producing Evaluation, its conclusion and its run
+attempt when the stored record establishes it. Otherwise it says that the
+producing Evaluation is not established and links the evidence run, which is
+what remains; no Evaluation of the commit is shown in its place. A device view
+and a device's `metadata.json` take only `commit`, `main` and `releases` from
+the commit. The producing Evaluation is known in these cases:
+
+- A main publication whose Evaluation attempt uploaded the artifact.
+- A rerun that publishes the artifact of an earlier attempt of the same run:
+  the publisher looks that attempt up and passes it as `evidence_evaluation`,
+  while the triggering attempt stays the commit's Evaluation and the
+  publication record. `archive` refuses an `evidence_evaluation` that is not
+  the evidence run.
+- A schema-1 entry whose recorded Evaluation is its evidence run.
+
+It is unknown for evidence built by a manual or release publication, which no
+Evaluation produced, and for a schema-1 entry whose Evaluation was replaced by
+a later one while its evidence was reused, or which recorded no evidence run.
+A later publication establishes it only by carrying the Evaluation of the
+evidence run itself; that same attempt's later conclusion also still reaches
+the evidence. Evidence that is newly stored, such as a report replacing a
+failure, is attributed afresh by the same rule.
+
+The commit overview pools raw observations. One observation is one device and
+one application input with a usable native reference of that device, so the
+same input on two measured devices is two observations, each labeled
+`<device>/<case>`. The S-curve, the error distribution, the
+reference-versus-prediction plot, mean and median error, Pearson r, Kendall
+τ-b and the share of correctly ordered pairs are computed over the pooled
+observations by the functions a single report uses. Nothing is an average of
+per-device results. The base and head comparison uses the observations both
+revisions predict. Microbenchmarks, devices without a native application
+reference, failed devices and devices without a report contribute nothing; the
+overview says which devices were pooled and which were not, and states that a
+statistic is undefined rather than showing zero. Having a reference and
+contributing are tracked separately: a device with a native application
+reference and no qualified case still counts its cases as required coverage,
+and is listed as not pooled, with the reason "no qualified application cases".
+Only devices with at least one qualified observation are `contributors`, and
+only they form the identity of the commit's trend series.
+
+`index.json` entries of schema 1 are read as commits whose one report is the
+`m2` device, and are rewritten as schema 2 on the next publication.
+
+To look at the archive without publishing anything, keep the site one of the
+tests builds with the real `archive` and renderer from synthetic transport
+values, and serve it:
+
+```sh
+POROS_DEVICE_PAGES_PREVIEW=/tmp/poros-pages-preview python3 scripts/devices_test.py \
+  CommitReportTests.test_staged_site_can_be_walked_from_history_to_commit_to_device
+python3 -m http.server 18770 --bind 127.0.0.1 --directory /tmp/poros-pages-preview
+# http://127.0.0.1:18770/calibration/
+```
+
+Its history has four commits. `aaaa…` declares four devices of its own: `m2`
+and `syn-b` are measured, with different inputs and errors, `syn-c` has no
+native reference and `syn-d` failed. `eeee…` has one unmeasured device reported
+and three pending, `dddd…` has only a failure and an unknown declaration, and
+`cccc…` predates devices. None of these values is a measurement.
+
 ## Memory diagnostics
 
 A head declaring the memory suite additionally requires `memory_reference_text`,
@@ -278,14 +511,19 @@ instruction difference equals `passes * instructions_per_pass` for that case;
 pass counts vary by working-set size and must not be replaced by the older
 suites' fixed 1,024-iteration difference.
 
-The normal post-merge workflow executes memory points alongside application
-points in the existing source-bound workers, then aggregates their raw pairs.
+A campaign executes memory points alongside application points in the same
+source-bound shards, then aggregates their raw pairs.
 A local snapshot producer exports validated ordered memory subsets as shards
 finish. Both roles remain present, with absent cases pending. Base image-capacity
 unavailability stays explicit; it is not a missing head prediction.
 For a memory-only development campaign, `accuracy_parallel.py memory-shard` and
 `memory-aggregate` use the same prepared plan and exact binaries without running
-application points. Render that artifact with:
+application points. The artifact plots native against simulated values, so
+these two commands refuse a device without a native memory reference; such a
+device reports memory through its ordinary shards. When the source declares
+devices the artifact records the plan's `device`, and the preview accepts it
+only if that device, at both Git revisions, owns the memory reference. Render
+that artifact with:
 
 ```sh
 python3 scripts/accuracy_site.py memory-preview --report /path/memory-report.json --source . --output /path/memory-preview

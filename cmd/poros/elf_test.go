@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/sarchlab/poros/pkg/elfsim"
+	"github.com/sarchlab/poros/pkg/target"
+	"strings"
 	"testing"
 )
 
@@ -78,6 +80,65 @@ func TestELFTimingModesAndOptions(t *testing.T) {
 		if runELF(append(options, "../../tests/elf/hello.elf"), &out, &diag) != 2 || out.Len() != 0 || diag.Len() == 0 {
 			t.Fatalf("invalid timing options accepted: %v", options)
 		}
+	}
+}
+
+// Every target is a real command-line choice in every mode; the default command
+// line remains M2 byte for byte, and an unknown name fails without output.
+func TestELFTargetCLI(t *testing.T) {
+	run := func(args ...string) (int, string, string) {
+		var out, diag bytes.Buffer
+		code := runELF(append(args, "../../tests/usertime/mvt.elf", "24"), &out, &diag)
+		return code, out.String(), diag.String()
+	}
+	for _, mode := range []string{"functional", "inorder", "ooo"} {
+		code, legacy, diag := run("--mode", mode)
+		if code != 0 || diag != "" {
+			t.Fatalf("%s: %d %s", mode, code, diag)
+		}
+		for _, device := range target.All() {
+			code, out, diag := run("--mode", mode, "--target", device.Name)
+			if code != 0 || diag != "" {
+				t.Fatalf("%s/%s: %d %s", mode, device.Name, code, diag)
+			}
+			var r struct {
+				Instructions uint64
+				Timing       *elfsim.Statistics `json:"timing"`
+			}
+			if err := json.Unmarshal([]byte(out), &r); err != nil {
+				t.Fatal(err)
+			}
+			if device.Name == target.Default && out != legacy {
+				t.Fatalf("%s: explicit default target changed the output", mode)
+			}
+			if mode == "functional" {
+				if r.Timing != nil || out != legacy {
+					t.Fatalf("functional result depends on target %s", device.Name)
+				}
+				continue
+			}
+			if r.Timing == nil || r.Timing.Target != device.Identity || r.Timing.Cycles == 0 || r.Timing.Retired != r.Instructions {
+				t.Fatalf("%s/%s: timing %+v", mode, device.Name, r.Timing)
+			}
+		}
+		for _, name := range []string{"m3", "M2", ""} {
+			code, out, diag := run("--mode", mode, "--target", name)
+			if code != 2 || out != "" || !strings.Contains(diag, "unknown target") || !strings.Contains(diag, "m5-max") {
+				t.Fatalf("%s: target %q gave %d %q %q", mode, name, code, out, diag)
+			}
+		}
+	}
+	// The target supplies the clock unless one is given; an explicit clock
+	// still overrides it and an explicit zero is still rejected.
+	code, out, diag := run("--mode", "ooo", "--target", "m1", "--frequency-hz", "2000000000")
+	var r struct {
+		Timing elfsim.Statistics `json:"timing"`
+	}
+	if err := json.Unmarshal([]byte(out), &r); code != 0 || diag != "" || err != nil || r.Timing.AssumedHz != 2e9 || r.Timing.Target.Name != "m1" {
+		t.Fatalf("frequency override: %d %s %+v", code, diag, r.Timing)
+	}
+	if code, out, _ := run("--mode", "ooo", "--target", "m1", "--frequency-hz", "0"); code != 2 || out != "" {
+		t.Fatal("explicit zero frequency accepted")
 	}
 }
 
