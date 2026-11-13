@@ -107,12 +107,30 @@ def declared_at(chosen, role):
 
 
 def require_shared_parameters(chosen):
-    # The model profile declaration is DEFAULT's. A device with parameters of
-    # its own needs its own declared profile before it can be validated.
+    # Plans and reports resolve only DEFAULT's model profile and the workload
+    # contract's clock. A device with parameters of its own declares them in
+    # profile_path(), but accuracy campaigns and reports cannot bind them yet.
     for role in ("head", "base"):
         declared = declared_at(chosen, role)
         if declared is not None and declared["parameter_source"] != DEFAULT:
             raise ValueError(f"device {declared['id']!r} declares its own parameters; no per-device model profile is resolved yet")
+
+
+def profile_path(declared):
+    """The model profile a device's executions report: DEFAULT's for a device
+    that carries DEFAULT's parameters, otherwise its parameter source's own."""
+    source = declared["parameter_source"]
+    return "evaluation/model-profile.json" if source == DEFAULT else f"evaluation/model-profile-{source}.json"
+
+
+def load_profile(declared, root=ROOT):
+    return json.loads((Path(root) / profile_path(declared)).read_text())
+
+
+def at_profile_clock(case, profile):
+    """A whole-program case converted at the profile's clock instead of the
+    workload contract's assumed clock (identical for DEFAULT's profile)."""
+    return dict(case, frequency_hz=profile["configuration"]["freq"])
 
 
 def ident(value):
@@ -277,12 +295,13 @@ def smoke(binary):
             raise ValueError("command line without a target is no longer the default device: " + mode)
     print("command line without a target is byte-identical to --target " + DEFAULT, flush=True)
 
-    case = next(c for c in contract.load_manifest(ROOT)["cases"] if c["id"] == "mvt-63")
-    profile = json.loads((ROOT / "evaluation/model-profile.json").read_text())
+    contract_case = next(c for c in contract.load_manifest(ROOT)["cases"] if c["id"] == "mvt-63")
     probes = [(suite, suite.cases(ROOT)[0]) for suite in (throughput, forwarding, scheduling, capacity, recurrence)]
     cycles = {}
     for declared in declaration["devices"]:
         device = target(declared)
+        profile = load_profile(declared)
+        case = at_profile_clock(contract_case, profile)
         functional = user.execute(binary, case, mode="functional", device=device)
         timed = user.execute(binary, case, expected_profile=profile, device=device)
         user.validate_timing(timed, case)
@@ -297,7 +316,8 @@ def smoke(binary):
         for other in declaration["devices"]:
             if other is not declared:
                 try:
-                    user.validate_execution(timed, case, expected_profile=profile, device=target(other))
+                    user.validate_execution(timed, at_profile_clock(contract_case, load_profile(other)),
+                                            expected_profile=load_profile(other), device=target(other))
                 except ValueError:
                     continue
                 raise ValueError(f"{declared['id']} execution validated as {other['id']}")

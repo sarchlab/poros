@@ -53,10 +53,27 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual({d["id"]: devices.reference_status(d) for d in declaration["devices"]},
                          {"m2": "measured", "m1": "unmeasured", "grace": "unmeasured", "m5-max": "unmeasured"})
         # Placeholders say whose parameters they carry rather than claiming their own.
-        self.assertEqual({d["parameter_source"] for d in declaration["devices"]}, {"m2"})
+        self.assertEqual({d["id"]: d["parameter_source"] for d in declaration["devices"]},
+                         {"m2": "m2", "m1": "m1", "grace": "m2", "m5-max": "m2"})
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m2"), declaration), "Apple M2 model profile")
-        self.assertEqual(devices.parameter_text(devices.select(declaration, "m1"), declaration),
-                         "Apple M2 model profile (placeholder; Apple M1 parameters not established)")
+        self.assertEqual(devices.parameter_text(devices.select(declaration, "m1"), declaration), "Apple M1 model profile")
+        self.assertEqual(devices.parameter_text(devices.select(declaration, "grace"), declaration),
+                         "Apple M2 model profile (placeholder; NVIDIA Grace (Arm Neoverse V2) parameters not established)")
+
+    def test_every_device_reports_its_declared_profile_at_its_clock(self):
+        declaration = devices.load()
+        m2 = devices.load_profile(devices.select(declaration, "m2"))
+        self.assertEqual(devices.profile_path(devices.select(declaration, "m2")), "evaluation/model-profile.json")
+        self.assertEqual(devices.profile_path(devices.select(declaration, "m1")), "evaluation/model-profile-m1.json")
+        m1 = devices.load_profile(devices.select(declaration, "m1"))
+        self.assertEqual(dict(m1["cache_config"], L2Latency=m2["cache_config"]["L2Latency"]), m2["cache_config"])
+        self.assertEqual(m1["cache_config"]["L2Latency"], 18)
+        self.assertEqual(m1["configuration"]["freq"], 3203500000)
+        self.assertEqual({k for k in m1["configuration"] if m1["configuration"][k] != m2["configuration"].get(k)},
+                         {"freq", "fetch_taken_branches", "store_dependence_prediction"})
+        case = dict(id="x", frequency_hz=3490000000)
+        self.assertEqual(devices.at_profile_clock(case, m2), case)
+        self.assertEqual(devices.at_profile_clock(case, m1), dict(id="x", frequency_hz=3203500000))
 
     def test_declared_references_are_the_files_the_reports_bind(self):
         expected = {"application": site.performance.PATH,
@@ -118,7 +135,7 @@ class DeclarationTests(unittest.TestCase):
         m1 = dict(device=selection("m1"))
         self.assertFalse(devices.available(m1, "base"))
         self.assertFalse(any(devices.measured(m1, kind) for kind in devices.KINDS))
-        self.assertEqual(devices.options(m1, "head"), {"device": dict(name="m1", hardware="Apple M1", parameter_source="m2")})
+        self.assertEqual(devices.options(m1, "head"), {"device": dict(name="m1", hardware="Apple M1", parameter_source="m1")})
         paired = dict(device=selection("m1", base_declared=True))
         self.assertTrue(devices.available(paired, "base"))
         self.assertEqual(devices.identity(paired, "base"), devices.identity(paired, "head"))
@@ -207,8 +224,11 @@ class RevisionTests(unittest.TestCase):
                 devices.resolve(self.root, legacy, self.before, name)
 
     def test_publication_checks_both_revisions_and_canonical_bytes(self):
-        report = dict(head=self.state, base_commit=self.before, device=devices.resolve(self.root, self.state, self.before, "m1"))
-        self.assertEqual(devices.verify_source(self.root, report)["id"], "m1")
+        report = dict(head=self.state, base_commit=self.before, device=devices.resolve(self.root, self.state, self.before, "m5-max"))
+        self.assertEqual(devices.verify_source(self.root, report)["id"], "m5-max")
+        # A device with its own parameters cannot be bound to a plan or report yet.
+        with self.assertRaisesRegex(ValueError, "'m1' declares its own parameters"):
+            devices.resolve(self.root, self.state, self.before, "m1")
         claimed = copy.deepcopy(report)
         claimed["device"]["base"] = dict(report["device"]["head"], commit=self.before)
         devices.validate(claimed)  # Self-consistent offline; only Git shows the base never declared it.
@@ -307,7 +327,10 @@ class ReportTests(ReportFixture):
     """The synthetic report viewed as each kind of device."""
 
     def test_every_device_report_validates_and_names_its_device(self):
-        for ident, status in (("m2", "measured"), ("m1", "unmeasured"), ("grace", "unmeasured"), ("m5-max", "unmeasured")):
+        # M1 declares its own parameters, which reports cannot bind yet.
+        with self.assertRaisesRegex(ValueError, "'m1' declares its own parameters"):
+            site.validate_compact_evidence(self.report("m1"), {})
+        for ident, status in (("m2", "measured"), ("grace", "unmeasured"), ("m5-max", "unmeasured")):
             with self.subTest(device=ident):
                 report = self.report(ident)
                 site.validate_compact_evidence(report, self.references(report))
@@ -319,8 +342,8 @@ class ReportTests(ReportFixture):
                                  ["forwarding.json", "reference.json", "throughput.json"] if ident == "m2" else [])
 
     def test_unmeasured_report_shows_predictions_and_no_reference_metric(self):
-        report = self.report("m1")
-        bundle = self.bundle(report, "m1")
+        report = self.report("m5-max")
+        bundle = self.bundle(report, "m5-max")
         self.assertEqual(set(site.read(bundle / "bundle.json")["files"]), {"report.json", "report.md"})
         retained, _ = site.validate_bundle(bundle, self.commit)
         self.assertEqual(retained, report)
@@ -328,9 +351,9 @@ class ReportTests(ReportFixture):
         self.assertNotIn("head", site.benchmark_summary(retained))
         self.assertIsNone(site.measurement_completed(retained, bundle))
         page = (bundle / "index.html").read_text()
-        for expected in ("<strong>Device: Apple M1</strong> (<code>m1</code>)",
-                         "Apple M2 model profile (placeholder; Apple M1 parameters not established)",
-                         "Native references: unmeasured", "No native Apple M1 reference.",
+        for expected in ("<strong>Device: Apple M5 Max</strong> (<code>m5-max</code>)",
+                         "Apple M2 model profile (placeholder; Apple M5 Max parameters not established)",
+                         "Native references: unmeasured", "No native Apple M5 Max reference.",
                          "Benchmark predictions", "Application cases simulated with checked output: 246 / 246",
                          "Also predicted by the base revision: 0", "Head cycles/instruction",
                          'id="throughput-simulated-table"', 'id="forwarding-simulated-table"',
@@ -356,7 +379,7 @@ class ReportTests(ReportFixture):
                        ">reference</span>", ">base</span>", "No comparable points"):
             self.assertNotIn(absent, page)
         self.assertIn('<span style="color:#087e8b">head</span>', page)  # Predicted curves are still drawn.
-        markdown = self.root / "m1/report.md"
+        markdown = self.root / "m5-max/report.md"
         self.assertTrue(markdown.exists())
 
     def test_measured_m2_report_is_unchanged_except_for_naming_its_device(self):
@@ -376,7 +399,7 @@ class ReportTests(ReportFixture):
                          set(site.read(self.root / "legacy/bundle/bundle.json")["files"]))
 
     def test_unmeasured_report_rejects_every_borrowed_reference_or_accuracy_value(self):
-        good = self.report("m1")
+        good = self.report("m5-max")
         m2 = self.report("m2")
         site.validate_compact_evidence(good, {})
         def row(report):
@@ -420,11 +443,11 @@ class ReportTests(ReportFixture):
                 with self.assertRaisesRegex(ValueError, reason):
                     site.validate_compact_evidence(bad, {})
         # With base predictions present, relabelling still fails: m2 rows need m2's reference.
-        relabelled = self.report("m1", base_declared=True)
+        relabelled = self.report("m5-max", base_declared=True)
         relabelled["device"]["id"] = "m2"
         with self.assertRaisesRegex(ValueError, "invalid reference time"):
             site.validate_compact_evidence(relabelled, {})
-        # M2's reference bytes are never acceptable evidence in an M1 report.
+        # M2's reference bytes are never acceptable evidence in another device's report.
         for name, data in self.references(m2).items():
             with self.assertRaisesRegex(ValueError, "membership"):
                 site.validate_compact_evidence(good, {name: data})
@@ -446,16 +469,16 @@ class ReportTests(ReportFixture):
                     report["device"][role]["sha256"] = hashlib.sha256(devices.encode(report["device"][role]["declaration"])).hexdigest()
             report["head"]["files"][devices.PATH] = report["device"]["head"]["sha256"]
             return report
-        # A self-consistent declaration that hands M1 the M2 files: the report
+        # A self-consistent declaration that hands M5 Max the M2 files: the report
         # is then "measured", and fails because the files say Apple M2.
-        borrowed = redeclare(m2, lambda d: d["devices"][1].update(references=copy.deepcopy(d["devices"][0]["references"])))
-        borrowed["device"]["id"] = "m1"
-        with self.assertRaisesRegex(ValueError, "application reference was measured on 'Apple M2', not 'Apple M1'"):
+        borrowed = redeclare(m2, lambda d: d["devices"][3].update(references=copy.deepcopy(d["devices"][0]["references"])))
+        borrowed["device"]["id"] = "m5-max"
+        with self.assertRaisesRegex(ValueError, "application reference was measured on 'Apple M2', not 'Apple M5 Max'"):
             site.validate_compact_evidence(borrowed, self.references(borrowed))
-        only_suite = redeclare(self.report("m1"), lambda d: d["devices"][1]["references"].update(
+        only_suite = redeclare(self.report("m5-max"), lambda d: d["devices"][3]["references"].update(
             throughput=site.throughput.REFERENCE))
         only_suite["diagnostic_definitions"].pop("throughput")
-        with self.assertRaisesRegex(ValueError, "throughput reference was measured on 'Apple M2', not 'Apple M1'"):
+        with self.assertRaisesRegex(ValueError, "throughput reference was measured on 'Apple M2', not 'Apple M5 Max'"):
             site.validate_compact_evidence(only_suite, self.references(only_suite))
         renamed = redeclare(m2, lambda d: d["devices"][0].update(hardware="Apple M2 Ultra"))
         with self.assertRaisesRegex(ValueError, "measured on 'Apple M2', not 'Apple M2 Ultra'"):
@@ -470,7 +493,7 @@ class ReportTests(ReportFixture):
         suite = redeclare(m2, lambda d: d["devices"][0]["references"].update(throughput="evaluation/microbenchmarks/throughput/other.json"))
         with self.assertRaisesRegex(ValueError, "declares its throughput reference at evaluation/microbenchmarks/throughput/other.json"):
             site.validate_compact_evidence(suite, self.references(m2))
-        own = redeclare(self.report("m1"), lambda d: d["devices"][1].update(parameter_source="m1"))
+        own = redeclare(self.report("m5-max"), lambda d: d["devices"][3].update(parameter_source="m5-max"))
         with self.assertRaisesRegex(ValueError, "declares its own parameters"):
             site.validate_compact_evidence(own, {})
 
@@ -528,7 +551,7 @@ class ReportTests(ReportFixture):
         self.assertNotIn("Kendall", page)
 
     def test_publication_source_check_follows_the_device(self):
-        report = self.report("m1")
+        report = self.report("m5-max")
         bundle = self.bundle(report, "publish")
         files = report["head"]["files"]
         with patch.object(site, "git", return_value="\n".join(files)), \
@@ -978,9 +1001,9 @@ class CommitReportTests(ReportFixture):
         with self.assertRaisesRegex(ValueError, "unknown device 'm1'"):
             self.publish_failure(self.pages, self.commit, "m1", "undeclared", run=5)
         with self.assertRaisesRegex(ValueError, "conflicting device declarations for one commit"):
-            self.publish(self.pages, self.report("m1"), "other-declaration", run=5)
+            self.publish(self.pages, self.report("m5-max"), "other-declaration", run=5)
         self.assertEqual(index_path.read_bytes(), before)
-        self.assertFalse((folder / "devices/m1").exists())
+        self.assertFalse((folder / "devices/m1").exists() or (folder / "devices/m5-max").exists())
 
         # The failed device reports, replacing its failure; then the last device arrives as a release.
         self.publish(self.pages, self.device_report("syn-d"), "syn-d", run=6)
@@ -1697,7 +1720,7 @@ class CommitReportTests(ReportFixture):
             live.CommitView([paths["m2"], other]).load()
         with self.assertRaisesRegex(ValueError, "one snapshot per device, all of one commit"):
             live.CommitView([paths["m2"], paths["m2"]]).load()
-        site.write(other, progress.snapshot(self.report("m1"), self.source, state))
+        site.write(other, progress.snapshot(self.report("m5-max"), self.source, state))
         with self.assertRaisesRegex(ValueError, "conflicting device declarations for one commit"):
             live.CommitView([paths["m2"], other]).load()
         with self.assertRaisesRegex(ValueError, "a final bundle belongs to one device"):

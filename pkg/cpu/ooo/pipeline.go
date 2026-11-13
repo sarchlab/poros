@@ -51,6 +51,13 @@ type Spec struct {
 	BranchPrediction bool          `json:"branch_prediction"`
 	Predictor        PredictorSpec `json:"predictor"`
 	FuncHookCycles   []HookCycles  `json:"func_hook_cycles"`
+	// FetchTakenBranches is how many correctly predicted taken branches one
+	// fetch group may continue across. Zero ends the group at every one.
+	FetchTakenBranches int `json:"fetch_taken_branches,omitempty"`
+	// StoreDependencePrediction makes a load that last overlapped an in-flight
+	// store wait for the youngest instance of that static store, even when this
+	// instance writes other bytes; see storedep.go.
+	StoreDependencePrediction bool `json:"store_dependence_prediction,omitempty"`
 }
 
 func DefaultSpec() Spec {
@@ -95,11 +102,13 @@ type State struct {
 	MshrBusyUntil    []uint64
 	FrontendReady    uint64
 	Predictor        PredictorState
+	StoreDependence  StoreDependenceState
 	Cycles, InstDone uint64
 	Done             bool
 	Err              string
 }
 type storeBufferEntry struct {
+	PC                 uint64 // static store, for dependence prediction
 	Addr               uint64
 	Size               int
 	CompleteCycle      uint64
@@ -135,6 +144,9 @@ func (s *State) Initialize(c *Comp) {
 	}
 	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumFPDiv < 1 || v.NumFPDiv > v.NumFP || v.NumLDST < 1 || v.LoadLatency < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
+	}
+	if v.FetchTakenBranches < 0 {
+		panic("ooo: invalid fetch taken-branch count")
 	}
 	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
 		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
@@ -256,6 +268,7 @@ func (p *middleware) fetchAndProcess() {
 	}
 
 	fetched := 0
+	takenLeft := p.comp.Spec.FetchTakenBranches
 	var pair fusedSelect
 	for fetched < p.comp.Spec.FetchWidth && p.comp.State.RobCount < p.comp.Spec.ROBCapacity && !p.comp.Resources.backend().Stopped() {
 		// 1. Peek at instruction at emulator's current PC.
@@ -383,8 +396,15 @@ func (p *middleware) fetchAndProcess() {
 		//    so actual addresses are available in p.comp.Resources.backend().MemoryAccesses()).
 		forwarding := loadForwarding{issueCycle: issueCycle}
 		if instinfo.IsLoad(inst.Op) {
-			forwarding = p.forwardLoad(p.comp.Resources.backend().MemoryAccesses(), issueCycle, directGPRTransfer(inst))
+			accesses := p.comp.Resources.backend().MemoryAccesses()
+			if p.comp.Spec.StoreDependencePrediction {
+				issueCycle = p.predictedStoreWait(pc, accesses, issueCycle)
+			}
+			forwarding = p.forwardLoad(accesses, issueCycle, directGPRTransfer(inst))
 			issueCycle = forwarding.issueCycle
+			if p.comp.Spec.StoreDependencePrediction {
+				p.trainStoreDependence(pc, accesses)
+			}
 		}
 
 		// An indexed load produces its updated base on a load pipe. Store
@@ -489,8 +509,12 @@ func (p *middleware) fetchAndProcess() {
 		// 8. For stores: add to store buffer.
 		if instinfo.IsStore(inst.Op) {
 			eligible := directGPRTransfer(inst)
+			if p.comp.Spec.StoreDependencePrediction {
+				p.recordStoreInstance(pc, p.comp.Resources.backend().MemoryAccesses(), completeCycle)
+			}
 			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
 				entry := storeBufferEntry{
+					PC:                  pc,
 					Addr:                acc.Addr,
 					Size:                acc.Size,
 					CompleteCycle:       completeCycle,
@@ -536,11 +560,15 @@ func (p *middleware) fetchAndProcess() {
 			// Correct prediction, taken: BTB provides the target in the
 			// same cycle, so the redirect is effectively free on M2
 			// (loop stream detector / micro-op cache eliminates the
-			// redirect bubble for well-predicted branches).
-			if actualTaken {
+			// redirect bubble for well-predicted branches). The group ends
+			// here unless it may still continue at the target.
+			if actualTaken && takenLeft == 0 {
 				p.comp.State.FrontendReady = p.comp.State.Cycles + 1 // 0-cycle redirect
 				fetched++
 				break
+			}
+			if actualTaken {
+				takenLeft--
 			}
 		} else if branched {
 			// Fallback for non-branch PC changes or nil predictor.

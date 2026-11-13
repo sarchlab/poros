@@ -9,6 +9,58 @@ This is the Apple M2 profile, the simulator's `m2` target. The other
 [modeled devices](README.md#modeled-devices) name `m2` as their parameter source
 and are validated against this same declaration until they have parameters of
 their own; `TestDeclaredModelProfileCoversTargetsCarryingIt` checks each of them.
+A device with parameters of its own declares them in
+`model-profile-<device>.json`; at present only `m1` does (see
+[Apple M1 profile](#apple-m1-profile)).
+
+## Apple M1 profile
+
+`model-profile-m1.json` is the `m1` target: the M2 profile with four
+differences, each established by measurements on the M1 Linux host used for
+the m1-7031aa3 campaign. `TestM1DiffersFromM2OnlyInMeasuredParameters` keeps
+every other core, in-order and cache parameter equal to M2's. The two new
+core fields are zero in the M2 profile and are omitted from its declaration,
+so M2 timing and its declared configuration are unchanged.
+
+- `freq` 3,203,500,000 Hz: one-cycle ADD and three-cycle FADD chains on the M1
+  host give 3.2028 to 3.2037 GHz, and counted user cycles of the integer
+  control match the model's cycles (48.0 M). The whole-program workload
+  contract keeps 3.49 GHz as its assumed clock, so an M1 run must convert its
+  cases at this profile's clock (`scripts/devices.py at_profile_clock`).
+- `fetch_taken_branches` 1: a fetch group continues across one correctly
+  predicted taken branch. The M1 NOP and mixed-resource probes of 34 to 514
+  instructions per trip run at N/8 cycles per trip, where ending every group at
+  the loop branch gives ceil(N/8). M1 runs jacobi1d-1 (a 10-instruction loop) at
+  45.8 M counted user cycles, 1.27 cycles per trip; the frozen rule gives 72.2 M
+  and this rule 45.3 M.
+- `store_dependence_prediction` true (`pkg/cpu/ooo/storedep.go`): a load that
+  last overlapped an in-flight store waits for the youngest instance of that
+  static store even when the instance writes other bytes. doitgen accumulates
+  `sum[p]` in memory over `s`, then starts the next `p` with the same
+  instructions. M1 counted 11.30, 11.14, 11.07 and 11.04 cycles per trip for
+  chains of 8, 16, 32 and 51 trips, the single-chain rate of the M1 `mem_fadd`
+  and `fp_same` probes (11.0); this rule gives 11.36, 11.16, 11.08 and 11.07,
+  and overlapping consecutive chains (the M2 profile) gives 3.49 to 6.35. The
+  same pattern makes 2mm, 3mm, trmm, cholesky, lu, correlation and covariance
+  11 to 27 % slower in the model.
+- `L2Latency` 18: the M1 pointer chases over 1 MiB (1, 2, 4, 8 and 16 chains)
+  and 256 KiB (one chain) take 0.92 to 1.05 of the model's time with 18 cycles,
+  0.79 to 0.82 with M2's 14; streaming probes are unchanged by it.
+
+Compare/select fusion is kept although M1's register-only select probes
+(`sel32_*_adj`) take two cycles: M1 runs the memory-carried Nussinov
+recurrence (`nuss_const`, `nuss_chg`) in the same two cycles as its register
+form, which this model reproduces only with the fused pair plus its one-cycle
+forwarding path; disabling fusion alone made nussinov 44 % slower than M1.
+
+Known gaps of this profile, each measured on M1 but not modeled: streaming
+reads from L2 run at L1 speed in the model (M1 1 MiB read 0.72; the frozen
+fetch rule hid this in fdtd2d and vips, and a narrower fill transport would
+fix reads only by making L2 writes and copies 1.3 to 2.2 times too slow);
+DRAM chase latency is 12 % short (M1 chase1 at 64 to 256 MiB; 385 cycles would
+fit chase1 and chase4 but make chase16 1.18); and streamcluster's
+large-footprint cost (5.91 cycles per element at 41 MB arrays against 2.88 when
+L1-resident) is about five times the model's.
 
 This declaration is independent of frozen workload manifests and native reference
 measurements. A calibration change updates the simulation declaration, without

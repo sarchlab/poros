@@ -86,10 +86,12 @@ to the targets the simulator builds. Each entry states three things, and every
 report repeats them:
 
 - **hardware**: what the device stands for, for example `Apple M1`.
-- **parameter_source**: the device whose model profile is simulated. Only `m2`
-  has parameters of its own. The other three name `m2`: they run the M2 core,
-  memory and frequency until their own are established, and are labeled as
-  placeholders wherever they appear.
+- **parameter_source**: the device whose model profile is simulated. `m2` and
+  `m1` have parameters of their own; `m1`'s are the M2 profile with the
+  differences M1 measurements establish (see
+  [the Apple M1 profile](model-profile.md#apple-m1-profile)). `grace` and
+  `m5-max` name `m2`: they run the M2 core, memory and frequency until their own
+  are established, and are labeled as placeholders wherever they appear.
 - **references**: the native reference file of each kind (whole-program user
   time and each diagnostic suite). Only `m2` has any.
 
@@ -158,9 +160,15 @@ native application reference are listed with their predictions and add nothing
 to those statistics. The exact layout and rules are in
 [the report contract](../scripts/accuracy-live.md#one-report-per-commit).
 
-Giving a device its own parameters needs a declared model profile for it, which
-the scripts do not resolve yet: they refuse a device whose `parameter_source`
-is not `m2` rather than validate it against the M2 profile. Giving a device a
+A device with its own parameters declares them in
+`evaluation/model-profile-<device>.json` (`scripts/devices.py profile_path`);
+the smoke validates every device's executions against its own declaration. Plans
+and reports still bind only the M2 profile and the workload contract's 3.49 GHz
+clock, so they refuse a device whose `parameter_source` is not `m2` rather than
+validate it against the M2 profile. Until they bind both, an `m1` campaign runs
+outside them: `--target m1`, each case converted at the M1 profile's clock
+(`at_profile_clock`), and every execution checked against
+`model-profile-m1.json`. Giving a device a
 measured whole-program reference needs a file at the path its entry names under
 `references.application`, with that device's `hardware` and case identities
 that match the committed inventories. The capture-provenance checks of that

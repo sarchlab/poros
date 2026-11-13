@@ -165,16 +165,16 @@ class ParallelAccuracyTests(unittest.TestCase):
         return shards
 
     def test_unmeasured_device_campaign_runs_all_264_cases_and_reports_no_reference(self):
-        output = self.root / "m1/report.json"
-        with self.device_campaign("m1"):
+        output = self.root / "m5-max/report.json"
+        with self.device_campaign("m5-max"):
             self.assertEqual(parallel.load_plan(self.prepared, "123", 1)[0], self.plan)
             shards = self.device_shards()
             # Every case is executed functionally and timed; the base revision cannot model M1.
             self.assertEqual({tuple(record["executions"]) for shard in shards for record in shard["records"]}, {("functional", "head")})
             results = self.write_shards(shards)
-            self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output, device="m1"), 0)
+            self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output, device="m5-max"), 0)
             report = parallel.read(output)
-            self.assertEqual((report["artifact_status"], len(report["cases"]), report["device"]["id"]), ("pass", 264, "m1"))
+            self.assertEqual((report["artifact_status"], len(report["cases"]), report["device"]["id"]), ("pass", 264, "m5-max"))
             self.assertNotIn("reference", report)
             self.assertNotIn("reference_sha256", report)
             self.assertEqual(report["output_oracle"]["sha256"], self.plan["references"]["performance264"])
@@ -184,19 +184,19 @@ class ParallelAccuracyTests(unittest.TestCase):
                 self.assertEqual((row["reference_quality"], row["base_status"], row["functional_status"]),
                                  ("unmeasured", "device_unavailable", "pass"))
                 self.assertEqual(sorted(row["head"]), ["cache_config", "configuration", "cycles", "instructions", "predicted_user_seconds"])
-                self.assertIn("No native Apple M1 reference", row["reason"])
+                self.assertIn("No native Apple M5 Max reference", row["reason"])
             self.assertTrue(all(split == dict(required=split["required"], comparable=0, head_comparable=0, base_comparable=0)
                                 for split in report["summary"].values()))
             markdown = output.with_suffix(".md").read_text()
-            self.assertIn("Device: `m1` (Apple M1); parameters: Apple M2 model profile (placeholder; Apple M1 parameters not established); native references: unmeasured.", markdown)
+            self.assertIn("Device: `m5-max` (Apple M5 Max); parameters: Apple M2 model profile (placeholder; Apple M5 Max parameters not established); native references: unmeasured.", markdown)
             self.assertIn("| integer-1000000 | unmeasured | unmeasured | unavailable |", markdown)
-            site.bundle(output, self.fixture.source, self.root / "m1/bundle", HEAD)
-            retained, manifest = site.validate_bundle(self.root / "m1/bundle", HEAD)
+            site.bundle(output, self.fixture.source, self.root / "m5-max/bundle", HEAD)
+            retained, manifest = site.validate_bundle(self.root / "m5-max/bundle", HEAD)
             self.assertEqual((retained, sorted(manifest["files"])), (report, ["report.json", "report.md"]))
             # The caller's device must be the plan's; neither is silently preferred.
             self.assertEqual(parallel.aggregate(self.prepared, results, "123", 1, output, device="m2"), 1)
             failed = parallel.read(output)
-            self.assertIn("requested device 'm2' differs from prepared plan device 'm1'", failed["error"])
+            self.assertIn("requested device 'm2' differs from prepared plan device 'm5-max'", failed["error"])
             self.assertEqual(site.report_device(failed), "m2")
             # A default-device execution is not evidence for M1, and neither is a base run.
             for label, mutate, reason in (
@@ -206,10 +206,10 @@ class ParallelAccuracyTests(unittest.TestCase):
                 with self.subTest(label):
                     altered = copy.deepcopy(shards)
                     mutate(next(r for r in altered[0]["records"] if r["case_id"] == self.cases[0]["id"]))
-                    self.assertEqual(parallel.aggregate(self.prepared, self.write_shards(altered), "123", 1, output, device="m1"), 1)
+                    self.assertEqual(parallel.aggregate(self.prepared, self.write_shards(altered), "123", 1, output, device="m5-max"), 1)
                     failed = parallel.read(output)
                     self.assertIn(reason, failed["error"])
-                    self.assertEqual(site.report_device(failed), "m1")
+                    self.assertEqual(site.report_device(failed), "m5-max")
 
     def test_declared_default_device_matches_the_legacy_report_and_requires_its_target(self):
         legacy_output, output = self.root / "legacy/report.json", self.root / "m2/report.json"
@@ -258,7 +258,7 @@ class ParallelAccuracyTests(unittest.TestCase):
                 self.assertEqual(set(map(repr, bases)), {repr(head if base_declared else None)} if base_runs else set())
 
     def test_plan_device_must_be_the_one_its_source_resolves(self):
-        with self.device_campaign("m1"):
+        with self.device_campaign("m5-max"):
             parallel.load_plan(self.prepared, "123", 1)
             shards = self.device_shards()
             differs = "plan device declaration differs from source"
@@ -290,29 +290,29 @@ class ParallelAccuracyTests(unittest.TestCase):
             self.assertIn(reason, report["error"])
             self.assertEqual(report.get("device"), None if filed is None else dict(id=filed))
             self.assertEqual(site.report_device(report), filed or "m2")
-        with self.device_campaign("m1"):
+        with self.device_campaign("m5-max"):
             results = self.write_shards(self.device_shards())
             # The workflow's aggregate job repeats no device: the plan prepared for M1 says whose failure it is.
-            failed("upstream shard jobs did not succeed: failure", "m1", shard_status="failure")
+            failed("upstream shard jobs did not succeed: failure", "m5-max", shard_status="failure")
             (results / "3/shard.json").unlink()
-            failed("missing", "m1")
-            failed("missing", "m1", device="m1")
+            failed("missing", "m5-max")
+            failed("missing", "m5-max", device="m5-max")
             # The same through the command line, and the failure is publishable as M1's.
             argv = ["accuracy_parallel.py", "aggregate", "--prepared", str(self.prepared), "--run-id", "123", "--attempt", "1",
                     "--results", str(results), "--output", str(output), "--shard-status", "cancelled"]
             with patch("sys.argv", argv):
                 self.assertEqual(parallel.main(), 1)
             report = parallel.read(output)
-            self.assertEqual((report["error"], report["device"]), ("Parallel accuracy aggregation failed: upstream shard jobs did not succeed: cancelled", dict(id="m1")))
+            self.assertEqual((report["error"], report["device"]), ("Parallel accuracy aggregation failed: upstream shard jobs did not succeed: cancelled", dict(id="m5-max")))
             site.bundle(output, self.fixture.source, self.root / "bundle", HEAD)
-            self.assertEqual(site.report_device(site.validate_bundle(self.root / "bundle", HEAD)[0]), "m1")
+            self.assertEqual(site.report_device(site.validate_bundle(self.root / "bundle", HEAD)[0]), "m5-max")
             # A caller that asks for another device is told so, under the device it asked for.
-            failed("requested device 'grace' differs from prepared plan device 'm1'", "grace", device="grace", shard_status="failure")
+            failed("requested device 'grace' differs from prepared plan device 'm5-max'", "grace", device="grace", shard_status="failure")
             # Without a readable plan only the caller can name the device; unnamed, it is the default as before.
             (self.prepared / "plan.json").write_text("{}")
             failed("upstream shard jobs did not succeed: failure", None, shard_status="failure")
             failed("schema", None)
-            failed("schema", "m1", device="m1")
+            failed("schema", "m5-max", device="m5-max")
         # A plan without a device stays an unlabelled, default-device failure.
         parallel.write(self.prepared / "plan.json", {key: value for key, value in self.plan.items() if key not in ("device", "model_profiles")})
         results = self.root / "missing-results"
@@ -328,7 +328,7 @@ class ParallelAccuracyTests(unittest.TestCase):
             return progress.SnapshotExporter(self.prepared, self.fixture.source, results, "123", 1, **options)
         # Devices that share parameters differ in nothing but the device their snapshot names.
         probes = {}
-        for ident in ("m2", "m1", "grace"):
+        for ident in ("m2", "m5-max", "grace"):
             with self.device_campaign(ident):
                 probes[ident] = self.root / (ident + "-probes.json")
                 parallel.write(probes[ident], exporter().export())
@@ -407,7 +407,7 @@ class ParallelAccuracyTests(unittest.TestCase):
         # Two device campaigns of the same revisions and run id. Their scheduler
         # status files differ in nothing an exporter used to check.
         written, plans = {}, {}
-        for ident in ("m1", "grace"):
+        for ident in ("m5-max", "grace"):
             with self.device_campaign(ident):
                 plans[ident] = parallel.identity(self.plan)
                 identity = dict(head=HEAD, base=BASE, run_id="123", plan_id=plans[ident])
@@ -416,7 +416,7 @@ class ParallelAccuracyTests(unittest.TestCase):
                 parallel.write(written[ident]["campaign"],
                                dict(identity, completed=[], active={"0": {}}, failed=[dict(index=1, error=ident + " worker failed")]))
                 parallel.write(written[ident]["diagnostic"], dict(identity, completed=[], active={}, failed=[]))
-        self.assertNotEqual(plans["m1"], plans["grace"])
+        self.assertNotEqual(plans["m5-max"], plans["grace"])
         for ident in written:
             for other in written:
                 for kind in ("campaign", "diagnostic"):
@@ -434,7 +434,7 @@ class ParallelAccuracyTests(unittest.TestCase):
                             self.assertEqual(value["progress"]["active_cases"], self.plan["shards"][0])
         # A status written before plans had devices names no plan. For a plan that names a device it
         # is ambiguous and refused, whichever device that is, the default one included.
-        for ident in ("m1", "m2"):
+        for ident in ("m5-max", "m2"):
             for kind in ("campaign", "diagnostic"):
                 with self.subTest(plan=ident, kind=kind, status="no plan_id"), self.device_campaign(ident):
                     legacy = dict(head=HEAD, base=BASE, run_id="123", completed=[], active={}, failed=[])
@@ -1015,7 +1015,7 @@ class ParallelAccuracyTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, reason):
                     site.memory_preview(self.root / 'altered.json', source, self.root / 'bad-preview')
                 self.assertFalse((self.root / 'bad-preview').exists())
-            rejected(lambda r: r['device'].update(id='m1'), 'memory-only artifact is for a device without a native memory reference')
+            rejected(lambda r: r['device'].update(id='m5-max'), 'memory-only artifact is for a device without a native memory reference')
             rejected(lambda r: r.pop('device'), 'missing device selection')
             rejected(lambda r: r['device'].update(base=None), 'base device declaration differs from exact Git revision')
             # Dropping the device together with the declaration's entry in the source inventory makes
@@ -1026,26 +1026,26 @@ class ParallelAccuracyTests(unittest.TestCase):
             self.assertIn(parallel.devices.PATH, report['head']['files'])
             rejected(as_historical, 'report names no device, but its head revision declares devices')
             # A device without a memory reference has no memory-only artifact. It is refused before anything runs.
-            unmeasured = campaign.prepare('m1')
+            unmeasured = campaign.prepare('m5-max')
             self.assertNotIn('reference_sha256', unmeasured['memory'])
             with patch.object(memory, 'measure_case', side_effect=AssertionError('executed for a device without a reference')):
-                for attempt in (lambda: parallel.run_memory_shard(self.prepared, '123', 1, 0, self.root / 'm1/memory-shard.json'),
-                                lambda: parallel.aggregate_memory(self.prepared, results, '123', 1, self.root / 'm1.json')):
-                    with self.assertRaisesRegex(ValueError, 'memory-only artifacts need a native memory reference; device m1 has none'):
+                for attempt in (lambda: parallel.run_memory_shard(self.prepared, '123', 1, 0, self.root / 'm5-max/memory-shard.json'),
+                                lambda: parallel.aggregate_memory(self.prepared, results, '123', 1, self.root / 'm5-max.json')):
+                    with self.assertRaisesRegex(ValueError, 'memory-only artifacts need a native memory reference; device m5-max has none'):
                         attempt()
-            self.assertFalse((self.root / 'm1.json').exists())
+            self.assertFalse((self.root / 'm5-max.json').exists())
             # A declaration cannot hand the M2 memory file to other hardware, or name another file for
             # it. Both are refused while the plan is built, so before a shard or an aggregation exists.
             declaration = plan['device']['head']['declaration']
             def planned(change):
                 changed = copy.deepcopy(declaration)
                 change({entry['id']: entry for entry in changed['devices']})
-                value = dict(device=fixtures.device_selection('m1', state['commit'], {}, declaration=changed))
+                value = dict(device=fixtures.device_selection('m5-max', state['commit'], {}, declaration=changed))
                 return parallel.memory_plan(state, len(plan['shards']), base, value=value)
-            with self.assertRaisesRegex(ValueError, "memory reference was measured on 'Apple M2', not 'Apple M1'"):
-                planned(lambda entries: entries['m1']['references'].update(memory=memory.REFERENCE))
-            with self.assertRaisesRegex(ValueError, 'device m1 declares its memory reference at evaluation/microbenchmarks/memory/m1.json, not ' + memory.REFERENCE):
-                planned(lambda entries: entries['m1']['references'].update(memory='evaluation/microbenchmarks/memory/m1.json'))
+            with self.assertRaisesRegex(ValueError, "memory reference was measured on 'Apple M2', not 'Apple M5 Max'"):
+                planned(lambda entries: entries['m5-max']['references'].update(memory=memory.REFERENCE))
+            with self.assertRaisesRegex(ValueError, 'device m5-max declares its memory reference at evaluation/microbenchmarks/memory/m5-max.json, not ' + memory.REFERENCE):
+                planned(lambda entries: entries['m5-max']['references'].update(memory='evaluation/microbenchmarks/memory/m5-max.json'))
 
     def test_memory_aggregate_rejects_unsupported_shard_status_option(self):
         argv = ["accuracy_parallel.py", "memory-aggregate", "--prepared", "unused", "--run-id", "123",

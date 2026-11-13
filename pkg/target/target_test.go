@@ -112,19 +112,21 @@ func TestDeviceDeclarationMatchesTargets(t *testing.T) {
 }
 
 // evaluation/model-profile.json is the declared M2 profile. Every target whose
-// parameters come from M2 must be validated against exactly that declaration.
+// parameters come from M2 must be validated against exactly that declaration;
+// a target with its own parameters against evaluation/model-profile-<name>.json.
 func TestDeclaredModelProfileCoversTargetsCarryingIt(t *testing.T) {
-	data, err := os.ReadFile("../../evaluation/model-profile.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var declared any
-	if err = json.Unmarshal(data, &declared); err != nil {
-		t.Fatal(err)
-	}
 	for _, device := range All() {
-		if device.ParameterSource != "m2" {
-			t.Fatalf("%s has its own parameters and needs its own declared profile", device.Name)
+		path := "../../evaluation/model-profile.json"
+		if device.ParameterSource != Default {
+			path = "../../evaluation/model-profile-" + device.ParameterSource + ".json"
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s: %v", device.Name, err)
+		}
+		var declared any
+		if err = json.Unmarshal(data, &declared); err != nil {
+			t.Fatal(err)
 		}
 		raw, err := json.Marshal(map[string]any{"configuration": device.OoO, "cache_config": device.Cache})
 		if err != nil {
@@ -135,7 +137,31 @@ func TestDeclaredModelProfileCoversTargetsCarryingIt(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(declared, actual) {
-			t.Fatalf("%s differs from model-profile.json\ndeclared=%s\nactual=%s", device.Name, data, raw)
+			t.Fatalf("%s differs from %s\ndeclared=%s\nactual=%s", device.Name, path, data, raw)
 		}
+	}
+}
+
+// M1 is the M2 configuration except for the parameters its own measurements
+// establish; everything else stays M2's.
+func TestM1DiffersFromM2OnlyInMeasuredParameters(t *testing.T) {
+	m1, m2 := M1(), M2()
+	if m1.ParameterSource != "m1" || m1.OoO.Freq != M1Frequency || m1.InOrder.Freq != M1Frequency {
+		t.Fatalf("M1 identity or clock: %+v", m1)
+	}
+	if m1.OoO.FetchTakenBranches != 1 || !m1.OoO.StoreDependencePrediction || m1.Cache.L2Latency != 18 {
+		t.Fatalf("M1 front end, dependence prediction or L2 latency: %+v %+v", m1.OoO, m1.Cache)
+	}
+	if m2.OoO.FetchTakenBranches != 0 || m2.OoO.StoreDependencePrediction {
+		t.Fatalf("M2 must keep the frozen front end and dependence timing: %+v", m2.OoO)
+	}
+	core := m1.OoO
+	core.Freq, core.FetchTakenBranches, core.StoreDependencePrediction = m2.OoO.Freq, 0, false
+	inorder := m1.InOrder
+	inorder.Freq = m2.InOrder.Freq
+	cache := m1.Cache
+	cache.L2Latency = m2.Cache.L2Latency
+	if !reflect.DeepEqual(core, m2.OoO) || !reflect.DeepEqual(inorder, m2.InOrder) || !reflect.DeepEqual(cache, m2.Cache) {
+		t.Fatal("M1 differs from M2 in an undeclared parameter")
 	}
 }
