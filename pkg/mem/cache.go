@@ -176,6 +176,8 @@ type CacheStats struct {
 	TLBWaitCycles uint64
 	// StoreRunWaits counts stores of an interleaved run whose line was not
 	// yet in L1 and which therefore waited for it (InterleavedStoreRunsWait).
+	// Like the hit and miss counters it counts line segments, of each piece a
+	// store is delivered in.
 	StoreRunWaits uint64 `json:",omitempty"`
 }
 

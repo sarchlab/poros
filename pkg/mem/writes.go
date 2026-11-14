@@ -9,11 +9,11 @@ type writeAllocation struct {
 	Start, Ready     uint64
 }
 
-// Store receives bytes whose address and data are available at now. It accepts
-// them into the finite write-allocation stage. accepted is when
-// the instruction's store-buffer slot may be released (subject to its own data
-// latency); drained is when allocation/write traffic completes. This is distinct
-// from Access, whose return value always means data readiness.
+// Store receives the bytes of one store, whose address and data are available
+// at now. It accepts them into the finite write-allocation stage. accepted is
+// when the instruction's store-buffer slot may be released (subject to its own
+// data latency); drained is when allocation/write traffic completes. This is
+// distinct from Access, whose return value always means data readiness.
 //
 // Resident L1 stores retain the ordinary Access completion as acceptance. A
 // miss/merge can be accepted earlier, when its pending-line slot is available;
@@ -24,12 +24,48 @@ type writeAllocation struct {
 // order: an earlier-issuing younger request may wait for a future reservation,
 // but can never erase it or exceed the finite number of slots.
 //
-// With InterleavedStoreRunsWait, Store calls must come in program order: they
-// advance the followed run (storeRun), and a miss or merge by a store of an
-// interleaved run is accepted only when its line has arrived.
+// Store is ClassifyStore followed by StorePart, for a store the caller holds
+// in one piece. With InterleavedStoreRunsWait, calls must therefore come in
+// program order, and a miss or merge by a store of an interleaved run is
+// accepted only when its line has arrived.
 func (c *Cache) Store(addr uint64, size int, now uint64) (accepted, drained uint64) {
+	return c.StorePart(c.ClassifyStore(addr, size), addr, size, now)
+}
+
+// StoreClass is the store path's decision about one store, taken once from
+// the store's whole range and carried by every piece of it.
+type StoreClass struct {
+	addr, end uint64 // the classified bytes [addr, end)
+	waits     bool   // a store of an established, interleaved run (storeRun)
+}
+
+// ClassifyStore decides how the store path treats one store: all the bytes
+// [addr, addr+size) that one instruction writes, however many accesses its
+// backend records them in and however many cache lines they touch. With
+// InterleavedStoreRunsWait it advances the followed run (storeRun) by that
+// store, so calls must come in program order, exactly once per store. The
+// store's pieces then go to StorePart with the result.
+func (c *Cache) ClassifyStore(addr uint64, size int) StoreClass {
 	if size <= 0 {
 		panic("mem: nonpositive store size")
+	}
+	class := StoreClass{addr: addr, end: addr + uint64(size)}
+	if c.cfg.InterleavedStoreRunsWait {
+		class.waits = c.run.follow(addr, uint64(size), uint64(c.cfg.L1LineSize), uint64(c.cfg.TLBPageBytes))
+	}
+	return class
+}
+
+// StorePart is Store for the piece [addr, addr+size) of a store classified by
+// ClassifyStore. A caller delivers a store in pieces when each has its own
+// address translation and so its own now; the pieces share the store's class
+// and keep their own line allocations.
+func (c *Cache) StorePart(class StoreClass, addr uint64, size int, now uint64) (accepted, drained uint64) {
+	if size <= 0 {
+		panic("mem: nonpositive store size")
+	}
+	if addr < class.addr || addr+uint64(size) > class.end {
+		panic("mem: store piece outside its classified store")
 	}
 	accepted = now
 	for size > 0 {
@@ -37,9 +73,7 @@ func (c *Cache) Store(addr uint64, size int, now uint64) (accepted, drained uint
 		if n > size {
 			n = size
 		}
-		waits := c.cfg.InterleavedStoreRunsWait &&
-			c.run.follow(addr, uint64(n), uint64(c.cfg.L1LineSize), uint64(c.cfg.TLBPageBytes))
-		a, d := c.storeLine(addr, n, now, waits)
+		a, d := c.storeLine(addr, n, now, class.waits)
 		if a > accepted {
 			accepted = a
 		}
@@ -53,9 +87,10 @@ func (c *Cache) Store(addr uint64, size int, now uint64) (accepted, drained uint
 }
 
 // storeRun is the one run of contiguous stores the store path follows, in
-// program order. An Apple M1 performance core handles a store miss in one of
-// three ways, which its counters show directly and its probe rows agree on
-// (evaluation/model-profile.md, "Store runs"):
+// program order. It is this model's reading of Apple M1 probe timings and raw
+// event counts (evaluation/model-profile.md, "Store runs"), which constrain
+// what the core does with a store miss but do not identify its detector or
+// its queues. The reading has three cases:
 //
 //   - a store outside any run allocates its line in L1, and such misses are
 //     prefetched (three or four interleaved streams, a stream that leaves
@@ -82,15 +117,19 @@ type storeRun struct {
 	clean       uint64
 }
 
-// follow advances the run by one store of size bytes at addr and reports
-// whether that store belongs to an established, interleaved run: one that has
-// written at least a line and continues across stores elsewhere.
+// follow advances the run by one store, the size bytes at addr that one
+// instruction writes, and reports whether that store belongs to an
+// established, interleaved run: one that has written at least a line and
+// continues across stores elsewhere. A store is one step whatever its
+// alignment: a caller that splits it at line or word boundaries would make
+// one store elsewhere count as two and end the run.
 //
 // A store continues the run when it starts where the run ends or ends where
 // the run starts. Any other store is elsewhere. The run survives one store
 // elsewhere between two of its own; it ends at a second one, and at once when
-// the store lies in the run's own line of the page (pageBytes; another stream
-// at the same page offset). The store that ends a run starts the next.
+// the store starts in the line of the page (pageBytes) in which the run's
+// last store starts: another stream at the same page offset. The store that
+// ends a run starts the next.
 func (r *storeRun) follow(addr, size, line, pageBytes uint64) bool {
 	end := addr + size
 	if r.active && (addr == r.hi || end == r.lo) {

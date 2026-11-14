@@ -73,7 +73,7 @@ func TestStoreRunClassifiesTheMeasuredPatterns(t *testing.T) {
 func TestStoreRunNeedsALineAndForgetsAnInterruption(t *testing.T) {
 	var r storeRun
 	const a, other = 0x10000, 0x92000 // other: another line of the page
-	for i := uint64(0); i < 7; i++ { // 56 bytes: not yet a line
+	for i := uint64(0); i < 7; i++ {  // 56 bytes: not yet a line
 		if r.follow(a+8*i, 8, 64, 16384) || r.follow(other, 8, 64, 16384) {
 			t.Fatal("no store waits before the run has written a line, and a store elsewhere never does")
 		}
@@ -132,4 +132,99 @@ func TestInterleavedRunStoreWaitsForItsLine(t *testing.T) {
 			t.Fatalf("enabled=%v: resident store accepted at %d", enabled, accepted)
 		}
 	}
+}
+
+// storeInWordPieces delivers one store the way the Linux process backend
+// records it and the pipeline passes it on: classified once by its whole
+// range, then one piece per eight-byte word it touches.
+func storeInWordPieces(c *Cache, addr uint64, size int, now uint64) (accepted, drained uint64) {
+	class := c.ClassifyStore(addr, size)
+	for size > 0 {
+		n := min(size, 8-int(addr%8))
+		a, d := c.StorePart(class, addr, n, now)
+		accepted, drained = max(accepted, a), max(drained, d)
+		addr += uint64(n)
+		size -= n
+	}
+	return
+}
+
+// One store is one step of the run whatever its alignment and however it is
+// delivered. An eight-byte store elsewhere that crosses a cache line, or that
+// arrives in two pieces cut at a word boundary, interrupts an established run
+// once, as an aligned one does: the run goes on and its stores wait. Counted
+// per line or per piece it would be two stores elsewhere and end the run.
+func TestUnalignedStoreElsewhereInterruptsTheRunOnce(t *testing.T) {
+	const a, other = 0x10000, 0x800000 + 8192 // other: another line of the page
+	for _, tc := range []struct {
+		name   string
+		offset uint64 // of the store elsewhere within its line
+		pieces bool
+	}{
+		{"aligned", 0, false},
+		{"aligned, classified by the caller", 0, true},
+		{"across a line", 60, false},
+		{"across a line, in word pieces", 60, true},
+		{"across a word, in word pieces", 20, true},
+	} {
+		cfg := DefaultCacheConfig()
+		cfg.InterleavedStoreRunsWait = true
+		c := NewCache(cfg)
+		var accepted, arrival, elsewhere uint64
+		for i := uint64(0); i < 16; i++ { // two lines of the run
+			accepted, arrival = c.Store(a+8*i, 8, 1+i)
+			if tc.pieces {
+				elsewhere, _ = storeInWordPieces(c, other+tc.offset, 8, 1+i)
+			} else {
+				elsewhere, _ = c.Store(other+tc.offset, 8, 1+i)
+			}
+		}
+		if elsewhere != 16 {
+			t.Errorf("%s: the store elsewhere is accepted at issue, got %d", tc.name, elsewhere)
+		}
+		// As with an aligned store elsewhere: the store that completes the
+		// run's first line and the eight of its second line wait.
+		if accepted != arrival || arrival < 300 || c.stats.StoreRunWaits != 9 {
+			t.Errorf("%s: run store accepted at %d, its line arrives at %d, %d waits counted, want 9",
+				tc.name, accepted, arrival, c.stats.StoreRunWaits)
+		}
+	}
+}
+
+// A run of unaligned stores is a run like any other. Each of its stores has
+// one decision, which every piece carries across the word boundary the Linux
+// backend cuts at and across the cache line: delivered whole or in pieces, a
+// store is accepted and drained at the same cycles.
+func TestUnalignedRunStoresKeepOneDecision(t *testing.T) {
+	const a, other = 0x10000 + 4, 0x800000 + 8192 // every eighth run store crosses a line
+	cfg := DefaultCacheConfig()
+	cfg.InterleavedStoreRunsWait = true
+	whole, pieces := NewCache(cfg), NewCache(cfg)
+	for i := uint64(0); i < 24; i++ {
+		accepted, arrival := whole.Store(a+8*i, 8, 1+i)
+		if pa, pd := storeInWordPieces(pieces, a+8*i, 8, 1+i); pa != accepted || pd != arrival {
+			t.Fatalf("store %d: in pieces accepted %d drained %d, whole %d and %d", i, pa, pd, accepted, arrival)
+		}
+		// The run is established once it has written 64 bytes; from then on
+		// each store waits for the last of the lines it touches.
+		if waits := accepted == arrival; waits != (i >= 7) || (!waits && accepted != 1+i) {
+			t.Fatalf("store %d: accepted %d, lines arrive by %d", i, accepted, arrival)
+		}
+		whole.Store(other, 8, 1+i)
+		pieces.Store(other, 8, 1+i)
+	}
+}
+
+// A piece must lie within the store it was classified with.
+func TestStorePartRejectsAPieceOutsideItsStore(t *testing.T) {
+	c := NewCache(DefaultCacheConfig())
+	class := c.ClassifyStore(0x1004, 8)
+	c.StorePart(class, 0x1004, 4, 1)
+	c.StorePart(class, 0x1008, 4, 1)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("a piece beyond the classified range was accepted")
+		}
+	}()
+	c.StorePart(class, 0x100c, 4, 1)
 }

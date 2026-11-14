@@ -63,7 +63,9 @@ func M2() Target {
 //     interleaved run waits for its line (mem.CacheConfig
 //     InterleavedStoreRunsWait): two interleaved store streams, or one stream
 //     and another store per trip, cost M1 about 13 cycles per line once the
-//     lines come from memory, while one, three or four streams do not.
+//     lines come from memory, while one, three or four streams do not. This
+//     rule and its 140 are fitted to those timings; they are the model's
+//     interpretation, not a measured structure of the core.
 //
 // Compare/select fusion is kept although the M1 register-only select probes
 // do not fuse: M1 runs the memory-carried Nussinov recurrence in the same two
