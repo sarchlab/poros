@@ -102,13 +102,31 @@ func (p *middleware) appendStoreRecord(entry storeBufferEntry) {
 	p.comp.State.StoreBuffer = append(kept, entry)
 }
 
+// storeTiming hands the current store instruction's bytes to the cache. A
+// backend may record one store as several accesses (the registers of a pair;
+// the Linux process backend also splits at word boundaries), so accesses that
+// continue one another are one store: the cache classifies its whole range
+// once, and each access keeps its own translation, line allocations and
+// forwarding record.
 func (p *middleware) storeTiming(issue uint64) (accepted, drained uint64) {
-	if cache := p.comp.Resources.Cache; cache != nil {
-		for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+	cache := p.comp.Resources.Cache
+	if cache == nil {
+		return
+	}
+	accesses := p.comp.Resources.backend().MemoryAccesses()
+	for len(accesses) > 0 {
+		n, end := 1, accesses[0].Addr+uint64(accesses[0].Size)
+		for n < len(accesses) && accesses[n].Addr == end {
+			end += uint64(accesses[n].Size)
+			n++
+		}
+		class := cache.ClassifyStore(accesses[0].Addr, int(end-accesses[0].Addr))
+		for _, acc := range accesses[:n] {
 			// The cache accepts the bytes once their address is translated.
-			a, d := cache.Store(acc.Addr, acc.Size, cache.Translate(acc.Addr, acc.Size, issue))
+			a, d := cache.StorePart(class, acc.Addr, acc.Size, cache.Translate(acc.Addr, acc.Size, issue))
 			accepted, drained = max(accepted, a), max(drained, d)
 		}
+		accesses = accesses[n:]
 	}
 	return
 }

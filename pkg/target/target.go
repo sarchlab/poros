@@ -58,7 +58,14 @@ func M2() Target {
 //     which the M1 NOP and mixed-loop probes sustain at N/8 cycles per trip;
 //   - store dependence prediction by static store, which serializes
 //     consecutive memory-carried accumulations as M1 doitgen and 2mm show;
-//   - an 18-cycle L2 hit, from the M1 pointer chases over 256 KiB and 1 MiB.
+//   - an 18-cycle L2 hit, from the M1 pointer chases over 256 KiB and 1 MiB;
+//   - a program-ordered store queue of 140 entries in which a store of an
+//     interleaved run waits for its line (mem.CacheConfig
+//     InterleavedStoreRunsWait): two interleaved store streams, or one stream
+//     and another store per trip, cost M1 about 13 cycles per line once the
+//     lines come from memory, while one, three or four streams do not. This
+//     rule and its 140 are fitted to those timings; they are the model's
+//     interpretation, not a measured structure of the core.
 //
 // Compare/select fusion is kept although the M1 register-only select probes
 // do not fuse: M1 runs the memory-carried Nussinov recurrence in the same two
@@ -69,7 +76,10 @@ func M1() Target {
 	t.ParameterSource = "m1"
 	t.OoO.FetchTakenBranches = 1
 	t.OoO.StoreDependencePrediction = true
+	t.OoO.StoreQueueInOrder = true
+	t.OoO.StoreBufferSize = 140
 	t.Cache.L2Latency = 18
+	t.Cache.InterleavedStoreRunsWait = true
 	return t.WithFrequency(M1Frequency)
 }
 

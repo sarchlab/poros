@@ -152,15 +152,22 @@ func TestM1DiffersFromM2OnlyInMeasuredParameters(t *testing.T) {
 	if m1.OoO.FetchTakenBranches != 1 || !m1.OoO.StoreDependencePrediction || m1.Cache.L2Latency != 18 {
 		t.Fatalf("M1 front end, dependence prediction or L2 latency: %+v %+v", m1.OoO, m1.Cache)
 	}
+	if !m1.OoO.StoreQueueInOrder || m1.OoO.StoreBufferSize != 140 || !m1.Cache.InterleavedStoreRunsWait {
+		t.Fatalf("M1 store queue or store-run rule: %+v %+v", m1.OoO, m1.Cache)
+	}
 	if m2.OoO.FetchTakenBranches != 0 || m2.OoO.StoreDependencePrediction {
 		t.Fatalf("M2 must keep the frozen front end and dependence timing: %+v", m2.OoO)
 	}
+	if m2.OoO.StoreQueueInOrder || m2.OoO.StoreBufferSize != 56 || m2.Cache.InterleavedStoreRunsWait {
+		t.Fatalf("M2 must keep the frozen store buffer and store-miss timing: %+v %+v", m2.OoO, m2.Cache)
+	}
 	core := m1.OoO
 	core.Freq, core.FetchTakenBranches, core.StoreDependencePrediction = m2.OoO.Freq, 0, false
+	core.StoreQueueInOrder, core.StoreBufferSize = false, m2.OoO.StoreBufferSize
 	inorder := m1.InOrder
 	inorder.Freq = m2.InOrder.Freq
 	cache := m1.Cache
-	cache.L2Latency = m2.Cache.L2Latency
+	cache.L2Latency, cache.InterleavedStoreRunsWait = m2.Cache.L2Latency, false
 	if !reflect.DeepEqual(core, m2.OoO) || !reflect.DeepEqual(inorder, m2.InOrder) || !reflect.DeepEqual(cache, m2.Cache) {
 		t.Fatal("M1 differs from M2 in an undeclared parameter")
 	}

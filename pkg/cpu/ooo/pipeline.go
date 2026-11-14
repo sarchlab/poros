@@ -58,6 +58,12 @@ type Spec struct {
 	// store wait for the youngest instance of that static store, even when this
 	// instance writes other bytes; see storedep.go.
 	StoreDependencePrediction bool `json:"store_dependence_prediction,omitempty"`
+	// StoreQueueInOrder makes stores leave the store buffer in program order:
+	// a store keeps its slot until every older store has released its own, so
+	// a store that waits for the cache holds back the stores behind it. False
+	// releases each slot on its own, once the store has executed and the
+	// cache has accepted its bytes.
+	StoreQueueInOrder bool `json:"store_queue_in_order,omitempty"`
 }
 
 func DefaultSpec() Spec {
@@ -106,6 +112,8 @@ type State struct {
 	Cycles, InstDone uint64
 	Done             bool
 	Err              string
+	// With StoreQueueInOrder: the cycle the youngest store releases its slot.
+	StoreRelease uint64
 }
 type storeBufferEntry struct {
 	PC                 uint64 // static store, for dependence prediction
@@ -458,6 +466,11 @@ func (p *middleware) fetchAndProcess() {
 			drain := completeCycle
 			if dataReady > drain {
 				drain = dataReady
+			}
+			if p.comp.Spec.StoreQueueInOrder {
+				// Stores leave the queue in program order.
+				drain = max(drain, p.comp.State.StoreRelease)
+				p.comp.State.StoreRelease = drain
 			}
 			p.comp.State.StoreDrainUntil[storeSlot] = drain
 		}

@@ -214,6 +214,34 @@ func TestASR_Imm(t *testing.T) {
 	assertX(t, em, 0, ^uint64(0)) // -1 (all bits set)
 }
 
+// The register-amount shifts decode under the same names as the immediate
+// forms; the amount is the register's value modulo the operand size.
+func TestShiftsByRegister(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		enc           uint32
+		op            arm64asm.Op
+		value, amount uint64
+		want          uint64
+	}{
+		{"LSL X0, X1, X2", 0x9AC22020, arm64asm.LSL, 0x20000008, 3, 0x100000040},
+		{"LSR X0, X1, X2", 0x9AC22420, arm64asm.LSR, 0x20000008, 29, 1},
+		{"LSR X0, X1, X2 (amount modulo 64)", 0x9AC22420, arm64asm.LSR, 0x20000008, 64 + 3, 0x4000001},
+		{"ASR X0, X1, X2", 0x9AC22820, arm64asm.ASR, ^uint64(255), 4, ^uint64(15)},
+		{"ROR X0, X1, X2", 0x9AC22C20, arm64asm.ROR, 0x1, 4, 1 << 60},
+		{"LSR W0, W1, W2 (amount modulo 32)", 0x1AC22420, arm64asm.LSR, 0x80000000, 32 + 31, 1},
+	} {
+		verifyDecode(t, tc.enc, tc.op)
+		em := newTestEmulator(tc.enc)
+		em.Regs.WriteX(1, tc.value)
+		em.Regs.WriteX(2, tc.amount)
+		stepN(t, em, 1)
+		if got := em.Regs.ReadX(0); got != tc.want {
+			t.Errorf("%s: %#x shifted by %d gives %#x, want %#x", tc.name, tc.value, tc.amount, got, tc.want)
+		}
+	}
+}
+
 func TestSXTW(t *testing.T) {
 	// SXTW X0, W1 => SBFM X0, X1, #0, #31 => 0x93407C20
 	enc := uint32(0x93407C20)

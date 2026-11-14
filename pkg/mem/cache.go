@@ -84,6 +84,13 @@ type CacheConfig struct {
 	// number of walks that can be in progress at once.
 	TLBWalkLatency int
 	TLBWalkers     int
+	// InterleavedStoreRunsWait enables the store-run rule (storeRun in
+	// writes.go): a store that belongs to an established run of contiguous
+	// stores which continues across single stores elsewhere is accepted only
+	// when its line has arrived, so such lines get no lookahead beyond the
+	// stores in flight. False accepts every store miss at once into a
+	// pending-line entry, as if every store stream were prefetched.
+	InterleavedStoreRunsWait bool `json:",omitempty"`
 }
 
 // DefaultCacheConfig returns a reasonable default configuration.
@@ -167,6 +174,11 @@ type CacheStats struct {
 	// long translations were not yet available to the accesses that asked.
 	TLBWalks      uint64
 	TLBWaitCycles uint64
+	// StoreRunWaits counts stores of an interleaved run whose line was not
+	// yet in L1 and which therefore waited for it (InterleavedStoreRunsWait).
+	// Like the hit and miss counters it counts line segments, of each piece a
+	// store is delivered in.
+	StoreRunWaits uint64 `json:",omitempty"`
 }
 
 type cacheLine struct {
@@ -376,6 +388,7 @@ type Cache struct {
 	watermark                  uint64
 	timingDone                 bool
 	shared                     *SharedL2
+	run                        storeRun // the followed run of contiguous stores
 }
 
 // NewCache creates a cache hierarchy from the given configuration.
