@@ -66,11 +66,15 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(devices.profile_path(devices.select(declaration, "m2")), "evaluation/model-profile.json")
         self.assertEqual(devices.profile_path(devices.select(declaration, "m1")), "evaluation/model-profile-m1.json")
         m1 = devices.load_profile(devices.select(declaration, "m1"))
-        self.assertEqual(dict(m1["cache_config"], L2Latency=m2["cache_config"]["L2Latency"]), m2["cache_config"])
+        self.assertEqual({k for k in m1["cache_config"] if m1["cache_config"][k] != m2["cache_config"].get(k)},
+                         {"L2Latency", "InterleavedStoreRunsWait"})
+        self.assertEqual(set(m2["cache_config"]) - set(m1["cache_config"]), set())
         self.assertEqual(m1["cache_config"]["L2Latency"], 18)
         self.assertEqual(m1["configuration"]["freq"], 3203500000)
+        self.assertEqual(m1["configuration"]["store_buffer_size"], 140)
         self.assertEqual({k for k in m1["configuration"] if m1["configuration"][k] != m2["configuration"].get(k)},
-                         {"freq", "fetch_taken_branches", "store_dependence_prediction"})
+                         {"freq", "fetch_taken_branches", "store_dependence_prediction", "store_buffer_size",
+                          "store_queue_in_order"})
         case = dict(id="x", frequency_hz=3490000000)
         self.assertEqual(devices.at_profile_clock(case, m2), case)
         self.assertEqual(devices.at_profile_clock(case, m1), dict(id="x", frequency_hz=3203500000))

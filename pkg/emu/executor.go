@@ -95,19 +95,34 @@ func (e *executor) execute(inst arm64asm.Inst) (branched bool, err error) {
 		return false, e.execTST(inst)
 
 	// Shift / extend / bitfield
+	// The decoder names the register-amount shifts by their aliases (LSL,
+	// LSR, ASR, ROR with a register third operand), never LSLV and its
+	// siblings; the immediate handlers would shift those by zero.
 	case arm64asm.LSL:
+		if variableShift(inst) {
+			return false, e.execLSLV(inst)
+		}
 		return false, e.execLSL(inst)
 	case arm64asm.LSLV:
 		return false, e.execLSLV(inst)
 	case arm64asm.LSR:
+		if variableShift(inst) {
+			return false, e.execLSRV(inst)
+		}
 		return false, e.execLSR(inst)
 	case arm64asm.LSRV:
 		return false, e.execLSRV(inst)
 	case arm64asm.ASR:
+		if variableShift(inst) {
+			return false, e.execASRV(inst)
+		}
 		return false, e.execASR(inst)
 	case arm64asm.ASRV:
 		return false, e.execASRV(inst)
 	case arm64asm.ROR:
+		if variableShift(inst) {
+			return false, e.execRORV(inst)
+		}
 		return false, e.execROR(inst)
 	case arm64asm.RORV:
 		return false, e.execRORV(inst)
@@ -363,6 +378,12 @@ func is32bit(arg arm64asm.Arg) bool {
 }
 
 // resolveImm resolves an immediate value from various arm64asm immediate types.
+// variableShift reports whether a shift takes its amount from a register.
+func variableShift(inst arm64asm.Inst) bool {
+	_, register := inst.Args[2].(arm64asm.Reg)
+	return register
+}
+
 func resolveImm(arg arm64asm.Arg) uint64 {
 	switch imm := arg.(type) {
 	case arm64asm.Imm:

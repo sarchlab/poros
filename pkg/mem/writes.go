@@ -23,6 +23,10 @@ type writeAllocation struct {
 // fill instantaneous. Queue capacity is reserved conservatively in dispatch
 // order: an earlier-issuing younger request may wait for a future reservation,
 // but can never erase it or exceed the finite number of slots.
+//
+// With InterleavedStoreRunsWait, Store calls must come in program order: they
+// advance the followed run (storeRun), and a miss or merge by a store of an
+// interleaved run is accepted only when its line has arrived.
 func (c *Cache) Store(addr uint64, size int, now uint64) (accepted, drained uint64) {
 	if size <= 0 {
 		panic("mem: nonpositive store size")
@@ -33,7 +37,9 @@ func (c *Cache) Store(addr uint64, size int, now uint64) (accepted, drained uint
 		if n > size {
 			n = size
 		}
-		a, d := c.storeLine(addr, n, now)
+		waits := c.cfg.InterleavedStoreRunsWait &&
+			c.run.follow(addr, uint64(n), uint64(c.cfg.L1LineSize), uint64(c.cfg.TLBPageBytes))
+		a, d := c.storeLine(addr, n, now, waits)
 		if a > accepted {
 			accepted = a
 		}
@@ -46,7 +52,72 @@ func (c *Cache) Store(addr uint64, size int, now uint64) (accepted, drained uint
 	return
 }
 
-func (c *Cache) storeLine(addr uint64, size int, now uint64) (uint64, uint64) {
+// storeRun is the one run of contiguous stores the store path follows, in
+// program order. An Apple M1 performance core handles a store miss in one of
+// three ways, which its counters show directly and its probe rows agree on
+// (evaluation/model-profile.md, "Store runs"):
+//
+//   - a store outside any run allocates its line in L1, and such misses are
+//     prefetched (three or four interleaved streams, a stream that leaves
+//     gaps);
+//   - a run that nothing interrupts is streamed without entering L1 (one
+//     ascending or descending stream, alone or among loads);
+//   - a run that continues across single stores elsewhere is streamed too,
+//     but its lines cannot complete in one piece: each waits for memory, with
+//     no lookahead beyond the stores in flight (two interleaved streams, one
+//     stream plus another store per trip).
+//
+// The first two cost what a store miss already costs here; the third is what
+// follow reports.
+type storeRun struct {
+	active bool
+	lo, hi uint64 // the bytes [lo, hi) the run has written
+	last   uint64 // address of its most recent store
+	bytes  uint64
+	// elsewhere counts the stores to other places since the run's last store.
+	elsewhere int
+	// interleaved: a store elsewhere fell between two of the run's stores, and
+	// the run has not written a whole line since (clean bytes).
+	interleaved bool
+	clean       uint64
+}
+
+// follow advances the run by one store of size bytes at addr and reports
+// whether that store belongs to an established, interleaved run: one that has
+// written at least a line and continues across stores elsewhere.
+//
+// A store continues the run when it starts where the run ends or ends where
+// the run starts. Any other store is elsewhere. The run survives one store
+// elsewhere between two of its own; it ends at a second one, and at once when
+// the store lies in the run's own line of the page (pageBytes; another stream
+// at the same page offset). The store that ends a run starts the next.
+func (r *storeRun) follow(addr, size, line, pageBytes uint64) bool {
+	end := addr + size
+	if r.active && (addr == r.hi || end == r.lo) {
+		if r.elsewhere > 0 {
+			r.interleaved, r.clean = true, 0
+		}
+		if r.clean += size; r.clean >= line {
+			r.interleaved = false
+		}
+		if addr == r.hi {
+			r.hi = end
+		} else {
+			r.lo = addr
+		}
+		r.last, r.bytes, r.elsewhere = addr, r.bytes+size, 0
+		return r.interleaved && r.bytes >= line
+	}
+	sameLineOfPage := pageBytes > 0 && addr%pageBytes/line == r.last%pageBytes/line
+	if r.active && r.elsewhere == 0 && !sameLineOfPage {
+		r.elsewhere = 1
+		return false
+	}
+	*r = storeRun{active: true, lo: addr, hi: end, last: addr, bytes: size, clean: size}
+	return false
+}
+
+func (c *Cache) storeLine(addr uint64, size int, now uint64, waits bool) (uint64, uint64) {
 	line := c.l1.peek(addr)
 	if len(c.writes) == 0 || (line != nil && line.readyAt <= now) {
 		_, ready := c.accessLine(addr, size, true, now)
@@ -93,6 +164,11 @@ func (c *Cache) storeLine(addr uint64, size int, now uint64) (uint64, uint64) {
 	}
 	if ready > w.Ready {
 		w.Ready = ready
+	}
+	if waits {
+		// The store keeps its place in the store queue until its line is here.
+		c.stats.StoreRunWaits++
+		return max(now, ready), ready
 	}
 	return now, ready
 }

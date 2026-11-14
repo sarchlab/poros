@@ -4,6 +4,7 @@
     "DRAMLatency": 335,
     "DisableAdjacentL1Prefetch": true,
     "FillBytesPerCycle": 32,
+    "InterleavedStoreRunsWait": true,
     "L1Latency": 5,
     "L1LineSize": 64,
     "L1Size": 131072,
@@ -53,7 +54,8 @@
     },
     "retire_width": 8,
     "rob_capacity": 256,
-    "store_buffer_size": 56,
-    "store_dependence_prediction": true
+    "store_buffer_size": 140,
+    "store_dependence_prediction": true,
+    "store_queue_in_order": true
   }
 }

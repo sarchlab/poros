@@ -15,12 +15,13 @@ A device with parameters of its own declares them in
 
 ## Apple M1 profile
 
-`model-profile-m1.json` is the `m1` target: the M2 profile with four
+`model-profile-m1.json` is the `m1` target: the M2 profile with seven
 differences, each established by measurements on the M1 Linux host used for
 the m1-7031aa3 campaign. `TestM1DiffersFromM2OnlyInMeasuredParameters` keeps
-every other core, in-order and cache parameter equal to M2's. The two new
-core fields are zero in the M2 profile and are omitted from its declaration,
-so M2 timing and its declared configuration are unchanged.
+every other core, in-order and cache parameter equal to M2's. The three new
+core fields and the new cache field are zero in the M2 profile and are omitted
+from its declaration, so M2 timing and its declared configuration are
+unchanged.
 
 - `freq` 3,203,500,000 Hz: one-cycle ADD and three-cycle FADD chains on the M1
   host give 3.2028 to 3.2037 GHz, and counted user cycles of the integer
@@ -46,6 +47,11 @@ so M2 timing and its declared configuration are unchanged.
 - `L2Latency` 18: the M1 pointer chases over 1 MiB (1, 2, 4, 8 and 16 chains)
   and 256 KiB (one chain) take 0.92 to 1.05 of the model's time with 18 cycles,
   0.79 to 0.82 with M2's 14; streaming probes are unchanged by it.
+- `store_queue_in_order` true, `store_buffer_size` 140 and
+  `InterleavedStoreRunsWait` true: a store of a run of contiguous stores that
+  continues across single stores elsewhere waits until its line has arrived,
+  in a store queue that stores leave in program order. See
+  [Store runs](#store-runs-apple-m1).
 
 Compare/select fusion is kept although M1's register-only select probes
 (`sel32_*_adj`) take two cycles: M1 runs the memory-carried Nussinov
@@ -58,9 +64,131 @@ reads from L2 run at L1 speed in the model (M1 1 MiB read 0.72; the frozen
 fetch rule hid this in fdtd2d and vips, and a narrower fill transport would
 fix reads only by making L2 writes and copies 1.3 to 2.2 times too slow);
 DRAM chase latency is 12 % short (M1 chase1 at 64 to 256 MiB; 385 cycles would
-fit chase1 and chase4 but make chase16 1.18); and streamcluster's
-large-footprint cost (5.91 cycles per element at 41 MB arrays against 2.88 when
-L1-resident) is about five times the model's.
+fit chase1 and chase4 but make chase16 1.18); and the gaps listed under
+[Store runs](#store-runs-apple-m1).
+
+### Store runs (Apple M1)
+
+Streamcluster's initialization stores `p1[i]` and `p2[i]` in one loop. Once
+the two arrays no longer fit the caches M1 needs 4.73 to 5.03 counted cycles
+per trip for it (five captures) where the same loop takes 1.63 on L1-resident
+arrays, and the model without this rule 2.00. Two probe requests on the M1
+host (counted `cycles:u`, CPU 4, one repeat as the difference of two repeat
+counts; 27 loop and placement variants over 82 MB, 17 of them also on
+L1-resident arrays) show what separates the patterns, and M1's own event
+counters show the mechanism.
+
+M1 follows one run of contiguous stores at a time, in program order:
+
+- A store that is part of no run allocates its line in L1 (one store miss and
+  one dirty writeback per line, no store counted as non-temporal) and such
+  misses are prefetched: one value to three or four interleaved streams,
+  whatever their page offsets or order, and a stream that leaves gaps, cost
+  0.8 to 2.2 cycles per line beyond their L1-resident cost.
+- A run that nothing interrupts is streamed: no line enters L1 (every store is
+  counted as a store miss and as non-temporal, no writebacks) and it costs
+  nothing extra, ascending or descending, alone or among loads.
+- A run that continues across single stores elsewhere is streamed too (87 % of
+  the stores of one stream plus a fixed store, 32 to 38 % of all stores of two
+  interleaved streams, where one whole stream would be 50 %) but its lines
+  cannot complete in one piece. These rows cost 10.6 to 19.5 cycles per line
+  stored: two interleaved streams in eight variants (4 KiB or 8 KiB apart in
+  the page, on 16 KiB or 32 MiB pages, one value or two, store instructions
+  adjacent or 16 or 20 bytes apart) and one stream with a fixed or a moving
+  store per trip. A load in place of that store costs nothing.
+- The run does not survive two stores elsewhere (three and four streams are
+  fast), nor a store elsewhere at its own page offset: with the second stream
+  at the first one's page offset the two-stream loop costs 2.5 per trip
+  instead of 4.9, and 12 % of its stores are counted non-temporal. Two rows
+  were predicted from this before they were measured: the two-stream loop with
+  a third store per trip to one fixed word costs 2.02 (1.76 L1-resident) and
+  none of its stores is counted non-temporal, and with the second stream
+  8 bytes past the first one's page offset it costs 2.32 (2.25 to 2.51
+  between the tenth and ninetieth percentiles; this row's spread exceeds the
+  5 % quality bound).
+
+The cost of the third case is bounded lookahead, not a stall per line: the
+same two-stream loop retiring one trip per eight cycles costs 0.4 cycles per
+line, and no pipeline restart is counted (no store order violation, a few
+restarts per 82 MB). It needs only that the lines come from memory (2 x 16 MB
+is already at 4.5 per trip; on huge pages the cost is unchanged, so it is not
+translation). One such line every 16 stores costs 38.9 cycles and every 12
+stores 28.3 and 26.0: 2.43, 2.36 and 2.17 cycles per store of lookahead.
+
+The model (`pkg/mem/writes.go`, `storeRun`; `pkg/cpu/ooo`,
+`StoreQueueInOrder`):
+
+- `InterleavedStoreRunsWait`: the store path follows one run. A store
+  continues it when it starts where the run ends or ends where it starts; the
+  run survives one store elsewhere and ends at a second, or at once when that
+  store lies in the run's own line of the page. A store of a run that has
+  written at least one line and has continued across a store elsewhere within
+  its last line is accepted only when its line has arrived; every other store
+  miss keeps the existing early acceptance (56 pending lines), which stands in
+  for both the prefetched and the cleanly streamed cases.
+- `store_queue_in_order`: a store keeps its store-buffer slot until every
+  older store has released its own, so the stores of other streams between
+  two waiting stores take lookahead too. The measured ratio of the two-stream
+  loop to the one-stream-plus-store loop (16 against 12 stores per waiting
+  line) requires this.
+- `store_buffer_size` 140 with the unchanged 335-cycle memory latency gives
+  2.39 cycles per store of lookahead. Only that ratio is measured, so 140 is
+  fitted, not M1's store-queue capacity: two groups of n stores, each behind
+  an unfinished 400-cycle divide chain, show no limit on stores awaiting
+  retirement (400 cycles per repeat to n = 160, then about one cycle per two
+  added stores to 551 at n = 320, and 852 at n = 384: a window of roughly
+  370 instructions that retires two stores per cycle). The slots therefore
+  bound only the stores that wait for the cache, and a store does not hold
+  its slot for an older instruction that is not a store.
+
+With it the model gives 4.63 cycles per trip for the measured loop (M1 4.73
+to 5.03), 7.18 for one stream plus a fixed or a moving store (7.08 and 6.50),
+8.00 for the slowly retiring loop (8.02), and leaves every fast row at its
+former value (1.25 to 4.00 per trip against M1's 1.07 to 3.44). Against the
+frozen campaign's native times, streamcluster's inputs then take 1.10 to
+1.13 of M1's time where they took 0.66: its distance loop (two
+loads, three FP operations and a 32-trip accumulation per point) takes 2.00
+cycles per trip in the model and 1.25 on M1 (1.79 against 1.21 on L1-resident
+arrays, where an experimental build with a window of 512 instead of 256
+instructions gives 1.21), and the two errors no longer cancel.
+
+Limits and gaps:
+
+- The rule is a description of 27 loop variants and their counter profiles on
+  one host, not of a known circuit, and M1 engages it by degrees where the
+  rule has two classes: the share of stores counted non-temporal is 0 on the
+  fast rows with two stores elsewhere, 8 to 14 % on the three rows near the
+  same page offset, 32 to 38 % on the measured loop and 23 % and 50 % on two
+  variants of it.
+- Two rows measured after the rule was written fall between its classes, both
+  with spreads of 15 to 21 %: one stream plus two fixed stores in two other
+  lines per trip costs M1 3.41 per trip (2.04 L1-resident) where the model
+  gives 2.00, and the two-stream loop with the second stream 64 bytes past
+  the first one's page offset costs 3.45 where the model gives 4.54.
+- The same-page-offset exception rests on two probe rows whose spread exceeds
+  the 5 % quality bound (2.54 and 2.32 per trip, 2.25 to 2.54 over medians
+  and tenth and ninetieth percentiles, against 4.67 to 5.26 for the slow
+  loop) and on gesummv, whose two interleaved 26 to 42 MB streams lie 2,592
+  pages apart and which M1 runs within 4 % of the model. Arrays that a
+  program allocates separately in whole pages share their page offset;
+  streamcluster's two streams are parts of one array.
+- M1's cost varies between variants the rule treats alike: the two-stream loop
+  costs 3.9 with its stores 20 bytes apart and 6.0 with one shared value,
+  against 4.9; the model gives 4.63 for all.
+- The model's window is 256 instructions where the divide-chain loops show
+  about 370 on M1: with 256 and 320 stores behind each chain the model needs
+  800 and 816 cycles per repeat, M1 486 and 551 (as before this rule; up to
+  224 stores the model is within 4 %, where the former 56 slots gave 8 % too
+  many cycles at 224).
+- The cleanly streamed and the prefetched cases are not modeled separately:
+  both keep the existing store-miss path, which is bound by the model's
+  16 bytes per cycle of memory transport and is 14 to 41 % slower than M1 on
+  eight of those rows (as before this rule).
+- One stream plus one store elsewhere per trip costs M1 3.85 cycles per trip
+  even on L1-resident arrays (1.5 to 1.6 in the model). Not modeled.
+- A prefetch for write 2 KiB ahead of each store halves the cost on M1 (3.7
+  per trip); the simulator does not execute PRFM.
+- M2 has no rows of this kind; its profile is unchanged.
 
 This declaration is independent of frozen workload manifests and native reference
 measurements. A calibration change updates the simulation declaration, without
