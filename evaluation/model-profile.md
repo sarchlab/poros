@@ -219,6 +219,14 @@ Limits and gaps:
   costs 3.9 cycles per trip with its store instructions 20 bytes apart (the
   intermediate row above) and 6.0 with one shared value, against 4.9; the
   model gives 4.63 for all.
+- Which of two interleaved streams the model follows is settled by the stores
+  that precede the loop (the store that ends a run starts the next), and the
+  two outcomes are not equal in time. In the probe row of the measured loop
+  and in streamcluster the model follows the stream stored second in each
+  trip, which gives the 4.63 cycles per trip; one pass of the same pattern
+  over 82 MB in which it followed the stream stored first took 0.09 cycles
+  per trip (2 %) less. Nothing measured says which stream M1 treats this
+  way, or whether it is always the same one.
 - The model's window is 256 instructions where the divide-chain loops suggest
   about 370 on M1: with 256 and 320 stores behind each chain the model needs
   800 and 816 cycles per repeat, M1 486 and 551 (as before this rule; up to
