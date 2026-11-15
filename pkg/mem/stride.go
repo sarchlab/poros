@@ -27,6 +27,10 @@ const strideSkip = 4
 // L2 lines, one step apart, no farther than PrefetchDistance steps ahead and,
 // with a nonzero PrefetchPageBytes, only within that page of the miss. Like
 // the sequential table, this one changes in dispatch order.
+//
+// Limitation: the frontier is a signed 64-bit address, so a walk at or above
+// 1<<63 is followed and never prefetched. User programs are loaded below
+// 1<<48; other users of the cache get no stride prefetch up there.
 func (c *Cache) followStride(addr uint64, now uint64) bool {
 	if len(c.strides) == 0 {
 		return false

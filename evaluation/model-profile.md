@@ -343,8 +343,9 @@ above. They are not measurements of the structures they are named after.
   give its patterns. deriche's column passes step 6 to 8 KB through images of
   7 to 12 MB, far more than the 1 MiB L2, and the GH200 runs deriche in 0.78 to
   0.89 of the M2's time; with sequential streams only, every such step is an
-  unprefetched miss and the model takes 1.9 times the GH200's time at the
-  smallest point. The page as the limit is an assumption.
+  unprefetched miss, and an exploratory run without the follower (prototype B
+  under Known gaps) took 1.9 times the GH200's time at deriche's first input.
+  The page as the limit is an assumption.
 
 **Carried from M2 and not established for Grace:** the 256-instruction window,
 retirement and dispatch width (the SWOG gives eight MOPs per cycle), the branch
@@ -352,34 +353,64 @@ predictor, the fetch rule that ends a group at a taken branch, the L2 latency,
 the memory-side and DRAM latencies, both fill transports, the stream
 prefetcher, the miss and store buffers, and page-walk timing.
 
-Known gaps:
+Known gaps. The model numbers in this list are not this profile's accuracy.
+Each comes from one exploratory run, made while the profile was assembled, of
+the first input of a kernel or of a legacy microbenchmark on one of three
+prototype configurations:
 
-- The integer microbenchmark's MADD chain takes 2.3 cycles per step at the
-  assumed clock where the SWOG gives two, so the model is 13% fast there. At
-  3.0 GHz the step would be two cycles, but seidel2d's chain would then be
-  shorter than its published arithmetic allows with a 15-cycle divide.
+- prototype A: the published values, the clock and `branch_penalty` above,
+  with a store forward of four cycles, no compare/select fusion, no FP issue
+  queue and no stride follower;
+- prototype B: this profile's values, except that each FP divider stayed busy
+  for 15 cycles and there was no stride follower;
+- prototype C: this profile's values.
+
+All three ran before the forwarding, issue-queue and stride mechanisms were
+corrected: the forwarding latency and the cache accesses of a load that stores
+supply only in part, the time an FP operation keeps its issue-queue entry, and
+the page bound of stride prefetches. None of these runs was repeated after
+those corrections and none was part of a full campaign, so the numbers show
+the direction and rough size of an effect and nothing more. "x% fast" means
+the predicted time was x% below the GH200's and "x% slow" x% above
+(predicted/reference of 1 - x/100 and 1 + x/100). The reports' error,
+|predicted - reference| / min(predicted, reference), is larger for a fast
+prediction: 20% fast is an error of 25%, and mvt's 29% below
+(predicted/reference 0.714) is 40%. Cycle counts given for the GH200 are its
+user times converted at the assumed clock.
+
+- The integer microbenchmark's MADD chain takes 2.3 cycles per step on the
+  GH200 where the SWOG gives two; prototype A was 13% fast there. At 3.0 GHz
+  the step would be two cycles, but seidel2d's chain would then be shorter
+  than its published arithmetic allows with a 15-cycle divide.
 - Input loops with one SDIV, one SCVTF and one FDIV per element (atax,
   gesummv, mvt and others) take about 7.7 to 8.5 cycles per element on the
-  GH200. The published divider and FDIV throughput bound them at 5 to 7, and
-  the model is 26% fast on atax and 16% on gesummv at their smallest points. An
-  FDIV divider busy for all 15 cycles would close atax, but it contradicts the
-  published throughput and is not modelled.
+  GH200. The published divider and FDIV throughput bound them at 5 to 7;
+  prototype C was 26% fast on atax and 16% on gesummv. An FDIV divider busy
+  for all 15 cycles would close atax (prototype B was 4% fast there), but it
+  contradicts the published throughput and is not modelled.
 - The stride follower hides more than the GH200 does. mvt's column walk at
-  3,072 rows steps 24,576 bytes and conflicts in both caches; the GH200 pays
-  about four cycles per access for it and the model nothing. With the input
-  loop above, that point is 29% fast, where the M2 parameters happened to be
-  3% off. syr2k's short walks, restarted for every column, are 29% fast at its
-  smallest point. Without the follower deriche is 1.9 times slow at its
-  smallest point. syr2k was 5% fast and symm 28% slow there in a run that
-  lacked the follower and also kept each FP divider busy for 15 cycles; by
-  their element counts the divider accounts for about one point of each.
+  3,072 rows steps 24,576 bytes and conflicts in both caches. The GH200's time
+  less prototype C's, after the input loop's share, is about four cycles per
+  access of that walk, a cost the follower removes. Prototype C was 29% fast
+  at that input, where the M2 parameters were 3% fast in the full baseline
+  comparison. syr2k's short walks are restarted for every column: prototype C
+  was 29% fast, prototype B 5% fast. symm went from 28% slow in prototype B to
+  13% fast in prototype C. By their element counts the FP divider's busy time
+  accounts for about one point of those two changes and the follower for the
+  rest. Without the follower, prototype B took 1.9 times the GH200's time on
+  deriche.
+- The follower's addresses are signed 64-bit numbers. A walk at or above 2^63
+  is recognised and never prefetched. Nothing measured here reaches it: the
+  ELF loader admits segments only below 2^48 and the process stack lies below
+  that. The cache accepts any 64-bit address, and stride following is not
+  correct for all of them.
 - The L2, memory-side and DRAM latencies, both fill transports and the miss
   buffers are M2's. Nothing here measures them on Grace.
 - Loops of 8 to 10 instructions run at 1.75 to 2.0 cycles per trip on the
   GH200 (gemm, floydwarshall, jacobi1d); the carried fetch rule gives 1 or 2.
 - Chains of 2mm, 3mm, covariance, trmm and lu overlap less on the GH200 than
-  the issue queue allows (about 6 trips in 2mm against 15), and the model is 6
-  to 11% fast there.
+  the issue queue allows (about 6 trips in 2mm against 15). Prototype B was 6
+  to 8% fast on the first four and prototype C 11% fast on lu.
 - FDIV is always 15 cycles and the early ending of the integer divider is a
   rule fitted to two published ranges; neither was measured.
 

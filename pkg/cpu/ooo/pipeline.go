@@ -455,15 +455,17 @@ func (p *middleware) fetchAndProcess() {
 		// data of the last of them issues at storeData.
 		var storeSupplied bool
 		var storeData uint64
+		// The accesses of a load that the cache supplies: every one of them,
+		// unless stores supply some.
+		var cached []emu.MemAccess
 		if instinfo.IsLoad(inst.Op) {
 			accesses := p.comp.Resources.backend().MemoryAccesses()
 			if p.comp.Spec.StoreDependencePrediction {
 				issueCycle = p.predictedStoreWait(pc, accesses, issueCycle)
 			}
-			if ready, all, ok := p.suppliedLoad(accesses); ok {
-				// A load that stores supply only in part still reads the cache.
-				forwarding = loadForwarding{issueCycle: issueCycle, latency: uint64(p.comp.Spec.StoreForwardLatency), forwarded: all}
-				storeSupplied, storeData = true, ready
+			if storeData, cached, storeSupplied = p.suppliedLoad(accesses); storeSupplied {
+				// A load that stores supply only in part reads the rest from the cache.
+				forwarding = loadForwarding{issueCycle: issueCycle, latency: uint64(p.comp.Spec.StoreForwardLatency), forwarded: len(cached) == 0}
 			} else {
 				forwarding = p.forwardLoad(accesses, issueCycle, directGPRTransfer(inst))
 			}
@@ -490,8 +492,8 @@ func (p *middleware) fetchAndProcess() {
 		// a deferred access returns to the same pool of load pipes to issue.
 		mshr := -1
 		if ut == unitLoad && !forwarding.forwarded {
-			issueCycle = p.translated(addressCycle)
-			if p.loadMissesL1() {
+			issueCycle = p.translated(cached, addressCycle)
+			if p.loadMissesL1(cached) {
 				mshr, issueCycle = p.acquireMSHR(issueCycle)
 			}
 		}
@@ -510,7 +512,7 @@ func (p *middleware) fetchAndProcess() {
 		} else if divide > 0 {
 			latency = divide
 		} else {
-			latency, dataReady = p.instrLatencyWithPC(inst, pc, issueCycle)
+			latency, dataReady = p.instrLatencyWithPC(inst, pc, cached, issueCycle)
 			if extra := uint64(p.comp.Spec.Latencies.FPLoadExtra); ut == unitLoad && (fp >= 0 || fpSecond >= 0) {
 				// What the cache supplies reaches an FP register later.
 				latency += extra
@@ -705,8 +707,9 @@ func classifyUnit(instruction arm64asm.Inst) unitType {
 }
 
 // instrLatencyWithPC computes the execution latency for an instruction,
-// using the PC to check for hooked BL instructions.
-func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycle uint64) (latency uint64, dataReady uint64) {
+// using the PC to check for hooked BL instructions. cached is as in
+// instrLatency.
+func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, cached []emu.MemAccess, issueCycle uint64) (latency uint64, dataReady uint64) {
 	// Check for hooked BL instruction.
 	if inst.Op == arm64asm.BL && p.hookCycles != nil {
 		if pcrel, ok := inst.Args[0].(arm64asm.PCRel); ok {
@@ -716,23 +719,23 @@ func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycl
 			}
 		}
 	}
-	return p.instrLatency(inst, issueCycle)
+	return p.instrLatency(inst, cached, issueCycle)
 }
 
 // instrLatency computes the execution latency for an instruction.
 // dataReady is the absolute cycle at which the cache can deliver the data
 // (zero when the cache model is not timed or not present). Loads use the timed
-// cache path only after final execution-resource selection. Stores instead use
-// storeTiming, which owns their separate cache admission/drain contract.
-func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latency uint64, dataReady uint64) {
+// cache path only after final execution-resource selection, for the accesses
+// in cached: those the cache supplies. Stores instead use storeTiming, which
+// owns their separate cache admission/drain contract.
+func (p *middleware) instrLatency(inst arm64asm.Inst, cached []emu.MemAccess, issueCycle uint64) (latency uint64, dataReady uint64) {
 	if instinfo.IsLoad(inst.Op) {
 		if p.comp.Resources.Cache != nil {
-			accesses := p.comp.Resources.backend().MemoryAccesses()
-			if len(accesses) == 0 {
+			if len(cached) == 0 {
 				return uint64(p.comp.Spec.LoadLatency), 0
 			}
 			worst := mem.HitL1
-			for _, acc := range accesses {
+			for _, acc := range cached {
 				level, ready := p.comp.Resources.Cache.Access(acc.Addr, acc.Size, acc.IsWrite, issueCycle)
 				if level > worst {
 					worst = level
@@ -758,29 +761,30 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 	return p.executeLatency(inst), 0
 }
 
-// translated returns when the address translations of the current
-// instruction's accesses are available to an access whose address is known at
-// issueCycle. Without a cache, or with translation timing disabled, that is
+// translated returns when the address translations of a load's
+// cache-supplied accesses are available to an access whose address is known
+// at issueCycle. Without a cache, or with translation timing disabled, that is
 // issueCycle.
-func (p *middleware) translated(issueCycle uint64) uint64 {
+func (p *middleware) translated(cached []emu.MemAccess, issueCycle uint64) uint64 {
 	cache := p.comp.Resources.Cache
 	if cache == nil {
 		return issueCycle
 	}
 	ready := issueCycle
-	for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+	for _, acc := range cached {
 		ready = max(ready, cache.Translate(acc.Addr, acc.Size, issueCycle))
 	}
 	return ready
 }
 
-// loadMissesL1 only classifies current dispatch-order cache residency.
-func (p *middleware) loadMissesL1() bool {
+// loadMissesL1 only classifies current dispatch-order cache residency of a
+// load's cache-supplied accesses.
+func (p *middleware) loadMissesL1(cached []emu.MemAccess) bool {
 	if p.comp.Resources.Cache == nil {
 		return false
 	}
 	lineSize := p.comp.Resources.Cache.Config().L1LineSize
-	for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+	for _, acc := range cached {
 		for addr, remaining := acc.Addr, acc.Size; remaining > 0; {
 			if p.comp.Resources.Cache.Probe(addr) != mem.HitL1 {
 				return true

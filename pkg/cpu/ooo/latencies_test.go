@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	instinfo "github.com/sarchlab/poros/pkg/cpu/internal/inst"
+	"github.com/sarchlab/poros/pkg/emu"
 	"github.com/sarchlab/poros/pkg/mem"
 	"golang.org/x/arch/arm64/arm64asm"
 )
@@ -38,6 +39,8 @@ const (
 	strD1X2     = 0xfd000041 // STR D1, [X2]
 	ldpD2D3X1   = 0x6d400c22 // LDP D2, D3, [X1]
 	ldpX6X7X4   = 0xa9401c86 // LDP X6, X7, [X4]
+	ldrX8X9     = 0xf9400128 // LDR X8, [X9]
+	stpX1X3X2   = 0xa9000c41 // STP X1, X3, [X2]
 	ldurX3X4p4  = 0xf8404083 // LDUR X3, [X4, #4]
 )
 
@@ -332,6 +335,153 @@ func TestStoreForwardLatencyOnPartlySuppliedLoads(t *testing.T) {
 	}
 }
 
+// A load that an in-flight store supplies in part sends only its other accesses
+// to the cache. The stored bytes take no translation, no miss entry and no
+// cache read, and a fill of their own line does not hold the load: the cache
+// sees what it sees when the other access is loaded alone.
+func TestPartlySuppliedLoadSendsOnlyItsOtherAccessesToTheCache(t *testing.T) {
+	const forward, l1 = 6, 4
+	// LDP X6, X7, [X4] at low reads the words at low and high, which are in
+	// different lines of both cache levels.
+	const low, high = 0x2078, 0x2080
+	type outcome struct {
+		complete uint64 // of the last instruction
+		stats    mem.CacheStats
+		miss     uint64 // until when the only miss entry is held
+	}
+	// run executes the instructions with the store's data ready at cycle 48
+	// and the base of the last instruction, the load, at 50. The store is at
+	// store, the load at load, an LDR X8, [X9] between them at other.
+	run := func(cfg mem.CacheConfig, latency int, store, load, other uint64, prepare func(*mem.Cache), words ...uint32) outcome {
+		t.Helper()
+		cfg.L1Latency = l1
+		cache := mem.NewCache(cfg)
+		prepare(cache)
+		p := specPipeline(t, words, cache, func(s *Spec) { s.NumLDST, s.StoreForwardLatency = 3, latency })
+		regs := p.comp.Resources.Emu.Regs
+		regs.WriteX(2, store)
+		regs.WriteX(4, load)
+		regs.WriteX(9, other)
+		p.comp.State.GprReady[1], p.comp.State.GprReady[3], p.comp.State.GprReady[4] = 48, 48, 50
+		p.fetchAndProcess()
+		if p.comp.State.Err != "" || p.comp.State.RobCount != len(words) {
+			t.Fatalf("err=%q dispatched=%d", p.comp.State.Err, p.comp.State.RobCount)
+		}
+		return outcome{p.comp.State.Rob[len(words)-1], cache.Stats(), p.comp.State.MshrBusyUntil[0]}
+	}
+	warm := func(addrs ...uint64) func(*mem.Cache) {
+		return func(cache *mem.Cache) {
+			for _, addr := range addrs {
+				cache.Lookup(addr, 8, false)
+			}
+		}
+	}
+	plain := fillConfig()
+	fromMemory := 50 + uint64(plain.DRAMLatency)
+
+	// The store misses and its line is still on its way; the other word is in
+	// L1. The pair is ready by the forwarding path, not when that line arrives.
+	pair := run(plain, forward, low, low, 0, warm(high), strX1X2, ldpX6X7X4)
+	alone := run(plain, forward, low, high, 0, warm(high), strX1X2, ldrX3X4)
+	if pair.complete != 50+forward || alone.complete != 50+l1 || pair.stats != alone.stats || pair.miss != alone.miss {
+		t.Errorf("stored word's line pending: pair ready at %d, want %d; cache saw\n%+v, miss entry until %d\nfor the other word alone (ready at %d)\n%+v, miss entry until %d",
+			pair.complete, 50+forward, pair.stats, pair.miss, alone.complete, alone.stats, alone.miss)
+	}
+	// The reverse: the stored word's line is in L1 and the other word comes
+	// from memory. The cache decides, and reads that word only.
+	pair = run(plain, forward, high, low, 0, warm(high), strX1X2, ldpX6X7X4)
+	alone = run(plain, forward, high, low, 0, warm(high), strX1X2, ldrX3X4)
+	if pair.complete != fromMemory || pair != alone {
+		t.Errorf("other word from memory: pair %+v\nthe other word alone %+v\nwant both ready at %d", pair, alone, fromMemory)
+	}
+	// The stored word is on a page whose translation the store has just
+	// started; the other word's page is translated and both lines are in L1.
+	const pageEnd = 0x8000
+	translated := func(cache *mem.Cache) {
+		warm(pageEnd-8, pageEnd)(cache)
+		cache.Translate(pageEnd, 8, 0)
+	}
+	paged := mem.DefaultCacheConfig()
+	pair = run(paged, forward, pageEnd-8, pageEnd-8, 0, translated, strX1X2, ldpX6X7X4)
+	alone = run(paged, forward, pageEnd-8, pageEnd, 0, translated, strX1X2, ldrX3X4)
+	if pair.complete != 50+forward || alone.complete != 50+l1 || pair.stats != alone.stats {
+		t.Errorf("stored word's page being walked: pair ready at %d, want %d; cache saw\n%+v\nfor the other word alone (ready at %d)\n%+v",
+			pair.complete, 50+forward, pair.stats, alone.complete, alone.stats)
+	}
+	// A load between them evicts the stored word's line from a direct-mapped
+	// L1 and holds the only miss entry. The pair needs neither.
+	direct := plain
+	direct.L1Ways = 1
+	conflict := uint64(low + direct.L1Size)
+	pair = run(direct, forward, low, low, conflict, warm(high), strX1X2, ldrX8X9, ldpX6X7X4)
+	alone = run(direct, forward, low, high, conflict, warm(high), strX1X2, ldrX8X9, ldrX3X4)
+	if pair.complete != 50+forward || alone.complete != 50+l1 || pair.stats != alone.stats || pair.miss != alone.miss {
+		t.Errorf("stored word's line evicted: pair ready at %d, want %d; cache saw\n%+v, miss entry until %d\nfor the other word alone (ready at %d)\n%+v, miss entry until %d",
+			pair.complete, 50+forward, pair.stats, pair.miss, alone.complete, alone.stats, alone.miss)
+	}
+
+	// Stores supply both words: the cache sees the stores only.
+	pair = run(plain, forward, low, low, 0, warm(high), stpX1X3X2, ldpX6X7X4)
+	alone = run(plain, forward, low, low, 0, warm(high), stpX1X3X2, nop)
+	if pair.complete != 50+forward || pair.stats != alone.stats || pair.miss != alone.miss {
+		t.Errorf("both words stored: pair ready at %d, want %d; cache saw\n%+v\nfor the stores alone\n%+v", pair.complete, 50+forward, pair.stats, alone.stats)
+	}
+	// No store in flight: the cache supplies both words, as with the path off.
+	pair = run(plain, forward, 0, low, 0, warm(high), nop, ldpX6X7X4)
+	alone = run(plain, 0, 0, low, 0, warm(high), nop, ldpX6X7X4)
+	if pair.complete != fromMemory || pair != alone {
+		t.Errorf("no store: pair %+v\nwith the path off %+v\nwant both ready at %d", pair, alone, fromMemory)
+	}
+	// With the path off the load still reads the stored word from the cache
+	// and waits for the line its store allocated at cycle 48.
+	off := run(plain, 0, low, low, 0, warm(high), strX1X2, ldpX6X7X4)
+	if want := 48 + uint64(plain.DRAMLatency); off.complete != want || off.stats.L1HitsInFlight != 1 {
+		t.Errorf("path off: pair ready at %d, want %d, with %d reads of a pending line, want 1", off.complete, want, off.stats.L1HitsInFlight)
+	}
+}
+
+// suppliedLoad hands back the list it was given when the cache supplies every
+// access, without allocating, and a list of its own with the remaining
+// accesses of a partly supplied load. The list it was given stays as it was.
+func TestSuppliedLoadListsTheAccessesLeftToTheCache(t *testing.T) {
+	first, second := emu.MemAccess{Addr: 0x2078, Size: 8}, emu.MemAccess{Addr: 0x2080, Size: 8}
+	stored := func(acc emu.MemAccess, ready uint64) storeBufferEntry {
+		return storeBufferEntry{Addr: acc.Addr, Size: acc.Size, ReadyCycle: ready}
+	}
+	for _, tc := range []struct {
+		name    string
+		forward int
+		stores  []storeBufferEntry
+		ready   uint64
+		cached  []emu.MemAccess
+		ok      bool
+	}{
+		{"path off", 0, []storeBufferEntry{stored(first, 48)}, 0, []emu.MemAccess{first, second}, false},
+		{"no store", 6, nil, 0, []emu.MemAccess{first, second}, false},
+		{"first stored", 6, []storeBufferEntry{stored(first, 48)}, 48, []emu.MemAccess{second}, true},
+		{"second stored", 6, []storeBufferEntry{stored(second, 48)}, 48, []emu.MemAccess{first}, true},
+		{"both stored", 6, []storeBufferEntry{stored(first, 48), stored(second, 52)}, 52, nil, true},
+		{"part of an access stored", 6, []storeBufferEntry{{Addr: first.Addr + 4, Size: 8, ReadyCycle: 48}}, 0, []emu.MemAccess{first, second}, false},
+	} {
+		p := specPipeline(t, []uint32{nop}, nil, func(s *Spec) { s.StoreForwardLatency = tc.forward })
+		p.comp.State.StoreBuffer = tc.stores
+		accesses := []emu.MemAccess{first, second}
+		ready, cached, ok := p.suppliedLoad(accesses)
+		if ready != tc.ready || ok != tc.ok || !reflect.DeepEqual(cached, tc.cached) {
+			t.Errorf("%s: ready %d, cached %v, ok %v; want %d, %v, %v", tc.name, ready, cached, ok, tc.ready, tc.cached, tc.ok)
+		}
+		if !reflect.DeepEqual(accesses, []emu.MemAccess{first, second}) {
+			t.Errorf("%s: the load's access list became %v", tc.name, accesses)
+		}
+		// Only a partly supplied load is given a list of its own.
+		same := len(cached) == len(accesses) && &cached[0] == &accesses[0]
+		allocations := testing.AllocsPerRun(10, func() { p.suppliedLoad(accesses) })
+		if partly := tc.ok && len(tc.cached) > 0; same != (len(tc.cached) == len(accesses)) || (allocations > 0) != partly {
+			t.Errorf("%s: the list given is returned: %v; %v allocations", tc.name, same, allocations)
+		}
+	}
+}
+
 // FPLoadExtra delays a load into an FP register that memory supplies, and no
 // other load.
 func TestFPLoadExtraOnMemorySuppliedLoads(t *testing.T) {
@@ -499,6 +649,7 @@ func TestLatencyTestEncodings(t *testing.T) {
 		fmaddD3: arm64asm.FMADD, fmaddD3D3: arm64asm.FMADD, ldrD0X1: arm64asm.LDR, strD0X1: arm64asm.STR,
 		ldpD2D3X1: arm64asm.LDP, ldurX3X4p4: arm64asm.LDUR, strD1X2: arm64asm.STR,
 		ldpX6X7X4: arm64asm.LDP, faddD5D6D6: arm64asm.FADD, faddD7D6D6: arm64asm.FADD,
+		ldrX8X9: arm64asm.LDR, stpX1X3X2: arm64asm.STP,
 	} {
 		if got := decodeWord(t, word).Op; got != want {
 			t.Errorf("%#x decodes to %v, want %v", word, got, want)

@@ -60,33 +60,52 @@ func (p *middleware) forwardLoad(accesses []emu.MemAccess, issueCycle uint64, el
 // suppliedLoad is the single forwarding path of Spec.StoreForwardLatency. It
 // takes each access on its own: the youngest in-flight store that overlaps it
 // must hold all its bytes, or no store may overlap it and the cache supplies
-// it. It returns when the data of the supplying stores has issued, whether
-// stores supply every access, and whether the path applies. It does not apply
-// when the path is off, when no store supplies an access, or when a store
-// overlaps an access in part; the load then keeps the ordering of forwardLoad.
-func (p *middleware) suppliedLoad(accesses []emu.MemAccess) (ready uint64, all, ok bool) {
+// it. It returns when the data of the supplying stores has issued, the
+// accesses left to the cache (none when stores supply every access), and
+// whether the path applies. It does not apply when the path is off, when no
+// store supplies an access, or when a store overlaps an access in part:
+// forwardLoad then decides as before, and the list returned is every access.
+func (p *middleware) suppliedLoad(accesses []emu.MemAccess) (ready uint64, cached []emu.MemAccess, ok bool) {
 	if p.comp.Spec.StoreForwardLatency == 0 {
-		return 0, false, false
+		return 0, accesses, false
 	}
 	supplied := 0
 	for _, acc := range accesses {
-		var youngest *storeBufferEntry
-		for i := range p.comp.State.StoreBuffer {
-			sb := &p.comp.State.StoreBuffer[i]
-			if acc.Addr < sb.Addr+uint64(sb.Size) && sb.Addr < acc.Addr+uint64(acc.Size) {
-				youngest = sb
-			}
-		}
+		youngest := p.youngestOverlap(acc)
 		if youngest == nil {
 			continue
 		}
 		if acc.Addr < youngest.Addr || youngest.Addr+uint64(youngest.Size) < acc.Addr+uint64(acc.Size) {
-			return 0, false, false
+			return 0, accesses, false
 		}
 		supplied++
 		ready = max(ready, youngest.ReadyCycle)
 	}
-	return ready, supplied == len(accesses), supplied > 0
+	switch supplied {
+	case 0:
+		return 0, accesses, false
+	case len(accesses):
+		return ready, nil, true
+	}
+	// Stores supply some accesses: a list of the others, for this load alone.
+	for _, acc := range accesses {
+		if p.youngestOverlap(acc) == nil {
+			cached = append(cached, acc)
+		}
+	}
+	return ready, cached, true
+}
+
+// youngestOverlap is the youngest in-flight store with a byte of the access.
+func (p *middleware) youngestOverlap(acc emu.MemAccess) *storeBufferEntry {
+	var youngest *storeBufferEntry
+	for i := range p.comp.State.StoreBuffer {
+		sb := &p.comp.State.StoreBuffer[i]
+		if acc.Addr < sb.Addr+uint64(sb.Size) && sb.Addr < acc.Addr+uint64(acc.Size) {
+			youngest = sb
+		}
+	}
+	return youngest
 }
 
 // directGPRTransfer restricts the fast hypothesis to the measured instruction
