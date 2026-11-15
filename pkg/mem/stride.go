@@ -24,7 +24,8 @@ const strideSkip = 4
 // A second miss within the stride limit of a stream's first sets its step. A
 // miss a few whole steps past the last one continues the stream, and from
 // PrefetchTrainMisses consistent misses on it prefetches up to PrefetchDegree
-// L2 lines, one step apart, no farther than PrefetchDistance steps ahead. Like
+// L2 lines, one step apart, no farther than PrefetchDistance steps ahead and,
+// with a nonzero PrefetchPageBytes, only within that page of the miss. Like
 // the sequential table, this one changes in dispatch order.
 func (c *Cache) followStride(addr uint64, now uint64) bool {
 	if len(c.strides) == 0 {
@@ -80,6 +81,9 @@ func (c *Cache) followStride(addr uint64, now uint64) bool {
 	for issued := 0; issued < max(c.cfg.PrefetchDegree, 1); issued++ {
 		if s.frontier < 0 || (s.frontier-int64(addr))/s.step > int64(c.cfg.PrefetchDistance) {
 			break
+		}
+		if page := c.cfg.PrefetchPageBytes; page > 0 && uint64(s.frontier)/uint64(page) != addr/uint64(page) {
+			break // page bounded, as the sequential frontier is: the next page starts with its own miss
 		}
 		if c.l2.peek(uint64(s.frontier)) == nil {
 			c.fetchL2(uint64(s.frontier), now, true)

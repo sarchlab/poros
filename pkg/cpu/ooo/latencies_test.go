@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	instinfo "github.com/sarchlab/poros/pkg/cpu/internal/inst"
+	"github.com/sarchlab/poros/pkg/mem"
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
@@ -25,6 +26,8 @@ const (
 	faddD2D1D1  = 0x1e612822 // FADD D2, D1, D1
 	faddD3D1D1  = 0x1e612823 // FADD D3, D1, D1
 	faddD4D1D1  = 0x1e612824 // FADD D4, D1, D1
+	faddD5D6D6  = 0x1e6628c5 // FADD D5, D6, D6
+	faddD7D6D6  = 0x1e6628c7 // FADD D7, D6, D6
 	fmulD0D1D2  = 0x1e620820 // FMUL D0, D1, D2
 	fmulD3D1D2  = 0x1e620823 // FMUL D3, D1, D2
 	fmaddD3     = 0x1f420c23 // FMADD D3, D1, D2, D3
@@ -34,6 +37,7 @@ const (
 	strD0X1     = 0xfd000020 // STR D0, [X1]
 	strD1X2     = 0xfd000041 // STR D1, [X2]
 	ldpD2D3X1   = 0x6d400c22 // LDP D2, D3, [X1]
+	ldpX6X7X4   = 0xa9401c86 // LDP X6, X7, [X4]
 	ldurX3X4p4  = 0xf8404083 // LDUR X3, [X4, #4]
 )
 
@@ -267,6 +271,67 @@ func TestStoreForwardWaitsForTheLoadAddress(t *testing.T) {
 	}
 }
 
+// A pair load with one half in an in-flight store and the other in the cache
+// takes both paths. The stored half is forwarded from when both the load and
+// the store's data have issued; the load is ready when both halves are.
+func TestStoreForwardLatencyOnPartlySuppliedLoads(t *testing.T) {
+	const forward, l1 = 6, 4
+	// mixedPair runs LDP X6, X7, [X4] at load, after STR X1, [X2] at store
+	// when stored, and returns the load's completion cycle. The lines of the
+	// warm addresses are in L1 before the run.
+	mixedPair := func(stored bool, store, load, storeData, loadBase uint64, warm ...uint64) uint64 {
+		t.Helper()
+		cfg := fillConfig()
+		cfg.L1Latency = l1
+		cache := mem.NewCache(cfg)
+		for _, addr := range warm {
+			cache.Lookup(addr, 8, false)
+		}
+		words := []uint32{nop, ldpX6X7X4}
+		if stored {
+			words[0] = strX1X2
+		}
+		p := specPipeline(t, words, cache, func(s *Spec) { s.NumLDST, s.StoreForwardLatency = 2, forward })
+		regs := p.comp.Resources.Emu.Regs
+		regs.WriteX(2, store)
+		regs.WriteX(4, load)
+		p.comp.State.GprReady[1], p.comp.State.GprReady[4] = storeData, loadBase
+		p.fetchAndProcess()
+		if p.comp.State.Err != "" || p.comp.State.RobCount != 2 {
+			t.Fatalf("err=%q dispatched=%d", p.comp.State.Err, p.comp.State.RobCount)
+		}
+		return p.comp.State.Rob[1]
+	}
+	// Both halves are in one warm line; the store holds the first.
+	for _, tc := range []struct {
+		name                string
+		storeData, loadBase uint64
+		want                uint64
+	}{
+		{"load issues after the store's data", 48, 50, 50 + forward},
+		{"store's data issues after the load", 100, 50, 100 + forward},
+		{"both issue at once", 50, 50, 50 + forward},
+		{"neither waits", 0, 0, 1 + forward},
+	} {
+		if got := mixedPair(true, 0x2000, 0x2000, tc.storeData, tc.loadBase, 0x2000); got != tc.want {
+			t.Errorf("%s: pair ready at %d, want %d", tc.name, got, tc.want)
+		}
+	}
+	// Without the store the same warm load takes the cache's latency alone.
+	if got := mixedPair(false, 0x2000, 0x2000, 0, 50, 0x2000); got != 50+l1 {
+		t.Errorf("warm pair without a store ready at %d, want %d", got, 50+l1)
+	}
+	// The store holds the second half, in a warm line; the first half is in a
+	// line that only L2 holds. The cache is then the later of the two paths,
+	// with or without the store.
+	fromL2 := 50 + uint64(fillConfig().L2Latency)
+	for _, stored := range []bool{false, true} {
+		if got := mixedPair(stored, 0x2040, 0x2038, 48, 50, 0x2040); got != fromL2 || got <= 50+forward {
+			t.Errorf("stored=%v: pair with a half from L2 ready at %d, want %d", stored, got, fromL2)
+		}
+	}
+}
+
 // FPLoadExtra delays a load into an FP register that memory supplies, and no
 // other load.
 func TestFPLoadExtraOnMemorySuppliedLoads(t *testing.T) {
@@ -317,6 +382,56 @@ func TestFPIssueQueueBoundsWaitingWork(t *testing.T) {
 	p.fetchAndProcess()
 	if p.comp.State.Err != "" || p.comp.State.RobCount != len(words) {
 		t.Fatalf("after the queue drained: dispatched %d of %d (err %q)", p.comp.State.RobCount, len(words), p.comp.State.Err)
+	}
+}
+
+// An entry is held for the whole cycle its instruction is dispatched in, also
+// by work that issues in that cycle, whatever FP pipes are free. The entry of
+// work dispatched earlier is free again from the cycle that work issues.
+func TestFPIssueQueueEntryLifetime(t *testing.T) {
+	// dispatchedAt returns how many instructions are in the window after
+	// dispatch has run in each of the cycles.
+	dispatchedAt := func(p *middleware, cycles ...uint64) []int {
+		t.Helper()
+		var counts []int
+		for _, cycle := range cycles {
+			p.comp.State.Cycles = cycle
+			p.fetchAndProcess()
+			if p.comp.State.Err != "" {
+				t.Fatal(p.comp.State.Err)
+			}
+			counts = append(counts, p.comp.State.RobCount)
+		}
+		return counts
+	}
+	// Three independent three-cycle operations that can each issue at once,
+	// and four FP pipes: only the queue spreads them over cycles.
+	ready := []uint32{faddD5D6D6, faddD7D6D6, faddD2D1D1}
+	for _, tc := range []struct {
+		queue      int
+		dispatched []int    // after cycles 1, 2 and 3
+		complete   []uint64 // of each operation
+	}{
+		{1, []int{1, 2, 3}, []uint64{4, 5, 6}},
+		{2, []int{2, 3, 3}, []uint64{4, 4, 5}},
+		{3, []int{3, 3, 3}, []uint64{4, 4, 4}},
+		{0, []int{3, 3, 3}, []uint64{4, 4, 4}},
+	} {
+		p := specPipeline(t, ready, nil, func(s *Spec) { s.FPIssueQueue, s.NumFP = tc.queue, 4 })
+		if got := dispatchedAt(p, 1, 2, 3); !reflect.DeepEqual(got, tc.dispatched) {
+			t.Errorf("queue of %d: %v instructions dispatched by cycles 1, 2, 3, want %v", tc.queue, got, tc.dispatched)
+		}
+		if got := p.comp.State.Rob[:len(ready)]; !reflect.DeepEqual(got, tc.complete) {
+			t.Errorf("queue of %d: completions %v, want %v", tc.queue, got, tc.complete)
+		}
+	}
+	// One entry, taken by an operation that waits until cycle 100. It is free
+	// for dispatch in cycle 100; the operation admitted then holds it for
+	// that cycle although it issues at once, however often dispatch runs.
+	p := specPipeline(t, []uint32{faddD2D1D1, faddD5D6D6, faddD7D6D6}, nil, func(s *Spec) { s.FPIssueQueue, s.NumFP = 1, 4 })
+	p.comp.State.FpReady[1] = 100
+	if got, want := dispatchedAt(p, 1, 2, 99, 100, 100, 101), []int{1, 1, 1, 2, 2, 3}; !reflect.DeepEqual(got, want) {
+		t.Errorf("waiting entry: %v instructions dispatched by cycles 1, 2, 99, 100, 100, 101, want %v", got, want)
 	}
 }
 
@@ -383,6 +498,7 @@ func TestLatencyTestEncodings(t *testing.T) {
 		scvtfD2W1: arm64asm.SCVTF, faddD0D1D2: arm64asm.FADD, fmulD0D1D2: arm64asm.FMUL, fdivD0D1D2: arm64asm.FDIV,
 		fmaddD3: arm64asm.FMADD, fmaddD3D3: arm64asm.FMADD, ldrD0X1: arm64asm.LDR, strD0X1: arm64asm.STR,
 		ldpD2D3X1: arm64asm.LDP, ldurX3X4p4: arm64asm.LDUR, strD1X2: arm64asm.STR,
+		ldpX6X7X4: arm64asm.LDP, faddD5D6D6: arm64asm.FADD, faddD7D6D6: arm64asm.FADD,
 	} {
 		if got := decodeWord(t, word).Op; got != want {
 			t.Errorf("%#x decodes to %v, want %v", word, got, want)

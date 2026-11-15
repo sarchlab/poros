@@ -137,6 +137,63 @@ func TestContinuedStrideIsPreferredToPairing(t *testing.T) {
 	}
 }
 
+// A stride walk stops prefetching at the PrefetchPageBytes boundary of the
+// demand access, in either direction, as a sequential stream does: the first
+// access in every page is a demand miss and the rest of the page is
+// prefetched. Zero is no boundary.
+func TestStridePrefetchStopsAtThePageBoundary(t *testing.T) {
+	const page, stride, steps = 4096, 1024, 16 // four accesses in each of four pages
+	for _, tc := range []struct {
+		name string
+		base uint64
+		step int64
+	}{
+		{"ascending", 0x4000000, stride},
+		{"descending", 0x4000000 + steps*stride - stride, -stride},
+	} {
+		for _, bound := range []int{page, 0} {
+			cfg := DefaultCacheConfig()
+			cfg.PrefetchStrideBytes, cfg.PrefetchPageBytes = 65536, bound
+			c := NewCache(cfg)
+			for i := 0; i < steps; i++ {
+				addr := uint64(int64(tc.base) + int64(i)*tc.step)
+				level, _ := c.Access(addr, 8, false, uint64(100+i))
+				// The last access of a page prefetches nothing of the next page.
+				if next := uint64(int64(addr) + tc.step); bound != 0 && next/page != addr/page && c.l2.peek(next) != nil {
+					t.Fatalf("%s: access %d at %#x prefetched %#x across the %d-byte boundary", tc.name, i, addr, next, bound)
+				}
+				// The first three misses train the walk. After that only the
+				// first access of a page is a demand miss, and only when bounded.
+				want := HitL2
+				if i < 3 || (bound != 0 && i%4 == 0) {
+					want = HitDRAM
+				}
+				if level != want {
+					t.Fatalf("%s, boundary %d: access %d at %#x from level %d, want %d (%+v)", tc.name, bound, i, addr, level, want, c.Stats())
+				}
+			}
+			// Bounded: three demand misses to train and one for each later page;
+			// the third miss of the first page prefetches its last access, and
+			// the first of every later page its other three. Unbounded: every
+			// trigger runs the full degree ahead.
+			s := c.Stats()
+			misses, prefetches := uint64(3), uint64((steps-2)*cfg.PrefetchDegree)
+			if bound != 0 {
+				misses, prefetches = 3+3, 1+3*3
+			}
+			if s.StreamsTrained != 1 || s.L2Misses != misses || s.Prefetches != prefetches {
+				t.Fatalf("%s, boundary %d: %+v, want %d demand misses and %d prefetches", tc.name, bound, s, misses, prefetches)
+			}
+		}
+	}
+	// A stride that leaves the page with every step is never prefetched.
+	cfg := DefaultCacheConfig()
+	cfg.PrefetchStrideBytes, cfg.PrefetchPageBytes = 65536, page
+	if c, levels := strideWalk(cfg, 0x4000000, 2*page, 8); c.Stats().Prefetches != 0 || levels[7] != HitDRAM {
+		t.Fatalf("stride of two pages prefetched across the boundary: %+v", c.Stats())
+	}
+}
+
 // Following strides leaves a sequential stream exactly as it was.
 func TestSequentialStreamUnchangedByStrideLimit(t *testing.T) {
 	plain := DefaultCacheConfig()

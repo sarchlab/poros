@@ -136,7 +136,8 @@ type State struct {
 	// Dividers that are resources of their own (Spec.NumIntDiv,
 	// Latencies.FPDivideOccupancy); empty otherwise.
 	IntDividers, FpDividers [][]UnitReservation
-	// With Spec.FPIssueQueue: the issue cycles of the FP work in the queue.
+	// With Spec.FPIssueQueue: for each entry in use, the first cycle in which
+	// dispatch can use it again (issuequeue.go).
 	FpQueue []uint64
 }
 type storeBufferEntry struct {
@@ -450,8 +451,10 @@ func (p *middleware) fetchAndProcess() {
 		// 5. Address-based load-store disambiguation (after StepDetailed
 		//    so actual addresses are available in p.comp.Resources.backend().MemoryAccesses()).
 		forwarding := loadForwarding{issueCycle: issueCycle}
-		// With StoreForwardLatency: when stores have supplied their accesses.
-		var supplied uint64
+		// With StoreForwardLatency: stores supply accesses of the load, and the
+		// data of the last of them issues at storeData.
+		var storeSupplied bool
+		var storeData uint64
 		if instinfo.IsLoad(inst.Op) {
 			accesses := p.comp.Resources.backend().MemoryAccesses()
 			if p.comp.Spec.StoreDependencePrediction {
@@ -460,7 +463,7 @@ func (p *middleware) fetchAndProcess() {
 			if ready, all, ok := p.suppliedLoad(accesses); ok {
 				// A load that stores supply only in part still reads the cache.
 				forwarding = loadForwarding{issueCycle: issueCycle, latency: uint64(p.comp.Spec.StoreForwardLatency), forwarded: all}
-				supplied = ready + forwarding.latency
+				storeSupplied, storeData = true, ready
 			} else {
 				forwarding = p.forwardLoad(accesses, issueCycle, directGPRTransfer(inst))
 			}
@@ -496,7 +499,7 @@ func (p *middleware) fetchAndProcess() {
 			issueCycle = p.reserveIssue(ut, issueCycle, occupancy)
 		}
 		if queued {
-			p.comp.State.FpQueue = append(p.comp.State.FpQueue, issueCycle)
+			p.holdFPEntry(issueCycle)
 		}
 		var latency, dataReady, storeDrain uint64
 		if instinfo.IsStore(inst.Op) {
@@ -523,8 +526,10 @@ func (p *middleware) fetchAndProcess() {
 		if forwarding.forwarded && forwarding.dataReady+latency > completeCycle {
 			completeCycle = forwarding.dataReady + latency
 		}
-		if supplied > completeCycle {
-			completeCycle = supplied
+		if storeSupplied {
+			// The forwarding path starts when the load and the store's data
+			// have both issued, also when the cache supplies other accesses.
+			completeCycle = max(completeCycle, max(issueCycle, storeData)+uint64(p.comp.Spec.StoreForwardLatency))
 		}
 		if mshr >= 0 {
 			p.comp.State.MshrBusyUntil[mshr] = completeCycle
