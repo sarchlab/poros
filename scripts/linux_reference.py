@@ -113,8 +113,11 @@ def bindings(root, summary):
 def collection_outputs(root, summary):
     """Use only complete-output identities from the exact measured revision."""
     import performance_reference as performance
-    raw = subprocess.check_output(["git", "-C", str(root), "show", summary["source_commit"] + ":" + performance.PATH])
-    identity = dict(commit=summary["source_commit"], path=performance.PATH, sha256=hashlib.sha256(raw).hexdigest())
+    commit = summary.get("source_commit")
+    require(isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit) is not None,
+            "native collection requires a full 40-hex source commit")
+    raw = subprocess.check_output(["git", "-C", str(root), "show", commit + ":" + performance.PATH])
+    identity = dict(commit=commit, path=performance.PATH, sha256=hashlib.sha256(raw).hexdigest())
     return {r["id"]: r for r in json.loads(raw)["cases"]}, identity
 
 
@@ -242,12 +245,21 @@ def build(root):
     return result
 
 
-if __name__ == "__main__":
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--build", action="store_true", help="recompile and verify all measured ELF hashes before importing")
-    args = parser.parse_args()
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--build", action="store_true", help="recompile and verify all measured ELF hashes before importing")
+    action.add_argument("--write", action="store_true", help="verify the retained ELF hashes and write the plotting view without recompiling")
+    args = parser.parse_args(argv)
     result = build(args.root) if args.build else derive(args.root)
-    if not args.build:
+    if args.write:
+        compute.write(args.root / REFERENCE, result)
+    elif not args.build:
         require(result == compute.read(args.root / REFERENCE), "derived native Linux reference changed")
     print(f"Grace native reference: {len(result['cases'])} points; {len(result['binary_bindings'])} exact ELF identities")
+    return result
+
+
+if __name__ == "__main__":
+    main()

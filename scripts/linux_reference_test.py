@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """External Grace observations are bound to the exact simulated ELF layout."""
 import copy
+import contextlib
 import hashlib
+import io
 import json
 from pathlib import Path
+import shutil
+import tarfile
 import tempfile
 import subprocess
 import unittest
@@ -19,6 +23,7 @@ import linux_reference as linux
 import model_profiles
 import performance_compare as comparison
 import performance_reference as performance
+import publish_accuracy as publisher
 import usertime as user
 import workload_contract as contract
 
@@ -127,6 +132,43 @@ class LinuxReferenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "measured Grace ELF hash mismatch"):
                 linux.bindings(folder, self.summary)
 
+    def test_invalid_collection_commit_is_rejected_before_any_git_command(self):
+        for value in ("--invalid", "main", "a" * 39, "A" * 40, None, 123):
+            with self.subTest(commit=value), patch.object(linux.subprocess, "check_output") as git:
+                with self.assertRaisesRegex(ValueError, "40-hex source commit"):
+                    linux.collection_outputs(ROOT, dict(self.summary, source_commit=value))
+                git.assert_not_called()
+
+    def test_write_refreshes_stale_importer_metadata_without_a_compiler(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            paths = set(self.reference["input_sources"]) | {linux.REFERENCE, "evaluation/workloads.json"}
+            for name in paths:
+                destination = root / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / name, destination)
+            # The temporary source uses the real read-only collection objects,
+            # but none of this test's writes touch the repository or its ELFs.
+            git_dir = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "--absolute-git-dir"], text=True).strip()
+            (root / ".git").write_text("gitdir: " + git_dir + "\n")
+            stale = copy.deepcopy(self.reference)
+            stale["input_sources"][linux.SCRIPT] = "0" * 64
+            compute.write(root / linux.REFERENCE, stale)
+            original = subprocess.check_output
+            def git_only(command, **options):
+                self.assertEqual(command[0], "git", "--write invoked a compiler")
+                return original(command, **options)
+            with patch.object(linux, "build", side_effect=AssertionError("--write recompiled ELF fixtures")), \
+                 patch.object(linux.subprocess, "check_output", side_effect=git_only), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(ValueError, "derived native Linux reference changed"):
+                    linux.main(["--root", folder])
+                written = linux.main(["--root", folder, "--write"])
+                self.assertEqual(written, self.reference)
+                self.assertEqual(linux.main(["--root", folder]), written)
+            for binary in written["binary_bindings"].values():
+                self.assertEqual(contract.digest(root / binary["file"]), binary["sha256"])
+
     def test_future_m2_timing_changes_do_not_change_grace_observations(self):
         original = compute.read
         def read(path):
@@ -190,6 +232,70 @@ class LinuxReferenceTests(unittest.TestCase):
             report["cases"].append(row)
         report["summary"] = compute.summaries(report["cases"], True)
         return report
+
+    def test_publisher_verifies_linux_bundle_against_exact_committed_summary(self):
+        """Stub only historical Git reads; use the real publisher and derivation."""
+        original_git = subprocess.check_output
+        with tempfile.TemporaryDirectory() as folder:
+            for tampered in (False, True):
+                report = self.report()
+                reference = copy.deepcopy(self.reference)
+                payload = {name: (ROOT / name).read_bytes() for name in report["head"]["files"]}
+                payload["evaluation/workloads.json"] = (ROOT / "evaluation/workloads.json").read_bytes()
+                if tampered:
+                    # A self-consistent artifact/source inventory with a stale
+                    # plotting row must still fail against its native summary.
+                    summary = copy.deepcopy(self.summary)
+                    summary["cases"][0]["median_user_seconds"] *= 1.01
+                    payload[linux.SUMMARY] = (json.dumps(summary, indent=2) + "\n").encode()
+                    summary_sha = hashlib.sha256(payload[linux.SUMMARY]).hexdigest()
+                    reference["source_summary"]["sha256"] = summary_sha
+                    reference["input_sources"][linux.SUMMARY] = summary_sha
+                    payload[linux.REFERENCE] = (json.dumps(reference, indent=2) + "\n").encode()
+                    report["reference_sha256"] = hashlib.sha256(payload[linux.REFERENCE]).hexdigest()
+                    report["reference"] = {k: v for k, v in reference.items()
+                                           if k not in ("cases", "input_sources", "collector_sources")}
+                report["head"]["files"] = {name: hashlib.sha256(raw).hexdigest() for name, raw in payload.items()}
+                bundle = Path(folder) / str(tampered)
+                compute.write(bundle / "report.json", report)
+                (bundle / "report.md").write_text("Synthetic publisher test; not timing evidence.\n")
+                (bundle / "reference.json").write_bytes(payload[linux.REFERENCE])
+                names = ("report.json", "report.md", "reference.json")
+                compute.write(bundle / "bundle.json", dict(schema=site.SCHEMA, commit=report["head"]["commit"],
+                              run_id=None, run_attempt=None,
+                              files={name: contract.digest(bundle / name) for name in names}))
+                site.validate_bundle(bundle, report["head"]["commit"])
+                archive = io.BytesIO()
+                with tarfile.open(fileobj=archive, mode="w") as tar:
+                    for name, raw in payload.items():
+                        item = tarfile.TarInfo(name)
+                        item.size = len(raw)
+                        tar.addfile(item, io.BytesIO(raw))
+
+                def git(command, **options):
+                    self.assertEqual(command[:3], ["git", "-C", str(ROOT)])
+                    action = command[3]
+                    if action == "ls-tree" and command[-1] in (report["head"]["commit"], report["base_commit"]):
+                        raw = ("\n".join(payload) + "\n").encode()
+                    elif action == "show" and command[-1].split(":", 1)[0] in (report["head"]["commit"], report["base_commit"]):
+                        name = command[-1].split(":", 1)[1]
+                        if name not in payload:  # Baseline loader/resource capability.
+                            return original_git([*command[:-1], self.summary["source_commit"] + ":" + name], **options)
+                        raw = payload[name]
+                    elif action == "archive" and command[4] == report["head"]["commit"]:
+                        raw = archive.getvalue()
+                    else:  # The real measured-commit oracle and source bytes.
+                        return original_git(command, **options)
+                    return raw.decode() if options.get("text") else raw
+
+                with patch.object(publisher.subprocess, "check_output", side_effect=git), \
+                     patch.object(performance, "require_collection_ancestor") as ancestor:
+                    if tampered:
+                        with self.assertRaisesRegex(ValueError, "native Linux reference differs from exact source/summary"):
+                            publisher.verify_source(ROOT, bundle, report["head"]["commit"])
+                    else:
+                        publisher.verify_source(ROOT, bundle, report["head"]["commit"])
+                    ancestor.assert_called_once_with(ROOT, self.summary["source_commit"], report["head"]["commit"])
 
     def test_bundle_live_and_per_benchmark_curves_use_grace_data_and_label_m2_parameters(self):
         report = self.report()

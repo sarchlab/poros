@@ -9,6 +9,8 @@ Run `python3 scripts/linux_reference.py --build` from the repository root to
 rebuild from the exact recorded source revision and verify every measured
 SHA-256. The toolchain used by the acquisition is documented in the Grace
 measurement README. A compiler producing different bytes is rejected.
+`python3 scripts/linux_reference.py --write` verifies the retained fixtures and
+refreshes the plotting view without invoking a compiler.
 
 The compact reference carries an explicit binary binding for each original
 program. Both head and baseline simulator executions receive these same Grace

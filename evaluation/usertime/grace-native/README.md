@@ -86,7 +86,10 @@ The command builds the recorded source commit in a temporary directory, applies
 only the documented linker alignment changes, and requires every resulting ELF
 hash to match `summary.json`. It leaves the existing M2/M1 fixtures unchanged.
 Without `--build`, the command checks the retained fixtures and deterministic
-summary conversion. Raw native captures remain external; the importer validates
+summary conversion. After editing the importer, regenerate the plotting view
+without a compiler with `python3 scripts/linux_reference.py --write`; this still
+checks every retained ELF hash and the exact measured source/input identities.
+Raw native captures remain external; the importer validates
 the submitted summary and exact executable/input identities, not those absent
 5,808 process records. No new Grace hardware measurement is needed to run the
 simulator comparison.
