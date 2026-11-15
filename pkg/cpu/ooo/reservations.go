@@ -18,11 +18,19 @@ func (p *middleware) units(ut unitType) [][]UnitReservation {
 	switch ut {
 	case unitINT:
 		return p.comp.State.IntUnits
+	case unitIntDiv:
+		if len(p.comp.State.IntDividers) > 0 {
+			return p.comp.State.IntDividers
+		}
+		return p.comp.State.IntUnits
 	case unitSelectFusion:
 		return p.comp.State.IntUnits[p.comp.Spec.NumINT-p.comp.Spec.NumSelectFusion:]
 	case unitFP:
 		return p.comp.State.FpUnits
 	case unitFPDiv:
+		if len(p.comp.State.FpDividers) > 0 {
+			return p.comp.State.FpDividers
+		}
 		return p.comp.State.FpUnits[:p.comp.Spec.NumFPDiv]
 	case unitLoad:
 		if p.comp.Spec.NumLoad > 0 {
@@ -42,7 +50,7 @@ func (p *middleware) units(ut unitType) [][]UnitReservation {
 // Discard only intervals that have ended at the actual pipeline cycle. A
 // future operand-ready time must not erase reservations needed by younger work.
 func (p *middleware) pruneUnitReservations() {
-	for _, units := range [][][]UnitReservation{p.comp.State.IntUnits, p.comp.State.FpUnits, p.comp.State.LdstUnits} {
+	for _, units := range [][][]UnitReservation{p.comp.State.IntUnits, p.comp.State.FpUnits, p.comp.State.LdstUnits, p.comp.State.IntDividers, p.comp.State.FpDividers} {
 		for i, list := range units {
 			n := 0
 			for n < len(list) && list[n].End <= p.comp.State.Cycles {

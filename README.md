@@ -62,12 +62,13 @@ own builder in `pkg/target` and supplies the out-of-order and in-order
 configuration, the cache hierarchy and the clock. An explicit `--frequency-hz`
 still overrides the clock.
 
-Only `m2` has parameters of its own. `m1`, `grace` and `m5-max` currently carry
-the M2 core, memory and frequency unchanged, so their cycle counts equal M2's
+`m2`, `m1` and `grace` have parameters of their own, declared and sourced in
+[the model profiles](evaluation/model-profile.md). `m5-max` currently carries
+the M2 core, memory and frequency unchanged, so its cycle counts equal M2's
 and say nothing yet about that hardware. Every timing result states this:
 
 ```json
-"target": {"name": "m1", "hardware": "Apple M1", "parameter_source": "m2"}
+"target": {"name": "m5-max", "hardware": "Apple M5 Max", "parameter_source": "m2"}
 ```
 
 `parameter_source` names the target whose parameters were simulated. The

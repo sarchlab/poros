@@ -5,13 +5,13 @@ accuracy harness. The Go test `TestDeclaredModelProfileMatchesRuntimeDefaults`
 checks it against the actual CPU and cache defaults. Keep the declaration in
 canonical JSON (sorted keys, two-space indentation, final newline).
 
-This is the Apple M2 profile, the simulator's `m2` target. The other
-[modeled devices](README.md#modeled-devices) name `m2` as their parameter source
-and are validated against this same declaration until they have parameters of
-their own; `TestDeclaredModelProfileCoversTargetsCarryingIt` checks each of them.
+This is the Apple M2 profile, the simulator's `m2` target. A
+[modeled device](README.md#modeled-devices) that names `m2` as its parameter
+source is validated against this same declaration until it has parameters of
+its own; `TestDeclaredModelProfileCoversTargetsCarryingIt` checks each of them.
 A device with parameters of its own declares them in
-`model-profile-<device>.json`; at present only `m1` does (see
-[Apple M1 profile](#apple-m1-profile)).
+`model-profile-<device>.json`: `m1` (see [Apple M1 profile](#apple-m1-profile))
+and `grace` (see [NVIDIA Grace profile](#nvidia-grace-profile)).
 
 ## Apple M1 profile
 
@@ -241,6 +241,147 @@ Limits and gaps:
 - A prefetch for write 2 KiB ahead of each store halves the cost on M1 (3.7
   per trip); the simulator does not execute PRFM.
 - M2 has no rows of this kind; its profile is unchanged.
+
+## NVIDIA Grace profile
+
+`model-profile-grace.json` is the `grace` target: the M2 profile with the
+differences below. No probe was run on a Grace core for it. Its sources are
+Arm's and NVIDIA's documents, the environment recorded with the
+[GH200 user times](usertime/grace-native/README.md), and those user times
+themselves. `TestGraceDiffersFromM2OnlyInDeclaredParameters` keeps every other
+parameter equal to M2's. The new core fields are zero or absent in the M2 and M1
+profiles, so their declarations and timing are unchanged.
+
+Documents: Arm Neoverse V2 Core Software Optimization Guide, PJDOC-466751330-593177
+Issue 3.0 (SWOG); Arm Neoverse V2 Core Technical Reference Manual,
+102375_0001_02_en Issue 02 (TRM); NVIDIA Grace CPU datasheet, October 2024.
+
+**Published.**
+
+- `latencies.multiply` 2: MUL, MADD and MSUB take two cycles (SWOG Table 3-4).
+  UMULH keeps three, which is also its published value.
+- `latencies.divide_base` 4, `divide_bits_per_cycle` 4 and `num_int_div` 1:
+  SDIV and UDIV take 5 to 12 cycles in the 32-bit form and 5 to 20 in the
+  64-bit form on one pipeline, use an iterative algorithm that ends early
+  "depending upon the data values", and block later divides until complete
+  (Table 3-4, note 1). The model gives the core one divider that delays only
+  other divides, and a divide four cycles plus one for every four significant
+  bits of the quotient's magnitude, at least five. That rule reproduces both
+  published ranges; that the early ending follows the quotient's length is an
+  assumption.
+- `latencies.fp_arithmetic` 2 and `fp_multiply` 3: FADD, FSUB, FABS, FNEG,
+  FCSEL and FCMP take two cycles, FMUL three (Table 3-11). FP conversions keep
+  three, their published value (Table 3-12); FMOV keeps the M2 value.
+- `latencies.fp_accumulate` 2: a fused multiply-add takes four cycles, two from
+  its addend when another fused multiply-add or an FP multiply produced it
+  (Table 3-11, notes 2 and 3).
+- `latencies.fp_divide` 15, `fp_divide_occupancy` 7 and `num_fp_div` 2: FDIV
+  takes 7 to 15 cycles for double precision on two pipelines, with a throughput
+  of 4/7 to 2/7 per cycle (Table 3-11). The model gives the core two FP
+  dividers that delay only other divides and square roots; each starts a divide
+  every seven cycles, which is the published 2/7 per cycle at the 15-cycle end.
+  It uses 15 cycles for every divide; see the inferences below.
+- `L1Latency` 4, `latencies.fp_load_extra` 2, `num_ldst` 3 with `num_load` 3
+  and `num_store` 2: an integer load takes four cycles and a load into an FP
+  register six; three pipelines load and two of them also generate store
+  addresses (Tables 3-7, 3-13 and 2-1).
+- `L1Size` 64 KiB with `L1Ways` 4; `L2Size` 1 MiB with `L2Ways` 8 and
+  `L2LineSize` 64 (TRM, L1 data and L2 memory systems; the datasheet gives
+  1 MiB per core for Grace).
+- `SLCSize` 114 MiB: the datasheet's L3 capacity for a 72-core Grace. The
+  model's record of L2 victims is given that capacity. Its policy and its
+  138-cycle latency are M2's and are not established for Grace.
+- `TLBSets` 256 with `TLBWays` 8: the second-level TLB has 2,048 entries and
+  eight ways (TRM, translation table). The 48-entry first level and its
+  six-cycle penalty are not modelled.
+- `num_select_fusion` is unchanged: the SWOG lists CMP with CSEL among the
+  fused pairs (section 4.11). It gives no latency for the pair; the model keeps
+  the one cycle and the forms measured on M2.
+
+**Observed on the measured host.**
+
+- `TLBPageBytes` 65,536: the kernel uses 64 KiB pages.
+- `freq` 3,429,000,000 Hz: the maximum the host reports for the pinned core
+  under the performance governor. The frequency the core ran at was not
+  observed, so this is an assumption. NVIDIA's datasheet gives a base frequency
+  of 3.1 GHz and an all-core SIMD frequency of 3.0 GHz; Laukemann, Hager and
+  Wellein (arXiv:2409.08108) counted a constant 3.4 GHz on another Grace
+  machine. Every predicted time scales inversely with this value.
+
+**Inferred from the GH200 user times.** These are effective values. They come
+from the time per loop trip of programs whose inner loops are dependency
+chains, converted at the assumed clock and reduced by the published latencies
+above. They are not measurements of the structures they are named after.
+
+- `store_forward_latency` 6: a load supplied by an in-flight store has its
+  value six cycles after the store's data issues, whatever the instruction
+  forms and the register class. With FADD at two cycles, 2mm's accumulation
+  through memory takes 7.6 cycles per trip (a forward of 5.6). seidel2d's trip
+  is one forward, six FADD and one FDIV in 32.7 cycles, and adi's forward and
+  backward trips together are two forwards, two FMUL, two FADD or FSUB and one
+  FDIV in 36.8; both give a forward of 5.7 to 5.9 if the FDIV takes 15.
+  nussinov's integer maximum through memory takes 6.4 cycles per trip, a
+  forward of 5.4 with the fused compare and select at one cycle. The SWOG
+  describes which loads can be forwarded (section 4.5) and gives no latency.
+- `latencies.fp_divide` 15 for every divide: the top of the published range.
+  The seidel2d and adi trips above agree on it together with the forward; a
+  shorter divide would need a longer forward than 2mm shows.
+- `fp_issue_queue` 36: FP operations and FP store data wait in a queue of 36
+  entries between dispatch and issue, and dispatch stops while it is full
+  (`pkg/cpu/ooo/issuequeue.go`). Consecutive dependency chains overlap on the
+  GH200 by less than the 256-instruction window allows: about 26 trips of one
+  waiting FMADD in swaptions, about 16 trips of one FADD and one FP store in
+  doitgen, and at least 25 trips in ferret. Read as waiting FP work these are
+  30 to 40 entries. Neither document gives an issue-queue size.
+- `branch_penalty` 11: the legacy branch microbenchmark, a multiply chain with
+  one branch mispredicted every other trip, takes 8.95 cycles per trip; with
+  the published two-cycle multiply that leaves 10.9 cycles per misprediction.
+  Neither document gives a penalty.
+- `PrefetchStrideBytes` 65,536: the stream prefetcher also follows a constant
+  stride between demand misses, up to one page (`pkg/mem/stride.go`). The TRM
+  says the load-side prefetcher fills both the L1 and the L2 cache and does not
+  give its patterns. deriche's column passes step 6 to 8 KB through images of
+  7 to 12 MB, far more than the 1 MiB L2, and the GH200 runs deriche in 0.78 to
+  0.89 of the M2's time; with sequential streams only, every such step is an
+  unprefetched miss and the model takes 1.9 times the GH200's time at the
+  smallest point. The page as the limit is an assumption.
+
+**Carried from M2 and not established for Grace:** the 256-instruction window,
+retirement and dispatch width (the SWOG gives eight MOPs per cycle), the branch
+predictor, the fetch rule that ends a group at a taken branch, the L2 latency,
+the memory-side and DRAM latencies, both fill transports, the stream
+prefetcher, the miss and store buffers, and page-walk timing.
+
+Known gaps:
+
+- The integer microbenchmark's MADD chain takes 2.3 cycles per step at the
+  assumed clock where the SWOG gives two, so the model is 13% fast there. At
+  3.0 GHz the step would be two cycles, but seidel2d's chain would then be
+  shorter than its published arithmetic allows with a 15-cycle divide.
+- Input loops with one SDIV, one SCVTF and one FDIV per element (atax,
+  gesummv, mvt and others) take about 7.7 to 8.5 cycles per element on the
+  GH200. The published divider and FDIV throughput bound them at 5 to 7, and
+  the model is 26% fast on atax and 16% on gesummv at their smallest points. An
+  FDIV divider busy for all 15 cycles would close atax, but it contradicts the
+  published throughput and is not modelled.
+- The stride follower hides more than the GH200 does. mvt's column walk at
+  3,072 rows steps 24,576 bytes and conflicts in both caches; the GH200 pays
+  about four cycles per access for it and the model nothing. With the input
+  loop above, that point is 29% fast, where the M2 parameters happened to be
+  3% off. syr2k's short walks, restarted for every column, are 29% fast at its
+  smallest point. Without the follower deriche is 1.9 times slow at its
+  smallest point. syr2k was 5% fast and symm 28% slow there in a run that
+  lacked the follower and also kept each FP divider busy for 15 cycles; by
+  their element counts the divider accounts for about one point of each.
+- The L2, memory-side and DRAM latencies, both fill transports and the miss
+  buffers are M2's. Nothing here measures them on Grace.
+- Loops of 8 to 10 instructions run at 1.75 to 2.0 cycles per trip on the
+  GH200 (gemm, floydwarshall, jacobi1d); the carried fetch rule gives 1 or 2.
+- Chains of 2mm, 3mm, covariance, trmm and lu overlap less on the GH200 than
+  the issue queue allows (about 6 trips in 2mm against 15), and the model is 6
+  to 11% fast there.
+- FDIV is always 15 cycles and the early ending of the integer divider is a
+  rule fitted to two published ranges; neither was measured.
 
 This declaration is independent of frozen workload manifests and native reference
 measurements. A calibration change updates the simulation declaration, without

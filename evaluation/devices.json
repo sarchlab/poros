@@ -24,7 +24,7 @@
     {
       "hardware": "NVIDIA Grace (Arm Neoverse V2)",
       "id": "grace",
-      "parameter_source": "m2",
+      "parameter_source": "grace",
       "references": {
         "application": "evaluation/usertime/grace-native/performance-v1.json"
       }

@@ -172,3 +172,45 @@ func TestM1DiffersFromM2OnlyInMeasuredParameters(t *testing.T) {
 		t.Fatal("M1 differs from M2 in an undeclared parameter")
 	}
 }
+
+// Grace is the M2 configuration except for the parameters its profile
+// declares; everything else stays M2's. M2 and M1 use none of the mechanisms
+// that exist for Grace, so their timing cannot have changed with them.
+func TestGraceDiffersFromM2OnlyInDeclaredParameters(t *testing.T) {
+	grace, m2 := Grace(), M2()
+	if grace.ParameterSource != "grace" || grace.OoO.Freq != GraceFrequency || grace.InOrder.Freq != GraceFrequency {
+		t.Fatalf("Grace identity or clock: %+v", grace)
+	}
+	for _, device := range []Target{m2, M1()} {
+		core := device.OoO
+		if core.Latencies != (ooo.Latencies{}) || core.NumIntDiv != 0 || core.StoreForwardLatency != 0 || core.FPIssueQueue != 0 {
+			t.Fatalf("%s must keep the default latencies, dividers, forwarding and issue queue: %+v", device.Name, core)
+		}
+		if device.Cache.PrefetchStrideBytes != 0 {
+			t.Fatalf("%s must keep the sequential-only stream prefetcher", device.Name)
+		}
+	}
+	if grace.OoO.NumSelectFusion != m2.OoO.NumSelectFusion || grace.OoO.StoreDependencePrediction || grace.OoO.ROBCapacity != m2.OoO.ROBCapacity {
+		t.Fatalf("Grace must keep M2's compare/select fusion, dependence timing and window: %+v", grace.OoO)
+	}
+	core := grace.OoO
+	core.Freq, core.Latencies = m2.OoO.Freq, ooo.Latencies{}
+	core.NumIntDiv, core.NumFPDiv = 0, m2.OoO.NumFPDiv
+	core.NumLDST, core.NumLoad, core.NumStore = m2.OoO.NumLDST, m2.OoO.NumLoad, m2.OoO.NumStore
+	core.StoreForwardLatency, core.FPIssueQueue, core.BranchPenalty = 0, 0, m2.OoO.BranchPenalty
+	inorder := grace.InOrder
+	inorder.Freq = m2.InOrder.Freq
+	cache := grace.Cache
+	cache.L1Size, cache.L1Ways, cache.L1Latency = m2.Cache.L1Size, m2.Cache.L1Ways, m2.Cache.L1Latency
+	cache.L2Size, cache.L2Ways, cache.L2LineSize = m2.Cache.L2Size, m2.Cache.L2Ways, m2.Cache.L2LineSize
+	cache.SLCSize, cache.PrefetchStrideBytes = m2.Cache.SLCSize, 0
+	cache.TLBPageBytes, cache.TLBSets, cache.TLBWays = m2.Cache.TLBPageBytes, m2.Cache.TLBSets, m2.Cache.TLBWays
+	if !reflect.DeepEqual(core, m2.OoO) || !reflect.DeepEqual(inorder, m2.InOrder) || !reflect.DeepEqual(cache, m2.Cache) {
+		t.Fatal("Grace differs from M2 in an undeclared parameter")
+	}
+	// The published geometry, as the profile documents it.
+	if c := grace.Cache; c.L1Size != 64<<10 || c.L1Ways != 4 || c.L2Size != 1<<20 || c.L2Ways != 8 || c.L2LineSize != 64 ||
+		c.TLBPageBytes != 64<<10 || c.TLBSets*c.TLBWays != 2048 {
+		t.Fatalf("Grace cache or translation geometry: %+v", c)
+	}
+}

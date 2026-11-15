@@ -1,0 +1,391 @@
+package ooo
+
+import (
+	"encoding/json"
+	"math"
+	"reflect"
+	"testing"
+
+	instinfo "github.com/sarchlab/poros/pkg/cpu/internal/inst"
+	"golang.org/x/arch/arm64/arm64asm"
+)
+
+const (
+	sdivW0W1W2  = 0x1ac20c20 // SDIV W0, W1, W2
+	sdivX0X1X2  = 0x9ac20c20 // SDIV X0, X1, X2
+	udivW0W1W2  = 0x1ac20820 // UDIV W0, W1, W2
+	udivX0X1X2  = 0x9ac20820 // UDIV X0, X1, X2
+	sdivWZRW1W2 = 0x1ac20c3f // SDIV WZR, W1, W2
+	udivW1W1W2  = 0x1ac20821 // UDIV W1, W1, W2
+	mulX0X1X2   = 0x9b027c20 // MUL X0, X1, X2
+	umulhX0X1X2 = 0x9bc27c20 // UMULH X0, X1, X2
+	scvtfD2W1   = 0x1e620022 // SCVTF D2, W1
+	faddD0D1D2  = 0x1e622820 // FADD D0, D1, D2
+	faddD3D1D2  = 0x1e622823 // FADD D3, D1, D2
+	faddD2D1D1  = 0x1e612822 // FADD D2, D1, D1
+	faddD3D1D1  = 0x1e612823 // FADD D3, D1, D1
+	faddD4D1D1  = 0x1e612824 // FADD D4, D1, D1
+	fmulD0D1D2  = 0x1e620820 // FMUL D0, D1, D2
+	fmulD3D1D2  = 0x1e620823 // FMUL D3, D1, D2
+	fmaddD3     = 0x1f420c23 // FMADD D3, D1, D2, D3
+	fmaddD3D3   = 0x1f420c63 // FMADD D3, D3, D2, D3
+	ldrD0X1     = 0xfd400020 // LDR D0, [X1]
+	ldrD2X1     = 0xfd400022 // LDR D2, [X1]
+	strD0X1     = 0xfd000020 // STR D0, [X1]
+	strD1X2     = 0xfd000041 // STR D1, [X2]
+	ldpD2D3X1   = 0x6d400c22 // LDP D2, D3, [X1]
+	ldurX3X4p4  = 0xf8404083 // LDUR X3, [X4, #4]
+)
+
+// The zero value changes no latency, and an override reaches exactly the
+// instructions of its class.
+func TestLatenciesOverrideOnlyTheirClass(t *testing.T) {
+	grace := Latencies{Multiply: 2, FPArithmetic: 2, FPMultiply: 3, FPDivide: 15}
+	for _, tc := range []struct {
+		word uint32
+		want uint64 // with the overrides; the default is instinfo.ExecuteLatency
+	}{
+		{mulX0X1X2, 2}, {umulhX0X1X2, 3}, {faddD0D1D2, 2}, {fmulD0D1D2, 3}, {fdivD0D1D2, 15},
+		{scvtfD2W1, 3}, {fmaddD3, 4}, {addX9, 1}, {sdivW0W1W2, 10},
+	} {
+		inst := decodeWord(t, tc.word)
+		plain := specPipeline(t, []uint32{tc.word}, nil, nil)
+		if got, want := plain.executeLatency(inst), uint64(instinfo.ExecuteLatency(inst.Op)); got != want {
+			t.Errorf("%v: zero Latencies give %d, default is %d", inst, got, want)
+		}
+		changed := specPipeline(t, []uint32{tc.word}, nil, func(s *Spec) { s.Latencies = grace })
+		if got := changed.executeLatency(inst); got != tc.want {
+			t.Errorf("%v: %d cycles with overrides, want %d", inst, got, tc.want)
+		}
+	}
+}
+
+// An early-ending divider takes its fixed part plus one cycle for every four
+// significant bits of the quotient's magnitude, read from the operands: the
+// destination may be the dividend or the zero register.
+func TestDividerEndsEarlyOnShortQuotients(t *testing.T) {
+	const minInt32, minInt64 = uint64(1) << 31, uint64(1) << 63
+	for _, tc := range []struct {
+		name              string
+		word              uint32
+		dividend, divisor uint64
+		want              uint64
+	}{
+		{"quotient zero", udivW0W1W2, 7, 8, 5},
+		{"four bits", udivW0W1W2, 15, 1, 5},
+		{"five bits", udivW0W1W2, 16, 1, 6},
+		{"32 bits", udivW0W1W2, math.MaxUint32, 1, 12},
+		{"64 bits", udivX0X1X2, math.MaxUint64, 1, 20},
+		{"upper half ignored by the 32-bit form", udivW0W1W2, 0xffffffff00000007, 8, 5},
+		{"negative quotient uses its magnitude", sdivW0W1W2, uint64(uint32(0xfffffff9)), 2, 5}, // -7 / 2
+		{"most negative 32-bit dividend", sdivW0W1W2, minInt32, uint64(uint32(0xffffffff)), 12},
+		{"most negative 64-bit dividend", sdivX0X1X2, minInt64, 1, 20},
+		{"division by zero", sdivW0W1W2, 1 << 30, 0, 5},
+		{"quotient discarded", sdivWZRW1W2, math.MaxInt32, 1, 12},
+		{"destination is the dividend", udivW1W1W2, math.MaxUint32, 1, 12},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := specPipeline(t, []uint32{tc.word}, nil, func(s *Spec) {
+				s.Latencies.DivideBase, s.Latencies.DivideBitsPerCycle = 4, 4
+			})
+			p.comp.Resources.Emu.Regs.WriteX(1, tc.dividend)
+			p.comp.Resources.Emu.Regs.WriteX(2, tc.divisor)
+			p.fetchAndProcess()
+			if got := p.comp.State.Rob[0] - 1; p.comp.State.Err != "" || got != tc.want {
+				t.Fatalf("%d cycles, want %d (err %q)", got, tc.want, p.comp.State.Err)
+			}
+			// The divide keeps its unit for as long as it runs.
+			if want := []UnitReservation{{1, 1 + tc.want}}; !reflect.DeepEqual(p.comp.State.IntUnits[0], want) {
+				t.Fatalf("reservations %+v, want %+v", p.comp.State.IntUnits[0], want)
+			}
+		})
+	}
+	// A fixed latency without early ending.
+	p := specPipeline(t, []uint32{udivW0W1W2}, nil, func(s *Spec) { s.Latencies.DivideBase = 7 })
+	p.comp.Resources.Emu.Regs.WriteX(1, math.MaxUint32)
+	p.comp.Resources.Emu.Regs.WriteX(2, 1)
+	p.fetchAndProcess()
+	if p.comp.State.Rob[0] != 8 {
+		t.Fatalf("fixed divide completes at %d, want 8", p.comp.State.Rob[0])
+	}
+}
+
+// By default a divide occupies an integer pipe, so other work on that pipe
+// waits for it. A divider of its own blocks only the next divide.
+func TestIntegerDividerBlocksOnlyDivides(t *testing.T) {
+	for _, tc := range []struct {
+		dividers       int
+		add, secondDiv uint64 // completion cycles
+	}{
+		{0, 12, 22}, // divide 1..11, ADD 11..12, divide 12..22
+		{1, 2, 21},  // ADD 1..2 on the pipe; dividers 1..11 and 11..21
+	} {
+		p := specPipeline(t, []uint32{udivW0W1W2, addX9, udivW0W1W2}, nil, func(s *Spec) { s.NumIntDiv = tc.dividers })
+		p.comp.Resources.Emu.Regs.WriteX(2, 1)
+		p.fetchAndProcess()
+		state := p.comp.State
+		if state.Err != "" || state.Rob[0] != 11 || state.Rob[1] != tc.add || state.Rob[2] != tc.secondDiv {
+			t.Fatalf("dividers=%d: divide %d, add %d, divide %d (err %q)", tc.dividers, state.Rob[0], state.Rob[1], state.Rob[2], state.Err)
+		}
+		if got := len(state.IntDividers); got != tc.dividers {
+			t.Fatalf("dividers=%d: %d divider calendars", tc.dividers, got)
+		}
+	}
+}
+
+// With an occupancy of its own, an FDIV holds one of the FP dividers and no FP
+// pipe; without it the divide takes one issue slot of its pipe as before.
+func TestFPDividerOccupancy(t *testing.T) {
+	for _, tc := range []struct {
+		occupancy, dividers int
+		add, secondDiv      uint64 // issue cycles
+	}{
+		{0, 1, 2, 3},   // one shared FP pipe: FDIV 1, FADD 2, FDIV 3
+		{15, 1, 1, 16}, // the divider is busy 1..16; the FADD is not delayed
+		{15, 2, 1, 1},  // a second divider takes the second divide at once
+	} {
+		p := specPipeline(t, []uint32{fdivD0D1D2, faddD3D1D2, fdivD0D1D2}, nil, func(s *Spec) {
+			s.Latencies.FPDivideOccupancy, s.NumFPDiv, s.NumFP = tc.occupancy, tc.dividers, max(1, tc.dividers)
+		})
+		p.fetchAndProcess()
+		state := p.comp.State
+		addLatency, divLatency := uint64(3), uint64(10)
+		if state.Err != "" || state.Rob[1] != tc.add+addLatency || state.Rob[2] != tc.secondDiv+divLatency {
+			t.Fatalf("occupancy=%d dividers=%d: add completes %d, second divide %d (err %q)", tc.occupancy, tc.dividers, state.Rob[1], state.Rob[2], state.Err)
+		}
+	}
+}
+
+// A fused multiply-add whose addend comes from an FP multiply or another
+// fused multiply-add may issue before the addend is ready, by its latency less
+// the accumulate latency. Any other producer, and a multiplicand, is needed at
+// issue.
+func TestFusedMultiplyAddForwardsItsAddendLate(t *testing.T) {
+	chain := func(accumulate int, words ...uint32) []uint64 {
+		p := specPipeline(t, words, nil, func(s *Spec) { s.Latencies.FPAccumulate, s.NumFP = accumulate, 4 })
+		p.fetchAndProcess()
+		if p.comp.State.Err != "" {
+			t.Fatal(p.comp.State.Err)
+		}
+		return append([]uint64{}, p.comp.State.Rob[:len(words)]...)
+	}
+	for _, tc := range []struct {
+		name       string
+		accumulate int
+		words      []uint32
+		want       []uint64
+	}{
+		{"default: every operand at issue", 0, []uint32{fmaddD3, fmaddD3, fmaddD3}, []uint64{5, 9, 13}},
+		{"accumulate chain", 2, []uint32{fmaddD3, fmaddD3, fmaddD3}, []uint64{5, 7, 9}},
+		{"addend from an FP multiply", 2, []uint32{fmulD3D1D2, fmaddD3}, []uint64{5, 7}},
+		{"addend from an FP add is not forwarded late", 2, []uint32{faddD3D1D2, fmaddD3}, []uint64{4, 8}},
+		{"addend that is also a multiplicand", 2, []uint32{fmaddD3, fmaddD3D3}, []uint64{5, 9}},
+		{"accumulate latency no shorter than the result latency", 4, []uint32{fmaddD3, fmaddD3}, []uint64{5, 9}},
+	} {
+		if got := chain(tc.accumulate, tc.words...); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: completions %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	// A load into the register ends the late forwarding of its old producer.
+	p := specPipeline(t, []uint32{fmaddD3, 0xfd400023, fmaddD3}, nil, func(s *Spec) { s.Latencies.FPAccumulate, s.NumFP = 2, 4 }) // LDR D3, [X1]
+	p.comp.Resources.Emu.Regs.WriteX(1, 0x2000)
+	p.fetchAndProcess()
+	if state := p.comp.State; state.Err != "" || state.FpLateForward[3] != true || state.Rob[2] != state.Rob[1]+4 {
+		t.Fatalf("after a load: load ready %d, multiply-add %d (err %q)", state.Rob[1], state.Rob[2], state.Err)
+	}
+}
+
+// storeThenLoad dispatches a store whose data is ready at cycle 100 and then
+// a load, and returns the load's completion cycle.
+func storeThenLoad(t *testing.T, store, load uint32, storeAddress, loadAddress uint64, adjust func(*Spec)) uint64 {
+	t.Helper()
+	p := specPipeline(t, []uint32{store, load}, nil, func(s *Spec) {
+		s.NumLDST = 2
+		adjust(s)
+	})
+	regs := p.comp.Resources.Emu.Regs
+	for _, register := range []int{1, 2} { // base of either store form
+		regs.WriteX(register, storeAddress)
+	}
+	if store == strX1X2 {
+		regs.WriteX(2, storeAddress)
+		p.comp.State.GprReady[1] = 100
+	} else {
+		p.comp.State.FpReady[0], p.comp.State.FpReady[1] = 100, 100
+	}
+	if load == ldrX3X4 || load == ldurX3X4p4 {
+		regs.WriteX(4, loadAddress)
+	}
+	p.fetchAndProcess()
+	if p.comp.State.Err != "" || p.comp.State.RobCount != 2 {
+		t.Fatalf("err=%q dispatched=%d", p.comp.State.Err, p.comp.State.RobCount)
+	}
+	return p.comp.State.Rob[1]
+}
+
+// With a store-forward latency, every load that one in-flight store supplies
+// has its value that many cycles after the store's data issues, whatever the
+// forms and the register class; FPLoadExtra belongs to the cache path only.
+func TestStoreForwardLatencyIsOnePath(t *testing.T) {
+	single := func(s *Spec) { s.StoreForwardLatency, s.Latencies.FPLoadExtra = 6, 2 }
+	if got := storeThenLoad(t, strX1X2, ldrX3X4, 0x2000, 0x2000, single); got != 106 {
+		t.Errorf("integer load of the stored bytes ready at %d, want 106", got)
+	}
+	if got := storeThenLoad(t, strD0X1, ldrD2X1, 0x2000, 0, single); got != 106 {
+		t.Errorf("FP load of the stored bytes ready at %d, want 106", got)
+	}
+	// Half of a pair comes from the store and half from memory.
+	if got := storeThenLoad(t, strD0X1, ldpD2D3X1, 0x2000, 0, single); got != 106 {
+		t.Errorf("pair load with one stored half ready at %d, want 106", got)
+	}
+	// A store that holds only part of an access is not forwarded: the load
+	// waits for the store to complete (three cycles) and then reads memory.
+	if got, want := storeThenLoad(t, strX1X2, ldurX3X4p4, 0x2000, 0x2000, single), uint64(100+3+5); got != want {
+		t.Errorf("partly overlapping load ready at %d, want %d", got, want)
+	}
+	// Without the knob the two paths of forwardLoad remain: one cycle for the
+	// exact integer form, completion plus five for the FP form.
+	off := func(*Spec) {}
+	if got := storeThenLoad(t, strX1X2, ldrX3X4, 0x2000, 0x2000, off); got != 101 {
+		t.Errorf("default exact path ready at %d, want 101", got)
+	}
+	if got := storeThenLoad(t, strD0X1, ldrD2X1, 0x2000, 0, off); got != 108 {
+		t.Errorf("default FP path ready at %d, want 108", got)
+	}
+}
+
+// A forwarded value is never ready before the load itself could issue.
+func TestStoreForwardWaitsForTheLoadAddress(t *testing.T) {
+	p := specPipeline(t, []uint32{strX1X2, ldrX3X4}, nil, func(s *Spec) { s.NumLDST, s.StoreForwardLatency = 2, 6 })
+	regs := p.comp.Resources.Emu.Regs
+	regs.WriteX(2, 0x2000)
+	regs.WriteX(4, 0x2000)
+	p.comp.State.GprReady[4] = 50 // the load's base register is late; the store's data is not
+	p.fetchAndProcess()
+	if got := p.comp.State.Rob[1]; p.comp.State.Err != "" || got != 56 {
+		t.Fatalf("load ready at %d, want 56 (err %q)", got, p.comp.State.Err)
+	}
+}
+
+// FPLoadExtra delays a load into an FP register that memory supplies, and no
+// other load.
+func TestFPLoadExtraOnMemorySuppliedLoads(t *testing.T) {
+	for _, tc := range []struct {
+		word  uint32
+		extra uint64
+	}{{ldrD0X1, 2}, {ldpD2D3X1, 2}, {ldrX3X4, 0}} {
+		p := specPipeline(t, []uint32{tc.word}, nil, func(s *Spec) { s.Latencies.FPLoadExtra = 2 })
+		p.comp.Resources.Emu.Regs.WriteX(1, 0x2000)
+		p.comp.Resources.Emu.Regs.WriteX(4, 0x2000)
+		p.fetchAndProcess()
+		if got, want := p.comp.State.Rob[0], 1+uint64(p.comp.Spec.LoadLatency)+tc.extra; p.comp.State.Err != "" || got != want {
+			t.Errorf("%v ready at %d, want %d (err %q)", decodeWord(t, tc.word), got, want, p.comp.State.Err)
+		}
+	}
+}
+
+// A full FP issue queue stops dispatch until an entry issues. FP operations and
+// the data of FP stores take entries; integer work takes none but cannot pass
+// a stalled FP instruction.
+func TestFPIssueQueueBoundsWaitingWork(t *testing.T) {
+	words := []uint32{faddD2D1D1, strD1X2, faddD3D1D1, addX9, faddD4D1D1}
+	dispatched := func(queue int) (*middleware, int) {
+		p := specPipeline(t, words, nil, func(s *Spec) { s.FPIssueQueue, s.NumFP = queue, 4 })
+		p.comp.Resources.Emu.Regs.WriteX(2, 0x2000)
+		p.comp.State.FpReady[1] = 100
+		p.fetchAndProcess()
+		if p.comp.State.Err != "" {
+			t.Fatal(p.comp.State.Err)
+		}
+		return p, p.comp.State.RobCount
+	}
+	if _, got := dispatched(0); got != len(words) {
+		t.Fatalf("unlimited queue dispatched %d of %d", got, len(words))
+	}
+	p, got := dispatched(2)
+	if got != 2 || len(p.comp.State.FpQueue) != 2 {
+		t.Fatalf("two entries admitted %d instructions with %d queued; the add and the FP store should fill them", got, len(p.comp.State.FpQueue))
+	}
+	// Nothing more enters while both wait, however many cycles pass.
+	p.comp.State.Cycles = 99
+	p.fetchAndProcess()
+	if p.comp.State.RobCount != 2 {
+		t.Fatalf("dispatched %d while the queue was full", p.comp.State.RobCount)
+	}
+	// Both issue at cycle 100; from then on the rest is admitted.
+	p.comp.State.Cycles = 100
+	p.fetchAndProcess()
+	if p.comp.State.Err != "" || p.comp.State.RobCount != len(words) {
+		t.Fatalf("after the queue drained: dispatched %d of %d (err %q)", p.comp.State.RobCount, len(words), p.comp.State.Err)
+	}
+}
+
+func TestInvalidLatencyConfigurationRejected(t *testing.T) {
+	for name, adjust := range map[string]func(*Spec){
+		"negative latency":             func(s *Spec) { s.Latencies.FPMultiply = -1 },
+		"early ending without a base":  func(s *Spec) { s.Latencies.DivideBitsPerCycle = 4 },
+		"negative dividers":            func(s *Spec) { s.NumIntDiv = -1 },
+		"negative store-forward":       func(s *Spec) { s.StoreForwardLatency = -1 },
+		"negative FP issue queue":      func(s *Spec) { s.FPIssueQueue = -1 },
+		"negative FP divide occupancy": func(s *Spec) { s.Latencies.FPDivideOccupancy = -1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("accepted")
+				}
+			}()
+			specPipeline(t, []uint32{nop}, nil, adjust)
+		})
+	}
+}
+
+// The new fields are absent from a default Spec's JSON, so existing declared
+// profiles are unchanged, and the new state survives a round trip.
+func TestNewTimingFieldsDefaultToAbsent(t *testing.T) {
+	raw, err := json.Marshal(DefaultSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"latencies", "num_int_div", "store_forward_latency", "fp_issue_queue"} {
+		if _, present := fields[name]; present {
+			t.Errorf("default Spec serializes %q", name)
+		}
+	}
+	p := specPipeline(t, []uint32{fdivD0D1D2, udivW0W1W2, faddD2D1D1}, nil, func(s *Spec) {
+		s.NumIntDiv, s.Latencies.FPDivideOccupancy, s.FPIssueQueue, s.Latencies.FPAccumulate = 1, 15, 8, 2
+	})
+	p.comp.Resources.Emu.Regs.WriteX(2, 1)
+	p.comp.State.FpReady[1] = 50
+	p.fetchAndProcess()
+	raw, err = json.Marshal(p.comp.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored State
+	if err = json.Unmarshal(raw, &restored); err != nil || !reflect.DeepEqual(restored, p.comp.State) {
+		t.Fatalf("state with dividers and an FP queue did not round trip: %v", err)
+	}
+	if len(restored.IntDividers[0]) != 1 || len(restored.FpDividers[0]) != 1 || len(restored.FpQueue) != 2 {
+		t.Fatalf("dividers %v %v, queue %v", restored.IntDividers, restored.FpDividers, restored.FpQueue)
+	}
+}
+
+// Every instruction the tests name decodes to what its comment says.
+func TestLatencyTestEncodings(t *testing.T) {
+	for word, want := range map[uint32]arm64asm.Op{
+		sdivW0W1W2: arm64asm.SDIV, sdivX0X1X2: arm64asm.SDIV, udivW0W1W2: arm64asm.UDIV, udivX0X1X2: arm64asm.UDIV,
+		sdivWZRW1W2: arm64asm.SDIV, udivW1W1W2: arm64asm.UDIV, mulX0X1X2: arm64asm.MUL, umulhX0X1X2: arm64asm.UMULH,
+		scvtfD2W1: arm64asm.SCVTF, faddD0D1D2: arm64asm.FADD, fmulD0D1D2: arm64asm.FMUL, fdivD0D1D2: arm64asm.FDIV,
+		fmaddD3: arm64asm.FMADD, fmaddD3D3: arm64asm.FMADD, ldrD0X1: arm64asm.LDR, strD0X1: arm64asm.STR,
+		ldpD2D3X1: arm64asm.LDP, ldurX3X4p4: arm64asm.LDUR, strD1X2: arm64asm.STR,
+	} {
+		if got := decodeWord(t, word).Op; got != want {
+			t.Errorf("%#x decodes to %v, want %v", word, got, want)
+		}
+	}
+}

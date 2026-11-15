@@ -94,9 +94,7 @@ def resolve(root, state, base, requested=None):
         raise ValueError("working device declaration differs from committed source")
     ident = head["declaration"]["default"] if requested is None else requested
     select(head["declaration"], ident)
-    chosen = dict(id=ident, head=head, base=revision(root, base))
-    require_shared_parameters(chosen)
-    return chosen
+    return dict(id=ident, head=head, base=revision(root, base))
 
 
 def declared_at(chosen, role):
@@ -106,20 +104,11 @@ def declared_at(chosen, role):
     return next((e for e in chosen[role]["declaration"]["devices"] if e["id"] == chosen["id"]), None)
 
 
-def require_shared_parameters(chosen):
-    # Plans and reports resolve only DEFAULT's model profile and the workload
-    # contract's clock. A device with parameters of its own declares them in
-    # profile_path(), but accuracy campaigns and reports cannot bind them yet.
-    for role in ("head", "base"):
-        declared = declared_at(chosen, role)
-        if declared is not None and declared["parameter_source"] != DEFAULT:
-            raise ValueError(f"device {declared['id']!r} declares its own parameters; no per-device model profile is resolved yet")
-
-
 def profile_path(declared):
     """The model profile a device's executions report: DEFAULT's for a device
-    that carries DEFAULT's parameters, otherwise its parameter source's own."""
-    source = declared["parameter_source"]
+    that carries DEFAULT's parameters, otherwise its parameter source's own.
+    None, a revision that does not declare the device, is DEFAULT's."""
+    source = DEFAULT if declared is None else declared["parameter_source"]
     return "evaluation/model-profile.json" if source == DEFAULT else f"evaluation/model-profile-{source}.json"
 
 
@@ -129,8 +118,9 @@ def load_profile(declared, root=ROOT):
 
 def at_profile_clock(case, profile):
     """A whole-program case converted at the profile's clock instead of the
-    workload contract's assumed clock (identical for DEFAULT's profile)."""
-    return dict(case, frequency_hz=profile["configuration"]["freq"])
+    workload contract's assumed clock (identical for DEFAULT's profile). None
+    is a revision without declared profiles, which has only the contract's."""
+    return case if profile is None else dict(case, frequency_hz=profile["configuration"]["freq"])
 
 
 def ident(value):
@@ -233,9 +223,7 @@ def validate(report):
             raise ValueError(role + " device declaration identity mismatch")
     if chosen["head"]["sha256"] != report["head"]["files"][PATH]:
         raise ValueError("head device declaration differs from tested source")
-    declared = select(chosen["head"]["declaration"], chosen["id"])
-    require_shared_parameters(chosen)
-    return declared
+    return select(chosen["head"]["declaration"], chosen["id"])
 
 
 def verify_source(root, report):

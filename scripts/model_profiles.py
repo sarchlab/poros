@@ -4,6 +4,8 @@ import json
 import re
 import subprocess
 
+import devices
+
 PATH = "evaluation/model-profile.json"
 LEGACY_PATH = "tests/usertime/performance.json"
 LEGACY_PATHS = (LEGACY_PATH, "tests/usertime/manifest.json")
@@ -23,28 +25,42 @@ def check_profile(profile):
     return profile
 
 
-def revision(root, commit):
+def role_path(chosen, role):
+    """The profile a role's executions of a plan's or report's device report.
+
+    That is the device's own declaration at the role's revision (devices.profile_path).
+    A value without a device, and a revision that does not declare the device,
+    have the default profile."""
+    return devices.profile_path(devices.declared_at(chosen, role))
+
+
+def revision(root, commit, path=PATH):
+    """The profile declared at path in an exact revision. Only the default
+    profile falls back to a revision's older, frozen declaration."""
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("model profile requires full revision")
     git = ["git", "-C", str(root)]
     paths = subprocess.check_output([*git, "ls-tree", "-r", "--name-only", commit], text=True).splitlines()
-    path = next((name for name in (PATH, *LEGACY_PATHS) if name in paths), None)
+    candidates = (PATH, *LEGACY_PATHS) if path == PATH else (path,)
+    path = next((name for name in candidates if name in paths), None)
     if path is None:
         raise ValueError("revision has no declared model profile")
     raw = subprocess.check_output([*git, "show", commit + ":" + path])
     data = json.loads(raw)
-    profile = check_profile(data if path == PATH else data["profile"])
-    if path == PATH and raw != encode(profile):
+    profile = check_profile(data["profile"] if path in LEGACY_PATHS else data)
+    if path not in LEGACY_PATHS and raw != encode(profile):
         raise ValueError("model profile declaration must use canonical JSON")
     return dict(commit=commit, path=path, sha256=hashlib.sha256(raw).hexdigest(), profile=profile)
 
 
-def resolve(root, state, base):
-    """Legacy reports keep their existing frozen-profile protocol unchanged."""
+def resolve(root, state, base, chosen=None):
+    """Bind the head and base profiles of a device (devices.resolve) to their
+    revisions. Legacy reports keep their existing frozen-profile protocol unchanged."""
     if PATH not in state["files"]:
         return None
-    result = {"head": revision(root, state["commit"]), "base": revision(root, base)}
-    if result["head"]["sha256"] != state["files"][PATH]:
+    result = {"head": revision(root, state["commit"], role_path(chosen, "head")),
+              "base": revision(root, base, role_path(chosen, "base"))}
+    if result["head"]["sha256"] != state["files"].get(result["head"]["path"]):
         raise ValueError("working model declaration differs from committed source")
     return result
 
@@ -66,16 +82,19 @@ def validate(report):
         entry = declarations[role]
         if not isinstance(entry, dict):
             raise ValueError(role + " model declaration must be an object")
-        if (entry.get("commit") != commit or entry.get("path") not in (PATH, *LEGACY_PATHS)
+        # Each role reports the profile its revision declares for the device.
+        expected = role_path(report.get("device"), role)
+        allowed = (expected, *LEGACY_PATHS) if role == "base" and expected == PATH else (expected,)
+        if (entry.get("commit") != commit or entry.get("path") not in allowed
                 or not re.fullmatch(r"[0-9a-f]{64}", entry.get("sha256", ""))):
             raise ValueError("model profile source identity mismatch")
         profile = check_profile(entry["profile"])
-        if entry["path"] == PATH:
+        if entry["path"] not in LEGACY_PATHS:
             if hashlib.sha256(encode(profile)).hexdigest() != entry["sha256"]:
                 raise ValueError("model profile declaration hash mismatch")
         elif profile != legacy:
             raise ValueError("legacy model profile differs from frozen declaration")
-        if role == "head" and (entry["path"] != PATH or entry["sha256"] != report["head"]["files"][PATH]):
+        if role == "head" and entry["sha256"] != report["head"]["files"].get(expected):
             raise ValueError("head model declaration differs from tested source")
         result[role] = profile
     return result
@@ -85,6 +104,6 @@ def verify_source(root, report):
     profiles = validate(report)
     if "model_profiles" in report:
         for role, entry in report["model_profiles"].items():
-            if entry != revision(root, entry["commit"]):
+            if entry != revision(root, entry["commit"], role_path(report.get("device"), role)):
                 raise ValueError(role + " model declaration differs from exact Git revision")
     return profiles

@@ -54,11 +54,13 @@ class DeclarationTests(unittest.TestCase):
                          {"m2": "measured", "m1": "unmeasured", "grace": "partial", "m5-max": "unmeasured"})
         # Placeholders say whose parameters they carry rather than claiming their own.
         self.assertEqual({d["id"]: d["parameter_source"] for d in declaration["devices"]},
-                         {"m2": "m2", "m1": "m1", "grace": "m2", "m5-max": "m2"})
+                         {"m2": "m2", "m1": "m1", "grace": "grace", "m5-max": "m2"})
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m2"), declaration), "Apple M2 model profile")
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m1"), declaration), "Apple M1 model profile")
         self.assertEqual(devices.parameter_text(devices.select(declaration, "grace"), declaration),
-                         "Apple M2 model profile (placeholder; NVIDIA Grace (Arm Neoverse V2) parameters not established)")
+                         "NVIDIA Grace (Arm Neoverse V2) model profile")
+        self.assertEqual(devices.parameter_text(devices.select(declaration, "m5-max"), declaration),
+                         "Apple M2 model profile (placeholder; Apple M5 Max parameters not established)")
 
     def test_every_device_reports_its_declared_profile_at_its_clock(self):
         declaration = devices.load()
@@ -78,6 +80,22 @@ class DeclarationTests(unittest.TestCase):
         case = dict(id="x", frequency_hz=3490000000)
         self.assertEqual(devices.at_profile_clock(case, m2), case)
         self.assertEqual(devices.at_profile_clock(case, m1), dict(id="x", frequency_hz=3203500000))
+        # A revision without declared profiles has only the contract's clock.
+        self.assertIs(devices.at_profile_clock(case, None), case)
+        # Grace differs from M2 in its documented core, cache and translation parameters only.
+        self.assertEqual(devices.profile_path(devices.select(declaration, "grace")), "evaluation/model-profile-grace.json")
+        self.assertEqual(devices.profile_path(devices.select(declaration, "m5-max")), "evaluation/model-profile.json")
+        self.assertEqual(devices.profile_path(None), "evaluation/model-profile.json")
+        grace = devices.load_profile(devices.select(declaration, "grace"))
+        self.assertEqual({k for k in grace["configuration"] if grace["configuration"][k] != m2["configuration"].get(k)},
+                         {"freq", "latencies", "num_int_div", "num_fp_div", "num_ldst", "store_forward_latency",
+                          "fp_issue_queue", "branch_penalty"})
+        self.assertEqual(set(m2["configuration"]) - set(grace["configuration"]), set())
+        self.assertEqual({k for k in grace["cache_config"] if grace["cache_config"][k] != m2["cache_config"].get(k)},
+                         {"L1Size", "L1Ways", "L1Latency", "L2Size", "L2Ways", "L2LineSize", "SLCSize",
+                          "PrefetchStrideBytes", "TLBPageBytes", "TLBWays"})
+        self.assertEqual(set(m2["cache_config"]) - set(grace["cache_config"]), set())
+        self.assertEqual(devices.at_profile_clock(case, grace), dict(id="x", frequency_hz=3429000000))
 
     def test_declared_references_are_the_files_the_reports_bind(self):
         expected = {"application": site.performance.PATH,
@@ -104,7 +122,7 @@ class DeclarationTests(unittest.TestCase):
                      lambda v: entry(v, "m1").update(hardware=" "),
                      lambda v: entry(v, "m1").update(id="M1"),
                      lambda v: entry(v, "m1").update(id="../m1"),
-                     lambda v: entry(v, "m1").update(parameter_source="grace"),
+                     lambda v: entry(v, "m1").update(parameter_source="m5-max"),  # carries M2's, has none of its own
                      lambda v: entry(v, "m1").update(parameter_source="m3"),
                      lambda v: entry(v, "m1")["references"].update(power="evaluation/power.json"),
                      lambda v: entry(v, "m1")["references"].update(application="../outside.json"),
@@ -230,9 +248,9 @@ class RevisionTests(unittest.TestCase):
     def test_publication_checks_both_revisions_and_canonical_bytes(self):
         report = dict(head=self.state, base_commit=self.before, device=devices.resolve(self.root, self.state, self.before, "m5-max"))
         self.assertEqual(devices.verify_source(self.root, report)["id"], "m5-max")
-        # A device with its own parameters cannot be bound to a plan or report yet.
-        with self.assertRaisesRegex(ValueError, "'m1' declares its own parameters"):
-            devices.resolve(self.root, self.state, self.before, "m1")
+        # A device with its own parameters is bound like any other; its profile is
+        # resolved with it (model_profiles.resolve).
+        self.assertEqual(devices.resolve(self.root, self.state, self.before, "m1")["id"], "m1")
         claimed = copy.deepcopy(report)
         claimed["device"]["base"] = dict(report["device"]["head"], commit=self.before)
         devices.validate(claimed)  # Self-consistent offline; only Git shows the base never declared it.
@@ -340,10 +358,7 @@ class ReportTests(ReportFixture):
     """The synthetic report viewed as each kind of device."""
 
     def test_every_device_report_validates_and_names_its_device(self):
-        # M1 declares its own parameters, which reports cannot bind yet.
-        with self.assertRaisesRegex(ValueError, "'m1' declares its own parameters"):
-            site.validate_compact_evidence(self.report("m1"), {})
-        for ident, status in (("m2", "measured"), ("grace", "unmeasured"), ("m5-max", "unmeasured")):
+        for ident, status in (("m2", "measured"), ("m1", "unmeasured"), ("grace", "unmeasured"), ("m5-max", "unmeasured")):
             with self.subTest(device=ident):
                 report = self.report(ident)
                 site.validate_compact_evidence(report, self.references(report))
@@ -353,6 +368,50 @@ class ReportTests(ReportFixture):
                 self.assertEqual(len(report["cases"]), 264)
                 self.assertEqual(sorted(self.references(report)),
                                  ["forwarding.json", "reference.json", "throughput.json"] if ident == "m2" else [])
+
+    def test_device_with_its_own_parameters_reports_its_own_profile_at_its_clock(self):
+        declaration = devices.load()
+        for ident, clock in (("m1", 3203500000), ("grace", 3429000000)):
+            with self.subTest(device=ident):
+                report = self.report(ident)
+                profile = devices.load_profile(devices.select(declaration, ident))
+                head = report["model_profiles"]["head"]
+                self.assertEqual((head["path"], head["profile"]), (devices.profile_path(devices.select(declaration, ident)), profile))
+                self.assertEqual(models.validate(report)["head"], profile)
+                row = report["cases"][0]["head"]
+                self.assertEqual((row["configuration"], row["cache_config"]), (profile["configuration"], profile["cache_config"]))
+                self.assertEqual(row["predicted_user_seconds"], row["cycles"] / clock)
+                # The M2 profile, the M2 configuration in a row and the workload
+                # contract's clock are each another device's and are rejected.
+                borrowed = copy.deepcopy(report)
+                borrowed["model_profiles"]["head"] = copy.deepcopy(self.legacy["model_profiles"]["head"])
+                with self.assertRaisesRegex(ValueError, "model profile source identity mismatch"):
+                    site.validate_compact_evidence(borrowed, {})
+                configured = copy.deepcopy(report)
+                configured["cases"][0]["head"].update(copy.deepcopy(self.legacy["model_profiles"]["head"]["profile"]))
+                with self.assertRaisesRegex(ValueError, "compact report timing profile/count mismatch"):
+                    site.validate_compact_evidence(configured, {})
+                clocked = copy.deepcopy(report)
+                clocked["cases"][0]["head"]["predicted_user_seconds"] = row["cycles"] / 3490000000
+                with self.assertRaisesRegex(ValueError, "compact timing frequency mismatch"):
+                    site.validate_compact_evidence(clocked, {})
+        # A base revision that still declares M2 as the device's parameter source
+        # is compared with the M2 profile at the M2 clock.
+        placeholder = self.declaration()
+        devices.select(placeholder, "grace")["parameter_source"] = "m2"
+        report = self.report("grace", base_declared=True)
+        report["device"]["base"]["declaration"] = placeholder
+        report["device"]["base"]["sha256"] = hashlib.sha256(devices.encode(placeholder)).hexdigest()
+        with self.assertRaisesRegex(ValueError, "model profile source identity mismatch"):
+            site.validate_compact_evidence(report, {})
+        report["model_profiles"]["base"] = copy.deepcopy(self.legacy["model_profiles"]["base"])
+        m2 = report["model_profiles"]["base"]["profile"]
+        for row in report["cases"]:
+            if "base" in row:
+                row["base"].update(copy.deepcopy(m2), predicted_user_seconds=row["base"]["cycles"] / 3490000000)
+        site.validate_compact_evidence(report, {})
+        self.assertEqual((models.validate(report)["head"]["configuration"]["freq"], models.validate(report)["base"]["configuration"]["freq"]),
+                         (3429000000, 3490000000))
 
     def test_unmeasured_report_shows_predictions_and_no_reference_metric(self):
         report = self.report("m5-max")
@@ -546,9 +605,11 @@ class ReportTests(ReportFixture):
         suite = redeclare(m2, lambda d: d["devices"][0]["references"].update(throughput="evaluation/microbenchmarks/throughput/other.json"))
         with self.assertRaisesRegex(ValueError, "declares its throughput reference at evaluation/microbenchmarks/throughput/other.json"):
             site.validate_compact_evidence(suite, self.references(m2))
+        # A device that declares parameters of its own must carry its own profile:
+        # the M2 profile this report holds is then the wrong file.
         own = redeclare(self.report("m5-max"), lambda d: d["devices"][3].update(parameter_source="m5-max"))
-        with self.assertRaisesRegex(ValueError, "declares its own parameters"):
-            site.validate_compact_evidence(own, {})
+        with self.assertRaisesRegex(ValueError, "model profile source identity mismatch"):
+            site.validate_compact_evidence(own, self.references(own))
 
     def test_base_that_models_the_device_is_paired_and_one_that_cannot_is_absent(self):
         alone, paired = self.report("grace"), self.report("grace", base_declared=True)

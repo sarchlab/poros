@@ -87,8 +87,60 @@ func M1() Target {
 // (3.2028 to 3.2037 GHz over nine one-cycle chain probes).
 const M1Frequency = 3_203_500_000 * timing.Hz
 
-// Grace carries the M2 core, memory and clock until its own are established.
-func Grace() Target { return M2().as("grace", "NVIDIA Grace (Arm Neoverse V2)") }
+// Grace is the NVIDIA Grace core, an Arm Neoverse V2: the M2 configuration
+// with the differences listed here. evaluation/model-profile.md gives the
+// source of each and separates what Arm and NVIDIA publish from what is
+// inferred from the GH200 user times; nothing was measured on a Grace core for
+// this model.
+//
+// Published (Neoverse V2 Software Optimization Guide and Technical Reference
+// Manual, NVIDIA Grace datasheet):
+//   - two-cycle integer multiply; one iterative integer divider that ends
+//     early on a short quotient (5 to 12 cycles for 32 bits, 5 to 20 for 64);
+//   - two-cycle FP add, three-cycle FP multiply, a fused multiply-add whose
+//     addend is forwarded late, and two FP dividers of up to 15 cycles that
+//     together start two divides in seven cycles;
+//   - four-cycle integer and six-cycle FP loads on three load pipes, two of
+//     which also take stores;
+//   - a 64 KiB four-way L1D, a 1 MiB eight-way L2 with 64-byte lines, 114 MB
+//     of L3, and a 2,048-entry eight-way second-level TLB.
+//
+// Observed on the measured host: 64 KiB pages and the clock the performance
+// governor asks for.
+//
+// Inferred from application times and effective only: the store-to-load
+// forwarding latency, the FP issue-queue capacity, the branch penalty, a full
+// 15 cycles for every FP divide, and a prefetcher that follows constant strides
+// up to a page.
+//
+// Everything else is M2's and is not established for Grace: the window, the
+// predictor, compare/select fusion as measured on M2, the front end, the L2,
+// memory-side and DRAM latencies, both fill transports, the stream prefetcher
+// and the page-walk timing.
+func Grace() Target {
+	t := M2().as("grace", "NVIDIA Grace (Arm Neoverse V2)")
+	t.ParameterSource = "grace"
+	t.OoO.Latencies = ooo.Latencies{
+		Multiply: 2, DivideBase: 4, DivideBitsPerCycle: 4,
+		FPArithmetic: 2, FPMultiply: 3, FPAccumulate: 2, FPDivide: 15, FPDivideOccupancy: 7, FPLoadExtra: 2,
+	}
+	t.OoO.NumIntDiv, t.OoO.NumFPDiv = 1, 2
+	t.OoO.NumLDST, t.OoO.NumLoad, t.OoO.NumStore = 3, 3, 2
+	t.OoO.StoreForwardLatency = 6
+	t.OoO.FPIssueQueue = 36
+	t.OoO.BranchPenalty = 11
+	t.Cache.L1Size, t.Cache.L1Ways, t.Cache.L1Latency = 64<<10, 4, 4
+	t.Cache.L2Size, t.Cache.L2Ways, t.Cache.L2LineSize = 1<<20, 8, 64
+	t.Cache.SLCSize = 114 << 20
+	t.Cache.PrefetchStrideBytes = 64 << 10
+	t.Cache.TLBPageBytes, t.Cache.TLBSets, t.Cache.TLBWays = 64<<10, 256, 8
+	return t.WithFrequency(GraceFrequency)
+}
+
+// GraceFrequency is the maximum the measured GH200 host reports for the
+// pinned core under the performance governor. The frequency the core actually
+// ran at was not observed.
+const GraceFrequency = 3_429_000_000 * timing.Hz
 
 // M5Max carries the M2 core, memory and clock until its own are established.
 func M5Max() Target { return M2().as("m5-max", "Apple M5 Max") }

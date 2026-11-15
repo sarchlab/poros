@@ -776,7 +776,8 @@ def validate_compact_evidence(report, references, *, partial=False):
             if type(value["cycles"]) is not int or type(value["instructions"]) is not int or any(value[k] != profiles[label][k] for k in ("configuration", "cache_config")):
                 raise ValueError("compact report timing profile/count mismatch")
             seconds = value["predicted_user_seconds"]
-            if not math.isclose(seconds, value["cycles"] / case["frequency_hz"], rel_tol=1e-12):
+            # Cycles are converted at the clock of the profile the role declares.
+            if not math.isclose(seconds, value["cycles"] / devices.at_profile_clock(case, profiles[label])["frequency_hz"], rel_tol=1e-12):
                 raise ValueError("compact timing frequency mismatch")
             if observed is not None and observed["quality"] == "usable":
                 real = observed["median_user_seconds"]

@@ -200,6 +200,7 @@ def as_device(report, ident, *, base_declared=False, declaration=None):
     report = copy.deepcopy(report)
     report["device"] = device_selection(ident, report["head"]["commit"], report["head"]["files"],
                                         report["base_commit"] if base_declared else None, declaration)
+    bind_profiles(report)
     measured = devices.measured(report, "application")
     if not measured:
         for key in ("reference", "reference_sha256"):
@@ -220,6 +221,41 @@ def as_device(report, ident, *, base_declared=False, declaration=None):
                     row.get(label, {}).pop(key, None)
     report["summary"] = compute.summaries(report["cases"], True)
     return report
+
+
+def bind_profiles(report):
+    """Give each role of a synthetic report the profile its revision declares
+    for the report's device, as the comparison binds it: the repository's
+    declaration of a device with parameters of its own, and every prediction
+    of that role converted at that profile's clock."""
+    import devices
+    import model_profiles as models
+    import usertime as gate
+    if "model_profiles" not in report:
+        return
+    for role in ("head", "base"):
+        declared = devices.declared_at(report["device"], role)
+        path = devices.profile_path(declared)
+        if path == models.PATH:
+            continue
+        profile = devices.load_profile(declared)
+        sha = hashlib.sha256(models.encode(profile)).hexdigest()
+        report["model_profiles"][role] = dict(commit=report["head"]["commit"] if role == "head" else report["base_commit"],
+                                              path=path, sha256=sha, profile=profile)
+        if role == "head":
+            report["head"]["files"][path] = sha
+        for row in report["cases"]:
+            if role not in row:
+                continue
+            seconds = row[role]["cycles"] / profile["configuration"]["freq"]
+            row[role].update(copy.deepcopy(profile), predicted_user_seconds=seconds)
+            if "error_percent" in row[role]:
+                real = row["reference_user_seconds"]
+                row[role].update(error_percent=gate.error_percent(seconds, real),
+                                 direction="slower" if seconds > real else "faster" if seconds < real else "equal")
+    for row in report["cases"]:
+        if "error_change_percentage_points" in row:
+            row["error_change_percentage_points"] = row["head"]["error_percent"] - row["base"]["error_percent"]
 
 
 def device_reference(reference, hardware, usable):

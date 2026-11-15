@@ -14,4 +14,5 @@ refreshes the plotting view without invoking a compiler.
 
 The compact reference carries an explicit binary binding for each original
 program. Both head and baseline simulator executions receive these same Grace
-images. This changes workload layout, not the Grace target's M2 model parameters.
+images. They change workload layout only; the Grace target's model parameters
+are declared in `evaluation/model-profile-grace.json`.

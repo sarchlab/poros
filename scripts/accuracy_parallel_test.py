@@ -137,6 +137,12 @@ class ParallelAccuracyTests(unittest.TestCase):
         prepare reads from the head and base revisions are supplied directly."""
         if "model_profiles" not in self.plan:
             self.declarations()
+        # Each campaign starts from the default declarations: the previous
+        # device's own profile, if it had one, is not this device's.
+        if not hasattr(self, "default_declarations"):
+            self.default_declarations = copy.deepcopy((self.plan["model_profiles"], self.plan["head"]["files"]))
+        self.plan["model_profiles"], files = copy.deepcopy(self.default_declarations)
+        self.plan["head"] = dict(self.plan["head"], files=files)
         # These synthetic source snapshots predate the Grace acquisition. They
         # exercise transport/device ownership without borrowing current native
         # data whose exact 64 KiB inputs are tested in linux_reference_test.py.
@@ -145,6 +151,8 @@ class ParallelAccuracyTests(unittest.TestCase):
         chosen = fixtures.device_selection(ident, HEAD, self.plan["head"]["files"], BASE if base_declared else None,
                                            declaration=declaration)
         self.plan["device"] = chosen
+        # A device with parameters of its own is prepared with its own profile.
+        fixtures.bind_profiles(self.plan)
         parallel.write(self.prepared / "plan.json", self.plan)
         def resolve(root, state, base, requested=None):
             return copy.deepcopy(chosen) if requested in (None, ident) else fixtures.device_selection(requested, HEAD, {}, declaration=declaration)
@@ -160,6 +168,12 @@ class ParallelAccuracyTests(unittest.TestCase):
         target = parallel.devices.identity(self.plan, role)
         if role != "functional" and target is not None:
             result["timing"]["target"] = target
+            declared = self.plan["model_profiles"][role]
+            if declared["path"] not in (models.PATH, *models.LEGACY_PATHS):
+                # Its own profile, and the cycles converted at that profile's clock.
+                hz = declared["profile"]["configuration"]["freq"]
+                result["timing"].update(copy.deepcopy(declared["profile"]), assumed_hz=hz,
+                                        predicted_user_seconds=result["timing"]["user_cycles"] / hz)
         return result
 
     def device_shards(self):
@@ -340,14 +354,22 @@ class ParallelAccuracyTests(unittest.TestCase):
                 parallel.write(probes[ident], exporter().export())
         identity = ("head", "base_commit", "head_binary_sha256", "base_binary_sha256", "model_profiles")
         reports = {ident: parallel.read(path)["report"] for ident, path in probes.items()}
-        self.assertTrue(all(reports[ident][key] == reports["m2"][key] for ident in reports for key in identity))
+        self.assertTrue(all(reports["m5-max"][key] == reports["m2"][key] for key in identity))
+        # Grace has parameters of its own: its snapshot also binds its own profile.
+        self.assertEqual(reports["grace"]["model_profiles"]["head"]["path"], "evaluation/model-profile-grace.json")
+        self.assertEqual(reports["grace"]["model_profiles"]["base"], reports["m2"]["model_profiles"]["base"])
+        self.assertTrue(all(reports["grace"][key] == reports["m2"][key] for key in identity[1:4]))
         for ident in probes:
             for other, path in probes.items():
                 with self.subTest(campaign=ident, probes=other), self.device_campaign(ident):
                     if other == ident:
                         self.assertEqual(exporter(probe_progress=path).export()["report"]["device"]["id"], ident)
                     else:
-                        with self.assertRaisesRegex(ValueError, "probe progress is for another modeled device"):
+                        # Devices that share parameters differ only in the device named. A
+                        # device with a profile of its own already differs in what it bound.
+                        reason = ("probe progress source identity mismatch" if "grace" in (ident, other)
+                                  else "probe progress is for another modeled device")
+                        with self.assertRaisesRegex(ValueError, reason):
                             exporter(probe_progress=path).export()
 
     def test_failure_after_device_resolution_and_before_source_inventory_keeps_the_device(self):

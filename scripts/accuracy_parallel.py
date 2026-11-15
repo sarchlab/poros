@@ -112,7 +112,7 @@ def prepare(base, directory, run_id, attempt, shards, device=None):
                 binaries={"head": user.digest(head_binary), "base": user.digest(base_binary)},
                 references={"performance264": user.digest(ROOT / source_path)},
                 cases=cases, shards=partition(cases, shards), **bound)
-    declarations = model_profiles.resolve(ROOT, state, base)
+    declarations = model_profiles.resolve(ROOT, state, base, chosen)
     if declarations is not None:
         plan["model_profiles"] = declarations
     if memory.declared(state["files"]):
@@ -135,10 +135,10 @@ def load_plan(directory, run_id, attempt, source=None):
     if state["dirty"] or plan["head"] != state:
         raise ValueError("plan source mismatch")
     site.sha(plan["base_commit"])
-    if plan.get("model_profiles") != model_profiles.resolve(root, state, plan["base_commit"]):
-        raise ValueError("plan model declarations differ from source")
     if plan.get("device") != devices.resolve(root, state, plan["base_commit"], plan["device"]["id"] if "device" in plan else None):
         raise ValueError("plan device declaration differs from source")
+    if plan.get("model_profiles") != model_profiles.resolve(root, state, plan["base_commit"], plan.get("device")):
+        raise ValueError("plan model declarations differ from source")
     if memory.declared(state["files"]):
         if plan.get("memory") != memory_plan(state, len(plan["shards"]), plan["base_commit"], root, value=plan):
             raise ValueError("memory plan source/coverage mismatch")
@@ -169,9 +169,18 @@ def roles(plan, case, witnesses):
     return result
 
 
+def role_case(plan, case, role):
+    """A plan's case as a role executes it: a timed role converts its cycles at
+    the clock of the profile it declares; the functional run is not timed."""
+    if role == "functional":
+        return case
+    return devices.at_profile_clock(case, plan.get("model_profiles", {}).get(role, {}).get("profile"))
+
+
 def validate_result(result, plan, case, role, golden):
     mode = "functional" if role == "functional" else None
     profile = plan.get("model_profiles", {}).get("base" if role == "base" else "head", {}).get("profile")
+    case = role_case(plan, case, role)
     user.validate_execution(result, case, mode, expected_identity=golden, expected_profile=profile, **devices.options(plan, role))
     revision = plan["base_commit"] if role == "base" else plan["head"]["commit"]
     if result["build"].get("vcs.revision") != revision or result["build"].get("vcs.modified") != "false":
@@ -199,7 +208,7 @@ def run_shard(directory, run_id, attempt, index, output):
                 label = "base" if role == "base" else "head"
                 options = {"expected_profile": plan["model_profiles"][label]["profile"]} if "model_profiles" in plan else {}
                 options.update(devices.options(plan, role))
-                result = user.execute(Path(directory) / label, case,
+                result = user.execute(Path(directory) / label, role_case(plan, case, role),
                                       mode="functional" if role == "functional" else None,
                                       expected_identity=golden, **options)
                 validate_result(result, plan, case, role, golden)
@@ -271,7 +280,7 @@ def recorded_executor(plan, selected, witnesses, directory):
         key = (case["id"], role)
         witness = witnesses.get(case["id"])
         output_matches = expected_output is None and expected_identity == witness
-        if label is None or case != cases[case["id"]] or not output_matches:
+        if label is None or case != role_case(plan, cases[case["id"]], role) or not output_matches:
             raise ValueError("recorded execution request mismatch")
         if device != devices.identity(plan, label):
             raise ValueError("recorded device request mismatch")

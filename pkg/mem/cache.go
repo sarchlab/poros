@@ -63,6 +63,10 @@ type CacheConfig struct {
 	// PrefetchPageBytes stops the prefetch frontier at this boundary. 0 means
 	// no boundary.
 	PrefetchPageBytes int
+	// PrefetchStrideBytes is the largest constant stride between demand
+	// misses that the stream prefetcher follows (followStride in stride.go).
+	// 0 follows only neighbouring lines.
+	PrefetchStrideBytes int `json:",omitempty"`
 	// SLCSize is the capacity in bytes of a memory-side cache that keeps the
 	// lines L2 evicts: the most recent SLCSize/L2LineSize victims, in the
 	// order they left, with no set structure. A timed L2 miss on a line it
@@ -383,7 +387,8 @@ type Cache struct {
 	dram                       *fillChannel // memory side (SLC or DRAM) -> L2 fills
 	spill                      *fillChannel // clean L2 victims -> SLC
 	streams                    []stream
-	tlb                        *tlb // private to this cache, like L1
+	strides                    []strideStream // constant-stride walks; nil unless followed
+	tlb                        *tlb           // private to this cache, like L1
 	useTick                    uint64
 	watermark                  uint64
 	timingDone                 bool
@@ -436,6 +441,9 @@ func (c *Cache) initTimed() {
 	}
 	if c.cfg.PrefetchDistance > 0 && c.cfg.PrefetchStreams > 0 {
 		c.streams = make([]stream, c.cfg.PrefetchStreams)
+		if c.cfg.PrefetchStrideBytes >= c.cfg.L2LineSize {
+			c.strides = make([]strideStream, c.cfg.PrefetchStreams)
+		}
 	}
 	c.tlb = newTLB(c.cfg)
 }
@@ -855,6 +863,9 @@ func (c *Cache) trainAndPrefetch(addr uint64, now uint64) {
 			best = i
 			break
 		}
+	}
+	if best < 0 && c.followStride(addr, now) {
+		return
 	}
 	if best < 0 {
 		// Allocate the least recently used entry.

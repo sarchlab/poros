@@ -55,8 +55,12 @@ class LinuxReferenceTests(unittest.TestCase):
             self.assertEqual(observed["input_sha256"], compute.object_digest(case))
         declaration = devices.load()
         grace = devices.select(declaration, "grace")
-        self.assertEqual(grace["parameter_source"], "m2")
-        self.assertEqual(devices.load_profile(grace), devices.load_profile(devices.select(declaration, "m2")))
+        # Grace is compared with its own profile at that profile's clock; the M2
+        # profile and the references measured on M2 are untouched by it.
+        self.assertEqual(grace["parameter_source"], "grace")
+        self.assertEqual(devices.profile_path(grace), "evaluation/model-profile-grace.json")
+        self.assertEqual(devices.load_profile(grace)["configuration"]["freq"], 3429000000)
+        self.assertEqual(devices.load_profile(devices.select(declaration, "m2")), compute.read(ROOT / model_profiles.PATH))
         self.assertEqual(grace["references"], {"application": linux.REFERENCE})
         repeat = next(c for c in self.declared["cases"] if c["id"] == "streamcluster-6")
         self.assertEqual(contract.instruction_budget(repeat), 6_000_000_000)
@@ -230,6 +234,9 @@ class LinuxReferenceTests(unittest.TestCase):
             if native["quality"] == "usable":
                 row["error_change_percentage_points"] = 0
             report["cases"].append(row)
+        # Both revisions declare Grace's own parameters: each role then carries
+        # the Grace profile and converts its cycles at the Grace clock.
+        fixtures.bind_profiles(report)
         report["summary"] = compute.summaries(report["cases"], True)
         return report
 

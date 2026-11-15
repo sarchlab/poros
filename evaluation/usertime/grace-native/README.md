@@ -69,8 +69,12 @@ are available on request. In the raw capture, `environment.linker` reads
 
 ## Simulator comparison
 
-`grace` continues to use the **M2 timing configuration**, including its clock;
-these measurements do not calibrate a Grace model. The report identifies the
+`grace` has a timing configuration of its own,
+[the NVIDIA Grace profile](../../model-profile.md#nvidia-grace-profile): the M2
+configuration with the differences Arm and NVIDIA publish for the Neoverse V2,
+the 64 KiB pages and governor maximum recorded above, and a few effective values
+inferred from these user times. Nothing was measured on a Grace core for the
+model beyond the times in this directory. The report identifies the
 parameter source, the native Linux/64 KiB acquisition and the nine noisy points.
 Only the 237 usable application observations contribute application accuracy;
 the other 18 usable points are legacy whole-program microbenchmarks. Diagnostic
