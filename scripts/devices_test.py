@@ -395,6 +395,46 @@ class ReportTests(ReportFixture):
         markdown = self.root / "m5-max/report.md"
         self.assertTrue(markdown.exists())
 
+    def test_unmeasured_report_cannot_select_unreferenced_alternate_binaries(self):
+        good = self.report("m5-max")
+        site.validate_compact_evidence(good, {})
+        report = copy.deepcopy(good)
+        manifest = report["workload_manifest"]
+        bindings = {}
+        for case in manifest["cases"]:
+            source = case["file"] if "outputs" in case else "tests/usertime/" + case["file"]
+            destination = "tests/alternate/" + source.removeprefix("tests/")
+            path = self.root / destination
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.source / source, path)
+            self.assertEqual(site.digest(path), case["sha256"])
+            bindings[source] = dict(file=destination, sha256=case["sha256"],
+                                    mapped_image_bytes=case["mapped_image_bytes"])
+            report["head"]["files"][destination] = case["sha256"]
+        report["workload_manifest"] = site.compute.expanded_manifest(manifest["original"], manifest["compute"], bindings)
+        # The alternate files really have the recorded hashes, and all other
+        # manifest, model, row and output-oracle checks remain valid. What is
+        # absent is a device-owned native reference authorizing this layout.
+        site.compute.validate_expanded(report["workload_manifest"])
+        site.check_report(report, self.commit)
+        reason = "alternate ELF bindings require a native application reference"
+        with self.assertRaisesRegex(ValueError, reason):
+            site.validate_compact_evidence(report, {})
+        state = dict(state="running", completed_cases=264, required_cases=264,
+                     completed_shards=1, required_shards=1, active_cases=[], errors=[],
+                     updated_at=datetime.now(timezone.utc).isoformat())
+        with self.assertRaisesRegex(ValueError, reason):
+            progress.snapshot(report, self.source, state)
+        with self.assertRaisesRegex(ValueError, reason):
+            self.bundle(report, "unreferenced-bindings")
+        bundle = self.root / "unreferenced-bindings/bundle"
+        # The bundle's files/hashes are intact. Publication must reject it at
+        # the same boundary before trusting it enough to query Git history.
+        with patch.object(publisher.subprocess, "check_output") as git:
+            with self.assertRaisesRegex(ValueError, reason):
+                publisher.verify_source(self.source, bundle, self.commit)
+            git.assert_not_called()
+
     def test_measured_m2_report_is_unchanged_except_for_naming_its_device(self):
         declared, legacy = self.report("m2"), copy.deepcopy(self.legacy)
         self.assertEqual({k: v for k, v in declared.items() if k not in ("device", "head")},

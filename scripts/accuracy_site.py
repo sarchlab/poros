@@ -710,6 +710,8 @@ def validate_compact_evidence(report, references, *, partial=False):
     expected = reference_files(report)
     if set(references) != set(expected):
         raise ValueError("report reference membership mismatch")
+    if "binary_bindings" in report["workload_manifest"] and "reference.json" not in expected:
+        raise ValueError("alternate ELF bindings require a native application reference")
     for name, source in expected.items():
         if not isinstance(references[name], bytes) or hashlib.sha256(references[name]).hexdigest() != report["head"]["files"].get(source):
             raise ValueError("report reference bytes differ from tested source: " + name)
