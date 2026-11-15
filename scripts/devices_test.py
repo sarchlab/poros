@@ -46,12 +46,12 @@ def selection(ident, base_declared=False):
 
 
 class DeclarationTests(unittest.TestCase):
-    def test_repository_declares_four_devices_and_only_m2_has_references(self):
+    def test_repository_declares_four_devices_and_grace_has_application_reference(self):
         declaration = devices.load()
         self.assertEqual([d["id"] for d in declaration["devices"]], IDS)
         self.assertEqual(declaration["default"], devices.DEFAULT)
         self.assertEqual({d["id"]: devices.reference_status(d) for d in declaration["devices"]},
-                         {"m2": "measured", "m1": "unmeasured", "grace": "unmeasured", "m5-max": "unmeasured"})
+                         {"m2": "measured", "m1": "unmeasured", "grace": "partial", "m5-max": "unmeasured"})
         # Placeholders say whose parameters they carry rather than claiming their own.
         self.assertEqual({d["id"]: d["parameter_source"] for d in declaration["devices"]},
                          {"m2": "m2", "m1": "m1", "grace": "m2", "m5-max": "m2"})
@@ -297,8 +297,17 @@ class ReportFixture(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
 
+    @staticmethod
+    def declaration():
+        # These synthetic reports predate the external Grace acquisition. Keep
+        # their original declaration explicit; current Grace coverage is tested
+        # against the real imported reference in linux_reference_test.py.
+        declaration = devices.load()
+        devices.select(declaration, "grace")["references"] = {}
+        return declaration
+
     def report(self, ident, base_declared=False):
-        report = fixtures.as_device(self.legacy, ident, base_declared=base_declared)
+        report = fixtures.as_device(self.legacy, ident, base_declared=base_declared, declaration=self.declaration())
         definitions = site.diagnostic_definitions(report, self.source)
         if definitions:
             report["diagnostic_definitions"] = definitions
@@ -572,7 +581,7 @@ class ReportTests(ReportFixture):
         """The fixture's stand-in for `git show commit:path`."""
         path = command[-1].split(":", 1)[1]
         if path == devices.PATH:
-            return devices.encode(devices.load())
+            return devices.encode(self.declaration())
         if path == models.PATH:
             return models.encode(self.legacy["workload_manifest"]["profile"])
         return (self.source / path).read_bytes()

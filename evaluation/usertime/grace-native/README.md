@@ -5,7 +5,9 @@ GH200 (Grace, Arm Neoverse V2), measured on 2026-11-14 at source commit
 `3f02e1ede8522c6f2b552397aec87863bf67ae07`. `summary.json` holds one row per
 point: median, P10/P90, min/max, the three batch medians, median system time,
 quality and the expected output identity. This is measurement data only; it is
-not attached to the `grace` device in `evaluation/devices.json`.
+retained unchanged in `summary.json`. The companion `performance-v1.json` binds
+these observations to the separate, SHA-256-matched ELF fixtures in
+`tests/grace/` for the `grace` device.
 
 | | |
 |---|---|
@@ -64,3 +66,27 @@ The raw capture (every run), the relinked ELFs, the capture and comparison
 scripts and the toolchain configuration are kept outside the repository and
 are available on request. In the raw capture, `environment.linker` reads
 `collect2 version 14.2.0`; the linker is GNU ld 2.44.
+
+## Simulator comparison
+
+`grace` continues to use the **M2 timing configuration**, including its clock;
+these measurements do not calibrate a Grace model. The report identifies the
+parameter source, the native Linux/64 KiB acquisition and the nine noisy points.
+Only the 237 usable application observations contribute application accuracy;
+the other 18 usable points are legacy whole-program microbenchmarks. Diagnostic
+microbenchmarks have no Grace hardware reference and show predictions only.
+
+Reproduce the 44 measured binaries and regenerate the compact plotting view:
+
+```sh
+python3 scripts/linux_reference.py --build
+```
+
+The command builds the recorded source commit in a temporary directory, applies
+only the documented linker alignment changes, and requires every resulting ELF
+hash to match `summary.json`. It leaves the existing M2/M1 fixtures unchanged.
+Without `--build`, the command checks the retained fixtures and deterministic
+summary conversion. Raw native captures remain external; the importer validates
+the submitted summary and exact executable/input identities, not those absent
+5,808 process records. No new Grace hardware measurement is needed to run the
+simulator comparison.

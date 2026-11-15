@@ -287,10 +287,34 @@ def capture(args):
     validate_reference(folder)
 
 
-def expanded_manifest(old, compute):
-    return dict(schema=3, suite="whole-program-264-v3", profile=old["profile"],
+def expanded_manifest(old, compute, binary_bindings=None):
+    result = dict(schema=3, suite="whole-program-264-v3", profile=old["profile"],
                 workloads=old["workloads"] + compute["workloads"], cases=old["cases"] + compute["cases"],
                 original=old, compute=compute)
+    if binary_bindings is not None:
+        expected = {c["file"] if "outputs" in c else "tests/usertime/" + c["file"] for c in result["cases"]}
+        if not isinstance(binary_bindings, dict) or set(binary_bindings) != expected:
+            raise ValueError("alternate binary coverage differs from workload inventory")
+        for source, binary in binary_bindings.items():
+            relative(source)
+            if not isinstance(binary, dict) or set(binary) != {"file", "sha256", "mapped_image_bytes"}:
+                raise ValueError("invalid alternate binary identity")
+            relative(binary["file"])
+            if (not binary["file"].startswith("tests/") or binary["file"] == source
+                    or not legacy.SHA256.fullmatch(binary.get("sha256", ""))
+                    or type(binary["mapped_image_bytes"]) is not int
+                    or not 0 < binary["mapped_image_bytes"] <= 256 << 20
+                    or binary["mapped_image_bytes"] % 4096):
+                raise ValueError("invalid alternate binary path/hash/image size")
+        if len({b["file"] for b in binary_bindings.values()}) != len(binary_bindings):
+            raise ValueError("alternate binaries must have distinct paths")
+        result["binary_bindings"] = copy.deepcopy(binary_bindings)
+        cases = []
+        for case in result["cases"]:
+            source = case["file"] if "outputs" in case else "tests/usertime/" + case["file"]
+            cases.append(dict(case, canonical_file=source, **binary_bindings[source]))
+        result["cases"] = cases
+    return result
 
 
 def validate_expanded(manifest):
@@ -314,7 +338,7 @@ def validate_expanded(manifest):
             raise ValueError("invalid compute sweep")
         if case["id"] != f'{group["id"]}-{n}' or case["point"] != n or case["workload"] != group["id"] or case["split"] != role:
             raise ValueError("invalid compute row identity/split")
-    if manifest != expanded_manifest(old, compute):
+    if manifest != expanded_manifest(old, compute, manifest.get("binary_bindings")):
         raise ValueError("expanded inventory differs from cohorts")
     return manifest
 

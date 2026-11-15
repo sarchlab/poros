@@ -79,7 +79,9 @@ def application_row(case, native, measured, report, head, base, executor):
     if referenced:
         row.update(reference_user_seconds=native["median_user_seconds"], reference_quality=native["quality"],
                    reference_p10_seconds=native["p10_user_seconds"], reference_p90_seconds=native["p90_user_seconds"],
-                   reason="Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved")
+                   reason=("Native Linux ELF user accounting; startup/output included; CPU affinity recorded, instantaneous core/frequency unobserved; external summary, raw captures not independently audited"
+                           if measured["protocol"] == reference.LINUX_PROTOCOL else
+                           "Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved"))
         if "streamcluster_replacement" in measured:
             row["reference_origin"] = reference.reference_origin(measured, case)
     else:

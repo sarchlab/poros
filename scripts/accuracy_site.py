@@ -2101,7 +2101,7 @@ def detail_body(report, entry, preview=False, frontend=None, throughput_referenc
             completed_cases=len(report["cases"]), required_cases=len(report_manifest(report)["cases"]),
             active_cases=[], errors=[])
         body += live_progress(progress, totals)
-    native_reference = report.get("reference", {}).get("protocol") == performance.NATIVE_PROTOCOL
+    native_reference = report.get("reference", {}).get("protocol") in (performance.NATIVE_PROTOCOL, performance.LINUX_PROTOCOL)
     cases = report.get("cases", [])
     benchmarks = [c for c in cases if not is_micro_case(c)]
     micros = [c for c in cases if is_micro_case(c)]
@@ -2197,6 +2197,21 @@ def detail_body(report, entry, preview=False, frontend=None, throughput_referenc
     body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
              + timing_table(micros, micro_ids, referenced) + '</details></section>')
     replacement = report.get("reference", {}).get("streamcluster_replacement")
+    if report.get("reference", {}).get("protocol") == performance.LINUX_PROTOCOL:
+        reference = report["reference"]
+        native = reference["native_environment"]
+        body += ('<section id="native-linux-provenance"><h2>Native Linux reference</h2><p>'
+                 + esc(reference["reference_scope"]) + '</p><p>' + esc(reference["hardware"])
+                 + ' · ' + esc(reference["platform"]) + ' · 64 KiB pages · CPU affinity '
+                 + esc(str(native["affinity"])) + ' · ' + esc(native["governor"]) + ' governor.</p>'
+                 '<p>The submitted points retain ' + esc(str(reference["quality_counts"].get("usable", 0)))
+                 + ' usable and ' + esc(str(reference["quality_counts"].get("noisy", 0))) + ' noisy observations. Noisy observations remain '
+                 'visible but do not contribute error or ranking statistics. The separate diagnostic suites have '
+                 'no native Grace reference and show predictions only; the 18 legacy whole-program microbenchmarks '
+                 'retain their measured times outside application statistics.</p><p><a href="https://github.com/' + REPO + '/blob/'
+                 + commit + '/' + reference["source_summary"]["path"] + '">Unchanged contributor summary</a> · '
+                 '<a href="https://github.com/' + REPO + '/tree/' + commit
+                 + '/tests/grace">SHA-256-matched 64 KiB ELF fixtures</a></p></section>')
     if replacement:
         body += ('<p>Streamcluster uses 16 complete initialization/computation/output passes per process. '
                  'Its six-point native acquisition is recorded separately in the plotting reference; '

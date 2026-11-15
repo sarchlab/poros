@@ -66,6 +66,8 @@ def verify_source(source, bundle, commit):
         program = committed_json("tests/benchmarks/performance.json")
         build = committed_json("tests/benchmarks/provenance.json")
         declared = site.compute.expanded_manifest(micro, site.compute.contract_data(program, build, micro["profile"], site.compute.PROTOCOL))
+        if report["workload_manifest"].get("binary_bindings") is not None:
+            declared = site.compute.expanded_manifest(micro, declared["compute"], report["workload_manifest"]["binary_bindings"])
         if declared != report["workload_manifest"]:
             raise ValueError("compact workload inventory differs from exact source commit")
         if not site.devices.measured(report, "application"):
@@ -77,6 +79,14 @@ def verify_source(source, bundle, commit):
         site.performance.require_collection_ancestor(source, reference["collection_commit"], commit)
         if site.digest(Path(bundle) / "reference.json") != report["head"]["files"].get(reference_path):
             raise ValueError("compact reference differs from source commit")
+        if reference["protocol"] == site.performance.LINUX_PROTOCOL:
+            import linux_reference
+            # This comparison checks the retained contributor summary and every
+            # relinked ELF; derive() also checks original arguments/source bytes
+            # at the actual collection commit, rather than trusting case labels.
+            if linux_reference.derive_at(source, commit) != reference:
+                raise ValueError("native Linux reference differs from exact source/summary")
+            return
         # Native capture tools were local, uncommitted experiment files. Their
         # hashes describe retained local evidence, not files at collection_commit.
         sources = dict(reference["historical_input_sources"] if "streamcluster_replacement" in reference else reference["input_sources"])

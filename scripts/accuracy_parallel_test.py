@@ -137,11 +137,17 @@ class ParallelAccuracyTests(unittest.TestCase):
         prepare reads from the head and base revisions are supplied directly."""
         if "model_profiles" not in self.plan:
             self.declarations()
-        chosen = fixtures.device_selection(ident, HEAD, self.plan["head"]["files"], BASE if base_declared else None)
+        # These synthetic source snapshots predate the Grace acquisition. They
+        # exercise transport/device ownership without borrowing current native
+        # data whose exact 64 KiB inputs are tested in linux_reference_test.py.
+        declaration = parallel.devices.load()
+        parallel.devices.select(declaration, "grace")["references"] = {}
+        chosen = fixtures.device_selection(ident, HEAD, self.plan["head"]["files"], BASE if base_declared else None,
+                                           declaration=declaration)
         self.plan["device"] = chosen
         parallel.write(self.prepared / "plan.json", self.plan)
         def resolve(root, state, base, requested=None):
-            return copy.deepcopy(chosen) if requested in (None, ident) else fixtures.device_selection(requested, HEAD, {})
+            return copy.deepcopy(chosen) if requested in (None, ident) else fixtures.device_selection(requested, HEAD, {}, declaration=declaration)
         with patch.object(user, "source_state", return_value=self.plan["head"]), \
              patch.object(models, "resolve", return_value=self.plan["model_profiles"]), \
              patch.object(parallel.devices, "resolve", side_effect=resolve), \
