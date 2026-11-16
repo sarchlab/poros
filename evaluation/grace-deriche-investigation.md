@@ -36,7 +36,11 @@ maxima, 45.79% and 49.79%, and neither has an input above 50%.
 So the cause of the deriche-6 outlier is established and removed, and the
 changes as they are do not pass. Bringing symm-5 and syrk-6 back within the
 limit without losing deriche-6 or the Apple results is open calibration work;
-nothing in this note proposes how.
+nothing in this note proposes how. The
+[Grace residual investigation](grace-residual-investigation.md) takes it up:
+change B moved both inputs, and that note has what replaced it and the
+comparison of revision `b6de5ca`, in which all 237 are within 50% and some
+inputs, symm-6 most, are worse than at `a061e92`.
 
 The durable record is [pull request 84](https://github.com/sarchlab/poros/pull/84).
 The campaign's records and its certificate are kept by the project outside

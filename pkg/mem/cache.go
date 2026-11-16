@@ -64,9 +64,9 @@ type CacheConfig struct {
 	// no boundary.
 	PrefetchPageBytes int
 	// PrefetchStrideBytes is the largest constant stride between demand
-	// misses that the stream prefetcher follows, and the farthest ahead of a
-	// miss, in bytes, that it prefetches such a walk (followStride in
-	// stride.go). 0 follows only neighbouring lines.
+	// misses that the stream prefetcher follows (followStride in stride.go).
+	// Such a walk is prefetched PrefetchDistance of its accesses ahead. 0
+	// follows only neighbouring lines.
 	PrefetchStrideBytes int `json:",omitempty"`
 	// SLCSize is the capacity in bytes of a memory-side cache that keeps the
 	// lines L2 evicts: the most recent SLCSize/L2LineSize victims, in the
@@ -669,6 +669,9 @@ func (c *Cache) accessLine(addr uint64, size int, isWrite bool, now uint64) (Hit
 		if isWrite && c.cfg.WriteBufferEntries > 0 {
 			line.dirty = true
 			line.dirtyAt = max(line.dirtyAt, now)
+		}
+		if !isWrite {
+			c.strideHit(addr)
 		}
 		c.stats.L1Hits++
 		ready := now + uint64(c.cfg.L1Latency)

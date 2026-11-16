@@ -22,11 +22,12 @@ func TestStreamPrefetcherFollowsConstantStrides(t *testing.T) {
 		stride     int64
 		prefetches uint64
 	}{
-		// deriche-like: ten steps are within the limit. Three triggers issue the
-		// full degree; then the walk is ten steps ahead and each trigger adds one.
-		{6168, 3*4 + 3}, {-6168, 3*4 + 3},
-		// Exactly the limit: one step ahead is as far as it goes.
-		{65536, 6}, {-65536, 6},
+		// deriche-like: the third miss and every later one issue the full degree.
+		{6168, 6 * 4}, {-6168, 6 * 4},
+		// Exactly the limit, and every line in one L1 set of eight ways: two
+		// triggers issue the full degree, the third fills the set and each
+		// later one adds one line.
+		{65536, 2*4 + 2 + 3}, {-65536, 2*4 + 2 + 3},
 	} {
 		stride := tc.stride
 		plain := DefaultCacheConfig()
@@ -48,7 +49,7 @@ func TestStreamPrefetcherFollowsConstantStrides(t *testing.T) {
 			t.Fatalf("stride %d: %+v", stride, s)
 		}
 		// Each trigger issues up to PrefetchDegree lines, one stride apart, ahead
-		// of demand and within the limit of it.
+		// of demand.
 		if s.Prefetches != tc.prefetches {
 			t.Fatalf("stride %d: %d prefetches, want %d", stride, s.Prefetches, tc.prefetches)
 		}
@@ -59,45 +60,152 @@ func TestStreamPrefetcherFollowsConstantStrides(t *testing.T) {
 	}
 }
 
-// The lookahead is bounded in bytes as well as in steps. A step is the
-// distance between two misses: a walk that misses only every eighth access has
-// a step of eight strides, and PrefetchDistance such steps would reach far
-// beyond a short walk. Whatever the step, nothing is prefetched farther ahead
-// of a miss than the stride limit.
-func TestStridePrefetchReachIsBoundedInBytes(t *testing.T) {
-	const base, limit = 0x4000000, 65536
+// columnWalk reads a walk of the given stride from base whose lines are in L1
+// already, except one in every so many: those miss, as the rows of a column
+// do that start a new line. It walks up to the given number of misses and
+// returns the cache and the address of the last one. With every 1, every
+// access misses.
+func columnWalk(cfg CacheConfig, base uint64, stride int64, every, misses int) (*Cache, uint64) {
+	c := NewCache(cfg)
+	at := func(i int) uint64 { return uint64(int64(base) + int64(i)*stride) }
+	last := every * (misses - 1)
+	for i := 0; i <= last; i++ {
+		if i%every != 0 {
+			c.Prefetch(at(i))
+		}
+	}
+	for i := 0; i <= last; i++ {
+		c.Access(at(i), 8, false, uint64(100+i))
+	}
+	return c, at(last)
+}
+
+// stepsAhead is how many whole steps ahead of the miss at last the walk is
+// prefetched into L2, without a gap.
+func stepsAhead(c *Cache, last uint64, step int64) int {
+	for k := 1; ; k++ {
+		if line := c.l2.peek(uint64(int64(last) + int64(k)*step)); line == nil || !line.prefetched {
+			return k - 1
+		}
+	}
+}
+
+// The lookahead is PrefetchDistance accesses of the walk, not that many
+// misses. A step is the distance between two misses: a walk that misses only
+// every eighth access has a step of eight strides, and is prefetched an
+// eighth as many steps ahead as a walk whose every access misses. The
+// accesses in between are known from the loads that find their line in L1.
+func TestStridePrefetchReachIsCountedInAccesses(t *testing.T) {
+	const base = 0x4000000
 	for _, tc := range []struct {
 		name          string
-		step          int64
+		stride        int64
+		every         int // one access in this many misses L1
 		misses, ahead int // demand misses walked, and whole steps prefetched ahead of the last
 	}{
-		{"every access misses, short stride", 1024, 40, 48}, // 48 steps are 49152 bytes: the step bound
-		{"every access misses, deriche stride", 8000, 40, 8},
-		{"every eighth access misses, syrk stride", 8 * 2120, 40, 3},
-		{"descending", -8 * 2120, 40, 3},
-		{"mvt stride", 24576, 40, 2},
+		{"every access misses, short stride", 1024, 1, 40, 48},
+		{"every access misses, deriche stride", 8000, 1, 40, 48},
+		{"every access misses, mvt stride", 25600, 1, 40, 48},
+		{"every eighth access misses, syrk stride", 2120, 8, 40, 6},
+		{"every eighth access misses, symm stride", 4568, 8, 40, 6},
+		{"every fourth access misses", 4880, 4, 40, 12},
+		{"every eighth access misses, descending", -2120, 8, 40, 6},
 	} {
 		cfg := DefaultCacheConfig()
-		cfg.PrefetchStrideBytes = limit
+		cfg.PrefetchStrideBytes = 65536
+		c, last := columnWalk(cfg, base, tc.stride, tc.every, tc.misses)
+		step := tc.stride * int64(tc.every)
+		if ahead := stepsAhead(c, last, step); ahead != tc.ahead {
+			t.Fatalf("%s: prefetched %d steps ahead of the last miss, want %d (%d accesses)", tc.name, ahead, tc.ahead, tc.ahead*tc.every)
+		}
+		if tc.ahead*tc.every > cfg.PrefetchDistance {
+			t.Fatalf("%s: test expects more than %d accesses ahead", tc.name, cfg.PrefetchDistance)
+		}
+		// The walk itself is covered: after training every miss finds its line.
+		if s := c.Stats(); s.StreamsTrained != 1 || s.L2Misses != 3 || s.PrefetchedL2Hits != uint64(tc.misses-3) {
+			t.Fatalf("%s: %+v", tc.name, s)
+		}
+	}
+}
+
+// Only a load that finds its line in L1 a whole fraction of the step beyond
+// the last miss, and at least a line beyond it, is taken for an access of the
+// walk. Anything else leaves the walk prefetched a full PrefetchDistance of
+// steps ahead.
+func TestOnlyLoadsOnTheWalkShortenItsStride(t *testing.T) {
+	const base, step = 0x4000000, 8 * 2120
+	for _, tc := range []struct {
+		name   string
+		offset int64 // of the access after each miss
+		write  bool
+		ahead  int
+	}{
+		{"an eighth of the step", step / 8, false, 6},
+		{"half of the step", step / 2, false, 24},
+		{"a store an eighth of the step on", step / 8, true, 48},
+		{"the next word", 8, false, 48},
+		{"not a whole fraction", step/8 + 64, false, 48},
+		{"behind the miss", -step / 8, false, 48},
+	} {
+		cfg := DefaultCacheConfig()
+		cfg.PrefetchStrideBytes = 65536
 		c := NewCache(cfg)
 		last := uint64(0)
-		for i := 0; i < tc.misses; i++ {
-			last = uint64(int64(base) + int64(i)*tc.step)
-			c.Access(last, 8, false, uint64(100+i))
-		}
-		// Everything up to the bound is in L2, prefetched; the next step is not.
-		for k := 1; k <= tc.ahead+1; k++ {
-			addr := uint64(int64(last) + int64(k)*tc.step)
-			if line := c.l2.peek(addr); (line != nil && line.prefetched) != (k <= tc.ahead) {
-				t.Fatalf("%s: step %d ahead of the last miss prefetched=%v, want the walk prefetched exactly %d steps ahead", tc.name, k, line != nil, tc.ahead)
+		for i := 0; i < 40; i++ {
+			last = uint64(base + i*step)
+			other := uint64(int64(last) + tc.offset)
+			c.Access(last, 8, false, uint64(100+2*i))
+			c.Prefetch(other)
+			if level, _ := c.Access(other, 8, tc.write, uint64(101+2*i)); level != HitL1 {
+				t.Fatalf("%s: the other access did not find its line in L1", tc.name)
 			}
 		}
-		if reach := int64(tc.ahead) * tc.step; reach > limit || reach < -limit {
-			t.Fatalf("%s: test expects a reach of %d bytes, beyond the limit", tc.name, reach)
+		if ahead := stepsAhead(c, last, step); ahead != tc.ahead {
+			t.Fatalf("%s: prefetched %d steps ahead of the last miss, want %d", tc.name, ahead, tc.ahead)
 		}
-		// The walk itself is still covered: after training every miss finds its line.
-		if s := c.Stats(); s.L2Misses != 3 || s.PrefetchedL2Hits != uint64(tc.misses-3) {
-			t.Fatalf("%s: %+v", tc.name, s)
+	}
+}
+
+// The walk is prefetched no farther than its lines have room in L1: a set
+// holds L1Ways of them. A stride that is a multiple of many lines keeps the
+// walk in few sets, and the lookahead is what fits there; other strides are
+// not bounded by it. The geometry is the Grace profile's L1, 256 sets of four.
+func TestStridePrefetchLeavesRoomInL1(t *testing.T) {
+	const base = 0x4000000
+	for _, tc := range []struct {
+		name   string
+		stride int64
+		ahead  int
+	}{
+		{"128 lines, two sets", 8192, 8},
+		{"384 lines, two sets", 24576, 8},
+		{"448 lines, four sets", 28672, 16},
+		{"416 lines, eight sets", 26624, 32},
+		{"400 lines, sixteen sets", 25600, 48},
+		{"125 lines, every set", 8000, 48},
+		{"two sets, descending", -24576, 8},
+	} {
+		cfg := DefaultCacheConfig()
+		cfg.L1Size, cfg.L1Ways = 64<<10, 4
+		cfg.L2Size, cfg.L2Ways, cfg.L2LineSize = 1<<20, 8, 64
+		cfg.PrefetchStrideBytes = 65536
+		start := uint64(base)
+		if tc.stride < 0 {
+			start += 1 << 24
+		}
+		c, last := columnWalk(cfg, start, tc.stride, 1, 80)
+		if ahead := stepsAhead(c, last, tc.stride); ahead != tc.ahead {
+			t.Fatalf("%s: prefetched %d steps ahead of the last miss, want %d", tc.name, ahead, tc.ahead)
+		}
+		// No more than L1Ways of the lines ahead share an L1 set.
+		sets := map[int]int{}
+		for k := 1; k <= tc.ahead; k++ {
+			sets[c.l1.setIndex(uint64(int64(last)+int64(k)*tc.stride))]++
+		}
+		for set, lines := range sets {
+			if lines > cfg.L1Ways {
+				t.Fatalf("%s: %d lines ahead in L1 set %d of %d ways", tc.name, lines, set, cfg.L1Ways)
+			}
 		}
 	}
 }
