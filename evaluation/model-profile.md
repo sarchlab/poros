@@ -925,15 +925,21 @@ Limits:
   cache tags, and so do the tags' replacement decisions. Times do not: a
   request visited after the eviction of its line but issued before the line
   left L2 finds it in L2 and is an L2 hit (`L2HitsBeforeEviction` counts
-  them). The line returns to the tags as a line returning from the record
-  does, and the line it displaces leaves L2 at the cycle of the later request
-  that caused the eviction. The transfer booked for the first line's own move
-  stays booked, so each such request costs the spill or write transport one
-  transfer that was not made. Until this was changed such a request waited
-  for the eviction, the move and the record's latency; a store whose data is
-  late allocates its line long after a younger load has issued, and a loop
-  that stores and then loads a line that the allocation displaces ran one
-  record return per trip, each behind the previous trip's store data
+  them). It is answered from the record, which keeps the cycle the line left
+  L2 and the cycle its data was there, and nothing else changes: no tag is
+  replaced, no transfer or writeback is booked or awaited, and the line stays
+  in the record for every request from the cycle it left. A stream prefetch
+  of a line that has not left L2 yet is not issued. Replacement is not
+  replayed: a line read before its eviction is still the line that was
+  evicted, where a core would have kept it as recently used, so its next
+  request after that cycle pays a return from the record that the hardware
+  may not pay. A dirty L1 line whose L2 line is in the record is written back
+  as before, by bringing that line back first. Until this was changed a
+  request before the eviction waited for the eviction, the move and the
+  record's latency; a store whose data is late allocates its line long after
+  a younger load has issued, and a loop that stores and then loads a line
+  that the allocation displaces ran one record return per trip, each behind
+  the previous trip's store data
   ([Grace Deriche investigation](grace-deriche-investigation.md)).
 
 ## Scalar FP timing and measured destination capacity

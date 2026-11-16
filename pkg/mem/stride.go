@@ -97,7 +97,7 @@ func (c *Cache) followStride(addr uint64, now uint64) bool {
 		if page := c.cfg.PrefetchPageBytes; page > 0 && uint64(s.frontier)/uint64(page) != addr/uint64(page) {
 			break // page bounded, as the sequential frontier is: the next page starts with its own miss
 		}
-		if c.l2.peek(uint64(s.frontier)) == nil {
+		if c.l2.peek(uint64(s.frontier)) == nil && c.notYetEvicted(uint64(s.frontier), now) == nil {
 			c.fetchL2(uint64(s.frontier), now, true)
 			c.stats.Prefetches++
 		}

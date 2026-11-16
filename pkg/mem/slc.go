@@ -32,6 +32,14 @@ func (s *victimStore) holds(line uint64) bool {
 	return ok
 }
 
+// find returns the held line without removing it, or nil.
+func (s *victimStore) find(line uint64) *victimLine {
+	if i, ok := s.slot[line]; ok {
+		return &s.ring[i]
+	}
+	return nil
+}
+
 // take removes line and returns it as it was held. Its position stays empty
 // until the ring comes round: taking a line does not lengthen the stay of the
 // others.

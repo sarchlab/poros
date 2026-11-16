@@ -447,22 +447,26 @@ class LiveReportTests(unittest.TestCase):
         site.write(view.snapshot, self.snapshot(True))
         pages.append(view.load()[0].decode())
         self.assertEqual([page.count('data-live-state="polling"') for page in pages], [1, 1, 0])
-        steps = [["open", "#benchmark-table"], ["focus", "circle"], ["hover", "circle"], ["anchor", "#benchmark-table"],
-                 ["watch", "#live-progress-label"], ["observe", None]]
-        observed = fixtures.live_dom(pages, steps)
+        steps = [["open", "#benchmark-table"], ["anchor", "#benchmark-table"], ["watch", "#live-progress-label"]]
+        observed = fixtures.live_dom(pages, steps + [["observe", None]])
         if observed is None:
             self.skipTest("Node is not installed")
-        steps.insert(-1, ["scroll", observed[0]["anchorTop"]])
+        steps += [["scroll", observed[0]["anchorTop"]], ["focus", "circle"], ["click", "circle"], ["observe", None]]
         before, grown, validated, later = fixtures.live_dom(pages, steps + [["refresh", None]] * 3)
         self.assertEqual((before["timers"], before["liveState"], before["anchorTop"]), ([15000], "polling", 0))
         self.assertIn("30 / 264", pages[0])
-        # More results arrived: same table open, same point focused and under the tip, same place on screen.
+        # More results arrived: same table open, same point focused, same place on screen.
         self.assertEqual((grown["fetches"], grown["reloads"], grown["liveState"], grown["timers"]), (1, 0, "polling", [15000]))
         self.assertNotEqual(grown["text"], before["text"])
         self.assertGreater(grown["elements"], before["elements"])
         self.assertIn("benchmark-table", grown["open"])
-        self.assertEqual((grown["focus"], grown["tip"]["hidden"], grown["tip"]["connected"], grown["anchorTop"]),
-                         (before["focus"], False, True, 0))
+        self.assertEqual((grown["focus"], grown["anchorTop"]), (before["focus"], 0))
+        # The point the tip was on is still in its chart, but the new results moved it
+        # (rank 1 is now rank 13): the tip is not left behind where the point was.
+        self.assertIn("rank 1 ·", before["tip"]["text"])
+        self.assertIn("rank 13 ·", grown["tip"]["text"])
+        self.assertNotEqual(grown["tip"]["top"], before["tip"]["top"])
+        self.assertEqual((before["tip"]["hidden"], grown["tip"]["hidden"], grown["tip"]["connected"]), (False, True, True))
         # Validated: shown, and never asked for again.
         self.assertEqual((validated["liveState"], validated["timers"], validated["fetches"], validated["reloads"]), ("validated", [], 2, 0))
         self.assertIn("benchmark-table", validated["open"])

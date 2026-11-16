@@ -8,19 +8,23 @@
 // are. What they leave behind is printed as JSON after the load and after
 // every refresh, for accuracy_test_support.live_dom to assert on.
 //
-// The DOM is only what the report scripts use. Two browser behaviours that the
-// scripts depend on are modelled deliberately:
+// The DOM is only what the report scripts use. Three browser behaviours that
+// the scripts depend on are modelled deliberately:
 //   - the element the address names (:target) is set by navigation only. An
 //     element of the same name inserted later does not become the target, and
 //     without a connected target the commit report shows its overview;
 //   - a box has a height only where it is displayed (not in a closed details,
-//     not in a view that is not shown), and its top follows document order.
+//     not in a view that is not shown), and its top follows document order;
+//   - events reach the page's own listeners: focusing an element sends
+//     focusin at once, by whoever focuses it, and a changed scroll position
+//     sends scroll once the script that changed it has finished, whether the
+//     reader scrolled or the page did.
 'use strict';
 const fs = require('fs');
 const vm = require('vm');
 
 let version = 0; // bumped by every change that can move a box
-const state = {scrollY: 0, fetches: 0, reloads: 0, timers: [], nextTimer: 1};
+const state = {scrollY: 0, scrolled: false, fetches: 0, reloads: 0, timers: [], nextTimer: 1};
 
 class Text {
   constructor(data) { this.data = data; this.parentNode = null; }
@@ -89,10 +93,13 @@ class Element {
     this.childNodes = nodes;
     version++;
   }
-  focus() { this.ownerDocument.activeElement = this; }
+  focus() {
+    this.ownerDocument.activeElement = this;
+    this.ownerDocument.dispatchEvent({type: 'focusin', target: this});
+  }
   getBoundingClientRect() {
-    const top = layout(this.ownerDocument).get(this);
-    return top === undefined ? {top: 0, bottom: 0, height: 0} : {top: top - state.scrollY, bottom: top - state.scrollY + 10, height: 10};
+    const top = layout(this.ownerDocument).get(this), box = {left: 0, right: 10, top: 0, bottom: 0, height: 0};
+    return top === undefined ? box : {...box, top: top - state.scrollY, bottom: top - state.scrollY + 10, height: 10};
   }
 }
 
@@ -201,7 +208,13 @@ async function main() {
   };
   Object.defineProperty(sandbox, 'scrollY', {get: () => state.scrollY});
   sandbox.window = sandbox;
-  sandbox.scrollTo = (x, y) => { state.scrollY = y; };
+  sandbox.scrollTo = (x, y) => { state.scrolled ||= y !== state.scrollY; state.scrollY = y; };
+  // Called when a script or a reader's action has finished.
+  const afterScript = () => {
+    if (!state.scrolled) return;
+    state.scrolled = false;
+    for (const listener of windowListeners.scroll || []) listener({type: 'scroll', target: document});
+  };
   vm.createContext(sandbox);
   for (const script of document.querySelectorAll('script')) vm.runInContext(script.textContent, sandbox);
 
@@ -224,7 +237,8 @@ async function main() {
       ? (document.activeElement.dataset.pointKey || document.activeElement.id || document.activeElement.localName) : null,
     focusView: document.activeElement && document.activeElement.isConnected ? document.activeElement.closest('.view')?.id ?? null : null,
     tip: tip ? {hidden: tip.hidden, text: tip.textContent, connected: !!(tip.point && tip.point.isConnected),
-                view: tip.point && tip.point.isConnected ? tip.point.closest('.view')?.id ?? null : null} : null,
+                view: tip.point && tip.point.isConnected ? tip.point.closest('.view')?.id ?? null : null,
+                top: tip.point && tip.point.isConnected ? tip.point.getBoundingClientRect().top : null} : null,
     scrollY: state.scrollY, anchorTop: anchor && anchor().getBoundingClientRect().top,
     text: Object.fromEntries(watched.map(selector => [selector, document.querySelector(selector)?.textContent ?? null])),
     elements: document.querySelectorAll('*').length,
@@ -239,8 +253,8 @@ async function main() {
       for (const listener of windowListeners.hashchange || []) listener({type: 'hashchange'});
     } else if (action === 'open') one(argument).open = true;
     else if (action === 'focus') one(argument).focus();
-    else if (action === 'hover') { const point = one(argument); tip.textContent = point.dataset.tip; tip.point = point; tip.hidden = false; }
-    else if (action === 'scroll') state.scrollY = argument;
+    else if (action === 'click') document.dispatchEvent({type: 'click', target: one(argument)});
+    else if (action === 'scroll') sandbox.scrollTo(0, argument);
     else if (action === 'anchor') anchor = () => one(argument);
     else if (action === 'watch') watched.push(argument);
     else if (action === 'observe') observations.push(observe());
@@ -251,8 +265,9 @@ async function main() {
         state.timers = state.timers.filter(timer => timer !== due);
         await due.callback();
       }
-      observations.push(observe());
     } else throw new Error('unknown step ' + action);
+    afterScript();
+    if (action === 'refresh') observations.push(observe());
   }
   process.stdout.write(JSON.stringify(observations));
 }

@@ -285,9 +285,13 @@ validated bundle assets. Incomplete, failed or waiting pages update themselves
 in place every 15 seconds and are never reloaded: the page fetches its own
 address, checks that the document is complete and belongs to the same
 campaign, and replaces the report's content. Open tables, scroll positions,
-focus, the tip under the pointer and the place being read are kept. A request
-that fails, or a document that is incomplete or another campaign's, leaves the
-page as it is and is asked for again. A validated page is not asked for again.
+focus and the place being read are kept. A point's tip is kept while that
+point is still where the tip was put beside it: the scrolling by which an
+update restores the reader's place does not dismiss it, the reader's own
+scrolling does, and an update that moves the point within its chart does too.
+A request that fails, or a document that is incomplete or another campaign's,
+leaves the page as it is and is asked for again. A validated page is not asked
+for again.
 Malformed/intermediate input preserves the last validated snapshot
 with a warning; a producer silent for 45 seconds is visibly stale.
 
@@ -385,13 +389,15 @@ python3 scripts/accuracy_site.py serve --snapshot RUN-M2/snapshot.json \
 
 The commit view is updated in place like one device's page, by the same
 script: while a campaign in it is running, the view the address names, open
-tables, scroll position, focus and tip survive every update. The view is
+tables, scroll position and focus survive every update, and a tip does on
+the same condition as above. The view is
 selected by the address (`:target`), which a browser does not move to a new
 element, so the addressed element and its ancestors are kept and only what is
 around them is replaced. Once no campaign is running the document is settled:
 it carries no script that could request it again. Archived commit reports
 never had one. `scripts/accuracy_live_dom.js` runs these scripts in Node for
-the tests.
+the tests, with the focus and scroll events a browser sends them; it has no
+pointer and no real layout, which a browser run of an update has to cover.
 
 In that commit view a device is `running`, `failed`, `pending` when it has no
 snapshot, or `validation pending` once its campaign has finished. A finished

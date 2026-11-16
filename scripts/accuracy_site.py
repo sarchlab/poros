@@ -913,16 +913,25 @@ POINT_TIPS = """<div id="point-tip" role="tooltip" hidden></div><script>
     tip.point = point; // a live update keeps the tip on this point's successor
     tip.hidden = false;
     const box = point.getBoundingClientRect();
+    tip.at = [box.left, box.top]; // where the point is while the tip is beside it
     const x = event.clientX ?? box.right, y = event.clientY ?? box.top;
     tip.style.left = Math.max(4, Math.min(x + 10, innerWidth - tip.offsetWidth - 4)) + 'px';
     tip.style.top = Math.max(4, Math.min(y + 12, innerHeight - tip.offsetHeight - 4)) + 'px';
   }
+  // The tip goes when its point is no longer where the tip was put beside it.
+  // A reader's scroll moves the point. A live update scrolls as well, to keep
+  // the reader's place (LIVE_REFRESH), and that puts the point back where it
+  // was: the scroll events it causes arrive afterwards and leave the tip.
+  tip.settle = () => {
+    const box = !tip.hidden && tip.point?.isConnected ? tip.point.getBoundingClientRect() : null;
+    if (!box || Math.abs(box.left - tip.at[0]) >= 2 || Math.abs(box.top - tip.at[1]) >= 2) tip.hidden = true;
+  };
   for (const name of ['pointermove','focusin','click']) document.addEventListener(name, show);
   for (const name of ['pointerout','focusout']) document.addEventListener(name, e => {
     if (e.target.closest('[data-tip]')) tip.hidden = true;
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') tip.hidden = true; });
-  window.addEventListener('scroll', () => { tip.hidden = true; }, true);
+  window.addEventListener('scroll', tip.settle, true);
 })();
 </script>"""
 
@@ -974,7 +983,8 @@ LIVE_REFRESH = """<script>
       .map(n => ({key:key(n, root), open:n.localName === 'details' ? n.open : null, x:n.scrollLeft, y:n.scrollTop}));
     const focused = root.contains(document.activeElement) ? key(document.activeElement, root) : null;
     const hovered = !tip.hidden && tip.point && root.contains(tip.point) ? key(tip.point, root) : null;
-    const anchors = [...root.querySelectorAll('figure,figcaption,details,summary,tr,h2,h3,pre')]
+    const beside = [tip.at, tip.style.left, tip.style.top];
+    const anchors =[...root.querySelectorAll('figure,figcaption,details,summary,tr,h2,h3,pre')]
       .map(n => ({key:key(n, root), box:n.getBoundingClientRect()}))
       .filter(a => a.box.height && a.box.bottom > 0 && a.box.top < innerHeight)
       .sort((a,b) => Math.abs(a.box.top)-Math.abs(b.box.top));
@@ -984,9 +994,6 @@ LIVE_REFRESH = """<script>
     graft(root, next, target && root.contains(target) ? target : null);
     root.dataset.liveState = next.dataset.liveState;
     const nodes = new Map([...root.querySelectorAll('*')].map(n => [key(n, root), n]));
-    // The tip stays on the point under the pointer when that point still exists.
-    const point = nodes.get(hovered);
-    if (point) { tip.textContent = point.dataset.tip; tip.point = point; } else tip.hidden = true;
     // Reopen every disclosure before scroll writes force layout. Replacing
     // long open tables with collapsed ones can temporarily clamp window scroll.
     for (const saved of states) {
@@ -1003,6 +1010,17 @@ LIVE_REFRESH = """<script>
     const anchor = anchors.find(a => nodes.has(a.key));
     const delta = anchor ? nodes.get(anchor.key).getBoundingClientRect().top - anchor.box.top : 0;
     window.scrollTo(x, anchor ? scrollY + delta : y);
+    // The tip stays on the point it was on when that point still exists and
+    // is where it was. This comes last: focusing an element above shows or
+    // hides a tip as a reader's focus does, and until the scroll position is
+    // restored every point is somewhere else.
+    const point = nodes.get(hovered);
+    tip.hidden = !point;
+    if (point) {
+      tip.textContent = point.dataset.tip; tip.point = point;
+      [tip.at, tip.style.left, tip.style.top] = beside;
+      tip.settle();
+    }
     document.dispatchEvent(new Event('report-updated'));
   }
   async function refresh() {

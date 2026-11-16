@@ -379,10 +379,11 @@ def live_dom(pages, steps):
     pages[0] is loaded; every request the page makes gets the next entry (the
     last one repeats): a rendered page, None for an unreachable server, or
     {"status": 503}. steps are [action, argument] pairs for
-    scripts/accuracy_live_dom.js: navigate, open, focus, hover, scroll, anchor,
+    scripts/accuracy_live_dom.js: navigate, open, focus, click, scroll, anchor,
     watch, observe and refresh (the page's own 15-second timer, if it set
-    one). Returns what was observed at each observe and after each refresh, or
-    None where Node is not installed."""
+    one). focus, click and scroll reach the page's own listeners. Returns what
+    was observed at each observe and after each refresh, or None where Node is
+    not installed."""
     import subprocess
     import tempfile
     node = shutil.which("node")

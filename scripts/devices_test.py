@@ -1924,13 +1924,12 @@ class CommitReportTests(ReportFixture):
         """The page's own scripts, run in Node against the documents the server returns."""
         first, second, settled = self.live_pages()
         table, point = "#device-syn-b_benchmark-table", "#device-syn-b circle"
-        steps = [["navigate", "#device-syn-b"], ["open", table], ["focus", point], ["hover", point], ["anchor", table],
-                 ["watch", 'nav.views a[href="#device-syn-b"]'], ["observe", None]]
-        observed = fixtures.live_dom([first, second, settled], steps)
+        steps = [["navigate", "#device-syn-b"], ["open", table], ["anchor", table], ["watch", 'nav.views a[href="#device-syn-b"]']]
+        observed = fixtures.live_dom([first, second, settled], steps + [["observe", None]])
         if observed is None:
             self.skipTest("Node is not installed")
-        # Put the open table at the top of the window, then let the page refresh three times.
-        steps.insert(-1, ["scroll", observed[0]["anchorTop"]])
+        # Put the open table at the top of the window and point at a point, then let the page refresh three times.
+        steps += [["scroll", observed[0]["anchorTop"]], ["focus", point], ["click", point], ["observe", None]]
         before, after, final, later = fixtures.live_dom([first, second, settled], steps + [["refresh", None]] * 3)
         self.assertEqual((before["shownView"], before["timers"], before["anchorTop"], before["liveState"]),
                          ("device-syn-b", [15000], 0, "polling"))
@@ -1954,6 +1953,33 @@ class CommitReportTests(ReportFixture):
         self.assertEqual((final["shownView"], final["anchorTop"]), ("device-syn-b", 0))
         self.assertIn("device-syn-b_benchmark-table", final["open"])
         self.assertEqual((later["fetches"], later["timers"]), (2, []))
+
+    def test_live_update_keeps_the_tip_until_the_reader_scrolls(self):
+        """An update scrolls, to keep the reader's place, and focuses what was
+        focused. Neither takes the tip from its point; the reader's own scroll,
+        which moves the point, does."""
+        first, second, _ = self.live_pages()
+        table, point = "#device-syn-b_benchmark-table", "#device-syn-b circle"
+        steps = [["navigate", "#device-syn-b"], ["open", table], ["anchor", table]]
+        observed = fixtures.live_dom([first, second], steps + [["observe", None]])
+        if observed is None:
+            self.skipTest("Node is not installed")
+        # The reader has focused the table's heading and points at a point; after
+        # the update they scroll on by 30.
+        top = observed[0]["anchorTop"]
+        steps += [["scroll", top], ["focus", table + " summary"], ["click", point], ["observe", None], ["refresh", None],
+                  ["scroll", top + 40], ["observe", None]]
+        before, after, scrolled = fixtures.live_dom([first, second], steps)
+        self.assertEqual((before["focus"], before["tip"]["hidden"], before["tip"]["view"]), ("summary", False, "device-syn-b"))
+        # The update scrolled by the height of the notice it inserted above, and the page's listeners were told.
+        self.assertEqual((after["scrollY"], after["anchorTop"], after["focus"]), (before["scrollY"] + 10, 0, "summary"))
+        self.assertEqual(after["tip"], dict(before["tip"], connected=True))
+        self.assertEqual((scrolled["scrollY"], scrolled["tip"]["hidden"]), (after["scrollY"] + 30, True))
+        # Control: a listener that hides the tip at every scroll event loses it to the update's own scroll.
+        naive = first.replace("window.addEventListener('scroll', tip.settle, true);", "window.addEventListener('scroll', () => { tip.hidden = true; }, true);")
+        self.assertNotEqual(naive, first)
+        before, after, _ = fixtures.live_dom([naive, second], steps)
+        self.assertEqual((before["tip"]["hidden"], after["scrollY"], after["tip"]["hidden"]), (False, before["scrollY"] + 10, True))
 
     def test_live_commit_report_keeps_a_view_addressed_through_an_element_inside_it(self):
         first, second, _ = self.live_pages()

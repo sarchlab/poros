@@ -151,68 +151,56 @@ func TestMemorySideHitWaitsForEvictedPendingFill(t *testing.T) {
 // Requests are visited in dispatch order. A request issued at an earlier
 // cycle than the eviction that put its line behind L2, but visited after it,
 // is not made to wait for that eviction: at its own cycle the line is still
-// in L2, and L2 supplies it. Nothing is fetched and nothing is counted as a
-// miss.
+// in L2, and L2 supplies it. Nothing is fetched, moved or counted as a miss,
+// and the line still leaves L2 when it did.
 func TestRequestIssuedBeforeTheEvictionFindsItsLineInL2(t *testing.T) {
-	evicted := func() *Cache {
-		c := NewCache(memorySideConfig(4))
-		c.Access(lineA, 8, false, 100)
-		c.Access(lineB, 8, false, 200)
-		c.Access(lineC, 8, false, 5000) // evicts A at cycle 5000
-		if at, held := heldFrom(c, lineA); !held || at != 5000+spillCycles {
-			t.Fatal("setup did not leave A behind L2", at, held)
-		}
-		return c
+	c := NewCache(memorySideConfig(4))
+	c.Access(lineA, 8, false, 100)
+	c.Access(lineB, 8, false, 200)
+	c.Access(lineC, 8, false, 5000) // evicts A at cycle 5000
+	misses := c.stats.L2Misses
+	// B and C are the two lines of the set, A is behind L2 from the end of its
+	// move, and nothing has been fetched since the setup.
+	asEvicted := func() bool {
+		at, held := heldFrom(c, lineA)
+		return held && at == 5000+spillCycles && c.l2.peek(lineA) == nil && c.l2.peek(lineB) != nil && c.l2.peek(lineC) != nil &&
+			c.stats.L2Misses == misses && c.stats.SLCHits == 0
 	}
-	c := evicted()
-	fills, misses := len(c.dram.busy), c.stats.L2Misses
+	if !asEvicted() {
+		t.Fatal("setup did not leave A behind L2")
+	}
 	// An L2 hit issued at 1000: 14 cycles, the last two of them the L1 transfer.
 	level, ready := c.Access(lineA, 8, false, 1000)
 	if level != HitL2 || ready != 1000+14 {
 		t.Fatalf("level %d ready %d, want an L2 hit at %d", level, ready, 1000+14)
 	}
-	if c.stats.SLCHits != 0 || c.stats.L2HitsBeforeEviction != 1 || c.stats.L2Misses != misses || c.stats.L2Hits != 1 || len(c.dram.busy) != fills {
-		t.Fatalf("counted or fetched as a miss: %+v, fills %d -> %d", c.stats, fills, len(c.dram.busy))
+	if c.stats.L2HitsBeforeEviction != 1 || c.stats.L2Hits != 1 || !asEvicted() {
+		t.Fatalf("counted, fetched or moved as a miss: %+v", c.stats)
 	}
-	// The line is in the tags again and no longer behind L2. The tags changed as
-	// they did when a line came back from the memory side: it displaced the
-	// least recently used line, B, and the set still holds two.
-	if _, held := heldFrom(c, lineA); held || c.l2.peek(lineA) == nil || c.l2.peek(lineC) == nil || c.l2.peek(lineB) != nil {
-		t.Fatal("line did not return to the L2 tags in place of the least recently used one")
-	}
-	// B is what C's request evicts instead of A, so B leaves when C arrives, at
-	// 5000 and not at 1000, behind A's own move, which stays booked.
-	if victim := c.slc.ring[c.slc.slot[c.l2Line(lineB)]]; victim.leftAt != 5000 || victim.readyAt != 5000+2*spillCycles {
-		t.Fatalf("displaced line left at %d and is held from %d, want 5000 and %d", victim.leftAt, victim.readyAt, 5000+2*spillCycles)
-	}
-	// A second request for the line, again before 5000, is a plain L2 hit: its
-	// other L1 half is not in L1, and nothing more is counted or fetched.
+	// The line was not consumed: a second request before 5000, for the half
+	// that is not in L1, is answered the same way.
 	if level, ready := c.Access(lineA+64, 8, false, 1500); level != HitL2 || ready != 1500+14 ||
-		c.stats.L2HitsBeforeEviction != 1 || c.stats.L2Hits != 2 || len(c.dram.busy) != fills {
+		c.stats.L2HitsBeforeEviction != 2 || c.stats.L2Hits != 2 || !asEvicted() {
 		t.Fatal("second early request", level, ready, c.stats)
 	}
-	// B itself is still in L2 until 5000 and comes from behind it afterwards;
-	// A, read before the eviction, was not the line evicted and is still here.
-	if level, ready := c.Access(lineB, 8, false, 4999); level != HitL2 || ready != 4999+14 {
-		t.Fatal("displaced line before the eviction", level, ready)
+	// B was not displaced by either of them and is an ordinary L2 hit.
+	if level, ready := c.Access(lineB, 8, false, 4999); level != HitL2 || ready != 4999+14 || c.stats.L2HitsBeforeEviction != 2 {
+		t.Fatal("line beside the early hits", level, ready, c.stats)
 	}
-	c = evicted()
-	c.Access(lineA, 8, false, 1000)
-	if level, ready := c.Access(lineB, 8, false, 6000); level != HitSLC || ready != 6000+138 {
-		t.Fatal("displaced line after the eviction", level, ready)
+	// From the cycle A left L2 on it comes from behind L2, once, as it did
+	// before: having been read earlier did not keep it in L2. Its return is on
+	// time, so the early hits left nothing on the fill transport.
+	if level, ready := c.Access(lineA, 8, false, 5000); level != HitSLC || ready != 5000+spillCycles+138 ||
+		c.stats.SLCHits != 1 || c.stats.L2Misses != misses+1 {
+		t.Fatal("request at the eviction", level, ready, c.stats)
 	}
-	if c.l2.peek(lineA) == nil || c.stats.SLCHits != 1 {
-		t.Fatal("the line read before the eviction did not stay", c.stats)
+	if _, held := heldFrom(c, lineA); held || c.l2.peek(lineA) == nil {
+		t.Fatal("the line did not move back to L2")
 	}
-	// The same holds for a prefetch or writeback allocation of that line.
-	c = evicted()
-	if ready, level := c.fetchL2(lineA, 1000, true); level != HitL2 || ready != 435 || c.l2.peek(lineA).prefetched {
-		t.Fatal(level, ready)
-	}
-	// From the cycle the line left L2 on, it comes from behind L2 as before.
-	c = evicted()
-	if level, ready := c.Access(lineA, 8, false, 5000); level != HitSLC || ready != 5000+spillCycles+138 || c.stats.L2HitsBeforeEviction != 0 {
-		t.Fatal(level, ready, c.stats)
+	// A request visited after that return is an ordinary hit on the returned
+	// line, whatever its cycle.
+	if level, ready := c.Access(lineA+64, 8, false, 1600); level != HitL2 || ready != 5000+spillCycles+138+14 || c.stats.L2HitsBeforeEviction != 2 {
+		t.Fatal("request visited after the return", level, ready, c.stats)
 	}
 }
 
@@ -240,57 +228,151 @@ func TestRequestBeforeADirtyVictimsWritebackEndsFindsItInL2(t *testing.T) {
 	c.Access(lineB, 8, false, 2000) // A leaves L1 dirty
 	c.Access(lineC, 8, false, 3000) // B leaves L2 clean
 	c.Access(lineD, 8, false, 4000) // A leaves L2 dirty; its write ends at 4008
-	if level, ready := c.Access(lineA, 8, false, 4007); level != HitL2 || ready != 4007+14 || c.stats.L2Writebacks != 1 {
+	bytes, drain := c.stats.WritebackBytes, c.DrainUntil()
+	if level, ready := c.Access(lineA, 8, false, 4007); level != HitL2 || ready != 4007+14 {
 		t.Fatal(level, ready, c.stats)
+	}
+	// Its one write stays as it was booked, and from 4008 it is behind L2.
+	if at, held := heldFrom(c, lineA); !held || at != 4008 || c.stats.L2Writebacks != 1 || c.stats.WritebackBytes != bytes || c.DrainUntil() != drain {
+		t.Fatalf("dirty line held from %d (%v), drain %d, %+v", at, held, c.DrainUntil(), c.stats)
+	}
+	if level, ready := c.Access(lineA+64, 8, false, 4008); level != HitSLC || ready != 4008+138 {
+		t.Fatal(level, ready)
 	}
 }
 
-// The line an early request displaces can be dirty. Its write traffic is still
-// charged, from the cycle of the later request that evicts it, it is readable
-// behind L2 only once written, and none of that delays the early request.
-func TestEarlyRequestDisplacingADirtyLineKeepsItsWriteback(t *testing.T) {
+// An early hit replaces nothing, so it can need no writeback slot. With every
+// L2 writeback slot busy, a request issued before its line left L2 is served
+// at once and the dirty line beside it stays where it is. The finite stage
+// still binds whoever does displace that dirty line: here the same line's
+// return from behind L2 after the eviction.
+func TestEarlyHitNeedsNoWritebackSlotAndTheStageStillBinds(t *testing.T) {
 	c := NewCache(memorySideConfig(4))
 	c.Store(lineA, 8, 100)
 	c.Access(lineB, 8, false, 2000) // A leaves L1 dirty and is the newer L2 line
 	c.Access(lineC, 8, false, 3000) // B leaves L2 clean at 3000; L2 holds dirty A and C
-	bytes := c.stats.WritebackBytes
+	for i := range c.l2Writebacks {
+		c.l2Writebacks[i] = 10000 // every slot of the stage is taken until 10000
+	}
+	writebacks, bytes, drain, misses := c.stats.L2Writebacks, c.stats.WritebackBytes, c.DrainUntil(), c.stats.L2Misses
 	level, ready := c.Access(lineB, 8, false, 2500) // before 3000: B is still in L2
 	if level != HitL2 || ready != 2500+14 || c.stats.L2HitsBeforeEviction != 1 {
 		t.Fatalf("level %d ready %d %+v, want an undelayed L2 hit at %d", level, ready, c.stats, 2500+14)
 	}
-	// A is what C's request evicts instead: written from 3000 for eight cycles.
-	at, held := heldFrom(c, lineA)
-	if !held || at != 3008 || c.stats.L2Writebacks != 1 || c.stats.WritebackBytes != bytes+128 || c.DrainUntil() != 3008 {
-		t.Fatalf("dirty line held from %d (%v), drain %d, %+v; want its write to end at 3008", at, held, c.DrainUntil(), c.stats)
+	// Nothing was evicted for it: dirty A and C are the two lines of the set,
+	// no write was counted, booked or awaited, and B is still behind L2.
+	if a := c.l2.peek(lineA); a == nil || !a.dirty || c.l2.peek(lineC) == nil || c.l2.peek(lineB) != nil {
+		t.Fatal("the early hit changed the L2 tags")
 	}
-	if c.l2.peek(lineB) == nil || c.l2.peek(lineC) == nil || c.l2.peek(lineA) != nil {
-		t.Fatal("the set does not hold exactly the two lines that were not displaced")
+	if _, held := heldFrom(c, lineB); !held || c.stats.L2Writebacks != writebacks || c.stats.WritebackBytes != bytes ||
+		c.DrainUntil() != drain || c.stats.L2Misses != misses || c.stats.SLCHits != 0 || c.l2Writebacks[0] != 10000 {
+		t.Fatalf("the early hit evicted, fetched or booked something: %+v drain %d slots %v", c.stats, c.DrainUntil(), c.l2Writebacks)
 	}
-	// Until its write has ended A is in L2; from then on it comes from behind it.
-	if level, ready := c.Access(lineA, 8, false, 3008); level != HitSLC || ready != 3008+138 {
-		t.Fatal(level, ready)
+	// After 3000 B comes from behind L2 and displaces dirty A. A's write cannot
+	// be admitted before 10000, so B is not usable in L2 before then.
+	level, ready = c.Access(lineB+64, 8, false, 3500)
+	if level != HitSLC || ready != 10000 || c.stats.L2Writebacks != writebacks+1 || c.l2.peek(lineA) != nil {
+		t.Fatalf("level %d ready %d %+v, want B back from behind L2 at 10000, when dirty A's write is admitted", level, ready, c.stats)
 	}
 }
 
-// A stream prefetch of a line that has not left L2 yet fetches nothing, and a
-// demand request that follows is an ordinary hit: one line is never paid for
-// twice.
+// A store issued before its line left L2 allocates from L2 as a load reads
+// from it, and L2 is left without the line. When the dirty L1 line is written
+// back, the writeback brings the line back from behind L2 as it always did,
+// not before the line is available there, without delaying the access that
+// displaced the dirty line.
+func TestEarlyStoreIsWrittenBackToALineReturnedFromBehindL2(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		writtenBack, drain uint64
+	}{
+		{"after the eviction", 6000, 6000 + 138 + 2},
+		{"before the eviction", 2000, 5000 + spillCycles + 138 + 2},
+	} {
+		c := NewCache(memorySideConfig(4))
+		c.Access(lineA, 8, false, 100)
+		c.Access(lineB, 8, false, 200)
+		c.Access(lineC, 8, false, 5000) // evicts A at cycle 5000
+		if accepted, drained := c.Store(lineA, 8, 1000); accepted != 1000 || drained != 1000+14 ||
+			c.stats.L2HitsBeforeEviction != 1 || c.stats.SLCHits != 0 || c.l2.peek(lineA) != nil {
+			t.Fatalf("%s: store accepted %d drained %d %+v, want an allocation from L2 by %d", tc.name, accepted, drained, c.stats, 1000+14)
+		}
+		// B displaces the dirty line from L1. The L2 line is fetched once, from
+		// behind L2, and the two-cycle write of the 64 bytes follows its arrival.
+		if level, ready := c.Access(lineB, 8, false, tc.writtenBack); level != HitL2 || ready != tc.writtenBack+14 {
+			t.Fatalf("%s: level %d ready %d, want an undelayed L2 hit", tc.name, level, ready)
+		}
+		line := c.l2.peek(lineA)
+		if _, held := heldFrom(c, lineA); held || line == nil || !line.dirty || c.stats.SLCHits != 1 || c.stats.L1Writebacks != 1 || c.DrainUntil() != tc.drain {
+			t.Fatalf("%s: %+v, drain %d, want the line back in L2, dirty, written by %d", tc.name, c.stats, c.DrainUntil(), tc.drain)
+		}
+	}
+}
+
+// A stream prefetch of a line that has not left L2 yet fetches nothing and
+// leaves the line where it is, and the demand request that follows is an L2
+// hit: one line is never paid for twice. The sequential and the stride
+// prefetcher do the same. Once the line has left L2, a prefetch brings it back.
 func TestPrefetchBeforeTheEvictionFetchesNothing(t *testing.T) {
-	c := NewCache(memorySideConfig(4))
+	const base = 0x4000000
+	for _, tc := range []struct {
+		name        string
+		stride      uint64
+		strideLimit int
+	}{
+		{"sequential", 128, 0},
+		{"stride", 6168, 65536},
+	} {
+		for _, left := range []uint64{5000, 60} {
+			cfg := DefaultCacheConfig()
+			cfg.PrefetchStrideBytes = tc.strideLimit
+			c := NewCache(cfg)
+			// The fourth line of the walk was in L2 from cycle 50 and was replaced,
+			// in dispatch order, by a request issued at left.
+			fourth := base + 3*tc.stride
+			c.slc.keep(victimLine{line: c.l2Line(fourth), leftAt: left, residentAt: 50, readyAt: left + spillCycles})
+			// The third miss trains the stream, which runs four lines ahead.
+			for i := uint64(0); i < 3; i++ {
+				c.Access(base+i*tc.stride, 8, false, 100+i)
+			}
+			_, held := heldFrom(c, fourth)
+			if left == 60 {
+				// It left L2 before the prefetch and comes back with the other three.
+				if line := c.l2.peek(fourth); held || line == nil || !line.prefetched || c.stats.Prefetches != 4 || c.stats.SLCHits != 1 {
+					t.Fatalf("%s: a line that had left L2 was not prefetched from behind it: %+v", tc.name, c.stats)
+				}
+				continue
+			}
+			if !held || c.l2.peek(fourth) != nil || c.stats.Prefetches != 3 || c.stats.SLCHits != 0 {
+				t.Fatalf("%s: the prefetch fetched or moved a line that was still in L2: %+v", tc.name, c.stats)
+			}
+			if level, ready := c.Access(fourth, 8, false, 103); level != HitL2 || ready != 103+14 ||
+				c.stats.L2HitsBeforeEviction != 1 || c.stats.SLCHits != 0 || c.stats.L2Misses != 3 {
+				t.Fatalf("%s: level %d ready %d %+v, want an L2 hit at %d", tc.name, level, ready, c.stats, 103+14)
+			}
+		}
+	}
+}
+
+// The legacy adjacent-line fill asks for its line at the cycle of the demand
+// access and finds it in L2 the same way.
+func TestAdjacentFillBeforeTheEvictionFindsItsLineInL2(t *testing.T) {
+	cfg := memorySideConfig(4)
+	cfg.L1Size, cfg.L1Ways = 2*64, 2 // both halves of one L2 line
+	cfg.DisableAdjacentL1Prefetch = false
+	c := NewCache(cfg)
 	c.Access(lineA, 8, false, 100)
 	c.Access(lineB, 8, false, 200)
-	c.Access(lineC, 8, false, 5000) // evicts A at 5000
-	fills, spills := len(c.dram.busy), len(c.spill.busy)
-	if ready, level := c.fetchL2(lineA, 1000, true); level != HitL2 || ready != 435 {
+	c.Access(lineC, 8, false, 5000) // evicts A at cycle 5000
+	misses := c.stats.L2Misses
+	if level, ready := c.Access(lineA, 8, false, 1000); level != HitL2 || ready != 1000+14 {
 		t.Fatal(level, ready)
 	}
-	if level, ready := c.Access(lineA, 8, false, 1200); level != HitL2 || ready != 1200+14 {
-		t.Fatal(level, ready)
-	}
-	// No fill for A; one more move behind L2, of the line A displaced.
-	if len(c.dram.busy) != fills || len(c.spill.busy) != spills || c.spill.busy[len(c.spill.busy)-1].End != 5000+2*spillCycles ||
-		c.stats.SLCHits != 0 || c.stats.L2HitsBeforeEviction != 1 || c.stats.L2Misses != 3 {
-		t.Fatalf("fills %d -> %d, spill %+v, %+v", fills, len(c.dram.busy), c.spill.busy, c.stats)
+	// The demand half and the adjacent half were each read from L2; nothing
+	// was fetched for either, and the line is still behind L2 from 5008.
+	if at, held := heldFrom(c, lineA); !held || at != 5000+spillCycles || c.stats.L2HitsBeforeEviction != 2 || c.stats.SLCHits != 0 ||
+		c.stats.L2Misses != misses || c.l2.peek(lineA) != nil || c.Probe(lineA+64) != HitL1 {
+		t.Fatalf("held from %d (%v), %+v", at, held, c.stats)
 	}
 }
 
