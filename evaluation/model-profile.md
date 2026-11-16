@@ -379,6 +379,17 @@ above. They are not measurements of the structures they are named after.
   was tried, none was searched, and the bound stays an assumption until a
   full comparison is read.
 
+  That was written before the full comparison. It has been run since, for
+  revision `a061e92`, with this bound and the change to requests issued
+  before an eviction together (final status in the
+  [Grace Deriche investigation](grace-deriche-investigation.md)). syrk's
+  fourth input came down from 53% to 40%, and two inputs that had been within
+  50% left it: syrk's sixth, 34% to 78%, and symm's fifth, 9% to 62%. The
+  comparison does not separate the two changes, so it does not say which of
+  them moved those inputs. It does say that the profile with this bound
+  fails the 50% limit on Grace, and the bound remains an assumption that
+  this result does not support as it stands.
+
 **Carried from M2 and not established for Grace:** the 256-instruction window,
 retirement and dispatch width (the SWOG gives eight MOPs per cycle), the branch
 predictor, the fetch rule that ends a group at a taken branch, the L2 latency,
@@ -439,7 +450,11 @@ user times converted at the assumed clock.
   clock). The walk's lines then return from the record of L2 victims at its
   138 cycles, twelve at a time, which is M2's latency and not established for
   Grace. What the bound does to the other inputs is not known until a full
-  comparison is run.
+  comparison is run. (Run since, for revision `a061e92`: mvt at 3,072 rows is
+  16.25% slow there too. Of the 237 qualified Grace applications 36 moved
+  towards the reference and 53 away from it by more than 0.01 points, and
+  two, symm's fifth input and syrk's sixth, are above 50%. See the final
+  status in the [Grace Deriche investigation](grace-deriche-investigation.md).)
 - The follower's addresses are signed 64-bit numbers. A walk at or above 2^63
   is recognised and never prefetched. Nothing measured here reaches it: the
   ELF loader admits segments only below 2^48 and the process stack lies below

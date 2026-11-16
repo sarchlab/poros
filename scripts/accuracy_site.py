@@ -1865,7 +1865,8 @@ def capacity_panels(reference, simulations, profiles, *, partial=False):
             tip = f'gate {gate}, {count} destinations: {row["median_ratio"]:.4f}; P10–P90 {row["p10_ratio"]:.4f}–{row["p90_ratio"]:.4f}; {quality}'
             points.append((count, row["median_ratio"], tip))
             boundary_ranges.append((count, row["p10_ratio"], row["p90_ratio"], color))
-            boundary_table += (f'<tr><td>{gate}</td><td>{count}</td><td>{row["median_ratio"]:.4f}</td>'
+            # A gate has 17 rows: a live update finds a row again by its case, not by its first cell.
+            boundary_table += (f'<tr data-row-key="{esc(row["id"])}"><td>{gate}</td><td>{count}</td><td>{row["median_ratio"]:.4f}</td>'
                                f'<td>{row["p10_ratio"]:.4f}–{row["p90_ratio"]:.4f}</td><td>{quality}</td></tr>')
         boundary_series.append((f"gate {gate}", points, color))
         inferred = inference[gate]

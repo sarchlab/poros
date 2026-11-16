@@ -1,8 +1,53 @@
 # Grace Deriche outlier investigation
 
-Status: **the cause is established; two model changes are proposed; no
+**Most of this note is a historical snapshot from before the campaign.** From
+"Status before the campaign" down it stands as it was written while the
+changes had been run on twelve points only. It is kept for the mechanism and
+the ablations. Its open questions about the full comparison are answered in
+the next section, which is the result.
+
+## Final status
+
+The three-device comparison was repeated for revision
+`a061e9221027f884173104be69f6e7844b77a145`, which has both changes below, A
+in its present form. All 1,656 points (2,520 executions) passed the canonical
+audit of their original records. The completion certificate has SHA-256
+`27efcd04c06526a732d47effaf579da1ba605c43f86459310b210c2de8e9696a`.
+
+**The Grace acceptance limit of 50% error on every qualified application is
+not met.** The outlier this note is about is gone, and two other inputs are
+now outside the limit:
+
+| Grace, 237 qualified applications | Parent `82e9983` | `a061e92` |
+|---|---:|---:|
+| median error | 7.89% | 7.88% |
+| maximum error | 181.91% | 77.55% |
+| inputs above 50% | deriche-6, syrk-4 | symm-5, syrk-6 |
+| deriche-6 | 181.91% | 13.78% |
+| syrk-4 | 53.37% | 39.52% |
+| symm-5 | 9.37% | 61.88% |
+| syrk-6 | 34.31% | 77.55% |
+
+Of the 237, 36 have a smaller error than with the parent and 53 a larger one,
+counting changes above 0.01 points. The comparison ran both changes together
+and does not say which of them moved symm-5 and syrk-6. M1 and M2 keep their
+maxima, 45.79% and 49.79%, and neither has an input above 50%.
+
+So the cause of the deriche-6 outlier is established and removed, and the
+changes as they are do not pass. Bringing symm-5 and syrk-6 back within the
+limit without losing deriche-6 or the Apple results is open calibration work;
+nothing in this note proposes how.
+
+The durable record is [pull request 84](https://github.com/sarchlab/poros/pull/84).
+The campaign's records and its certificate are kept by the project outside
+this repository and are not published with it.
+
+## Status before the campaign
+
+Status then: **the cause is established; two model changes are proposed; no
 accuracy change is claimed.** Every number of a changed model below is one
-local run, not a campaign. The three-device comparison has not been repeated.
+local run, not a campaign. The three-device comparison had not been repeated
+when this was written.
 
 Evidence is labelled **retained** (the completed comparison of the parent
 revision; nothing rerun), **run** (a local run of this work), or **reading**
@@ -100,10 +145,11 @@ slot. The second answered from the record as above but counted a dirty line
 as in L2 until its write had ended; review found that this let a request
 read a line the eviction stage already owned. The present form ends that at
 the admission. Below, "first" and "second" say which form a run was made
-with. **No run was made with the present form**: the local run budget was
-used up before the last correction. The correction only removes hits on
+with. **No local run was made with the present form**: the local run budget
+was used up before the last correction. The correction only removes hits on
 dirty lines between the admission and the end of their write; how many of
-those the second-form runs contain was not counted.
+those the second-form runs contain was not counted. (The campaign under
+"Final status" is of the present form.)
 
 **B. The stride follower prefetches no farther ahead than its stride limit in
 bytes** (`pkg/mem/stride.go`). The follower's lookahead was 48 steps, and a
@@ -123,7 +169,7 @@ Either change alone removes the deriche-6 outlier: with a shorter lookahead a
 set no longer holds more lines than ways, and without the wait the
 replacement costs nothing.
 
-## Results so far (run; local, one run each)
+## Local results before the campaign (run; one run each)
 
 Instruction counts and output hashes equal the retained ones in every run.
 The rows with A are of its second form.
@@ -186,7 +232,13 @@ syrk-4 stays the largest syrk error with B, 39.5%. Its 11.1 M L1 misses are
 2.6 times what its size predicts and do not change with B; this second
 component is not explained here.
 
-## Open
+## Open before the campaign
+
+This list is as it stood before the campaign. Its first item has been
+answered since, under "Final status": the median stayed, deriche-6 and syrk-4
+came within 50%, and symm-5 and syrk-6 crossed it. The campaign also ran the
+M2 and M1 points that the fifth item says were not run; their maxima are
+unchanged. The limits the other items name stand.
 
 - **No campaign, and no run of the present form of A.** These are single
   local runs of 12 of the 1,656 points, made with the first or the second
