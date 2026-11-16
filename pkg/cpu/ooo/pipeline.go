@@ -80,6 +80,9 @@ type Spec struct {
 	// FPIssueQueue is the number of FP operations and FP store data that can
 	// wait between dispatch and issue; see issuequeue.go. Zero is unlimited.
 	FPIssueQueue int `json:"fp_issue_queue,omitempty"`
+	// MultiplyIssueQueue is the number of integer multiplies that can wait
+	// between dispatch and issue; see issuequeue.go. Zero is unlimited.
+	MultiplyIssueQueue int `json:"multiply_issue_queue,omitempty"`
 }
 
 func DefaultSpec() Spec {
@@ -139,6 +142,8 @@ type State struct {
 	// With Spec.FPIssueQueue: for each entry in use, the first cycle in which
 	// dispatch can use it again (issuequeue.go).
 	FpQueue []uint64
+	// With Spec.MultiplyIssueQueue: the same for its entries.
+	MultiplyQueue []uint64
 }
 type storeBufferEntry struct {
 	PC                 uint64 // static store, for dependence prediction
@@ -185,7 +190,7 @@ func (s *State) Initialize(c *Comp) {
 	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
 		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
 	}
-	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.FPIssueQueue < 0 {
+	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.FPIssueQueue < 0 || v.MultiplyIssueQueue < 0 {
 		panic("ooo: invalid latency configuration")
 	}
 	if v.NumIntDiv > 0 {
@@ -364,7 +369,11 @@ func (p *middleware) fetchAndProcess() {
 			return
 		}
 		queued := p.comp.Spec.FPIssueQueue > 0 && queuesFP(inst, fps)
-		if queued && p.fpQueueFull() {
+		if queued && p.queueFull(&p.comp.State.FpQueue, p.comp.Spec.FPIssueQueue) {
+			return
+		}
+		multiplies := p.comp.Spec.MultiplyIssueQueue > 0 && queuesMultiply(inst.Op)
+		if multiplies && p.queueFull(&p.comp.State.MultiplyQueue, p.comp.Spec.MultiplyIssueQueue) {
 			return
 		}
 
@@ -501,7 +510,10 @@ func (p *middleware) fetchAndProcess() {
 			issueCycle = p.reserveIssue(ut, issueCycle, occupancy)
 		}
 		if queued {
-			p.holdFPEntry(issueCycle)
+			p.holdEntry(&p.comp.State.FpQueue, issueCycle)
+		}
+		if multiplies {
+			p.holdEntry(&p.comp.State.MultiplyQueue, issueCycle)
 		}
 		var latency, dataReady, storeDrain uint64
 		if instinfo.IsStore(inst.Op) {

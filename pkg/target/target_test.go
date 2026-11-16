@@ -40,12 +40,16 @@ func TestLookupNamesEveryTargetAndRejectsOthers(t *testing.T) {
 	}
 }
 
-// M2 is the calibrated configuration: the package defaults, unchanged.
-func TestM2IsThePackageDefaults(t *testing.T) {
+func TestM2AddsItsMultiplyBoundToPackageDefaults(t *testing.T) {
 	m2 := M2()
-	if m2.ParameterSource != "m2" || !reflect.DeepEqual(m2.OoO, ooo.DefaultSpec()) ||
+	wantCore := ooo.DefaultSpec()
+	if wantCore.MultiplyIssueQueue != 0 {
+		t.Fatal("generic OoO configuration must allow unlimited waiting multiplies")
+	}
+	wantCore.MultiplyIssueQueue = 38
+	if m2.ParameterSource != "m2" || !reflect.DeepEqual(m2.OoO, wantCore) ||
 		!reflect.DeepEqual(m2.InOrder, inorder.DefaultSpec()) || !reflect.DeepEqual(m2.Cache, mem.DefaultCacheConfig()) {
-		t.Fatalf("M2 differs from the pipeline and cache defaults: %+v", m2)
+		t.Fatalf("unexpected M2 configuration: %+v", m2)
 	}
 }
 
@@ -161,7 +165,11 @@ func TestM1DiffersFromM2OnlyInMeasuredParameters(t *testing.T) {
 	if m2.OoO.StoreQueueInOrder || m2.OoO.StoreBufferSize != 56 || m2.Cache.InterleavedStoreRunsWait {
 		t.Fatalf("M2 must keep the frozen store buffer and store-miss timing: %+v %+v", m2.OoO, m2.Cache)
 	}
+	if m1.OoO.MultiplyIssueQueue != 43 {
+		t.Fatalf("M1 multiply queue = %d, want 43", m1.OoO.MultiplyIssueQueue)
+	}
 	core := m1.OoO
+	core.MultiplyIssueQueue = m2.OoO.MultiplyIssueQueue
 	core.Freq, core.FetchTakenBranches, core.StoreDependencePrediction = m2.OoO.Freq, 0, false
 	core.StoreQueueInOrder, core.StoreBufferSize = false, m2.OoO.StoreBufferSize
 	inorder := m1.InOrder
@@ -193,7 +201,11 @@ func TestGraceDiffersFromM2OnlyInDeclaredParameters(t *testing.T) {
 	if grace.OoO.NumSelectFusion != m2.OoO.NumSelectFusion || grace.OoO.StoreDependencePrediction || grace.OoO.ROBCapacity != m2.OoO.ROBCapacity {
 		t.Fatalf("Grace must keep M2's compare/select fusion, dependence timing and window: %+v", grace.OoO)
 	}
+	if grace.OoO.MultiplyIssueQueue != 0 {
+		t.Fatal("Grace inherited an Apple multiply queue bound")
+	}
 	core := grace.OoO
+	core.MultiplyIssueQueue = m2.OoO.MultiplyIssueQueue
 	core.Freq, core.Latencies = m2.OoO.Freq, ooo.Latencies{}
 	core.NumIntDiv, core.NumFPDiv = 0, m2.OoO.NumFPDiv
 	core.NumLDST, core.NumLoad, core.NumStore = m2.OoO.NumLDST, m2.OoO.NumLoad, m2.OoO.NumStore

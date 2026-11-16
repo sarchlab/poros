@@ -208,9 +208,10 @@ The imports are `context`, `os`, `github.com/sarchlab/poros/pkg/linuxuser`,
 `github.com/sarchlab/akita/v5/sim`, `.../sim/modeling`, and Poros's
 `pkg/cpu/ooo` and `pkg/mem`. Initialize once after all components have been built,
 and terminate afterwards. `elfsim.Run` owns this lifecycle for normal callers;
-its `Options.Target` names the device, and empty means `m2`. `ooo.DefaultSpec()`
-and `mem.DefaultCacheConfig()` remain the M2 configuration; `target.Lookup`
-returns the out-of-order, in-order and cache configuration of a named device.
+its `Options.Target` names the device, and empty means `m2`. Use `target.Lookup`
+for the out-of-order, in-order and cache configuration of a named device.
+The component example above uses `ooo.DefaultSpec()`, which allows unlimited
+waiting integer multiplies. The M2 target limits them to 38.
 Each OoO run owns one timed cache client: the core advances and finalizes the
 supplied cache. Warm it with `Lookup` before starting, and construct a new cache
 for a second timed run. Untimed `Lookup` remains available after finalization.

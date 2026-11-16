@@ -36,6 +36,7 @@
     "freq": 3203500000,
     "func_hook_cycles": null,
     "load_latency": 5,
+    "multiply_issue_queue": 43,
     "num_fp": 4,
     "num_fp_div": 1,
     "num_int": 6,
