@@ -111,7 +111,8 @@ const M1Frequency = 3_203_500_000 * timing.Hz
 // Inferred from application times and effective only: the store-to-load
 // forwarding latency, the FP issue-queue capacity, the branch penalty, a full
 // 15 cycles for every FP divide, and a prefetcher that follows constant strides
-// up to a page and prefetches them up to a page ahead.
+// up to a page, as many accesses ahead as the sequential one runs lines ahead
+// and no farther than the walk's lines have room in L1.
 //
 // Everything else is M2's and is not established for Grace: the window, the
 // predictor, compare/select fusion as measured on M2, the front end, the L2,

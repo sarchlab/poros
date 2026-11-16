@@ -347,48 +347,60 @@ above. They are not measurements of the structures they are named after.
   under Known gaps) took 1.9 times the GH200's time at deriche's first input.
   The page as the limit is an assumption.
 
-  The same 65,536 bytes bound how far ahead of a miss a walk is prefetched,
-  besides the 48 steps. A step is the distance between two misses, not two
-  accesses: syrk's inner loop reads `A[j*m+k]` 2,120 to 3,096 bytes apart and
-  finds most of those lines in L1; with an odd `m`, four of its six inputs,
-  its misses are eight rows apart. Counted in steps alone, the lookahead was
-  up to 48 such steps, hundreds of kilobytes beyond a walk of at most 516 rows
-  that restarts for every column, and L2 filled with lines past the walks:
-  the completed comparison of the profile
-  without the byte bound has syrk 8 to 53% slow (3 to 11% with the M2
-  parameters), with 3.3 to 12.9 million prefetches in every input but the one
-  whose stride is a whole number of lines (0.39 million, 8% slow). In local
-  runs, which are not a campaign, syrk's first input takes 42.92 M cycles
-  without the byte bound, 36.70 M without the follower and 35.42 M with the
-  bound (GH200: 31.56 M at the assumed clock), and its fourth input 104.43 M
-  without and 95.00 M with it (68.09 M).
+  How far ahead of a miss such a walk is prefetched is not a parameter of its
+  own. It is `PrefetchDistance` (48) accesses of the walk, and no farther
+  than the lines ahead have room in their L1 sets. Both rules are
+  assumptions: neither document gives a distance, and the GH200 user times do
+  not establish one. The distance has been counted three ways, and the first
+  two are why it is counted as it is. The runs and their limits are in the
+  [Grace residual investigation](grace-residual-investigation.md).
 
-  Why a byte bound, and why this one. The follower's lookahead was never
-  declared or calibrated. Its 48 are `PrefetchDistance`, which is defined for
-  the sequential prefetcher as L2 lines ahead of the demand line, 3,072 bytes
-  here; used as a count of steps of up to a page each it allowed 3 MiB, three
-  times the L2, and made the reach depend on how many of a walk's accesses
-  happen to miss. Nothing published or measured supports that reach, and the
-  evidence given above for the follower concerns walks whose every access
-  misses. The page is the one length this profile attaches to the follower:
-  the scale within which it is assumed to recognise a walk. A follower that
-  relates no two misses more than a page apart is given no way to place a
-  prefetch farther than that from a miss. That is an argument from the
-  model's own assumption, not a property of the core, and it does not say
-  that one page is right where half a page or two would be wrong: one value
-  was tried, none was searched, and the bound stays an assumption until a
-  full comparison is read.
+  In steps (the profile as first compared, revision `82e9983`). The 48 were
+  the sequential prefetcher's distance in lines, reused as a count of steps
+  of any length. A step is the distance between two misses, not two accesses:
+  syrk's inner loop reads `A[j*m+k]` 2,120 to 3,096 bytes apart and finds
+  most of those lines in L1; with an odd `m`, four of its six inputs, its
+  misses are eight rows apart. 48 such steps were 384 rows, beyond a walk of
+  at most 516 rows that restarts for every column, and L2 filled with lines
+  past the walks: syrk was 8 to 53% slow (3 to 11% with the M2 parameters),
+  with 3.3 to 12.9 million prefetches in every input but the one whose stride
+  is a whole number of lines (0.39 million, 8% slow).
 
-  That was written before the full comparison. It has been run since, for
-  revision `a061e92`, with this bound and the change to requests issued
-  before an eviction together (final status in the
-  [Grace Deriche investigation](grace-deriche-investigation.md)). syrk's
-  fourth input came down from 53% to 40%, and two inputs that had been within
-  50% left it: syrk's sixth, 34% to 78%, and symm's fifth, 9% to 62%. The
-  comparison does not separate the two changes, so it does not say which of
-  them moved those inputs. It does say that the profile with this bound
-  fails the 50% limit on Grace, and the bound remains an assumption that
-  this result does not support as it stands.
+  In bytes ([pull request 84](https://github.com/sarchlab/poros/pull/84),
+  compared at revision `a061e92`): no farther than `PrefetchStrideBytes` from
+  the miss. syrk's fourth input came down from 53% to 40%. Two inputs left
+  the 50% limit, syrk's sixth (34% to 78%) and symm's fifth (9% to 62%), and
+  mvt went from 8 to 14% fast to 41 to 50% slow at four of its six sizes.
+  These walks miss 20 to 37 KB apart, so a page was one or two steps: eight
+  to sixteen rows of syrk and symm, two rows of mvt. Their lines were
+  requested too late to arrive before they were read.
+
+  In accesses of the walk (now). The follower sees misses only. It is told of
+  the loads that find their line in L1: one that lies a whole fraction of a
+  stream's step beyond its last miss, and at least a line beyond it, is an
+  access of that walk, and the smallest such fraction is the walk's stride.
+  48 accesses are 48 rows of syrk and symm, six steps where the misses are
+  eight rows apart, and 48 steps of a walk whose every access misses (mvt,
+  deriche), as at first. The follower has no instruction address, so it
+  cannot tell a walk's access from another load at such an address; such a
+  load can only shorten the reach.
+
+  Room in L1. A walk whose stride is a multiple of many lines stays in few L1
+  sets: 8,192 and 24,576 bytes reach two of the 256, 28,672 four, 26,624
+  eight. The follower prefetches no line that would be the fifth of the
+  walk's lines ahead in one set of four ways: 8, 8, 16 and 32 steps for
+  those strides, the full 48 for strides that reach 16 sets or more. The TRM
+  says the load-side prefetcher fills L1; the model's fills L2 only, and the
+  bound stands for what an L1 set can hold. The GH200 is slower at exactly
+  these inputs: mvt's whole run takes 18.3 and 18.8 cycles per matrix element
+  at 3,072 and 3,584 rows against 14.3 to 14.5 at 3,200, 3,456 and 3,712 and
+  15.1 at 3,328, and deriche's sixth input, the one with an 8,192-byte column
+  step, costs it about eight cycles more per column step than the fifth. Why
+  the core loses that much there is not known: a line displaced from L1
+  would still be in L2, and L2's sets are as few for these strides. The rule
+  follows the published L1 geometry and has no number of its own. Its
+  evidence is these inputs and nothing else, and it explains the two mvt
+  sizes unequally (see the investigation).
 
 **Carried from M2 and not established for Grace:** the 256-instruction window,
 retirement and dispatch width (the SWOG gives eight MOPs per cycle), the branch
@@ -442,19 +454,32 @@ user times converted at the assumed clock.
   accounts for about one point of those two changes and the follower for the
   rest. Without the follower, prototype B took 1.9 times the GH200's time on
   deriche.
-- The runs in the previous item preceded the byte bound on the follower's
-  reach. With it a walk of 24,576-byte steps is prefetched two steps ahead,
-  which hides little, and the error changes sign: one local run of mvt at
-  3,072 rows takes 200.23 M cycles, 16% slow, where the completed comparison
-  without the bound has 123.01 M, 29% fast (GH200: 172.24 M at the assumed
-  clock). The walk's lines then return from the record of L2 victims at its
-  138 cycles, twelve at a time, which is M2's latency and not established for
-  Grace. What the bound does to the other inputs is not known until a full
-  comparison is run. (Run since, for revision `a061e92`: mvt at 3,072 rows is
-  16.25% slow there too. Of the 237 qualified Grace applications 36 moved
-  towards the reference and 53 away from it by more than 0.01 points, and
-  two, symm's fifth input and syrk's sixth, are above 50%. See the final
-  status in the [Grace Deriche investigation](grace-deriche-investigation.md).)
+- The runs in the previous item preceded every bound on the follower's reach.
+  With the reach counted in accesses and bounded by room in L1, mvt at 3,072
+  rows is prefetched eight steps ahead and at 3,584 rows sixteen: one run
+  each has them at 0.96 and 0.80 of the GH200's time, where the comparison at
+  `82e9983` had 0.71 and 0.69 and the one at `a061e92`, which bounded the
+  reach in bytes, 1.16 and 1.14. The walk's lines return from the record of
+  L2 victims at its 138 cycles, which is M2's latency and not established
+  for Grace. These runs are not a comparison; see the
+  [Grace residual investigation](grace-residual-investigation.md).
+- The follower takes up every walk anew: three misses before its first
+  prefetch. A walk that restarts for every column and misses every eighth
+  row reads 24 rows of each column unprefetched. syrk's sixth input, whose
+  matrix is larger than L2, has 0.35 million demand requests behind L2 in
+  one run and is 32% slow, where the GH200's cycles per instruction are 0.167
+  to 0.180 at all six inputs. That those requests are the first rows of the
+  walks is a reading, not a count. A prefetcher keyed by the instruction
+  would not start over; the follower has no instruction address.
+- symm's whole run costs the GH200 3.4 to 3.7 cycles per inner trip at the
+  four inputs that do not thrash L1. By their row lengths the column walks
+  miss every eighth row at inputs 2 and 5 and every fourth row of every other
+  column at 1 and 6. With the reach counted in accesses the model takes 3.3
+  and 3.6 cycles per trip at the first two and 3.0 and 2.9 at the others:
+  0.83 and 0.76 of the GH200's time at inputs 1 and 6 (one run each). The
+  byte bound had these two at 0.98 and 1.06, with their lines arriving late,
+  and inputs 2 and 5 33% and 62% slow. What symm costs the GH200 that the
+  model lacks is not identified.
 - The follower's addresses are signed 64-bit numbers. A walk at or above 2^63
   is recognised and never prefetched. Nothing measured here reaches it: the
   ELF loader admits segments only below 2^48 and the process stack lies below
