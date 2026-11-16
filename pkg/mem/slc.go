@@ -14,12 +14,15 @@ type victimStore struct {
 type victimLine struct {
 	held bool
 	line uint64
-	// leftAt is the cycle the line left L2. Until then it was there, with its
-	// data arrived at residentAt and prefetched as the L2 line had it.
+	// leftAt is the cycle the line left L2: the issue cycle of the request
+	// that replaced a clean line, the admission of its write for a dirty one.
+	// Until then it was there, with its data arrived at residentAt and
+	// prefetched as the L2 line had it.
 	leftAt, residentAt uint64
 	prefetched         bool
 	// readyAt is the cycle from which the line can be supplied from here: it
-	// has left L2 and its data has arrived here.
+	// has left L2 and its data has arrived here, for a dirty line at the end
+	// of its write.
 	readyAt uint64
 }
 

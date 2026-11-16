@@ -75,20 +75,35 @@ and nothing of the kind happens.
 
 **A. A request issued before its line left L2 finds it in L2**
 (`pkg/mem/cache.go` `notYetEvicted`, `pkg/mem/slc.go`). The record keeps the
-cycle a line left L2 and the cycle its data was there. An earlier demand
-request is answered from that as an L2 hit, and a stream prefetch of such a
-line is not issued. Nothing else changes: no tag is replaced, no transfer is
-booked or awaited, and the line stays in the record, so every replacement
-decision, writeback and booking is the parent's. Replacement is not replayed:
-a line read before its eviction is still the one that was evicted, and its
-next request after that cycle pays a return from the record, where a core
-might have kept it. No parameter, device, benchmark or address is involved.
-It applies to every device that has the record.
+cycle a line left L2 and the cycle its data was there. A clean line left at
+the issue cycle of the request that replaced it; a dirty one when the
+eviction stage admitted its write, and it can be supplied from the record
+once that write has ended. An earlier demand request is answered from the
+record as an L2 hit, and a stream prefetch of such a line is not issued.
 
-A first form of A put such a line back into the tags. Review found that this
-could displace a dirty line without waiting for a writeback slot, and the
-form above replaced it. Below, "first form" marks the runs that were not
-repeated.
+Answering from the record keeps the L2 eviction that was already booked and
+adds nothing to it: no L2 tag is replaced, the line is not put back into L2,
+and nothing returns from the record for that request. The rest of the
+request is ordinary: its L2-to-L1 transfer is booked, and an L1 line it
+displaces is written back if dirty. Traffic therefore differs from the
+parent's, which fetched such a line through the memory-side transport, and
+prefetches that are not issued are missing from the counters (8,192 of them
+on the Apple deriche-6 runs below). Replacement is not replayed: a line read
+before its eviction is still the one that was evicted, and its next request
+after that cycle pays a return from the record, where a core might have kept
+it. No parameter, device, benchmark or address is involved. It applies to
+every device that has the record.
+
+A has had three forms. The first put such a line back into the tags; review
+found that this could displace a dirty line without waiting for a writeback
+slot. The second answered from the record as above but counted a dirty line
+as in L2 until its write had ended; review found that this let a request
+read a line the eviction stage already owned. The present form ends that at
+the admission. Below, "first" and "second" say which form a run was made
+with. **No run was made with the present form**: the local run budget was
+used up before the last correction. The correction only removes hits on
+dirty lines between the admission and the end of their write; how many of
+those the second-form runs contain was not counted.
 
 **B. The stride follower prefetches no farther ahead than its stride limit in
 bytes** (`pkg/mem/stride.go`). The follower's lookahead was 48 steps, and a
@@ -111,20 +126,21 @@ replacement costs nothing.
 ## Results so far (run; local, one run each)
 
 Instruction counts and output hashes equal the retained ones in every run.
+The rows with A are of its second form.
 
 | deriche-6 (reference 30.342 ms) | Cycles | Model / reference | Error |
 |---|---:|---:|---:|
 | parent (retained) | 293,308,066 | 2.8191 | 181.91% |
-| A | 81,920,607 | 0.7874 | 27.00% |
+| A (second form) | 81,920,607 | 0.7874 | 27.00% |
 | B | 91,575,563 | 0.8802 | 13.61% |
-| A and B | 91,474,016 | 0.8792 | 13.74% |
+| A (second form) and B | 91,474,016 | 0.8792 | 13.74% |
 
-The `256 × 1024` input takes 14,138,500 cycles with A against 37,771,863. A
-build of A's first form that records cycles by loop took 14,119,956: every
-loop before the backward column pass took the parent's cycles exactly, and
-that pass fell from 27.52 M to 3.89 M cycles (14.9 per step). With the
-prefetch part of A left out the input takes 14,126,430 cycles: here it is the
-demand request that matters.
+The `256 × 1024` input took 14,138,500 cycles with A's second form against
+37,771,863. A build of A's first form that records cycles by loop took
+14,119,956: every loop before the backward column pass took the parent's
+cycles exactly, and that pass fell from 27.52 M to 3.89 M cycles (14.9 per
+step). With the prefetch part of the second form left out the input took
+14,126,430 cycles: here it is the demand request that matters.
 
 Other measured inputs with A and B, model / reference (error). "Early hits"
 are the requests A answered (`L2HitsBeforeEviction`; the first form counted
@@ -132,25 +148,26 @@ prefetches and writebacks as well as demand requests):
 
 | Point | Parent (retained) | A and B | Early hits | Form of A run |
 |---|---:|---:|---:|---|
-| grace deriche-1 | 1.0610 (6.10%) | 1.0609 (6.09%) | 707 | present |
+| grace deriche-1 | 1.0610 (6.10%) | 1.0609 (6.09%) | 707 | second |
 | grace deriche-5 | 0.9520 (5.04%) | 0.9621 (3.94%) | 18 | first |
-| grace syrk-1 | 1.3599 (35.99%) | 1.1222 (12.22%) | 0 | both |
+| grace syrk-1 | 1.3599 (35.99%) | 1.1222 (12.22%) | 0 | first and second |
 | grace syrk-4 | 1.5337 (53.37%) | 1.3952 (39.52%) | 0 | first |
 | grace mvt-3072 | 0.7142 (40.02%) | 1.1625 (16.25%) | 0 | first |
-| m2 deriche-6 | 1.0068 (0.68%) | 1.0075 (0.75%) | 1 | present |
-| m1 deriche-6 | 1.0998 (9.98%) | 1.1008 (10.08%) | 1 | present |
+| m2 deriche-6 | 1.0068 (0.68%) | 1.0075 (0.75%) | 1 | second |
+| m1 deriche-6 | 1.0998 (9.98%) | 1.1008 (10.08%) | 1 | second |
 
 Where the first form counted no early hit, no request of any kind came before
-an eviction and the two forms of A take the same steps: syrk-1 was run with
-both and has the same cycle count. With the first form of A alone, grace
-syrk-1, mvt-3072, gemver-1 and trmm-1 and m2 and m1 mvt-3072 had no early hit
-and the retained cycle count, to the cycle.
+an eviction and every form of A takes the same steps (reading; the later
+forms answer a subset of what the first did): syrk-1 was run with the first
+and the second and has the same cycle count. With the first form of A alone,
+grace syrk-1, mvt-3072, gemver-1 and trmm-1 and m2 and m1 mvt-3072 had no
+early hit and the retained cycle count, to the cycle.
 
-On M2 and M1, deriche-6 now takes 0.07% and 0.08% more cycles than the parent;
-with the first form it took 0.06% fewer. 8,192 stream prefetches asked for a
-line that had not left L2 yet and were not issued, and the demand requests for
-those lines came after the eviction and paid the return. M1 deriche-6 moves
-from 9.98% to 10.08%.
+On M2 and M1, deriche-6 took 0.07% and 0.08% more cycles than the parent with
+the second form; with the first it took 0.06% fewer. 8,192 stream prefetches
+asked for a line that had not left L2 yet and were not issued, and the demand
+requests for those lines came after the eviction and paid the return. M1
+deriche-6 moved from 9.98% to 10.08%.
 
 ## Syrk (retained, run and reading)
 
@@ -171,10 +188,11 @@ component is not explained here.
 
 ## Open
 
-- **No campaign.** These are single local runs of 12 of the 1,656 points.
-  Whether A and B keep the Grace median and the other 235 points where they
-  are, and whether any point crosses 50% or falls below 0.8, is not known.
-  mvt-3072 changes sign with B, from 29% fast to 16% slow.
+- **No campaign, and no run of the present form of A.** These are single
+  local runs of 12 of the 1,656 points, made with the first or the second
+  form. Whether A and B keep the Grace median and the other 235 points where
+  they are, and whether any point crosses 50% or falls below 0.8, is not
+  known. mvt-3072 changes sign with B, from 29% fast to 16% slow.
 - **deriche-6 is now too fast** (0.88; 0.79 with A alone). The GH200 pays
   about eight cycles more per column step at this input than at deriche-5;
   the model pays about five with both changes and two with A alone. The

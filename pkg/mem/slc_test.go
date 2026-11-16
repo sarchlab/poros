@@ -220,24 +220,61 @@ func TestRequestBeforeTheEvictionWaitsForThePendingFill(t *testing.T) {
 	}
 }
 
-// A dirty victim has left L2 when its write transfer ends. A request issued
-// before that end still finds it in L2.
-func TestRequestBeforeADirtyVictimsWritebackEndsFindsItInL2(t *testing.T) {
-	c := NewCache(memorySideConfig(4))
-	c.Store(lineA, 8, 100)
-	c.Access(lineB, 8, false, 2000) // A leaves L1 dirty
-	c.Access(lineC, 8, false, 3000) // B leaves L2 clean
-	c.Access(lineD, 8, false, 4000) // A leaves L2 dirty; its write ends at 4008
-	bytes, drain := c.stats.WritebackBytes, c.DrainUntil()
-	if level, ready := c.Access(lineA, 8, false, 4007); level != HitL2 || ready != 4007+14 {
-		t.Fatal(level, ready, c.stats)
+// A dirty victim leaves L2 when the eviction stage admits its write, not when
+// the write has ended: from the admission the stage owns the line, and it can
+// be read again only from behind L2, once written. Nothing is supplied from
+// the stage. Every request here is issued after the one that evicts the line.
+func TestDirtyVictimLeavesL2AtWritebackAdmission(t *testing.T) {
+	const admission, completion = 4500, 4608
+	evicted := func() *Cache {
+		c := NewCache(memorySideConfig(4))
+		c.Store(lineA, 8, 100)
+		c.Access(lineB, 8, false, 2000) // A leaves L1 dirty
+		c.Access(lineC, 8, false, 3000) // B leaves L2 clean; L2 holds dirty A and C
+		for i := range c.l2Writebacks {
+			c.l2Writebacks[i] = admission // every slot of the stage is taken until 4500
+		}
+		c.dram.deliver(admission, 100*16) // and the transport for 100 cycles from then
+		// D's request at 4000 evicts A. A's write is admitted at 4500 and its
+		// eight-cycle transfer ends at 4608; D is usable from the admission.
+		if level, ready := c.Access(lineD, 8, false, 4000); level != HitDRAM || ready != admission {
+			t.Fatalf("level %d ready %d, want the fill that evicts A to wait for the admission at %d", level, ready, admission)
+		}
+		if at, held := heldFrom(c, lineA); !held || at != completion || c.DrainUntil() != completion || c.stats.L2Writebacks != 1 {
+			t.Fatalf("dirty victim held from %d (%v), drain %d, want its write to end at %d", at, held, c.DrainUntil(), completion)
+		}
+		return c
 	}
-	// Its one write stays as it was booked, and from 4008 it is behind L2.
-	if at, held := heldFrom(c, lineA); !held || at != 4008 || c.stats.L2Writebacks != 1 || c.stats.WritebackBytes != bytes || c.DrainUntil() != drain {
-		t.Fatalf("dirty line held from %d (%v), drain %d, %+v", at, held, c.DrainUntil(), c.stats)
+	for _, tc := range []struct {
+		name    string
+		request uint64
+		level   HitLevel
+		ready   uint64
+	}{
+		{"the cycle before the admission", admission - 1, HitL2, admission - 1 + 14},
+		{"at the admission", admission, HitSLC, completion + 138},
+		{"while the write waits for the transport", 4550, HitSLC, completion + 138},
+		{"in the last cycle of the write", completion - 1, HitSLC, completion + 138},
+		{"when the write has ended", completion, HitSLC, completion + 138},
+	} {
+		c := evicted()
+		level, ready := c.Access(lineA, 8, false, tc.request)
+		early := map[bool]uint64{true: 1}[tc.level == HitL2]
+		if level != tc.level || ready != tc.ready || c.stats.L2HitsBeforeEviction != early || c.stats.SLCHits != 1-early {
+			t.Fatalf("%s: level %d ready %d %+v, want level %d at %d", tc.name, level, ready, c.stats, tc.level, tc.ready)
+		}
+		// The one write of A stays as it was booked.
+		if c.stats.L2Writebacks != 1 || c.DrainUntil() != completion {
+			t.Fatalf("%s: %+v, drain %d", tc.name, c.stats, c.DrainUntil())
+		}
 	}
-	if level, ready := c.Access(lineA+64, 8, false, 4008); level != HitSLC || ready != 4008+138 {
-		t.Fatal(level, ready)
+	// In one run and in issue order: the request before the admission reads L2,
+	// the next waits for the write and for the return from behind L2.
+	c := evicted()
+	c.Access(lineA, 8, false, admission-1)
+	if level, ready := c.Access(lineA+64, 8, false, admission+1); level != HitSLC || ready != completion+138 ||
+		c.stats.L2HitsBeforeEviction != 1 || c.stats.SLCHits != 1 {
+		t.Fatalf("level %d ready %d %+v, want a return from behind L2 at %d", level, ready, c.stats, completion+138)
 	}
 }
 

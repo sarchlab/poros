@@ -825,7 +825,10 @@ as wide as the fill transport (`DRAMBytesPerCycle`), one line after another;
 the line can be supplied only once that move has ended (its return transfer
 on the fill transport starts no earlier), and the fill that displaced it is
 not delayed. A dirty victim's write is charged on the fill
-transport as before and the line has left L2 when that transfer ends. A line
+transport as before. The line leaves L2 when the eviction stage admits that
+write, which is also when the line replacing it can be used, and it can be
+supplied from the record once the transfer has ended; in between the stage
+owns it and nothing is read from the stage. A line
 evicted before its own fill arrived cannot be supplied before that data
 existed. The return uses the existing fill transport and the existing demand
 MSHR; stream prefetches and writeback allocations take the same path. With a
@@ -926,10 +929,17 @@ Limits:
   request visited after the eviction of its line but issued before the line
   left L2 finds it in L2 and is an L2 hit (`L2HitsBeforeEviction` counts
   them). It is answered from the record, which keeps the cycle the line left
-  L2 and the cycle its data was there, and nothing else changes: no tag is
-  replaced, no transfer or writeback is booked or awaited, and the line stays
-  in the record for every request from the cycle it left. A stream prefetch
-  of a line that has not left L2 yet is not issued. Replacement is not
+  L2 and the cycle its data was there. A clean line left at the issue cycle
+  of the request that replaced it, a dirty one when its write was admitted to
+  the eviction stage. Answering from the record keeps the L2 eviction as it
+  was booked and adds nothing to it: no L2 tag is replaced, the line is not
+  put back into L2 and nothing returns from the record for that request; the
+  line stays in the record for every request from the cycle it left. The
+  request's fill of L1 is the ordinary one: its L2-to-L1 transfer is booked,
+  and an L1 line it displaces is written back if dirty. So traffic counters
+  do differ from the earlier model's, which fetched such a line through the
+  memory-side transport. A stream prefetch of a line that has not left L2
+  yet is not issued. Replacement is not
   replayed: a line read before its eviction is still the line that was
   evicted, where a core would have kept it as recently used, so its next
   request after that cycle pays a return from the record that the hardware
