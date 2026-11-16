@@ -1,0 +1,141 @@
+{
+  "checked_at": "2026-11-16T20:13:08.998822+00:00",
+  "certified": true,
+  "revision": "5c8ed4a683a2e3ba2808e904b63dd0608e0b1e83",
+  "simulator_sha256": "67c3997efa0cde90169577d278664b140f836607c1ac7b6110bcb4d9d360aefc",
+  "certificate_sha256": "fe49ea6d3de81e3f1c8456fa368dac1b69e4b365cc4de97d62a181d771704796",
+  "points": 1656,
+  "execution_records": 2520,
+  "devices": {
+    "grace": {
+      "qualified": 237,
+      "improved": [],
+      "regressed": [],
+      "new_under": [],
+      "new_below_point8": [],
+      "deeper_under": [],
+      "over50": [],
+      "base": {
+        "mean": 10.606877115205158,
+        "median": 7.873812599093834,
+        "maximum": 46.70767510979175,
+        "correlation": {
+          "count": 237,
+          "pearson": "0.9874",
+          "tau": "0.8447",
+          "pair": "92.23% (25,794/27,966)"
+        },
+        "within50": 237,
+        "under": 162,
+        "below_point8": 10
+      },
+      "head": {
+        "mean": 10.606877115205158,
+        "median": 7.873812599093834,
+        "maximum": 46.70767510979175,
+        "correlation": {
+          "count": 237,
+          "pearson": "0.9874",
+          "tau": "0.8447",
+          "pair": "92.23% (25,794/27,966)"
+        },
+        "within50": 237,
+        "under": 162,
+        "below_point8": 10
+      },
+      "unchanged_at_001pp": 237
+    },
+    "m1": {
+      "qualified": 240,
+      "improved": [],
+      "regressed": [],
+      "new_under": [],
+      "new_below_point8": [],
+      "deeper_under": [],
+      "over50": [],
+      "base": {
+        "mean": 9.183616420566473,
+        "median": 5.651829290827864,
+        "maximum": 45.7903417311043,
+        "correlation": {
+          "count": 240,
+          "pearson": "0.9972",
+          "tau": "0.8247",
+          "pair": "91.23% (26,166/28,680)"
+        },
+        "within50": 240,
+        "under": 145,
+        "below_point8": 13
+      },
+      "head": {
+        "mean": 9.183616420566473,
+        "median": 5.651829290827864,
+        "maximum": 45.7903417311043,
+        "correlation": {
+          "count": 240,
+          "pearson": "0.9972",
+          "tau": "0.8247",
+          "pair": "91.23% (26,166/28,680)"
+        },
+        "within50": 240,
+        "under": 145,
+        "below_point8": 13
+      },
+      "unchanged_at_001pp": 240
+    },
+    "m2": {
+      "qualified": 246,
+      "improved": [],
+      "regressed": [],
+      "new_under": [],
+      "new_below_point8": [],
+      "deeper_under": [],
+      "over50": [],
+      "base": {
+        "mean": 15.81649761699547,
+        "median": 14.413331254692043,
+        "maximum": 49.791761513162335,
+        "correlation": {
+          "count": 246,
+          "pearson": "0.9862",
+          "tau": "0.7610",
+          "pair": "88.05% (26,532/30,133)"
+        },
+        "within50": 246,
+        "under": 164,
+        "below_point8": 17
+      },
+      "head": {
+        "mean": 15.81649761699547,
+        "median": 14.413331254692043,
+        "maximum": 49.791761513162335,
+        "correlation": {
+          "count": 246,
+          "pearson": "0.9862",
+          "tau": "0.7610",
+          "pair": "88.05% (26,532/30,133)"
+        },
+        "within50": 246,
+        "under": 164,
+        "below_point8": 17
+      },
+      "unchanged_at_001pp": 246
+    }
+  },
+  "pooled": {
+    "base": {
+      "count": 723,
+      "pearson": "0.9744",
+      "tau": "0.8065",
+      "pair": "90.33% (235,745/260,994)"
+    },
+    "head": {
+      "count": 723,
+      "pearson": "0.9744",
+      "tau": "0.8065",
+      "pair": "90.33% (235,745/260,994)"
+    }
+  },
+  "application_goal_pass": true,
+  "micro_note": "Diagnostics and legacy microbenchmarks excluded from application statistics; Grace has no diagnostic hardware reference"
+}

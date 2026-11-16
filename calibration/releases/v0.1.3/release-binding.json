@@ -1,0 +1,24 @@
+{
+  "schema": "poros-release-runtime-equivalence-v1",
+  "release": "v0.1.3",
+  "release_commit": "8daea5cc9bdc8bc36912007321e2b2c135e96f55",
+  "measured_commit": "5c8ed4a683a2e3ba2808e904b63dd0608e0b1e83",
+  "measurement_certificate_sha256": "fe49ea6d3de81e3f1c8456fa368dac1b69e4b365cc4de97d62a181d771704796",
+  "release_tag_verified": true,
+  "release_commit_on_main": true,
+  "measured_commit_is_release_ancestor": true,
+  "changed_paths_since_measurement": [
+    ".github/workflows/evaluation.yml",
+    "evaluation/model-profile.md",
+    "evaluation/residual-accuracy-round2.md",
+    "pkg/target/target.go",
+    "scripts/accuracy-live.md",
+    "scripts/accuracy_live_test.py",
+    "scripts/accuracy_site.py",
+    "scripts/devices_test.py"
+  ],
+  "runtime_equivalence": "Only one Go comment, test expectations, Markdown documentation, CI dependency-source changes and plain-text report-note escaping; all other tracked blobs identical. Report validators and numerical calculations are unchanged. Original measured source and binary identity are retained.",
+  "measured_records_relabelled": false,
+  "new_accuracy_execution": false,
+  "prepared_at": "2026-11-16T22:05:54.556123+00:00"
+}

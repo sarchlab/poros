@@ -1,0 +1,142 @@
+{
+  "at": "2026-11-16T20:13:09.204222+00:00",
+  "certified": true,
+  "certificate_sha256": "fe49ea6d3de81e3f1c8456fa368dac1b69e4b365cc4de97d62a181d771704796",
+  "measured_source": "5c8ed4a683a2e3ba2808e904b63dd0608e0b1e83",
+  "application_statistics_exclude_these_points": true,
+  "error_formula": "100*abs(prediction-reference)/min(prediction,reference)",
+  "devices": {
+    "m1": {
+      "comparable": 73,
+      "reference_selection": "M1 original usable Linux collection; M2 all canonical declared reference cases, no added filter",
+      "base_mean": 25.220619421561068,
+      "head_mean": 22.664252811694524,
+      "base_median": 24.146424881548626,
+      "head_median": 23.785603045324496,
+      "improved": 6,
+      "regressed": 0,
+      "changed": [
+        {
+          "id": "fp_g64_n64",
+          "quality": "usable",
+          "base_error": 32.522515362238295,
+          "head_error": 1.519415102018398,
+          "base_ratio": 0.7545887559307115,
+          "head_ratio": 1.015194151020184,
+          "changed": true
+        },
+        {
+          "id": "fp_g64_n128",
+          "quality": "usable",
+          "base_error": 28.226533321997273,
+          "head_error": 4.630909884906281,
+          "base_ratio": 0.7798697930083164,
+          "head_ratio": 1.0463090988490629,
+          "changed": true
+        },
+        {
+          "id": "fp_g64_n192",
+          "quality": "usable",
+          "base_error": 25.22404615316286,
+          "head_error": 6.092816122459512,
+          "base_ratio": 0.7985686700914371,
+          "head_ratio": 1.060928161224595,
+          "changed": true
+        },
+        {
+          "id": "fp_g96_n64",
+          "quality": "usable",
+          "base_error": 53.5134006619495,
+          "head_error": 0.8848701181707848,
+          "base_ratio": 0.6514089295709703,
+          "head_ratio": 1.0088487011817078,
+          "changed": true
+        },
+        {
+          "id": "fp_g96_n128",
+          "quality": "usable",
+          "base_error": 49.42040847316049,
+          "head_error": 2.670701589420226,
+          "base_ratio": 0.6692526209896047,
+          "head_ratio": 1.0267070158942022,
+          "changed": true
+        },
+        {
+          "id": "fp_g96_n192",
+          "quality": "usable",
+          "base_error": 16.904253601336865,
+          "head_error": 3.397682236612397,
+          "base_ratio": 0.855400867970269,
+          "head_ratio": 1.0339768223661239,
+          "changed": true
+        }
+      ]
+    },
+    "m2": {
+      "comparable": 73,
+      "reference_selection": "M1 original usable Linux collection; M2 all canonical declared reference cases, no added filter",
+      "base_mean": 16.56748086126519,
+      "head_mean": 12.478777629619186,
+      "base_median": 12.753537418357116,
+      "head_median": 12.296888745738535,
+      "improved": 6,
+      "regressed": 0,
+      "changed": [
+        {
+          "id": "fp_g64_n64",
+          "quality": "declared-valid-reference",
+          "base_error": 56.241822306402135,
+          "head_error": 9.822150461746428,
+          "base_ratio": 0.640033497586148,
+          "head_ratio": 0.9105631202772003,
+          "changed": true
+        },
+        {
+          "id": "fp_g64_n128",
+          "quality": "declared-valid-reference",
+          "base_error": 56.85292150582215,
+          "head_error": 10.73595338703289,
+          "base_ratio": 0.6375399261931385,
+          "head_ratio": 0.9030490725129743,
+          "changed": true
+        },
+        {
+          "id": "fp_g64_n192",
+          "quality": "declared-valid-reference",
+          "base_error": 65.50754497682591,
+          "head_error": 18.46259212382403,
+          "base_ratio": 0.6042020622926999,
+          "head_ratio": 0.8441483358347769,
+          "changed": true
+        },
+        {
+          "id": "fp_g96_n64",
+          "quality": "declared-valid-reference",
+          "base_error": 79.55600435237304,
+          "head_error": 12.222502720233157,
+          "base_ratio": 0.5569293010316332,
+          "head_ratio": 0.891086881650613,
+          "changed": true
+        },
+        {
+          "id": "fp_g96_n128",
+          "quality": "declared-valid-reference",
+          "base_error": 73.00473103452605,
+          "head_error": 9.218322848477047,
+          "base_ratio": 0.5780188749869696,
+          "head_ratio": 0.9155972861690433,
+          "changed": true
+        },
+        {
+          "id": "fp_g96_n192",
+          "quality": "declared-valid-reference",
+          "base_error": 40.02640943075852,
+          "head_error": 12.25257615523617,
+          "base_ratio": 0.7141509977048214,
+          "head_ratio": 0.8908481517761173,
+          "changed": true
+        }
+      ]
+    }
+  }
+}

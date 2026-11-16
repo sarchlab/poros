@@ -1,0 +1,187 @@
+{
+  "grace": {
+    "legacy": {
+      "points": 18,
+      "changed": [],
+      "changed_count": 0
+    },
+    "throughput": {
+      "points": 17,
+      "changed": [],
+      "changed_count": 0
+    },
+    "forwarding": {
+      "points": 13,
+      "changed": [],
+      "changed_count": 0
+    },
+    "scheduling": {
+      "points": 4,
+      "changed": [],
+      "changed_count": 0
+    },
+    "capacity": {
+      "points": 73,
+      "changed": [],
+      "changed_count": 0
+    },
+    "recurrence": {
+      "points": 41,
+      "changed": [],
+      "changed_count": 0
+    },
+    "memory": {
+      "points": 140,
+      "changed": [],
+      "changed_count": 0
+    }
+  },
+  "m1": {
+    "legacy": {
+      "points": 18,
+      "changed": [],
+      "changed_count": 0
+    },
+    "throughput": {
+      "points": 17,
+      "changed": [],
+      "changed_count": 0
+    },
+    "forwarding": {
+      "points": 13,
+      "changed": [],
+      "changed_count": 0
+    },
+    "scheduling": {
+      "points": 4,
+      "changed": [],
+      "changed_count": 0
+    },
+    "capacity": {
+      "points": 73,
+      "changed": [
+        {
+          "id": "fp_g96_n128",
+          "base_cycles": 307712,
+          "head_cycles": 472064,
+          "change_percent": 53.41098169717138
+        },
+        {
+          "id": "fp_g96_n192",
+          "base_cycles": 397312,
+          "head_cycles": 480256,
+          "change_percent": 20.876288659793808
+        },
+        {
+          "id": "fp_g64_n192",
+          "base_cycles": 213504,
+          "head_cycles": 283648,
+          "change_percent": 32.853717026378895
+        },
+        {
+          "id": "fp_g96_n64",
+          "base_cycles": 299520,
+          "head_cycles": 463872,
+          "change_percent": 54.871794871794876
+        },
+        {
+          "id": "fp_g64_n128",
+          "base_cycles": 205312,
+          "head_cycles": 275456,
+          "change_percent": 34.164588528678294
+        },
+        {
+          "id": "fp_g64_n64",
+          "base_cycles": 198656,
+          "head_cycles": 267264,
+          "change_percent": 34.536082474226816
+        }
+      ],
+      "changed_count": 6
+    },
+    "recurrence": {
+      "points": 41,
+      "changed": [],
+      "changed_count": 0
+    },
+    "memory": {
+      "points": 140,
+      "changed": [],
+      "changed_count": 0
+    }
+  },
+  "m2": {
+    "legacy": {
+      "points": 18,
+      "changed": [],
+      "changed_count": 0
+    },
+    "throughput": {
+      "points": 17,
+      "changed": [],
+      "changed_count": 0
+    },
+    "forwarding": {
+      "points": 13,
+      "changed": [],
+      "changed_count": 0
+    },
+    "scheduling": {
+      "points": 4,
+      "changed": [],
+      "changed_count": 0
+    },
+    "capacity": {
+      "points": 73,
+      "changed": [
+        {
+          "id": "fp_g96_n192",
+          "base_cycles": 397312,
+          "head_cycles": 495616,
+          "change_percent": 24.742268041237114
+        },
+        {
+          "id": "fp_g96_n128",
+          "base_cycles": 307712,
+          "head_cycles": 487424,
+          "change_percent": 58.4026622296173
+        },
+        {
+          "id": "fp_g96_n64",
+          "base_cycles": 299520,
+          "head_cycles": 479232,
+          "change_percent": 60.00000000000001
+        },
+        {
+          "id": "fp_g64_n192",
+          "base_cycles": 214016,
+          "head_cycles": 299008,
+          "change_percent": 39.71291866028708
+        },
+        {
+          "id": "fp_g64_n128",
+          "base_cycles": 205312,
+          "head_cycles": 290816,
+          "change_percent": 41.645885286783034
+        },
+        {
+          "id": "fp_g64_n64",
+          "base_cycles": 198656,
+          "head_cycles": 282624,
+          "change_percent": 42.26804123711341
+        }
+      ],
+      "changed_count": 6
+    },
+    "recurrence": {
+      "points": 41,
+      "changed": [],
+      "changed_count": 0
+    },
+    "memory": {
+      "points": 140,
+      "changed": [],
+      "changed_count": 0
+    }
+  }
+}
