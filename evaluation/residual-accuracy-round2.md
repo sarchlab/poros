@@ -2,8 +2,9 @@
 
 The M1 and M2 target profiles now bound the number of integer multiplies
 waiting to issue at **43 and 38**, respectively. With the existing 256-entry
-reorder window and 360 FP physical registers, the 64-filler capacity probe
-agrees within 3% on each core. In the certified three-device comparison,
+reorder window and 360 FP physical registers, the simulated cycles per iteration
+for the 64-filler capacity probe agree within 3% of the native cycles counted
+on each core (section 5). In the certified three-device comparison,
 all 792 whole-program cycle counts matched the baseline and 12 Apple capacity
 microbenchmarks improved (section 6).
 The larger M1 window tested alongside this change raised fdtd2d-1 error from
@@ -209,10 +210,10 @@ What this shows:
   the FP-destination limit then puts the step where the M2 has it, but the
   level below the step goes from 15% high to 38% low. The M2's plateau lies
   between the model's two states at every filler count, so a window alone
-  does not describe this probe. A finite integer issue queue is one
-  hypothesis for what holds the second gate back; it was not tested. M1 has
-  no committed capacity measurement. Section 5 has both cores in counted
-  cycles.
+  does not describe this probe. At this stage, a finite integer issue queue
+  was one untested explanation for what held the second gate back, and M1 had
+  no committed capacity measurement. Section 5 reports the subsequent counted
+  probes on both cores and the test of a bound on waiting integer multiplies.
 
 ## 3. The clock of the M2 application references (reading; its cause a hypothesis)
 
