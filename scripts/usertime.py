@@ -69,7 +69,8 @@ def execute(poros, case, mode=None, expected_output=None, expected_identity=None
     ]
     for entry in case["env"]:
         argv += ["--env", entry]
-    argv += [str(ROOT / case["file"] if "outputs" in case else ROOT / "tests/usertime" / case["file"])] + case["args"][1:]
+    path = case["file"] if "outputs" in case or "canonical_file" in case else "tests/usertime/" + case["file"]
+    argv += [str(ROOT / path)] + case["args"][1:]
     p = subprocess.run(argv, capture_output=True, timeout=timeout_seconds + 50)
     if p.returncode != 0 or p.stderr:
         raise ValueError(

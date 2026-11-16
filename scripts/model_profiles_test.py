@@ -2,6 +2,7 @@
 """Model revisions may differ without changing or weakening native evidence."""
 import copy
 import hashlib
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -11,6 +12,7 @@ from unittest.mock import patch
 import accuracy_site as site
 import accuracy_test_support as fixtures
 import compute_usertime as compute
+import devices
 import model_profiles as models
 import performance_reference as reference
 import publish_accuracy as publisher
@@ -178,6 +180,79 @@ class ModelProfileTests(unittest.TestCase):
             compute.write(raw,bad);raw.with_suffix(".md").write_text("Synthetic tampered data")
             with self.assertRaisesRegex(ValueError,"profile/count mismatch"):
                 site.bundle(raw,self.source,folder,self.head)
+
+
+class DeviceProfileTests(unittest.TestCase):
+    """A device with parameters of its own is bound to its own profile, at each revision separately."""
+
+    def test_each_role_binds_the_profile_its_revision_declares_for_the_device(self):
+        grace_path = "evaluation/model-profile-grace.json"
+        m2, grace = compute.read(ROOT / models.PATH), compute.read(ROOT / grace_path)
+        declaration = devices.load()
+        placeholder = copy.deepcopy(declaration)
+        devices.select(placeholder, "grace")["parameter_source"] = "m2"
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", folder, *args], text=True, stderr=subprocess.DEVNULL).strip()
+            def commit(message):
+                git("add", "-A"); git("commit", "-m", message)
+                revision = git("rev-parse", "HEAD")
+                return dict(commit=revision, files={p: site.digest(source / p) for p in git("ls-files").splitlines()})
+            git("init"); git("config", "user.name", "Unit test"); git("config", "user.email", "unit@example.invalid")
+            (source / "evaluation").mkdir()
+            (source / models.PATH).write_bytes(models.encode(m2))
+            (source / devices.PATH).write_bytes(devices.encode(placeholder))
+            base = commit("Grace carries the M2 parameters")["commit"]
+            (source / devices.PATH).write_bytes(devices.encode(declaration))
+            (source / grace_path).write_bytes(models.encode(grace))
+            head = commit("Grace has parameters of its own")
+
+            chosen = devices.resolve(source, head, base, "grace")
+            bound = models.resolve(source, head, base, chosen)
+            self.assertEqual((bound["head"]["path"], bound["head"]["profile"]), (grace_path, grace))
+            self.assertEqual((bound["base"]["path"], bound["base"]["profile"]), (models.PATH, m2))
+            self.assertEqual(bound["head"]["sha256"], head["files"][grace_path])
+            report = dict(head=head, base_commit=base, device=chosen, model_profiles=bound)
+            self.assertEqual(models.verify_source(source, report), {"head": grace, "base": m2})
+            # Once the base declares Grace's parameters too, both roles are the Grace profile.
+            both = models.resolve(source, head, head["commit"], devices.resolve(source, head, head["commit"], "grace"))
+            self.assertEqual((both["head"], both["base"]["path"]), (both["base"], grace_path))
+            # The default device, a device that carries its parameters, and no device at all keep the M2 profile.
+            for ident in ("m2", "m5-max", None):
+                other = models.resolve(source, head, base, None if ident is None else devices.resolve(source, head, base, ident))
+                self.assertEqual((other["head"]["path"], other["head"]["profile"], other["base"]["path"]), (models.PATH, m2, models.PATH))
+
+            # Another device's profile in either role is rejected offline, coherent hashes included.
+            def claimed(role, entry):
+                bad = copy.deepcopy(report)
+                bad["model_profiles"][role] = dict(copy.deepcopy(entry), commit=report["model_profiles"][role]["commit"])
+                return bad
+            for bad in (claimed("head", bound["base"]), claimed("base", bound["head"])):
+                with self.assertRaisesRegex(ValueError, "model profile source identity mismatch"):
+                    models.validate(bad)
+            edited = copy.deepcopy(report)
+            edited["model_profiles"]["head"]["profile"]["configuration"]["freq"] = 3490000000
+            with self.assertRaisesRegex(ValueError, "declaration hash mismatch"):
+                models.validate(edited)
+            edited["model_profiles"]["head"]["sha256"] = hashlib.sha256(models.encode(edited["model_profiles"]["head"]["profile"])).hexdigest()
+            with self.assertRaisesRegex(ValueError, "head model declaration differs from tested source"):
+                models.validate(edited)
+            # Rehashed into the source inventory as well, only Git shows the difference.
+            edited["head"] = dict(head, files=dict(head["files"], **{grace_path: edited["model_profiles"]["head"]["sha256"]}))
+            models.validate(edited)
+            with self.assertRaisesRegex(ValueError, "head model declaration differs from exact Git revision"):
+                models.verify_source(source, edited)
+
+            # A revision that declares the device's own parameters must also declare its profile, canonically.
+            (source / grace_path).write_text(json.dumps(grace))
+            loose = commit("Non-canonical Grace profile")
+            with self.assertRaisesRegex(ValueError, "canonical JSON"):
+                models.resolve(source, loose, base, devices.resolve(source, loose, base, "grace"))
+            (source / grace_path).unlink()
+            missing = commit("Grace profile removed")
+            with self.assertRaisesRegex(ValueError, "no declared model profile"):
+                models.resolve(source, missing, base, devices.resolve(source, missing, base, "grace"))
 
 
 if __name__ == "__main__":

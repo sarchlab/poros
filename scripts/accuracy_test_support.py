@@ -200,6 +200,7 @@ def as_device(report, ident, *, base_declared=False, declaration=None):
     report = copy.deepcopy(report)
     report["device"] = device_selection(ident, report["head"]["commit"], report["head"]["files"],
                                         report["base_commit"] if base_declared else None, declaration)
+    bind_profiles(report)
     measured = devices.measured(report, "application")
     if not measured:
         for key in ("reference", "reference_sha256"):
@@ -220,6 +221,41 @@ def as_device(report, ident, *, base_declared=False, declaration=None):
                     row.get(label, {}).pop(key, None)
     report["summary"] = compute.summaries(report["cases"], True)
     return report
+
+
+def bind_profiles(report):
+    """Give each role of a synthetic report the profile its revision declares
+    for the report's device, as the comparison binds it: the repository's
+    declaration of a device with parameters of its own, and every prediction
+    of that role converted at that profile's clock."""
+    import devices
+    import model_profiles as models
+    import usertime as gate
+    if "model_profiles" not in report:
+        return
+    for role in ("head", "base"):
+        declared = devices.declared_at(report["device"], role)
+        path = devices.profile_path(declared)
+        if path == models.PATH:
+            continue
+        profile = devices.load_profile(declared)
+        sha = hashlib.sha256(models.encode(profile)).hexdigest()
+        report["model_profiles"][role] = dict(commit=report["head"]["commit"] if role == "head" else report["base_commit"],
+                                              path=path, sha256=sha, profile=profile)
+        if role == "head":
+            report["head"]["files"][path] = sha
+        for row in report["cases"]:
+            if role not in row:
+                continue
+            seconds = row[role]["cycles"] / profile["configuration"]["freq"]
+            row[role].update(copy.deepcopy(profile), predicted_user_seconds=seconds)
+            if "error_percent" in row[role]:
+                real = row["reference_user_seconds"]
+                row[role].update(error_percent=gate.error_percent(seconds, real),
+                                 direction="slower" if seconds > real else "faster" if seconds < real else "equal")
+    for row in report["cases"]:
+        if "error_change_percentage_points" in row:
+            row["error_change_percentage_points"] = row["head"]["error_percent"] - row["base"]["error_percent"]
 
 
 def device_reference(reference, hardware, usable):
@@ -297,3 +333,67 @@ def synthetic_native(reference, declared):
     for row in result["cases"]:
         row.update(batch_median_user_seconds=[row["median_user_seconds"]]*3,batch_median_spread=0)
     return performance.validate(result, declared)
+
+
+def element_tree(page):
+    """A rendered page as nested [tag, attributes, children] lists and strings."""
+    from html.parser import HTMLParser
+
+    class Builder(HTMLParser):
+        VOID = {"meta", "br", "hr", "img", "input", "link"}
+
+        def __init__(self):
+            super().__init__()
+            self.root = ["#document", {}, []]
+            self.open = [self.root]
+
+        def handle_starttag(self, tag, attrs):
+            node = [tag, {name: "" if value is None else value for name, value in attrs}, []]
+            self.open[-1][2].append(node)
+            if tag not in self.VOID:
+                self.open.append(node)
+
+        def handle_startendtag(self, tag, attrs):
+            self.open[-1][2].append([tag, {name: "" if value is None else value for name, value in attrs}, []])
+
+        def handle_endtag(self, tag):
+            if self.open[-1][0] != tag:
+                raise ValueError(f"unbalanced </{tag}> inside <{self.open[-1][0]}>")
+            self.open.pop()
+
+        def handle_data(self, data):
+            if len(self.open) > 1 or data.strip():  # not the line break after the document
+                self.open[-1][2].append(data)
+
+    builder = Builder()
+    builder.feed(page)
+    builder.close()
+    if len(builder.open) != 1 or len(builder.root[2]) != 1:
+        raise ValueError("page is not one complete element")
+    return builder.root[2][0]
+
+
+def live_dom(pages, steps):
+    """Run a report's own scripts against the documents a server would return.
+
+    pages[0] is loaded; every request the page makes gets the next entry (the
+    last one repeats): a rendered page, None for an unreachable server, or
+    {"status": 503}. steps are [action, argument] pairs for
+    scripts/accuracy_live_dom.js: navigate, open, focus, click, scroll, anchor,
+    watch, observe and refresh (the page's own 15-second timer, if it set
+    one). focus, click and scroll reach the page's own listeners. Returns what
+    was observed at each observe and after each refresh, or None where Node is
+    not installed."""
+    import subprocess
+    import tempfile
+    node = shutil.which("node")
+    if node is None:
+        return None
+    with tempfile.TemporaryDirectory() as folder:
+        scenario = Path(folder) / "scenario.json"
+        scenario.write_text(json.dumps(dict(pages=[element_tree(page) if isinstance(page, str) else page for page in pages], steps=steps)))
+        result = subprocess.run([node, str(Path(__file__).with_name("accuracy_live_dom.js")), str(scenario)],
+                                capture_output=True, text=True, timeout=300)
+    if result.returncode:
+        raise AssertionError("report scripts failed: " + result.stderr)
+    return json.loads(result.stdout)

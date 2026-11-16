@@ -244,8 +244,10 @@ Limits of the local path:
   with an error instead of a page; it does not combine runs.
 - A served multi-device page is a live view and stays marked partial. The
   validated complete report of a device is its own `bundle/index.html`.
-- Only `m2` has native references. The other devices report predictions with
-  the M2 placeholder parameters and no error.
+- `m2` has every native reference and `grace` its whole-program user times,
+  compared with its own profile at that profile's clock. A device without a
+  reference of some kind reports predictions for it and no error; `m5-max` does
+  so with the M2 placeholder parameters.
 - `scripts/usertime-ci.sh BASE OUTPUT [DEVICE]` remains the serial route to a
   `report.json` and `report.md` in `OUTPUT`, for targeted reproduction.
 

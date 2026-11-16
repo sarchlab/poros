@@ -2,29 +2,35 @@
 
 `model-profile.json` declares the default OoO timing configuration used by the
 accuracy harness. The Go test `TestDeclaredModelProfileMatchesRuntimeDefaults`
-checks it against the actual CPU and cache defaults. Keep the declaration in
+checks it against the CPU and cache selected by default for ELF execution. Keep the declaration in
 canonical JSON (sorted keys, two-space indentation, final newline).
 
-This is the Apple M2 profile, the simulator's `m2` target. The other
-[modeled devices](README.md#modeled-devices) name `m2` as their parameter source
-and are validated against this same declaration until they have parameters of
-their own; `TestDeclaredModelProfileCoversTargetsCarryingIt` checks each of them.
+This is the Apple M2 profile, the simulator's `m2` target. A
+[modeled device](README.md#modeled-devices) that names `m2` as its parameter
+source is validated against this same declaration until it has parameters of
+its own; `TestDeclaredModelProfileCoversTargetsCarryingIt` checks each of them.
 A device with parameters of its own declares them in
-`model-profile-<device>.json`; at present only `m1` does (see
-[Apple M1 profile](#apple-m1-profile)).
+`model-profile-<device>.json`: `m1` (see [Apple M1 profile](#apple-m1-profile))
+and `grace` (see [NVIDIA Grace profile](#nvidia-grace-profile)).
+
+The Apple OoO profiles bound integer multiplies waiting between dispatch and
+issue. The profile limits are 38 for M2 and 43 for M1. They come from a
+capacity probe with two dependent multiply chains. At 64 FP fillers, the model
+predicts 276 cycles per iteration on M2 and 261 on M1, against 270.28 and
+257.01 counted on hardware. These are effective scheduling limits. The probe
+cannot identify a physical queue or determine its size. Grace and the generic
+`ooo.DefaultSpec()` use zero (unlimited). M5 Max inherits the M2 parameters.
+In the certified three-device comparison, six capacity microbenchmarks per
+Apple core improved, and all 792 whole-program cycle counts matched the
+baseline. See [Residual accuracy, round 2](residual-accuracy-round2.md#6-certified-three-device-comparison).
 
 ## Apple M1 profile
 
-`model-profile-m1.json` is the `m1` target: the M2 profile with seven
-differences. Four are established by measurements on the M1 Linux host used
-for the m1-7031aa3 campaign; the last three implement a store rule fitted to
-probe timings on that host, which is an interpretation of them and not a
-measured structure. `TestM1DiffersFromM2OnlyInMeasuredParameters` keeps
-every other core, in-order and cache parameter equal to M2's. The three new
-core fields and the new cache field are zero in the M2 profile and are omitted
-from its declaration, so M2 timing and its declared configuration are
-unchanged.
+`model-profile-m1.json` is the `m1` target. Its differences from M2 are
+listed below. `TestM1DiffersFromM2OnlyInMeasuredParameters` checks every other
+core, in-order and cache parameter against M2.
 
+- `multiply_issue_queue` 43, from the counted capacity probe described above.
 - `freq` 3,203,500,000 Hz: one-cycle ADD and three-cycle FADD chains on the M1
   host give 3.2028 to 3.2037 GHz, and counted user cycles of the integer
   control match the model's cycles (48.0 M). The whole-program workload
@@ -241,6 +247,272 @@ Limits and gaps:
 - A prefetch for write 2 KiB ahead of each store halves the cost on M1 (3.7
   per trip); the simulator does not execute PRFM.
 - M2 has no rows of this kind; its profile is unchanged.
+
+## NVIDIA Grace profile
+
+`model-profile-grace.json` is the `grace` target: the M2 profile with the
+differences below. No probe was run on a Grace core for it. Its sources are
+Arm's and NVIDIA's documents, the environment recorded with the
+[GH200 user times](usertime/grace-native/README.md), and those user times
+themselves. `TestGraceDiffersFromM2OnlyInDeclaredParameters` keeps every other
+parameter equal to M2's. The new core fields are zero or absent in the M2 and M1
+profiles, so their declarations and timing are unchanged.
+
+Documents: Arm Neoverse V2 Core Software Optimization Guide, PJDOC-466751330-593177
+Issue 3.0 (SWOG); Arm Neoverse V2 Core Technical Reference Manual,
+102375_0001_02_en Issue 02 (TRM); NVIDIA Grace CPU datasheet, October 2024.
+
+**Published.**
+
+- `latencies.multiply` 2: MUL, MADD and MSUB take two cycles (SWOG Table 3-4).
+  UMULH keeps three, which is also its published value.
+- `latencies.divide_base` 4, `divide_bits_per_cycle` 4 and `num_int_div` 1:
+  SDIV and UDIV take 5 to 12 cycles in the 32-bit form and 5 to 20 in the
+  64-bit form on one pipeline, use an iterative algorithm that ends early
+  "depending upon the data values", and block later divides until complete
+  (Table 3-4, note 1). The model gives the core one divider that delays only
+  other divides, and a divide four cycles plus one for every four significant
+  bits of the quotient's magnitude, at least five. That rule reproduces both
+  published ranges; that the early ending follows the quotient's length is an
+  assumption.
+- `latencies.fp_arithmetic` 2 and `fp_multiply` 3: FADD, FSUB, FABS, FNEG,
+  FCSEL and FCMP take two cycles, FMUL three (Table 3-11). FP conversions keep
+  three, their published value (Table 3-12); FMOV keeps the M2 value.
+- `latencies.fp_accumulate` 2: a fused multiply-add takes four cycles, two from
+  its addend when another fused multiply-add or an FP multiply produced it
+  (Table 3-11, notes 2 and 3).
+- `latencies.fp_divide` 15, `fp_divide_occupancy` 7 and `num_fp_div` 2: FDIV
+  takes 7 to 15 cycles for double precision on two pipelines, with a throughput
+  of 4/7 to 2/7 per cycle (Table 3-11). The model gives the core two FP
+  dividers that delay only other divides and square roots; each starts a divide
+  every seven cycles, which is the published 2/7 per cycle at the 15-cycle end.
+  It uses 15 cycles for every divide; see the inferences below.
+- `L1Latency` 4, `latencies.fp_load_extra` 2, `num_ldst` 3 with `num_load` 3
+  and `num_store` 2: an integer load takes four cycles and a load into an FP
+  register six; three pipelines load and two of them also generate store
+  addresses (Tables 3-7, 3-13 and 2-1).
+- `L1Size` 64 KiB with `L1Ways` 4; `L2Size` 1 MiB with `L2Ways` 8 and
+  `L2LineSize` 64 (TRM, L1 data and L2 memory systems; the datasheet gives
+  1 MiB per core for Grace).
+- `SLCSize` 114 MiB: the datasheet's L3 capacity for a 72-core Grace. The
+  model's record of L2 victims is given that capacity. Its policy and its
+  138-cycle latency are M2's and are not established for Grace.
+- `TLBSets` 256 with `TLBWays` 8: the second-level TLB has 2,048 entries and
+  eight ways (TRM, translation table). The 48-entry first level and its
+  six-cycle penalty are not modelled.
+- `num_select_fusion` is unchanged: the SWOG lists CMP with CSEL among the
+  fused pairs (section 4.11). It gives no latency for the pair; the model keeps
+  the one cycle and the forms measured on M2.
+
+**Observed on the measured host.**
+
+- `TLBPageBytes` 65,536: the kernel uses 64 KiB pages.
+- `freq` 3,429,000,000 Hz: the maximum the host reports for the pinned core
+  under the performance governor. The frequency the core ran at was not
+  observed, so this is an assumption. NVIDIA's datasheet gives a base frequency
+  of 3.1 GHz and an all-core SIMD frequency of 3.0 GHz; Laukemann, Hager and
+  Wellein (arXiv:2409.08108) counted a constant 3.4 GHz on another Grace
+  machine. Every predicted time scales inversely with this value.
+
+**Inferred from the GH200 user times.** These are effective values. They come
+from the time per loop trip of programs whose inner loops are dependency
+chains, converted at the assumed clock and reduced by the published latencies
+above. They are not measurements of the structures they are named after.
+
+- `store_forward_latency` 6: a load supplied by an in-flight store has its
+  value six cycles after the store's data issues, whatever the instruction
+  forms and the register class. With FADD at two cycles, 2mm's accumulation
+  through memory takes 7.6 cycles per trip (a forward of 5.6). seidel2d's trip
+  is one forward, six FADD and one FDIV in 32.7 cycles, and adi's forward and
+  backward trips together are two forwards, two FMUL, two FADD or FSUB and one
+  FDIV in 36.8; both give a forward of 5.7 to 5.9 if the FDIV takes 15.
+  nussinov's integer maximum through memory takes 6.4 cycles per trip, a
+  forward of 5.4 with the fused compare and select at one cycle. The SWOG
+  describes which loads can be forwarded (section 4.5) and gives no latency.
+- `latencies.fp_divide` 15 for every divide: the top of the published range.
+  The seidel2d and adi trips above agree on it together with the forward; a
+  shorter divide would need a longer forward than 2mm shows.
+- `fp_issue_queue` 36: FP operations and FP store data wait in a queue of 36
+  entries between dispatch and issue, and dispatch stops while it is full
+  (`pkg/cpu/ooo/issuequeue.go`). Consecutive dependency chains overlap on the
+  GH200 by less than the 256-instruction window allows: about 26 trips of one
+  waiting FMADD in swaptions, about 16 trips of one FADD and one FP store in
+  doitgen, and at least 25 trips in ferret. Read as waiting FP work these are
+  30 to 40 entries. Neither document gives an issue-queue size.
+- `branch_penalty` 11: the legacy branch microbenchmark, a multiply chain with
+  one branch mispredicted every other trip, takes 8.95 cycles per trip; with
+  the published two-cycle multiply that leaves 10.9 cycles per misprediction.
+  Neither document gives a penalty.
+- `PrefetchStrideBytes` 65,536: the stream prefetcher also follows a constant
+  stride between demand misses, up to one page (`pkg/mem/stride.go`). The TRM
+  says the load-side prefetcher fills both the L1 and the L2 cache and does not
+  give its patterns. deriche's column passes step 6 to 8 KB through images of
+  7 to 12 MB, far more than the 1 MiB L2, and the GH200 runs deriche in 0.78 to
+  0.89 of the M2's time; with sequential streams only, every such step is an
+  unprefetched miss, and an exploratory run without the follower (prototype B
+  under Known gaps) took 1.9 times the GH200's time at deriche's first input.
+  The page as the limit is an assumption.
+
+  How far ahead of a miss such a walk is prefetched is not a parameter of its
+  own. It is `PrefetchDistance` (48) accesses of the walk, and no farther
+  than the lines ahead have room in their L1 sets. Both rules are
+  assumptions: neither document gives a distance, and the GH200 user times do
+  not establish one. The distance has been counted three ways, and the first
+  two are why it is counted as it is. The runs, the completed comparison and
+  their limits are in the
+  [Grace residual investigation](grace-residual-investigation.md).
+
+  In steps (the profile as first compared, revision `82e9983`). The 48 were
+  the sequential prefetcher's distance in lines, reused as a count of steps
+  of any length. A step is the distance between two misses, not two accesses:
+  syrk's inner loop reads `A[j*m+k]` 2,120 to 3,096 bytes apart and finds
+  most of those lines in L1; with an odd `m`, four of its six inputs, its
+  misses are eight rows apart. 48 such steps were 384 rows, beyond a walk of
+  at most 516 rows that restarts for every column, and L2 filled with lines
+  past the walks: syrk was 8 to 53% slow (3 to 11% with the M2 parameters),
+  with 3.3 to 12.9 million prefetches in every input but the one whose stride
+  is a whole number of lines (0.39 million, 8% slow).
+
+  In bytes ([pull request 84](https://github.com/sarchlab/poros/pull/84),
+  compared at revision `a061e92`): no farther than `PrefetchStrideBytes` from
+  the miss. syrk's fourth input came down from 53% to 40%. Two inputs left
+  the 50% limit, syrk's sixth (34% to 78%) and symm's fifth (9% to 62%), and
+  mvt went from 8 to 14% fast to 41 to 50% slow at four of its six sizes.
+  These walks miss 20 to 37 KB apart, so a page was one or two steps: eight
+  to sixteen rows of syrk and symm, two rows of mvt. Their lines were
+  requested too late to arrive before they were read.
+
+  In accesses of the walk (now). The follower sees misses only. It is told of
+  the loads that find their line in L1: one that lies a whole fraction of a
+  stream's step beyond its last miss, and at least a line beyond it, is an
+  access of that walk, and the smallest such fraction is the walk's stride.
+  48 accesses are 48 rows of syrk and symm, six steps where the misses are
+  eight rows apart, and 48 steps of a walk whose every access misses (mvt,
+  deriche), as at first. The follower has no instruction address, so it
+  cannot tell a walk's access from another load at such an address; such a
+  load can only shorten the reach.
+
+  Room in L1. A walk whose stride is a multiple of many lines stays in few L1
+  sets: 8,192 and 24,576 bytes reach two of the 256, 28,672 four, 26,624
+  eight. The follower prefetches no line that would be the fifth of the
+  walk's lines ahead in one set of four ways: 8, 8, 16 and 32 steps for
+  those strides, the full 48 for strides that reach 16 sets or more. The TRM
+  says the load-side prefetcher fills L1; the model's fills L2 only, and the
+  bound stands for what an L1 set can hold. The GH200 is slower at exactly
+  these inputs: mvt's whole run takes 18.3 and 18.8 cycles per matrix element
+  at 3,072 and 3,584 rows against 14.3 to 14.5 at 3,200, 3,456 and 3,712 and
+  15.1 at 3,328, and deriche's sixth input, the one with an 8,192-byte column
+  step, costs it about eight cycles more per column step than the fifth. Why
+  the core loses that much there is not known: a line displaced from L1
+  would still be in L2, and L2's sets are as few for these strides. The rule
+  follows the published L1 geometry and has no number of its own. Its
+  evidence is these inputs and nothing else, and it explains the two mvt
+  sizes unequally (see the investigation).
+
+  Compared in full on 2026-11-16, at revision `b6de5ca` (1,656 points,
+  certificate SHA-256
+  `15358deb6284a4d2f5204fd1c7419badb16f99caeec3af0b20fb0de96b4f5819`). Every
+  qualified application of the three devices is within 50% and every
+  device's median is below 20%: Grace's maximum went from 77.55% to 46.71%
+  and its median from 7.88% to 7.87%, and M1 and M2 did not move. Of the 237
+  Grace applications 27 have a smaller error and 34 a larger one, and symm's
+  sixth input is newly below 0.8 of its reference (1.058 to 0.764). That is
+  acceptance on one fixed reference suite, with these regressions. It does
+  not make either rule a property of the core; both stay assumptions, as
+  the page limit is.
+
+**Carried from M2 and not established for Grace:** the 256-instruction window,
+retirement and dispatch width (the SWOG gives eight MOPs per cycle), the branch
+predictor, the fetch rule that ends a group at a taken branch, the L2 latency,
+the memory-side and DRAM latencies, both fill transports, the stream
+prefetcher, the miss and store buffers, and page-walk timing.
+
+Known gaps. The model numbers in this list are not this profile's accuracy.
+Each comes from one exploratory run, made while the profile was assembled, of
+the first input of a kernel or of a legacy microbenchmark on one of three
+prototype configurations:
+
+- prototype A: the published values, the clock and `branch_penalty` above,
+  with a store forward of four cycles, no compare/select fusion, no FP issue
+  queue and no stride follower;
+- prototype B: this profile's values, except that each FP divider stayed busy
+  for 15 cycles and there was no stride follower;
+- prototype C: this profile's values.
+
+All three ran before the forwarding, issue-queue and stride mechanisms were
+corrected: the forwarding latency and the cache accesses of a load that stores
+supply only in part, the time an FP operation keeps its issue-queue entry, and
+the page bound of stride prefetches. None of these runs was repeated after
+those corrections and none was part of a full campaign, so the numbers show
+the direction and rough size of an effect and nothing more. "x% fast" means
+the predicted time was x% below the GH200's and "x% slow" x% above
+(predicted/reference of 1 - x/100 and 1 + x/100). The reports' error,
+|predicted - reference| / min(predicted, reference), is larger for a fast
+prediction: 20% fast is an error of 25%, and mvt's 29% below
+(predicted/reference 0.714) is 40%. Cycle counts given for the GH200 are its
+user times converted at the assumed clock.
+
+- The integer microbenchmark's MADD chain takes 2.3 cycles per step on the
+  GH200 where the SWOG gives two; prototype A was 13% fast there. At 3.0 GHz
+  the step would be two cycles, but seidel2d's chain would then be shorter
+  than its published arithmetic allows with a 15-cycle divide.
+- Input loops with one SDIV, one SCVTF and one FDIV per element (atax,
+  gesummv, mvt and others) take about 7.7 to 8.5 cycles per element on the
+  GH200. The published divider and FDIV throughput bound them at 5 to 7;
+  prototype C was 26% fast on atax and 16% on gesummv. An FDIV divider busy
+  for all 15 cycles would close atax (prototype B was 4% fast there), but it
+  contradicts the published throughput and is not modelled.
+- The stride follower hides more than the GH200 does. mvt's column walk at
+  3,072 rows steps 24,576 bytes and conflicts in both caches. The GH200's time
+  less prototype C's, after the input loop's share, is about four cycles per
+  access of that walk, a cost the follower removes. Prototype C was 29% fast
+  at that input, where the M2 parameters were 3% fast in the full baseline
+  comparison. syr2k's short walks are restarted for every column: prototype C
+  was 29% fast, prototype B 5% fast. symm went from 28% slow in prototype B to
+  13% fast in prototype C. By their element counts the FP divider's busy time
+  accounts for about one point of those two changes and the follower for the
+  rest. Without the follower, prototype B took 1.9 times the GH200's time on
+  deriche.
+- The runs in the previous item preceded every bound on the follower's reach.
+  With the reach counted in accesses and bounded by room in L1, mvt at 3,072
+  rows is prefetched eight steps ahead and at 3,584 rows sixteen: the
+  comparison at `b6de5ca` has them at 0.96 and 0.80 of the GH200's time,
+  where the one at `82e9983` had 0.71 and 0.69 and the one at `a061e92`,
+  which bounded the reach in bytes, 1.16 and 1.14. The walk's lines return
+  from the record of L2 victims at its 138 cycles, which is M2's latency and
+  not established for Grace. See the
+  [Grace residual investigation](grace-residual-investigation.md).
+- The follower takes up every walk anew: three misses before its first
+  prefetch. A walk that restarts for every column and misses every eighth
+  row reads 24 rows of each column unprefetched. syrk's sixth input, whose
+  matrix is larger than L2, has 0.35 million demand requests behind L2 in
+  one run and is 32% slow, where the GH200's cycles per instruction are 0.167
+  to 0.180 at all six inputs. That those requests are the first rows of the
+  walks is a reading, not a count. A prefetcher keyed by the instruction
+  would not start over; the follower has no instruction address.
+- symm's whole run costs the GH200 3.4 to 3.7 cycles per inner trip at the
+  four inputs that do not thrash L1. By their row lengths the column walks
+  miss every eighth row at inputs 2 and 5 and every fourth row of every other
+  column at 1 and 6. With the reach counted in accesses the model takes 3.3
+  and 3.6 cycles per trip at the first two and 3.0 and 2.9 at the others:
+  0.83 and 0.76 of the GH200's time at inputs 1 and 6 (one run each, and the
+  same in the comparison at `b6de5ca`). The byte bound had these two at 0.98
+  and 1.06, with their lines arriving late, and inputs 2 and 5 33% and 62%
+  slow. What symm costs the GH200 that the model lacks is not identified.
+- The follower's addresses are signed 64-bit numbers. A walk at or above 2^63
+  is recognised and never prefetched. Nothing measured here reaches it: the
+  ELF loader admits segments only below 2^48 and the process stack lies below
+  that. The cache accepts any 64-bit address, and stride following is not
+  correct for all of them.
+- The L2, memory-side and DRAM latencies, both fill transports and the miss
+  buffers are M2's. Nothing here measures them on Grace.
+- Loops of 8 to 10 instructions run at 1.75 to 2.0 cycles per trip on the
+  GH200 (gemm, floydwarshall, jacobi1d); the carried fetch rule gives 1 or 2.
+- Chains of 2mm, 3mm, covariance, trmm and lu overlap less on the GH200 than
+  the issue queue allows (about 6 trips in 2mm against 15). Prototype B was 6
+  to 8% fast on the first four and prototype C 11% fast on lu.
+- FDIV is always 15 cycles and the early ending of the integer divider is a
+  rule fitted to two published ranges; neither was measured.
 
 This declaration is independent of frozen workload manifests and native reference
 measurements. A calibration change updates the simulation declaration, without
@@ -612,7 +884,10 @@ as wide as the fill transport (`DRAMBytesPerCycle`), one line after another;
 the line can be supplied only once that move has ended (its return transfer
 on the fill transport starts no earlier), and the fill that displaced it is
 not delayed. A dirty victim's write is charged on the fill
-transport as before and the line has left L2 when that transfer ends. A line
+transport as before. The line leaves L2 when the eviction stage admits that
+write, which is also when the line replacing it can be used, and it can be
+supplied from the record once the transfer has ended; in between the stage
+owns it and nothing is read from the stage. A line
 evicted before its own fill arrived cannot be supplied before that data
 existed. The return uses the existing fill transport and the existing demand
 MSHR; stream prefetches and writeback allocations take the same path. With a
@@ -709,9 +984,32 @@ Limits:
   explain (3,584 rows at 28,672 bytes) and that the model does not have.
 - An L2 hit costs a dependent chase 14 cycles in the model and 19 on the M2.
 - The record and the translation table change in dispatch order, like the
-  cache tags. A request visited after the eviction of its line but issued
-  earlier finds the line in the record and waits for the eviction and the
-  move: later than hardware that still had the line in L2, never earlier.
+  cache tags, and so do the tags' replacement decisions. Times do not: a
+  request visited after the eviction of its line but issued before the line
+  left L2 finds it in L2 and is an L2 hit (`L2HitsBeforeEviction` counts
+  them). It is answered from the record, which keeps the cycle the line left
+  L2 and the cycle its data was there. A clean line left at the issue cycle
+  of the request that replaced it, a dirty one when its write was admitted to
+  the eviction stage. Answering from the record keeps the L2 eviction as it
+  was booked and adds nothing to it: no L2 tag is replaced, the line is not
+  put back into L2 and nothing returns from the record for that request; the
+  line stays in the record for every request from the cycle it left. The
+  request's fill of L1 is the ordinary one: its L2-to-L1 transfer is booked,
+  and an L1 line it displaces is written back if dirty. So traffic counters
+  do differ from the earlier model's, which fetched such a line through the
+  memory-side transport. A stream prefetch of a line that has not left L2
+  yet is not issued. Replacement is not
+  replayed: a line read before its eviction is still the line that was
+  evicted, where a core would have kept it as recently used, so its next
+  request after that cycle pays a return from the record that the hardware
+  may not pay. A dirty L1 line whose L2 line is in the record is written back
+  as before, by bringing that line back first. Until this was changed a
+  request before the eviction waited for the eviction, the move and the
+  record's latency; a store whose data is late allocates its line long after
+  a younger load has issued, and a loop that stores and then loads a line
+  that the allocation displaces ran one record return per trip, each behind
+  the previous trip's store data
+  ([Grace Deriche investigation](grace-deriche-investigation.md)).
 
 ## Scalar FP timing and measured destination capacity
 

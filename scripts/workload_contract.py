@@ -29,7 +29,7 @@ PERFORMANCE_REFERENCE = "evaluation/usertime/m2-linuxvm-performance-v1.json"
 
 
 def _is_repeat_streamcluster(case):
-    return (case.get("file") == "tests/benchmarks/streamcluster-repeat.elf"
+    return (case.get("canonical_file", case.get("file")) == "tests/benchmarks/streamcluster-repeat.elf"
             and len(case.get("args", [])) == 4 and case["args"][2:] == ["32", "16"])
 
 

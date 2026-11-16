@@ -24,8 +24,10 @@
     {
       "hardware": "NVIDIA Grace (Arm Neoverse V2)",
       "id": "grace",
-      "parameter_source": "m2",
-      "references": {}
+      "parameter_source": "grace",
+      "references": {
+        "application": "evaluation/usertime/grace-native/performance-v1.json"
+      }
     },
     {
       "hardware": "Apple M5 Max",

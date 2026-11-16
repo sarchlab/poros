@@ -46,19 +46,21 @@ def selection(ident, base_declared=False):
 
 
 class DeclarationTests(unittest.TestCase):
-    def test_repository_declares_four_devices_and_only_m2_has_references(self):
+    def test_repository_declares_four_devices_and_grace_has_application_reference(self):
         declaration = devices.load()
         self.assertEqual([d["id"] for d in declaration["devices"]], IDS)
         self.assertEqual(declaration["default"], devices.DEFAULT)
         self.assertEqual({d["id"]: devices.reference_status(d) for d in declaration["devices"]},
-                         {"m2": "measured", "m1": "unmeasured", "grace": "unmeasured", "m5-max": "unmeasured"})
+                         {"m2": "measured", "m1": "unmeasured", "grace": "partial", "m5-max": "unmeasured"})
         # Placeholders say whose parameters they carry rather than claiming their own.
         self.assertEqual({d["id"]: d["parameter_source"] for d in declaration["devices"]},
-                         {"m2": "m2", "m1": "m1", "grace": "m2", "m5-max": "m2"})
+                         {"m2": "m2", "m1": "m1", "grace": "grace", "m5-max": "m2"})
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m2"), declaration), "Apple M2 model profile")
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m1"), declaration), "Apple M1 model profile")
         self.assertEqual(devices.parameter_text(devices.select(declaration, "grace"), declaration),
-                         "Apple M2 model profile (placeholder; NVIDIA Grace (Arm Neoverse V2) parameters not established)")
+                         "NVIDIA Grace (Arm Neoverse V2) model profile")
+        self.assertEqual(devices.parameter_text(devices.select(declaration, "m5-max"), declaration),
+                         "Apple M2 model profile (placeholder; Apple M5 Max parameters not established)")
 
     def test_every_device_reports_its_declared_profile_at_its_clock(self):
         declaration = devices.load()
@@ -72,12 +74,30 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(m1["cache_config"]["L2Latency"], 18)
         self.assertEqual(m1["configuration"]["freq"], 3203500000)
         self.assertEqual(m1["configuration"]["store_buffer_size"], 140)
+        self.assertEqual(m1["configuration"]["multiply_issue_queue"], 43)
+        self.assertEqual(m2["configuration"]["multiply_issue_queue"], 38)
         self.assertEqual({k for k in m1["configuration"] if m1["configuration"][k] != m2["configuration"].get(k)},
                          {"freq", "fetch_taken_branches", "store_dependence_prediction", "store_buffer_size",
-                          "store_queue_in_order"})
+                          "store_queue_in_order", "multiply_issue_queue"})
         case = dict(id="x", frequency_hz=3490000000)
         self.assertEqual(devices.at_profile_clock(case, m2), case)
         self.assertEqual(devices.at_profile_clock(case, m1), dict(id="x", frequency_hz=3203500000))
+        # A revision without declared profiles has only the contract's clock.
+        self.assertIs(devices.at_profile_clock(case, None), case)
+        # Grace differs from M2 in its documented core, cache and translation parameters only.
+        self.assertEqual(devices.profile_path(devices.select(declaration, "grace")), "evaluation/model-profile-grace.json")
+        self.assertEqual(devices.profile_path(devices.select(declaration, "m5-max")), "evaluation/model-profile.json")
+        self.assertEqual(devices.profile_path(None), "evaluation/model-profile.json")
+        grace = devices.load_profile(devices.select(declaration, "grace"))
+        self.assertEqual({k for k in grace["configuration"] if grace["configuration"][k] != m2["configuration"].get(k)},
+                         {"freq", "latencies", "num_int_div", "num_fp_div", "num_ldst", "store_forward_latency",
+                          "fp_issue_queue", "branch_penalty"})
+        self.assertEqual(set(m2["configuration"]) - set(grace["configuration"]), {"multiply_issue_queue"})
+        self.assertEqual({k for k in grace["cache_config"] if grace["cache_config"][k] != m2["cache_config"].get(k)},
+                         {"L1Size", "L1Ways", "L1Latency", "L2Size", "L2Ways", "L2LineSize", "SLCSize",
+                          "PrefetchStrideBytes", "TLBPageBytes", "TLBWays"})
+        self.assertEqual(set(m2["cache_config"]) - set(grace["cache_config"]), set())
+        self.assertEqual(devices.at_profile_clock(case, grace), dict(id="x", frequency_hz=3429000000))
 
     def test_declared_references_are_the_files_the_reports_bind(self):
         expected = {"application": site.performance.PATH,
@@ -104,7 +124,7 @@ class DeclarationTests(unittest.TestCase):
                      lambda v: entry(v, "m1").update(hardware=" "),
                      lambda v: entry(v, "m1").update(id="M1"),
                      lambda v: entry(v, "m1").update(id="../m1"),
-                     lambda v: entry(v, "m1").update(parameter_source="grace"),
+                     lambda v: entry(v, "m1").update(parameter_source="m5-max"),  # carries M2's, has none of its own
                      lambda v: entry(v, "m1").update(parameter_source="m3"),
                      lambda v: entry(v, "m1")["references"].update(power="evaluation/power.json"),
                      lambda v: entry(v, "m1")["references"].update(application="../outside.json"),
@@ -230,9 +250,9 @@ class RevisionTests(unittest.TestCase):
     def test_publication_checks_both_revisions_and_canonical_bytes(self):
         report = dict(head=self.state, base_commit=self.before, device=devices.resolve(self.root, self.state, self.before, "m5-max"))
         self.assertEqual(devices.verify_source(self.root, report)["id"], "m5-max")
-        # A device with its own parameters cannot be bound to a plan or report yet.
-        with self.assertRaisesRegex(ValueError, "'m1' declares its own parameters"):
-            devices.resolve(self.root, self.state, self.before, "m1")
+        # A device with its own parameters is bound like any other; its profile is
+        # resolved with it (model_profiles.resolve).
+        self.assertEqual(devices.resolve(self.root, self.state, self.before, "m1")["id"], "m1")
         claimed = copy.deepcopy(report)
         claimed["device"]["base"] = dict(report["device"]["head"], commit=self.before)
         devices.validate(claimed)  # Self-consistent offline; only Git shows the base never declared it.
@@ -297,8 +317,17 @@ class ReportFixture(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
 
+    @staticmethod
+    def declaration():
+        # These synthetic reports predate the external Grace acquisition. Keep
+        # their original declaration explicit; current Grace coverage is tested
+        # against the real imported reference in linux_reference_test.py.
+        declaration = devices.load()
+        devices.select(declaration, "grace")["references"] = {}
+        return declaration
+
     def report(self, ident, base_declared=False):
-        report = fixtures.as_device(self.legacy, ident, base_declared=base_declared)
+        report = fixtures.as_device(self.legacy, ident, base_declared=base_declared, declaration=self.declaration())
         definitions = site.diagnostic_definitions(report, self.source)
         if definitions:
             report["diagnostic_definitions"] = definitions
@@ -331,10 +360,7 @@ class ReportTests(ReportFixture):
     """The synthetic report viewed as each kind of device."""
 
     def test_every_device_report_validates_and_names_its_device(self):
-        # M1 declares its own parameters, which reports cannot bind yet.
-        with self.assertRaisesRegex(ValueError, "'m1' declares its own parameters"):
-            site.validate_compact_evidence(self.report("m1"), {})
-        for ident, status in (("m2", "measured"), ("grace", "unmeasured"), ("m5-max", "unmeasured")):
+        for ident, status in (("m2", "measured"), ("m1", "unmeasured"), ("grace", "unmeasured"), ("m5-max", "unmeasured")):
             with self.subTest(device=ident):
                 report = self.report(ident)
                 site.validate_compact_evidence(report, self.references(report))
@@ -344,6 +370,50 @@ class ReportTests(ReportFixture):
                 self.assertEqual(len(report["cases"]), 264)
                 self.assertEqual(sorted(self.references(report)),
                                  ["forwarding.json", "reference.json", "throughput.json"] if ident == "m2" else [])
+
+    def test_device_with_its_own_parameters_reports_its_own_profile_at_its_clock(self):
+        declaration = devices.load()
+        for ident, clock in (("m1", 3203500000), ("grace", 3429000000)):
+            with self.subTest(device=ident):
+                report = self.report(ident)
+                profile = devices.load_profile(devices.select(declaration, ident))
+                head = report["model_profiles"]["head"]
+                self.assertEqual((head["path"], head["profile"]), (devices.profile_path(devices.select(declaration, ident)), profile))
+                self.assertEqual(models.validate(report)["head"], profile)
+                row = report["cases"][0]["head"]
+                self.assertEqual((row["configuration"], row["cache_config"]), (profile["configuration"], profile["cache_config"]))
+                self.assertEqual(row["predicted_user_seconds"], row["cycles"] / clock)
+                # The M2 profile, the M2 configuration in a row and the workload
+                # contract's clock are each another device's and are rejected.
+                borrowed = copy.deepcopy(report)
+                borrowed["model_profiles"]["head"] = copy.deepcopy(self.legacy["model_profiles"]["head"])
+                with self.assertRaisesRegex(ValueError, "model profile source identity mismatch"):
+                    site.validate_compact_evidence(borrowed, {})
+                configured = copy.deepcopy(report)
+                configured["cases"][0]["head"].update(copy.deepcopy(self.legacy["model_profiles"]["head"]["profile"]))
+                with self.assertRaisesRegex(ValueError, "compact report timing profile/count mismatch"):
+                    site.validate_compact_evidence(configured, {})
+                clocked = copy.deepcopy(report)
+                clocked["cases"][0]["head"]["predicted_user_seconds"] = row["cycles"] / 3490000000
+                with self.assertRaisesRegex(ValueError, "compact timing frequency mismatch"):
+                    site.validate_compact_evidence(clocked, {})
+        # A base revision that still declares M2 as the device's parameter source
+        # is compared with the M2 profile at the M2 clock.
+        placeholder = self.declaration()
+        devices.select(placeholder, "grace")["parameter_source"] = "m2"
+        report = self.report("grace", base_declared=True)
+        report["device"]["base"]["declaration"] = placeholder
+        report["device"]["base"]["sha256"] = hashlib.sha256(devices.encode(placeholder)).hexdigest()
+        with self.assertRaisesRegex(ValueError, "model profile source identity mismatch"):
+            site.validate_compact_evidence(report, {})
+        report["model_profiles"]["base"] = copy.deepcopy(self.legacy["model_profiles"]["base"])
+        m2 = report["model_profiles"]["base"]["profile"]
+        for row in report["cases"]:
+            if "base" in row:
+                row["base"].update(copy.deepcopy(m2), predicted_user_seconds=row["base"]["cycles"] / 3490000000)
+        site.validate_compact_evidence(report, {})
+        self.assertEqual((models.validate(report)["head"]["configuration"]["freq"], models.validate(report)["base"]["configuration"]["freq"]),
+                         (3429000000, 3490000000))
 
     def test_unmeasured_report_shows_predictions_and_no_reference_metric(self):
         report = self.report("m5-max")
@@ -379,12 +449,66 @@ class ReportTests(ReportFixture):
         for absent in ("Kendall", "Pearson", "Qualified reference vs. prediction", "S-curve", "Absolute error",
                        "<th>Reference</th>", "Head error", "Base error", "Mean error", "Native ns/", "Estimated native IPC",
                        'href="reference.json"', 'href="throughput.json"', 'href="forwarding.json"',
-                       "Usable microbenchmark references", "Store/load dependency probes", "macOS",
-                       ">reference</span>", ">base</span>", "No comparable points"):
+                       "Usable microbenchmark references", "macOS", "Apple M2 ·", "P10/median/P90",
+                       ">reference</span>", ">native</span>", ">base</span>", "No comparable points"):
             self.assertNotIn(absent, page)
         self.assertIn('<span style="color:#087e8b">head</span>', page)  # Predicted curves are still drawn.
+        # Every device goes through the suites' own panels. This one has no
+        # measurement, so each panel draws its predictions and says so; the
+        # suite without an axis stays a table, and says that too.
+        forwarding = page[page.index("<h3>Store/load dependency probes</h3>"):page.index('id="throughput-progress"')]
+        self.assertEqual(forwarding.count("<figure>"), 4)
+        self.assertIn('data-reference="none"', forwarding)
+        self.assertIn("Prediction only · no hardware comparison.", forwarding)
+        self.assertIn("No native Apple M5 Max measurement of this suite exists.", forwarding)
+        self.assertEqual(forwarding.count('<span style="color:#087e8b">head</span>'), 4)
+        self.assertIn("gpr64_same: no native measurement; head ", forwarding)
+        throughput = page[page.index('id="throughput-table"'):page.index('id="throughput-simulated-table"')]
+        self.assertIn("This section is a table by design", throughput)
+        self.assertIn("<th>Probe</th><th>Simulated IPC</th>", throughput)
+        self.assertEqual(page.count('data-reference="none"'), 2)
         markdown = self.root / "m5-max/report.md"
         self.assertTrue(markdown.exists())
+
+    def test_unmeasured_report_cannot_select_unreferenced_alternate_binaries(self):
+        good = self.report("m5-max")
+        site.validate_compact_evidence(good, {})
+        report = copy.deepcopy(good)
+        manifest = report["workload_manifest"]
+        bindings = {}
+        for case in manifest["cases"]:
+            source = case["file"] if "outputs" in case else "tests/usertime/" + case["file"]
+            destination = "tests/alternate/" + source.removeprefix("tests/")
+            path = self.root / destination
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.source / source, path)
+            self.assertEqual(site.digest(path), case["sha256"])
+            bindings[source] = dict(file=destination, sha256=case["sha256"],
+                                    mapped_image_bytes=case["mapped_image_bytes"])
+            report["head"]["files"][destination] = case["sha256"]
+        report["workload_manifest"] = site.compute.expanded_manifest(manifest["original"], manifest["compute"], bindings)
+        # The alternate files really have the recorded hashes, and all other
+        # manifest, model, row and output-oracle checks remain valid. What is
+        # absent is a device-owned native reference authorizing this layout.
+        site.compute.validate_expanded(report["workload_manifest"])
+        site.check_report(report, self.commit)
+        reason = "alternate ELF bindings require a native application reference"
+        with self.assertRaisesRegex(ValueError, reason):
+            site.validate_compact_evidence(report, {})
+        state = dict(state="running", completed_cases=264, required_cases=264,
+                     completed_shards=1, required_shards=1, active_cases=[], errors=[],
+                     updated_at=datetime.now(timezone.utc).isoformat())
+        with self.assertRaisesRegex(ValueError, reason):
+            progress.snapshot(report, self.source, state)
+        with self.assertRaisesRegex(ValueError, reason):
+            self.bundle(report, "unreferenced-bindings")
+        bundle = self.root / "unreferenced-bindings/bundle"
+        # The bundle's files/hashes are intact. Publication must reject it at
+        # the same boundary before trusting it enough to query Git history.
+        with patch.object(publisher.subprocess, "check_output") as git:
+            with self.assertRaisesRegex(ValueError, reason):
+                publisher.verify_source(self.source, bundle, self.commit)
+            git.assert_not_called()
 
     def test_measured_m2_report_is_unchanged_except_for_naming_its_device(self):
         declared, legacy = self.report("m2"), copy.deepcopy(self.legacy)
@@ -497,9 +621,11 @@ class ReportTests(ReportFixture):
         suite = redeclare(m2, lambda d: d["devices"][0]["references"].update(throughput="evaluation/microbenchmarks/throughput/other.json"))
         with self.assertRaisesRegex(ValueError, "declares its throughput reference at evaluation/microbenchmarks/throughput/other.json"):
             site.validate_compact_evidence(suite, self.references(m2))
+        # A device that declares parameters of its own must carry its own profile:
+        # the M2 profile this report holds is then the wrong file.
         own = redeclare(self.report("m5-max"), lambda d: d["devices"][3].update(parameter_source="m5-max"))
-        with self.assertRaisesRegex(ValueError, "declares its own parameters"):
-            site.validate_compact_evidence(own, {})
+        with self.assertRaisesRegex(ValueError, "model profile source identity mismatch"):
+            site.validate_compact_evidence(own, self.references(own))
 
     def test_base_that_models_the_device_is_paired_and_one_that_cannot_is_absent(self):
         alone, paired = self.report("grace"), self.report("grace", base_declared=True)
@@ -572,7 +698,7 @@ class ReportTests(ReportFixture):
         """The fixture's stand-in for `git show commit:path`."""
         path = command[-1].split(":", 1)[1]
         if path == devices.PATH:
-            return devices.encode(devices.load())
+            return devices.encode(self.declaration())
         if path == models.PATH:
             return models.encode(self.legacy["workload_manifest"]["profile"])
         return (self.source / path).read_bytes()
@@ -1684,7 +1810,10 @@ class CommitReportTests(ReportFixture):
         self.assertIn("across 6 qualified observations: mean 48.3333%, median 50.0000%, maximum 100.0000%.", text)
         self.assertIn("Kendall’s τ-b = 0.8667", text)
         self.assertIn('id="pooled-partial"', text)
-        self.assertIn("location.reload()", page)
+        # While a campaign runs the page patches itself; it never reloads.
+        self.assertIn('data-live-state="polling"', page)
+        self.assertIn("fetch(location.href, {cache:'no-store'", page)
+        self.assertNotIn("location.reload", page)
         for absent in ('href="devices.json"', "commit.json", "Report history"):  # Nothing is retained for a live view.
             self.assertNotIn(absent, page)
         parsed = Page(page)
@@ -1744,12 +1873,15 @@ class CommitReportTests(ReportFixture):
         site.write(paths["syn-b"], progress.snapshot(self.device_report("syn-b"), source, done))
         page = live.CommitView([paths["m2"], paths["syn-b"]]).load()[0].decode()
         self.assertEqual(labels(page)[:2], [("m2", "running"), ("syn-b", "validation pending")])
-        self.assertIn("location.reload()", page)
+        self.assertIn('data-live-state="polling"', page)
         site.write(paths["m2"], progress.snapshot(self.device_report("m2"), source, done))
         page = live.CommitView([paths["m2"], paths["syn-b"]]).load()[0].decode()
         self.assertEqual(labels(page), [("m2", "validation pending"), ("syn-b", "validation pending"),
                                         ("syn-c", "pending"), ("syn-d", "pending")])
-        self.assertNotIn("location.reload()", page)
+        # Settled: the document carries no script that could ask for it again.
+        self.assertIn('data-live-state="settled"', page)
+        for absent in ("location.reload", "fetch(", "setTimeout"):
+            self.assertNotIn(absent, page)
         overview = view(page, "overview")
         self.assertIn("6 qualified observations from 2 of 4 devices: m2 2 of 246, syn-b 4 of 246.", overview)
         self.assertIn("across 6 qualified observations: mean 48.3333%, median 50.0000%, maximum 100.0000%.", overview)
@@ -1774,6 +1906,137 @@ class CommitReportTests(ReportFixture):
         self.assertIn("1 qualified observations from 1 of 4 devices: syn-b 1 of 246.", overview)
         self.assertIn("Not pooled: m2 (no qualified application cases); syn-c (no report yet); syn-d (no report yet).", overview)
         self.assertIn("0 qualified of 246", overview)
+
+    def live_pages(self):
+        """Three successive documents of one live commit report: both campaigns
+        running; syn-b finished, which adds a notice above its rows; nothing running."""
+        source = self.world[0]
+        running = dict(state="running", completed_cases=264, required_cases=264, completed_shards=131, required_shards=132,
+                       active_cases=[], errors=[], updated_at=datetime.now(timezone.utc).isoformat())
+        done = dict(running, state="complete", completed_shards=132)
+        paths = {ident: self.root / (ident + "-live.json") for ident in ("m2", "syn-b")}
+        pages = []
+        for states in ((running, running), (running, done), (done, done)):
+            for ident, state in zip(("m2", "syn-b"), states):
+                site.write(paths[ident], progress.snapshot(self.device_report(ident), source, state))
+            pages.append(live.CommitView([paths["m2"], paths["syn-b"]]).load()[0].decode())
+        return pages
+
+    def test_live_commit_report_updates_in_place_and_keeps_the_readers_state(self):
+        """The page's own scripts, run in Node against the documents the server returns."""
+        first, second, settled = self.live_pages()
+        table, point = "#device-syn-b_benchmark-table", "#device-syn-b circle"
+        steps = [["navigate", "#device-syn-b"], ["open", table], ["anchor", table], ["watch", 'nav.views a[href="#device-syn-b"]']]
+        observed = fixtures.live_dom([first, second, settled], steps + [["observe", None]])
+        if observed is None:
+            self.skipTest("Node is not installed")
+        # Put the open table at the top of the window and point at a point, then let the page refresh three times.
+        steps += [["scroll", observed[0]["anchorTop"]], ["focus", point], ["click", point], ["observe", None]]
+        before, after, final, later = fixtures.live_dom([first, second, settled], steps + [["refresh", None]] * 3)
+        self.assertEqual((before["shownView"], before["timers"], before["anchorTop"], before["liveState"]),
+                         ("device-syn-b", [15000], 0, "polling"))
+        self.assertEqual((before["focusView"], before["tip"]["hidden"], before["tip"]["view"]), ("device-syn-b", False, "device-syn-b"))
+        # One request, no reload, and the new document's content is shown.
+        self.assertEqual((after["fetches"], after["reloads"]), (1, 0))
+        self.assertEqual(before["text"]['nav.views a[href="#device-syn-b"]'], "syn-b · running")
+        self.assertEqual(after["text"]['nav.views a[href="#device-syn-b"]'], "syn-b · validation pending")
+        # The reader is still in the same view, which the address selects...
+        self.assertEqual((after["targetConnected"], after["shownView"], after["current"]), (True, "device-syn-b", ["#device-syn-b"]))
+        # ...with the table still open, the same point focused and under the tip...
+        self.assertIn("device-syn-b_benchmark-table", after["open"])
+        self.assertEqual((after["focus"], after["focusView"]), (before["focus"], "device-syn-b"))
+        self.assertEqual(after["tip"], dict(before["tip"], connected=True))
+        # ...and what they were reading has not moved, although a notice was inserted above it.
+        self.assertEqual(after["anchorTop"], 0)
+        self.assertEqual(after["scrollY"], before["scrollY"] + 10)
+        # Still running: one more request is scheduled. Settled: none, ever.
+        self.assertEqual((after["liveState"], after["timers"]), ("polling", [15000]))
+        self.assertEqual((final["liveState"], final["timers"], final["fetches"], final["reloads"]), ("settled", [], 2, 0))
+        self.assertEqual((final["shownView"], final["anchorTop"]), ("device-syn-b", 0))
+        self.assertIn("device-syn-b_benchmark-table", final["open"])
+        self.assertEqual((later["fetches"], later["timers"]), (2, []))
+
+    def test_live_update_keeps_the_tip_until_the_reader_scrolls(self):
+        """An update scrolls, to keep the reader's place, and focuses what was
+        focused. Neither takes the tip from its point; the reader's own scroll,
+        which moves the point, does."""
+        first, second, _ = self.live_pages()
+        table, point = "#device-syn-b_benchmark-table", "#device-syn-b circle"
+        steps = [["navigate", "#device-syn-b"], ["open", table], ["anchor", table]]
+        observed = fixtures.live_dom([first, second], steps + [["observe", None]])
+        if observed is None:
+            self.skipTest("Node is not installed")
+        # The reader has focused the table's heading and points at a point; after
+        # the update they scroll on by 30.
+        top = observed[0]["anchorTop"]
+        steps += [["scroll", top], ["focus", table + " summary"], ["click", point], ["observe", None], ["refresh", None],
+                  ["scroll", top + 40], ["observe", None]]
+        before, after, scrolled = fixtures.live_dom([first, second], steps)
+        self.assertEqual((before["focus"], before["tip"]["hidden"], before["tip"]["view"]), ("summary", False, "device-syn-b"))
+        # The update scrolled by the height of the notice it inserted above, and the page's listeners were told.
+        self.assertEqual((after["scrollY"], after["anchorTop"], after["focus"]), (before["scrollY"] + 10, 0, "summary"))
+        self.assertEqual(after["tip"], dict(before["tip"], connected=True))
+        self.assertEqual((scrolled["scrollY"], scrolled["tip"]["hidden"]), (after["scrollY"] + 30, True))
+        # Control: a listener that hides the tip at every scroll event loses it to the update's own scroll.
+        naive = first.replace("window.addEventListener('scroll', tip.settle, true);", "window.addEventListener('scroll', () => { tip.hidden = true; }, true);")
+        self.assertNotEqual(naive, first)
+        before, after, _ = fixtures.live_dom([naive, second], steps)
+        self.assertEqual((before["tip"]["hidden"], after["scrollY"], after["tip"]["hidden"]), (False, before["scrollY"] + 10, True))
+
+    def test_live_commit_report_keeps_a_view_addressed_through_an_element_inside_it(self):
+        first, second, _ = self.live_pages()
+        steps = [["navigate", "#device-syn-b_microbenchmarks"], ["observe", None], ["refresh", None]]
+        observed = fixtures.live_dom([first, second], steps)
+        if observed is None:
+            self.skipTest("Node is not installed")
+        before, after = observed
+        self.assertEqual((before["shownView"], after["shownView"], after["targetConnected"], after["fetches"]),
+                         ("device-syn-b", "device-syn-b", True, 1))
+        # The address names nothing: the overview is shown, before and after.
+        before, after = fixtures.live_dom([first, second], [["observe", None], ["refresh", None]])
+        self.assertEqual((before["shownView"], after["shownView"], after["current"]), ("overview", "overview", ["#overview"]))
+
+    def test_replacing_the_addressed_view_would_lose_it(self):
+        """Control for the tests above: the same page, patched to replace
+        everything instead of keeping the addressed element, falls back to the
+        overview. That is what a browser does, and what the page avoids."""
+        first, second, _ = self.live_pages()
+        naive = first.replace("graft(root, next, target && root.contains(target) ? target : null);", "root.replaceChildren(...next.childNodes);")
+        self.assertNotEqual(naive, first)
+        observed = fixtures.live_dom([naive, second], [["navigate", "#device-syn-b"], ["observe", None], ["refresh", None]])
+        if observed is None:
+            self.skipTest("Node is not installed")
+        before, after = observed
+        self.assertEqual((before["shownView"], after["fetches"], after["targetConnected"], after["shownView"]),
+                         ("device-syn-b", 1, False, "overview"))
+
+    def test_live_commit_report_keeps_the_last_good_document(self):
+        first, second, settled = self.live_pages()
+        other = first.replace('data-report-identity="', 'data-report-identity="0')
+        truncated = second.replace('data-report-end="', 'data-report-cut="')
+        steps = [["navigate", "#device-syn-b"], ["watch", 'nav.views a[href="#device-syn-b"]'], ["observe", None]] + [["refresh", None]] * 5
+        observed = fixtures.live_dom([first, None, {"status": 503}, other, truncated, second], steps)
+        if observed is None:
+            self.skipTest("Node is not installed")
+        # Unreachable, refused, another campaign's document and an incomplete one change nothing and are asked for again.
+        for state in observed[1:5]:
+            self.assertEqual((state["text"], state["elements"], state["shownView"], state["timers"], state["reloads"]),
+                             (observed[0]["text"], observed[0]["elements"], "device-syn-b", [15000], 0))
+        self.assertEqual(observed[5]["text"]['nav.views a[href="#device-syn-b"]'], "syn-b · validation pending")
+        self.assertEqual(observed[5]["fetches"], 5)
+
+    def test_finished_reports_never_ask_for_themselves_again(self):
+        """A settled live report and an archived report: no timer, no request, no reload."""
+        self.staged()
+        archived = (self.folder_of(self.commit) / "index.html").read_text()
+        self.assertNotIn('id="accuracy-report"', archived)
+        for page in (self.live_pages()[2], archived):
+            observed = fixtures.live_dom([page, page], [["navigate", "#device-syn-b"], ["observe", None], ["refresh", None]])
+            if observed is None:
+                self.skipTest("Node is not installed")
+            for state in observed:
+                self.assertEqual((state["timers"], state["fetches"], state["reloads"], state["shownView"], state["current"]),
+                                 ([], 0, 0, "device-syn-b", ["#device-syn-b"]))
 
     def test_staged_site_can_be_walked_from_history_to_commit_to_device(self):
         """The preview a reader clicks through: history, then a commit, then its devices."""

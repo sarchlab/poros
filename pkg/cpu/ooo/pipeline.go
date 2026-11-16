@@ -64,6 +64,25 @@ type Spec struct {
 	// releases each slot on its own, once the store has executed and the
 	// cache has accepted its bytes.
 	StoreQueueInOrder bool `json:"store_queue_in_order,omitempty"`
+	// Latencies replaces the timing of instruction classes; see latencies.go.
+	Latencies Latencies `json:"latencies,omitzero"`
+	// NumIntDiv, when positive, is the number of integer dividers: a divide
+	// keeps one from starting another divide until it completes and delays no
+	// other integer work. Zero keeps the default, in which a divide occupies
+	// any integer pipe for its latency.
+	NumIntDiv int `json:"num_int_div,omitempty"`
+	// StoreForwardLatency, when positive, gives a load that in-flight stores
+	// supply a single forwarding path: the value of an access is ready this
+	// many cycles after both the load can issue and the data of the youngest
+	// store that holds all its bytes has issued, whatever the instruction
+	// forms and the register loaded. Zero keeps the two paths of forwardLoad.
+	StoreForwardLatency int `json:"store_forward_latency,omitempty"`
+	// FPIssueQueue is the number of FP operations and FP store data that can
+	// wait between dispatch and issue; see issuequeue.go. Zero is unlimited.
+	FPIssueQueue int `json:"fp_issue_queue,omitempty"`
+	// MultiplyIssueQueue is the number of integer multiplies that can wait
+	// between dispatch and issue; see issuequeue.go. Zero is unlimited.
+	MultiplyIssueQueue int `json:"multiply_issue_queue,omitempty"`
 }
 
 func DefaultSpec() Spec {
@@ -114,6 +133,17 @@ type State struct {
 	Err              string
 	// With StoreQueueInOrder: the cycle the youngest store releases its slot.
 	StoreRelease uint64
+	// With Latencies.FPAccumulate: whether an FP multiply or fused
+	// multiply-add produced the register, so it can be forwarded late.
+	FpLateForward [32]bool
+	// Dividers that are resources of their own (Spec.NumIntDiv,
+	// Latencies.FPDivideOccupancy); empty otherwise.
+	IntDividers, FpDividers [][]UnitReservation
+	// With Spec.FPIssueQueue: for each entry in use, the first cycle in which
+	// dispatch can use it again (issuequeue.go).
+	FpQueue []uint64
+	// With Spec.MultiplyIssueQueue: the same for its entries.
+	MultiplyQueue []uint64
 }
 type storeBufferEntry struct {
 	PC                 uint64 // static store, for dependence prediction
@@ -132,6 +162,7 @@ type unitType int
 
 const (
 	unitINT unitType = iota
+	unitIntDiv
 	unitSelectFusion
 	unitFP
 	unitFPDiv
@@ -158,6 +189,15 @@ func (s *State) Initialize(c *Comp) {
 	}
 	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
 		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
+	}
+	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.FPIssueQueue < 0 || v.MultiplyIssueQueue < 0 {
+		panic("ooo: invalid latency configuration")
+	}
+	if v.NumIntDiv > 0 {
+		s.IntDividers = make([][]UnitReservation, v.NumIntDiv)
+	}
+	if v.Latencies.FPDivideOccupancy > 0 {
+		s.FpDividers = make([][]UnitReservation, v.NumFPDiv)
 	}
 	if v.NumLoad != 0 || v.NumStore != 0 {
 		if v.NumLoad < 1 || v.NumStore < 1 || v.NumLoad > v.NumLDST || v.NumStore > v.NumLDST || v.NumLoad < v.NumLDST-v.NumStore {
@@ -328,6 +368,14 @@ func (p *middleware) fetchAndProcess() {
 		if p.comp.State.FpInFlight+neededFP > p.comp.Spec.FpPhysLimit {
 			return
 		}
+		queued := p.comp.Spec.FPIssueQueue > 0 && queuesFP(inst, fps)
+		if queued && p.queueFull(&p.comp.State.FpQueue, p.comp.Spec.FPIssueQueue) {
+			return
+		}
+		multiplies := p.comp.Spec.MultiplyIssueQueue > 0 && queuesMultiply(inst.Op)
+		if multiplies && p.queueFull(&p.comp.State.MultiplyQueue, p.comp.Spec.MultiplyIssueQueue) {
+			return
+		}
 
 		// Allocate store capacity at actual dispatch, before functional effects
 		// or future cache reservations. Stores retain their instruction slot until
@@ -347,9 +395,16 @@ func (p *middleware) fetchAndProcess() {
 				srcReady = p.comp.State.GprReady[gpr]
 			}
 		}
-		for _, fp := range fps {
-			if p.comp.State.FpReady[fp] > srcReady {
-				srcReady = p.comp.State.FpReady[fp]
+		// The addend of a fused multiply-add is its last FP source; a producer
+		// that forwards late lets the instruction issue before it is ready.
+		addend, slack := p.accumulateSlack(inst)
+		for i, fp := range fps {
+			ready := p.comp.State.FpReady[fp]
+			if fp == addend && i == len(fps)-1 {
+				ready -= min(ready, slack)
+			}
+			if ready > srcReady {
+				srcReady = ready
 			}
 		}
 		// A fused pair issues when every register either half reads is ready.
@@ -389,6 +444,8 @@ func (p *middleware) fetchAndProcess() {
 			// Other instructions need only the final resource selection below.
 			_, issueCycle = p.findUnit(ut, issueCycle, unitOccupancy(inst.Op))
 		}
+		// A configured divider is timed by the operands, read before they change.
+		divide := p.divideLatency(inst)
 
 		// 4. Execute functionally (in program order).
 		_, branched, execErr := p.comp.Resources.backend().StepDetailed()
@@ -403,12 +460,24 @@ func (p *middleware) fetchAndProcess() {
 		// 5. Address-based load-store disambiguation (after StepDetailed
 		//    so actual addresses are available in p.comp.Resources.backend().MemoryAccesses()).
 		forwarding := loadForwarding{issueCycle: issueCycle}
+		// With StoreForwardLatency: stores supply accesses of the load, and the
+		// data of the last of them issues at storeData.
+		var storeSupplied bool
+		var storeData uint64
+		// The accesses of a load that the cache supplies: every one of them,
+		// unless stores supply some.
+		var cached []emu.MemAccess
 		if instinfo.IsLoad(inst.Op) {
 			accesses := p.comp.Resources.backend().MemoryAccesses()
 			if p.comp.Spec.StoreDependencePrediction {
 				issueCycle = p.predictedStoreWait(pc, accesses, issueCycle)
 			}
-			forwarding = p.forwardLoad(accesses, issueCycle, directGPRTransfer(inst))
+			if storeData, cached, storeSupplied = p.suppliedLoad(accesses); storeSupplied {
+				// A load that stores supply only in part reads the rest from the cache.
+				forwarding = loadForwarding{issueCycle: issueCycle, latency: uint64(p.comp.Spec.StoreForwardLatency), forwarded: len(cached) == 0}
+			} else {
+				forwarding = p.forwardLoad(accesses, issueCycle, directGPRTransfer(inst))
+			}
 			issueCycle = forwarding.issueCycle
 			if p.comp.Spec.StoreDependencePrediction {
 				p.trainStoreDependence(pc, accesses)
@@ -420,7 +489,7 @@ func (p *middleware) fetchAndProcess() {
 		base := instinfo.BaseWritebackGPR(inst)
 		writesBase := base >= 0 && base < 31 && base != gpr
 		indexedLoad := ut == unitLoad && writesBase
-		occupancy := unitOccupancy(inst.Op)
+		occupancy := p.occupancy(inst, divide)
 		addressCycle := issueCycle
 		if indexedLoad {
 			addressCycle = p.reserveIssue(ut, issueCycle, occupancy)
@@ -432,13 +501,19 @@ func (p *middleware) fetchAndProcess() {
 		// a deferred access returns to the same pool of load pipes to issue.
 		mshr := -1
 		if ut == unitLoad && !forwarding.forwarded {
-			issueCycle = p.translated(addressCycle)
-			if p.loadMissesL1() {
+			issueCycle = p.translated(cached, addressCycle)
+			if p.loadMissesL1(cached) {
 				mshr, issueCycle = p.acquireMSHR(issueCycle)
 			}
 		}
 		if usesUnit && (!indexedLoad || issueCycle != addressCycle) {
 			issueCycle = p.reserveIssue(ut, issueCycle, occupancy)
+		}
+		if queued {
+			p.holdEntry(&p.comp.State.FpQueue, issueCycle)
+		}
+		if multiplies {
+			p.holdEntry(&p.comp.State.MultiplyQueue, issueCycle)
 		}
 		var latency, dataReady, storeDrain uint64
 		if instinfo.IsStore(inst.Op) {
@@ -446,8 +521,17 @@ func (p *middleware) fetchAndProcess() {
 			dataReady, storeDrain = p.storeTiming(issueCycle)
 		} else if forwarding.forwarded {
 			latency = forwarding.latency
+		} else if divide > 0 {
+			latency = divide
 		} else {
-			latency, dataReady = p.instrLatencyWithPC(inst, pc, issueCycle)
+			latency, dataReady = p.instrLatencyWithPC(inst, pc, cached, issueCycle)
+			if extra := uint64(p.comp.Spec.Latencies.FPLoadExtra); ut == unitLoad && (fp >= 0 || fpSecond >= 0) {
+				// What the cache supplies reaches an FP register later.
+				latency += extra
+				if dataReady > 0 {
+					dataReady += extra
+				}
+			}
 		}
 		completeCycle := issueCycle + latency
 		if !instinfo.IsStore(inst.Op) && dataReady > completeCycle {
@@ -455,6 +539,11 @@ func (p *middleware) fetchAndProcess() {
 		}
 		if forwarding.forwarded && forwarding.dataReady+latency > completeCycle {
 			completeCycle = forwarding.dataReady + latency
+		}
+		if storeSupplied {
+			// The forwarding path starts when the load and the store's data
+			// have both issued, also when the cache supplies other accesses.
+			completeCycle = max(completeCycle, max(issueCycle, storeData)+uint64(p.comp.Spec.StoreForwardLatency))
 		}
 		if mshr >= 0 {
 			p.comp.State.MshrBusyUntil[mshr] = completeCycle
@@ -481,6 +570,7 @@ func (p *middleware) fetchAndProcess() {
 		}
 		if fp >= 0 {
 			p.comp.State.FpReady[fp] = completeCycle
+			p.comp.State.FpLateForward[fp] = inst.Op == arm64asm.FMUL || inst.Op == arm64asm.FNMUL || fusedMultiplyAdd(inst.Op)
 		}
 		fpDests := 0
 		if fp >= 0 {
@@ -492,6 +582,7 @@ func (p *middleware) fetchAndProcess() {
 			}
 			if fp2 >= 0 {
 				p.comp.State.FpReady[fp2] = completeCycle
+				p.comp.State.FpLateForward[fp2] = false
 				fpDests++
 			}
 		}
@@ -610,6 +701,8 @@ func classifyUnit(instruction arm64asm.Inst) unitType {
 		return unitStore
 	}
 	switch op {
+	case arm64asm.SDIV, arm64asm.UDIV:
+		return unitIntDiv
 	case arm64asm.FDIV, arm64asm.FSQRT:
 		return unitFPDiv
 	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FMUL,
@@ -626,8 +719,9 @@ func classifyUnit(instruction arm64asm.Inst) unitType {
 }
 
 // instrLatencyWithPC computes the execution latency for an instruction,
-// using the PC to check for hooked BL instructions.
-func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycle uint64) (latency uint64, dataReady uint64) {
+// using the PC to check for hooked BL instructions. cached is as in
+// instrLatency.
+func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, cached []emu.MemAccess, issueCycle uint64) (latency uint64, dataReady uint64) {
 	// Check for hooked BL instruction.
 	if inst.Op == arm64asm.BL && p.hookCycles != nil {
 		if pcrel, ok := inst.Args[0].(arm64asm.PCRel); ok {
@@ -637,23 +731,23 @@ func (p *middleware) instrLatencyWithPC(inst arm64asm.Inst, pc uint64, issueCycl
 			}
 		}
 	}
-	return p.instrLatency(inst, issueCycle)
+	return p.instrLatency(inst, cached, issueCycle)
 }
 
 // instrLatency computes the execution latency for an instruction.
 // dataReady is the absolute cycle at which the cache can deliver the data
 // (zero when the cache model is not timed or not present). Loads use the timed
-// cache path only after final execution-resource selection. Stores instead use
-// storeTiming, which owns their separate cache admission/drain contract.
-func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latency uint64, dataReady uint64) {
+// cache path only after final execution-resource selection, for the accesses
+// in cached: those the cache supplies. Stores instead use storeTiming, which
+// owns their separate cache admission/drain contract.
+func (p *middleware) instrLatency(inst arm64asm.Inst, cached []emu.MemAccess, issueCycle uint64) (latency uint64, dataReady uint64) {
 	if instinfo.IsLoad(inst.Op) {
 		if p.comp.Resources.Cache != nil {
-			accesses := p.comp.Resources.backend().MemoryAccesses()
-			if len(accesses) == 0 {
+			if len(cached) == 0 {
 				return uint64(p.comp.Spec.LoadLatency), 0
 			}
 			worst := mem.HitL1
-			for _, acc := range accesses {
+			for _, acc := range cached {
 				level, ready := p.comp.Resources.Cache.Access(acc.Addr, acc.Size, acc.IsWrite, issueCycle)
 				if level > worst {
 					worst = level
@@ -676,32 +770,33 @@ func (p *middleware) instrLatency(inst arm64asm.Inst, issueCycle uint64) (latenc
 		}
 		return uint64(p.comp.Spec.LoadLatency), 0
 	}
-	return uint64(instinfo.ExecuteLatency(inst.Op)), 0
+	return p.executeLatency(inst), 0
 }
 
-// translated returns when the address translations of the current
-// instruction's accesses are available to an access whose address is known at
-// issueCycle. Without a cache, or with translation timing disabled, that is
+// translated returns when the address translations of a load's
+// cache-supplied accesses are available to an access whose address is known
+// at issueCycle. Without a cache, or with translation timing disabled, that is
 // issueCycle.
-func (p *middleware) translated(issueCycle uint64) uint64 {
+func (p *middleware) translated(cached []emu.MemAccess, issueCycle uint64) uint64 {
 	cache := p.comp.Resources.Cache
 	if cache == nil {
 		return issueCycle
 	}
 	ready := issueCycle
-	for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+	for _, acc := range cached {
 		ready = max(ready, cache.Translate(acc.Addr, acc.Size, issueCycle))
 	}
 	return ready
 }
 
-// loadMissesL1 only classifies current dispatch-order cache residency.
-func (p *middleware) loadMissesL1() bool {
+// loadMissesL1 only classifies current dispatch-order cache residency of a
+// load's cache-supplied accesses.
+func (p *middleware) loadMissesL1(cached []emu.MemAccess) bool {
 	if p.comp.Resources.Cache == nil {
 		return false
 	}
 	lineSize := p.comp.Resources.Cache.Config().L1LineSize
-	for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+	for _, acc := range cached {
 		for addr, remaining := acc.Addr, acc.Size; remaining > 0; {
 			if p.comp.Resources.Cache.Probe(addr) != mem.HitL1 {
 				return true

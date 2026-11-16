@@ -205,10 +205,9 @@ func TestDefaultsWalkThenMemorySideHit(t *testing.T) {
 
 // Tags change in dispatch order. An older load whose address arrives late
 // pushes a line out of L2; a younger load of that line whose address is early
-// is visited afterwards and finds the line behind L2. It is supplied from
-// there no earlier than the older load's request plus the line's move: later
-// than hardware that would still have had the line in L2, never earlier than
-// the eviction.
+// is visited afterwards and no longer finds the line in the tags. It issues a
+// thousand cycles before the older load's request, when the line is still in
+// L2, so it is an L2 hit and does not wait for the older load.
 func TestDefaultsYoungerEarlyLoadOfLineEvictedByOlderLateLoad(t *testing.T) {
 	cfg := smallLevels()
 	cache := mem.NewCache(cfg)
@@ -231,7 +230,57 @@ func TestDefaultsYoungerEarlyLoadOfLineEvictedByOlderLateLoad(t *testing.T) {
 	if older != uint64(3000+cfg.DRAMLatency) {
 		t.Fatalf("older load completes at %d, want %d", older, 3000+cfg.DRAMLatency)
 	}
-	if want := uint64(3000 + spillCycles(cfg) + cfg.SLCLatency); younger != want {
-		t.Fatalf("younger load completes at %d, want %d: a memory-side hit counted from the end of the evicted line's move", younger, want)
+	if want := uint64(2000 + cfg.L2Latency); younger != want {
+		t.Fatalf("younger load completes at %d, want %d: an L2 hit at its own issue cycle", younger, want)
+	}
+	if stats := cache.Stats(); stats.L2HitsBeforeEviction != 1 || stats.SLCHits != 0 {
+		t.Fatal(stats)
+	}
+	// Issued once the line has left L2, the same load comes from behind it,
+	// counted from the end of the line's move.
+	cache = mem.NewCache(cfg)
+	cache.Access(0x4000, 8, false, 0)
+	cache.Access(0x5000, 8, false, 0)
+	for _, addr := range []uint64{0x4000, 0x5000, 0x6000} {
+		cache.Translate(addr, 8, 0)
+	}
+	p = specPipeline(t, []uint32{loadX0FromX1, loadX2FromX3}, cache, adjust)
+	p.comp.State.Cycles = 2000
+	p.comp.Resources.Emu.Regs.WriteX(1, 0x6000)
+	p.comp.Resources.Emu.Regs.WriteX(3, 0x4000)
+	p.comp.State.GprReady[1], p.comp.State.GprReady[3] = 3000, 3000
+	p.fetchAndProcess()
+	if want := uint64(3000 + spillCycles(cfg) + cfg.SLCLatency); p.comp.State.Err != "" || p.comp.State.Rob[1] != want {
+		t.Fatalf("load issued with the eviction completes at %d, want %d (%s)", p.comp.State.Rob[1], want, p.comp.State.Err)
+	}
+}
+
+// A store allocates its line when its data issues. An older store whose data
+// is late therefore replaces an L2 line long after a younger load of that line
+// has issued: the load must not wait for the store. Otherwise a loop that
+// stores, then loads a line the allocation displaces, runs one memory-side
+// return per trip, each behind the previous trip's store data.
+func TestDefaultsLoadDoesNotWaitForOlderStoresLateAllocation(t *testing.T) {
+	cfg := smallLevels()
+	cache := mem.NewCache(cfg)
+	cache.Access(0x4000, 8, false, 0) // the line the load reads
+	cache.Access(0x5000, 8, false, 0)
+	for _, addr := range []uint64{0x4000, 0x5000, 0x6000} {
+		cache.Translate(addr, 8, 0)
+	}
+	p := reservationPipeline(t, []uint32{storeX0ToX1, loadX2FromX3}, cache)
+	p.comp.State.Cycles = 2000
+	p.comp.Resources.Emu.Regs.WriteX(1, 0x6000) // the store's line displaces 0x4000 from L2
+	p.comp.Resources.Emu.Regs.WriteX(3, 0x4000)
+	p.comp.State.GprReady[0] = 3000 // the store's data is late
+	p.fetchAndProcess()
+	if p.comp.State.Err != "" {
+		t.Fatal(p.comp.State.Err)
+	}
+	if load, want := p.comp.State.Rob[1], uint64(2000+cfg.L2Latency); load != want {
+		t.Fatalf("load completes at %d, want %d: an L2 hit a thousand cycles before the store's allocation", load, want)
+	}
+	if stats := cache.Stats(); stats.WriteAllocations != 1 || stats.L2HitsBeforeEviction != 1 || stats.SLCHits != 0 {
+		t.Fatal(stats)
 	}
 }

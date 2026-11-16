@@ -79,7 +79,9 @@ def application_row(case, native, measured, report, head, base, executor):
     if referenced:
         row.update(reference_user_seconds=native["median_user_seconds"], reference_quality=native["quality"],
                    reference_p10_seconds=native["p10_user_seconds"], reference_p90_seconds=native["p90_user_seconds"],
-                   reason="Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved")
+                   reason=("Native Linux ELF user accounting; startup/output included; CPU affinity recorded, instantaneous core/frequency unobserved; external summary, raw captures not independently audited"
+                           if measured["protocol"] == reference.LINUX_PROTOCOL else
+                           "Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved"))
         if "streamcluster_replacement" in measured:
             row["reference_origin"] = reference.reference_origin(measured, case)
     else:
@@ -92,9 +94,11 @@ def application_row(case, native, measured, report, head, base, executor):
             continue
         options = {"expected_profile": profiles[label]} if "model_profiles" in report else {}
         options.update(devices.options(report, label))
-        result = executor(binary, case, expected_identity=expected, **options)
-        user.validate_execution(result, case, expected_identity=expected, expected_profile=profiles[label], **devices.options(report, label))
-        user.validate_timing(result, case)
+        # Each role converts its cycles at the clock of the profile it declares.
+        timed = devices.at_profile_clock(case, profiles[label] if "model_profiles" in report else None)
+        result = executor(binary, timed, expected_identity=expected, **options)
+        user.validate_execution(result, timed, expected_identity=expected, expected_profile=profiles[label], **devices.options(report, label))
+        user.validate_timing(result, timed)
         if result["build"].get("vcs.revision") != revision or result["build"].get("vcs.modified") != "false":
             raise ValueError(label + " binary provenance mismatch")
         if label == "head" and any(result[key] != functional[key] for key in ("instructions", "stdout_base64", "build")):
@@ -179,7 +183,7 @@ def compare(args, executor, *, memory_simulation=None, memory_base_large_image_s
                           reference={key: value for key, value in measured.items() if key not in ("cases", "input_sources", "collector_sources")})
         else:
             report["output_oracle"] = output_oracle(root)
-        declarations = model_profiles.resolve(root, state, args.base_commit)
+        declarations = model_profiles.resolve(root, state, args.base_commit, chosen)
         if declarations is not None:
             report["model_profiles"] = declarations
         profiles = model_profiles.validate(report)

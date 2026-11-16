@@ -21,11 +21,22 @@ PATH = "evaluation/usertime/performance-v1.json"
 HARDWARE = "Apple M2"
 PROTOCOL = "performance-summary-v1"  # Historical Linux VM archives.
 NATIVE_PROTOCOL = "performance-macho-summary-v1"
+LINUX_PROTOCOL = "performance-linux-summary-v1"
 NUMERICAL = {"gramschmidt", "blackscholes", "bodytrack", "canneal", "raytrace", "facesim", "x264"}
 
 
-def inventory(root):
-    return compute.expanded_manifest(contract.load_manifest(root, performance=True), compute.contract(root))
+def inventory(root, binary_bindings=None):
+    return compute.expanded_manifest(contract.load_manifest(root, performance=True), compute.contract(root), binary_bindings)
+
+
+def input_sources(declared, micro_manifest_sha256, build_manifest_sha256):
+    """Canonical source/ELF contract shared by both native acquisition formats."""
+    result = dict(declared["compute"]["build"]["files"])
+    result[contract.PERFORMANCE_MANIFEST] = micro_manifest_sha256
+    result["tests/benchmarks/provenance.json"] = build_manifest_sha256
+    result.update({"tests/usertime/"+name: sha for name, sha in declared["original"]["sources"].items()})
+    result.update({"tests/usertime/"+c["file"]: c["sha256"] for c in declared["original"]["cases"]})
+    return result
 
 
 def require_collection_ancestor(root, collection, target):
@@ -67,16 +78,23 @@ def summarize(case, samples, sha, length, numerical):
 
 def validate(reference, declared, hardware=HARDWARE):
     compute.validate_expanded(declared)
-    if reference.get("schema") != 1 or reference.get("protocol") not in (PROTOCOL, NATIVE_PROTOCOL) or reference.get("inventory_sha256") != compute.object_digest(declared):
+    if reference.get("schema") != 1 or reference.get("protocol") not in (PROTOCOL, NATIVE_PROTOCOL, LINUX_PROTOCOL) or reference.get("inventory_sha256") != compute.object_digest(declared):
         raise ValueError("compact reference protocol/input identity mismatch")
     if reference.get("quality_policy") != compute.QUALITY_POLICY or reference.get("metric") != "child_user_cpu_seconds" or reference.get("timer") != "wait4.ru_utime":
         raise ValueError("compact reference accounting/quality mismatch")
-    if reference.get("collection_dirty") is not False or reference.get("oracle_commit") != reference.get("collection_commit") or not re.fullmatch(r"[0-9a-f]{40}", reference.get("collection_commit", "")):
-        raise ValueError("compact reference requires one exact clean collection/oracle commit")
+    is_linux = reference["protocol"] == LINUX_PROTOCOL
+    if ("binary_bindings" in declared) != is_linux:
+        raise ValueError("alternate ELF bindings require the native Linux reference protocol")
+    if (not re.fullmatch(r"[0-9a-f]{40}", reference.get("collection_commit", ""))
+            or (not is_linux and (reference.get("collection_dirty") is not False or reference.get("oracle_commit") != reference.get("collection_commit")))):
+        raise ValueError("compact reference requires an exact collection identity and its applicable oracle contract")
     is_native = reference["protocol"] == NATIVE_PROTOCOL
     if not is_native and ("streamcluster_replacement" in reference or "historical_input_sources" in reference):
         raise ValueError("replacement provenance requires native protocol")
-    if is_native:
+    if is_linux:
+        import linux_reference
+        linux_reference.validate_metadata(reference, declared, hardware)
+    elif is_native:
         import macho_reference
         macho_reference.validate_metadata(reference, declared, hardware)
     elif not re.fullmatch(r"sha256:[0-9a-f]{64}", reference.get("container_image", "")) or reference.get("environment") != "virtualized" or reference.get("machine") not in ("aarch64", "arm64"):
@@ -92,24 +110,24 @@ def validate(reference, declared, hardware=HARDWARE):
         if not isinstance(reference.get(key), str) or not reference[key]:
             raise ValueError("missing measurement environment identity")
     for key in ("collector_sources", "input_sources"):
-        if not isinstance(reference.get(key), dict) or not reference[key]:
+        if not isinstance(reference.get(key), dict) or (not reference[key] and not (is_linux and key == "collector_sources")):
             raise ValueError("missing compact source identities")
         for name, sha in reference[key].items():
             compute.relative(name)
             if not re.fullmatch(r"[0-9a-f]{64}", sha):
                 raise ValueError("invalid compact source digest")
-    if not is_native and set(reference["collector_sources"]) != set(compute.support(compute.PROTOCOL)):
+    if not is_native and not is_linux and set(reference["collector_sources"]) != set(compute.support(compute.PROTOCOL)):
         raise ValueError("incomplete collection protocol sources")
-    if not re.fullmatch(r"[0-9a-f]{64}", reference.get("numerical_oracle_sha256", "")):
+    if not is_linux and not re.fullmatch(r"[0-9a-f]{64}", reference.get("numerical_oracle_sha256", "")):
         raise ValueError("missing numerical oracle executable identity")
     for key in ("micro_manifest_sha256", "build_manifest_sha256"):
         if not re.fullmatch(r"[0-9a-f]{64}", reference.get(key, "")):
             raise ValueError("missing collection manifest identity")
-    expected_inputs = dict(declared["compute"]["build"]["files"])
-    expected_inputs[contract.PERFORMANCE_MANIFEST] = reference["micro_manifest_sha256"]
-    expected_inputs["tests/benchmarks/provenance.json"] = reference["build_manifest_sha256"]
-    expected_inputs.update({"tests/usertime/"+name: sha for name, sha in declared["original"]["sources"].items()})
-    expected_inputs.update({"tests/usertime/"+c["file"]: c["sha256"] for c in declared["original"]["cases"]})
+    expected_inputs = input_sources(declared, reference["micro_manifest_sha256"], reference["build_manifest_sha256"])
+    if is_linux:
+        expected_inputs.update({b["file"]: b["sha256"] for b in declared["binary_bindings"].values()})
+        expected_inputs.update({linux_reference.SUMMARY: reference["source_summary"]["sha256"],
+                               linux_reference.SCRIPT: reference["input_sources"].get(linux_reference.SCRIPT)})
     if reference["input_sources"] != expected_inputs:
         raise ValueError("compact input sources differ from exact ELF/build inventory")
     if [r["id"] for r in reference["cases"]] != [c["id"] for c in declared["cases"]]:
@@ -143,13 +161,18 @@ def reference_origin(reference, case):
 
 def load(root, *, require_native=False, path=PATH, hardware=HARDWARE):
     root = Path(root)
-    declared = inventory(root)
-    reference = validate(compute.read(root / path), declared, hardware)
-    if require_native and reference["protocol"] != NATIVE_PROTOCOL:
-        raise ValueError("active accuracy requires the native Mach-O reference")
+    raw = compute.read(root / path)
+    declared = inventory(root, raw.get("binary_bindings") if raw.get("protocol") == LINUX_PROTOCOL else None)
+    reference = validate(raw, declared, hardware)
+    if require_native and reference["protocol"] not in (NATIVE_PROTOCOL, LINUX_PROTOCOL):
+        raise ValueError("active accuracy requires a native reference")
     for name, sha in reference["input_sources"].items():
         if contract.digest(root / name) != sha:
             raise ValueError("live source/ELF changed since measurement")
+    if reference["protocol"] == LINUX_PROTOCOL:
+        import linux_reference
+        if linux_reference.derive(root) != reference:
+            raise ValueError("native Linux reference differs from retained external summary")
     return declared, reference
 
 

@@ -3,11 +3,13 @@ package elfsim
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/sarchlab/poros/pkg/cpu/inorder"
+	"github.com/sarchlab/poros/internal/benchmarks"
 	"github.com/sarchlab/poros/pkg/cpu/ooo"
 	"github.com/sarchlab/poros/pkg/linuxuser"
 	"github.com/sarchlab/poros/pkg/target"
@@ -63,6 +65,52 @@ func TestEveryTargetRunsBothModels(t *testing.T) {
 	}
 }
 
+// A target changes timing and nothing else. Every kernel, at the small catalog
+// case short CI runs, retires the same instructions and prints the same bytes
+// on a target with parameters of its own as on M2, with a timing its own
+// configuration produced: every mechanism a target enables runs on every kernel.
+func TestTargetsWithOwnParametersChangeTimingOnly(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := benchmarks.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := linuxuser.RunOptions{MaxInstructions: 200_000_000, Timeout: 5 * time.Minute, MaxOutput: 16 << 20}
+	for _, w := range manifest.Workloads {
+		t.Run(w.Name, func(t *testing.T) {
+			image, err := os.ReadFile(filepath.Join(root, w.Binary))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var m2 Result
+			for _, device := range target.All() {
+				if device.ParameterSource != device.Name {
+					continue // carries another target's parameters, covered by that target
+				}
+				p, err := linuxuser.Parse(image, linuxuser.Options{Args: append([]string{w.Name}, w.Cases[2].Args...)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				r, err := Run(context.Background(), p, Options{Target: device.Name, Limits: limits})
+				if err != nil {
+					t.Fatalf("%s: %v", device.Name, err)
+				}
+				if r.Termination != "exit" || r.ExitStatus == nil || *r.ExitStatus != 0 || r.Timing.Cycles == 0 || r.Timing.Retired != r.Instructions {
+					t.Fatalf("%s: incomplete execution %+v", device.Name, r.Result)
+				}
+				if device.Name == target.Default {
+					m2 = r
+				} else if !reflect.DeepEqual(r.Result, m2.Result) {
+					t.Fatalf("%s: architectural result differs from %s", device.Name, target.Default)
+				}
+			}
+		})
+	}
+}
+
 // Before targets existed every run was M2. Leaving the target empty must give
 // exactly the result of asking for M2, including the reported configuration.
 func TestEmptyTargetIsM2(t *testing.T) {
@@ -78,12 +126,13 @@ func TestEmptyTargetIsM2(t *testing.T) {
 		if !reflect.DeepEqual(implicit, explicit) || implicit.Timing.Target.Name != "m2" {
 			t.Fatalf("%s: default target differs from m2", model)
 		}
-		var defaults any = ooo.DefaultSpec()
+		device := target.M2()
+		var defaults any = device.OoO
 		if model == "inorder" {
-			defaults = inorder.DefaultSpec()
+			defaults = device.InOrder
 		}
 		if !reflect.DeepEqual(implicit.Timing.Configuration, defaults) {
-			t.Fatalf("%s: default target no longer uses the package defaults", model)
+			t.Fatalf("%s: default target differs from the M2 configuration", model)
 		}
 	}
 }
