@@ -24,6 +24,146 @@ def revision(n):
     return f"{n:040x}"
 
 
+class DiagnosticPanelTest(unittest.TestCase):
+    """Every device goes through each suite's one panel: with the device's
+    declared reference, with its own native times where the source declares no
+    reference file, or with predictions alone."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.profile = site.read(ROOT / "evaluation/model-profile.json")
+        cls.suites = {}
+        for name, suite in site.DIAGNOSTIC_SUITES.items():
+            cases = suite.cases(ROOT)
+            rows = []
+            for index, case in enumerate(cases):
+                if name == "memory":
+                    row = dict(id=case["id"], instructions=case["passes"] * case["instructions_per_pass"], cycles=1000 * (index + 3))
+                else:
+                    span = suite.ITERATIONS[1] - suite.ITERATIONS[0]
+                    row = dict(id=case["id"], instructions=span * case["instructions_per_iteration"], cycles=1000 * (index + 3))
+                    if name == "forwarding":
+                        row["updates"] = span * suite.UPDATES_PER_ITERATION
+                    if name == "recurrence":
+                        row["updates"] = span * case["updates_per_iteration"]
+                rows.append(row)
+            # A native time per case that no other device has: recognisable in the output.
+            native = {case["id"]: dict(p10_seconds=7.1e-5 * (i + 1), median_seconds=7.7e-5 * (i + 1), p90_seconds=7.9e-5 * (i + 1),
+                                       quality="usable" if i else "noisy") for i, case in enumerate(cases)}
+            cls.suites[name] = dict(declared=suite.load_reference(ROOT), cases=cases, rows=rows, native=native)
+
+    def render(self, name, reference, rows=None, base=None, partial=False):
+        suite = self.suites[name]
+        rows = suite["rows"] if rows is None else rows
+        report = dict(artifact_status="partial" if partial else "pass", memory_base_large_image_support=True,
+                      **{name + "_simulation": rows if name == "throughput" else dict(head=rows, base=suite["rows"] if base is None else base)})
+        return site.diagnostic_sections(report, {name: reference}, profiles=dict(head=self.profile, base=self.profile))
+
+    @staticmethod
+    def figures(page):
+        return re.findall(r"<figure><figcaption>(.*?)</figcaption>", page)
+
+    def test_device_without_any_measurement_gets_the_same_charts_and_no_hardware_number(self):
+        for name, suite in self.suites.items():
+            with self.subTest(suite=name):
+                declared = self.render(name, suite["declared"])
+                predicted = self.render(name, site.unreferenced("Device X", suite["cases"]))
+                # The suite's own charts, on the same axes; only the separately acquired capacity boundary is absent.
+                self.assertEqual(self.figures(predicted), [title for title in self.figures(declared) if title != "Paired capacity boundary (ABBA)"])
+                self.assertEqual(predicted.count('data-reference="none"'), 1)
+                self.assertIn("Prediction only · no hardware comparison.", predicted)
+                self.assertIn("No native Device X measurement of this suite exists.", predicted)
+                self.assertIn(f'<p id="{name}-progress" data-section-state="complete">', predicted)
+                self.assertIn("No native reference exists for this device: predictions only.", predicted)
+                self.assertIn(f'id="{name}-simulated-table"', predicted)
+                # Nothing native: no series, no column, no borrowed reference, no link to another device's file.
+                for absent in (">native</span>", "Apple M2", "macOS", "Native ns/", "Head / native", name + ".json", "P10–P90", "not measured"):
+                    self.assertNotIn(absent, predicted, absent)
+                if name == "throughput":
+                    self.assertEqual(self.figures(predicted), [])
+                    self.assertIn("This section is a table by design", predicted)
+                    self.assertIn("<th>Probe</th><th>Simulated IPC</th>", predicted)
+                else:
+                    self.assertEqual(predicted.count('<span style="color:#087e8b">head</span>'), len(self.figures(predicted)))
+                    self.assertEqual(predicted.count('<span style="color:#71838d">base</span>'), len(self.figures(predicted)))
+                    self.assertIn("no native measurement" if name != "memory" else "No native measurement", predicted)
+                # The declared device's output is what it was: its native series and its own file.
+                self.assertIn(name + ".json", declared)
+                self.assertNotIn("data-reference=", declared)
+
+    def test_device_with_its_own_native_times_shows_them_and_nothing_borrowed(self):
+        for name, suite in self.suites.items():
+            with self.subTest(suite=name):
+                reference = site.unreferenced("Device X", suite["cases"], suite["native"], "Collected on Device X.")
+                page = self.render(name, reference)
+                self.assertEqual(page.count('data-reference="native"'), 1)
+                self.assertIn("<strong>Measured on Device X.</strong> Collected on Device X.", page)
+                self.assertIn(f'{len(suite["cases"])} of {len(suite["cases"])} points have a native time', page)
+                self.assertIn("This device's own native times are shown where it was measured", page)
+                for absent in ("Apple M2", "macOS", name + ".json", "Prediction only"):
+                    self.assertNotIn(absent, page, absent)
+                if name == "throughput":
+                    span = site.throughput.ITERATIONS[1] - site.throughput.ITERATIONS[0]
+                    first = suite["cases"][0]
+                    self.assertIn(f'<td>{7.7e-5 * 1e9 / span / first["instructions_per_iteration"]:.3f}</td>', page)
+                    self.assertIn("<td>noisy</td>", page)
+                    continue
+                figures = len(self.figures(page))
+                self.assertEqual(page.count('<span style="color:#9a6a17">native</span>'), figures)
+                self.assertIn("Head / native" if name != "memory" else "<th>Native quality</th>", page)
+                self.assertIn("noisy", page)
+        # The values drawn are the device's own, in the suite's unit.
+        forwarding = self.suites["forwarding"]
+        page = self.render("forwarding", site.unreferenced("Device X", forwarding["cases"], forwarding["native"], "Collected."))
+        updates = site.forwarding.UPDATES_PER_ITERATION * (site.forwarding.ITERATIONS[1] - site.forwarding.ITERATIONS[0])
+        self.assertIn(f'native P10/median/P90 {7.1e-5 * 1e9 / updates:.4f}/{7.7e-5 * 1e9 / updates:.4f}/{7.9e-5 * 1e9 / updates:.4f} ns/update', page)
+        memory_suite = self.suites["memory"]
+        case = memory_suite["cases"][0]
+        page = self.render("memory", site.unreferenced("Device X", memory_suite["cases"], memory_suite["native"], "Collected."))
+        self.assertIn(f'Native {7.7e-5 / case["passes"] * 1e9 / case["operations_per_pass"]:.4f} ns/load', page)
+        recurrence_suite = self.suites["recurrence"]
+        case = recurrence_suite["cases"][0]
+        page = self.render("recurrence", site.unreferenced("Device X", recurrence_suite["cases"], recurrence_suite["native"], "Collected."))
+        cycles = 7.7e-5 * self.profile["configuration"]["freq"] / (site.recurrence.ITERATIONS[1] - site.recurrence.ITERATIONS[0]) / case["updates_per_iteration"]
+        self.assertIn(f'/{cycles:.4f}/', page)
+        self.assertIn("converted to cycles at the head profile's clock", page)
+
+    def test_partly_measured_and_partly_predicted_points_are_told_apart(self):
+        suite = self.suites["scheduling"]
+        some = dict(list(suite["native"].items())[:2])
+        page = self.render("scheduling", site.unreferenced("Device X", suite["cases"], some, "Collected."))
+        self.assertIn("2 of 4 points have a native time; any other point is a prediction only.", page)
+        for index, case in enumerate(suite["cases"]):
+            (self.assertNotIn if index < 2 else self.assertIn)(case["id"] + ": no native measurement", page)
+        self.assertEqual(page.count("<td>not measured</td>"), 2)
+        with self.assertRaisesRegex(ValueError, "invalid native time"):
+            broken = dict(some, **{suite["cases"][0]["id"]: dict(p10_seconds=2.0, median_seconds=1.0, p90_seconds=3.0, quality="usable")})
+            self.render("scheduling", site.unreferenced("Device X", suite["cases"], broken, "Collected."))
+
+    def test_running_and_base_less_predictions_are_drawn_without_placeholders(self):
+        for name, suite in self.suites.items():
+            if name == "throughput":
+                continue
+            with self.subTest(suite=name):
+                reference = site.unreferenced("Device X", suite["cases"])
+                # A base revision that does not model the device predicted nothing: it is not drawn, and not called pending.
+                alone = self.render(name, reference, base=[])
+                self.assertNotIn(">base</span>", alone)
+                self.assertNotIn("base pending", alone)
+                self.assertEqual(alone.count('<span style="color:#087e8b">head</span>'), len(self.figures(alone)))
+                # Nothing predicted yet: every chart says so instead of claiming there is nothing to compare.
+                empty = self.render(name, reference, rows=[], base=[], partial=True)
+                self.assertEqual(self.figures(empty), self.figures(alone))
+                self.assertEqual(empty.count("No predictions yet."), len(self.figures(empty)))
+                self.assertNotIn("No comparable points", empty)
+                # Part of the points: accepted in declared order only.
+                self.render(name, reference, rows=suite["rows"][:3], partial=True)
+                with self.assertRaises(ValueError):
+                    self.render(name, reference, rows=suite["rows"][:3])
+                with self.assertRaises(ValueError):
+                    self.render(name, reference, rows=list(reversed(suite["rows"])))
+
+
 class AccuracySiteTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

@@ -14,8 +14,12 @@ type victimStore struct {
 type victimLine struct {
 	held bool
 	line uint64
-	// readyAt is the cycle from which the line can be supplied: it has left
-	// L2 and its data has arrived here.
+	// leftAt is the cycle the line left L2. Until then it was there, with its
+	// data arrived at residentAt and prefetched as the L2 line had it.
+	leftAt, residentAt uint64
+	prefetched         bool
+	// readyAt is the cycle from which the line can be supplied from here: it
+	// has left L2 and its data has arrived here.
 	readyAt uint64
 }
 
@@ -28,31 +32,35 @@ func (s *victimStore) holds(line uint64) bool {
 	return ok
 }
 
-// take removes line and returns the cycle from which it could be supplied.
-// Its position stays empty until the ring comes round: taking a line does
-// not lengthen the stay of the others.
-func (s *victimStore) take(line uint64) (uint64, bool) {
+// take removes line and returns it as it was held. Its position stays empty
+// until the ring comes round: taking a line does not lengthen the stay of the
+// others.
+func (s *victimStore) take(line uint64) (victimLine, bool) {
 	i, ok := s.slot[line]
 	if !ok {
-		return 0, false
+		return victimLine{}, false
 	}
-	readyAt := s.ring[i].readyAt
+	victim := s.ring[i]
 	s.ring[i] = victimLine{}
 	delete(s.slot, line)
-	return readyAt, true
+	return victim, true
 }
 
-// keep records line as the newest victim, dropping the one that has been
-// here for len(ring) evictions. A line that is already held keeps its place.
-func (s *victimStore) keep(line, readyAt uint64) {
-	if i, ok := s.slot[line]; ok {
-		s.ring[i].readyAt = max(s.ring[i].readyAt, readyAt)
+// keep records victim as the newest one, dropping the one that has been here
+// for len(ring) evictions. A line that is already held keeps its place and
+// the later of its times.
+func (s *victimStore) keep(victim victimLine) {
+	victim.held = true
+	if i, ok := s.slot[victim.line]; ok {
+		old := &s.ring[i]
+		old.leftAt, old.residentAt = max(old.leftAt, victim.leftAt), max(old.residentAt, victim.residentAt)
+		old.readyAt = max(old.readyAt, victim.readyAt)
 		return
 	}
 	if old := s.ring[s.next]; old.held {
 		delete(s.slot, old.line)
 	}
-	s.ring[s.next] = victimLine{held: true, line: line, readyAt: readyAt}
-	s.slot[line] = s.next
+	s.ring[s.next] = victim
+	s.slot[victim.line] = s.next
 	s.next = (s.next + 1) % len(s.ring)
 }

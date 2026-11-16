@@ -281,8 +281,14 @@ existing bundle that passes the normal archive validator and matches the
 campaign's source, binaries, profiles, reference, inventory, completed rows and diagnostic results can transition
 the page to a complete report. No archive/publisher validation is relaxed.
 Snapshot-only pages link only to available JSON; completed pages expose only
-validated bundle assets. Incomplete, failed or waiting pages refresh every
-15 seconds. Malformed/intermediate input preserves the last validated snapshot
+validated bundle assets. Incomplete, failed or waiting pages update themselves
+in place every 15 seconds and are never reloaded: the page fetches its own
+address, checks that the document is complete and belongs to the same
+campaign, and replaces the report's content. Open tables, scroll positions,
+focus, the tip under the pointer and the place being read are kept. A request
+that fails, or a document that is incomplete or another campaign's, leaves the
+page as it is and is asked for again. A validated page is not asked for again.
+Malformed/intermediate input preserves the last validated snapshot
 with a warning; a producer silent for 45 seconds is visibly stale.
 
 ## Devices
@@ -342,6 +348,20 @@ as follows; nothing native is substituted:
 - The page shows the device, its parameter source and its reference
   availability, replaces the accuracy charts with a notice, and lists
   predictions and simulated counters without reference or error columns.
+- Every device goes through the same diagnostic panels
+  (`accuracy_site.diagnostic_sections`). A suite the device declares no
+  reference for is given its own cases instead (`accuracy_site.unreferenced`):
+  the suite's charts are drawn on the same axes with the predictions only,
+  under the notice "Prediction only · no hardware comparison", and the
+  simulated counters follow in a table. No native series, column or file link
+  is rendered and no other device's measurement can enter. A caller that holds
+  a device's own native times of the simulated work, as the suites' Linux
+  collectors produce them, passes them the same way; they are then drawn as
+  that device's native series.
+- Two things are tables for every device, on purpose. Instruction throughput
+  has unrelated probes with one rate each and no shared axis to draw them on.
+  The paired capacity boundary is a separate native acquisition and is drawn
+  only where one exists.
 
 A device's native application reference is the file its declaration names
 under `references.application`, and it must record the declared `hardware`.
@@ -362,6 +382,16 @@ python3 scripts/accuracy_site.py serve --snapshot RUN-M1/snapshot.json --port 18
 python3 scripts/accuracy_site.py serve --snapshot RUN-M2/snapshot.json \
   --snapshot RUN-M1/snapshot.json --port 18763
 ```
+
+The commit view is updated in place like one device's page, by the same
+script: while a campaign in it is running, the view the address names, open
+tables, scroll position, focus and tip survive every update. The view is
+selected by the address (`:target`), which a browser does not move to a new
+element, so the addressed element and its ancestors are kept and only what is
+around them is replaced. Once no campaign is running the document is settled:
+it carries no script that could request it again. Archived commit reports
+never had one. `scripts/accuracy_live_dom.js` runs these scripts in Node for
+the tests.
 
 In that commit view a device is `running`, `failed`, `pending` when it has no
 snapshot, or `validation pending` once its campaign has finished. A finished

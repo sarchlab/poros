@@ -347,6 +347,38 @@ above. They are not measurements of the structures they are named after.
   under Known gaps) took 1.9 times the GH200's time at deriche's first input.
   The page as the limit is an assumption.
 
+  The same 65,536 bytes bound how far ahead of a miss a walk is prefetched,
+  besides the 48 steps. A step is the distance between two misses, not two
+  accesses: syrk's inner loop reads `A[j*m+k]` 2,120 to 3,096 bytes apart and
+  finds most of those lines in L1; with an odd `m`, four of its six inputs,
+  its misses are eight rows apart. Counted in steps alone, the lookahead was
+  up to 48 such steps, hundreds of kilobytes beyond a walk of at most 516 rows
+  that restarts for every column, and L2 filled with lines past the walks:
+  the completed comparison of the profile
+  without the byte bound has syrk 8 to 53% slow (3 to 11% with the M2
+  parameters), with 3.3 to 12.9 million prefetches in every input but the one
+  whose stride is a whole number of lines (0.39 million, 8% slow). In local
+  runs, which are not a campaign, syrk's first input takes 42.92 M cycles
+  without the byte bound, 36.70 M without the follower and 35.42 M with the
+  bound (GH200: 31.56 M at the assumed clock), and its fourth input 104.43 M
+  without and 95.00 M with it (68.09 M).
+
+  Why a byte bound, and why this one. The follower's lookahead was never
+  declared or calibrated. Its 48 are `PrefetchDistance`, which is defined for
+  the sequential prefetcher as L2 lines ahead of the demand line, 3,072 bytes
+  here; used as a count of steps of up to a page each it allowed 3 MiB, three
+  times the L2, and made the reach depend on how many of a walk's accesses
+  happen to miss. Nothing published or measured supports that reach, and the
+  evidence given above for the follower concerns walks whose every access
+  misses. The page is the one length this profile attaches to the follower:
+  the scale within which it is assumed to recognise a walk. A follower that
+  relates no two misses more than a page apart is given no way to place a
+  prefetch farther than that from a miss. That is an argument from the
+  model's own assumption, not a property of the core, and it does not say
+  that one page is right where half a page or two would be wrong: one value
+  was tried, none was searched, and the bound stays an assumption until a
+  full comparison is read.
+
 **Carried from M2 and not established for Grace:** the 256-instruction window,
 retirement and dispatch width (the SWOG gives eight MOPs per cycle), the branch
 predictor, the fetch rule that ends a group at a taken branch, the L2 latency,
@@ -399,6 +431,15 @@ user times converted at the assumed clock.
   accounts for about one point of those two changes and the follower for the
   rest. Without the follower, prototype B took 1.9 times the GH200's time on
   deriche.
+- The runs in the previous item preceded the byte bound on the follower's
+  reach. With it a walk of 24,576-byte steps is prefetched two steps ahead,
+  which hides little, and the error changes sign: one local run of mvt at
+  3,072 rows takes 200.23 M cycles, 16% slow, where the completed comparison
+  without the bound has 123.01 M, 29% fast (GH200: 172.24 M at the assumed
+  clock). The walk's lines then return from the record of L2 victims at its
+  138 cycles, twelve at a time, which is M2's latency and not established for
+  Grace. What the bound does to the other inputs is not known until a full
+  comparison is run.
 - The follower's addresses are signed 64-bit numbers. A walk at or above 2^63
   is recognised and never prefetched. Nothing measured here reaches it: the
   ELF loader admits segments only below 2^48 and the process stack lies below
@@ -881,9 +922,19 @@ Limits:
   explain (3,584 rows at 28,672 bytes) and that the model does not have.
 - An L2 hit costs a dependent chase 14 cycles in the model and 19 on the M2.
 - The record and the translation table change in dispatch order, like the
-  cache tags. A request visited after the eviction of its line but issued
-  earlier finds the line in the record and waits for the eviction and the
-  move: later than hardware that still had the line in L2, never earlier.
+  cache tags, and so do the tags' replacement decisions. Times do not: a
+  request visited after the eviction of its line but issued before the line
+  left L2 finds it in L2 and is an L2 hit (`L2HitsBeforeEviction` counts
+  them). The line returns to the tags as a line returning from the record
+  does, and the line it displaces leaves L2 at the cycle of the later request
+  that caused the eviction. The transfer booked for the first line's own move
+  stays booked, so each such request costs the spill or write transport one
+  transfer that was not made. Until this was changed such a request waited
+  for the eviction, the move and the record's latency; a store whose data is
+  late allocates its line long after a younger load has issued, and a loop
+  that stores and then loads a line that the allocation displaces ran one
+  record return per trip, each behind the previous trip's store data
+  ([Grace Deriche investigation](grace-deriche-investigation.md)).
 
 ## Scalar FP timing and measured destination capacity
 
