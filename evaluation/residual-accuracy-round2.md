@@ -3,8 +3,9 @@
 The M1 and M2 target profiles now bound the number of integer multiplies
 waiting to issue at **43 and 38**, respectively. With the existing 256-entry
 reorder window and 360 FP physical registers, the 64-filler capacity probe
-agrees within 3% on each core. Three selected application
-controls kept their baseline cycles. A full three-device comparison is pending.
+agrees within 3% on each core. In the certified three-device comparison,
+all 792 whole-program cycle counts matched the baseline and 12 Apple capacity
+microbenchmarks improved (section 6).
 The larger M1 window tested alongside this change raised fdtd2d-1 error from
 42.17% to 46.46% and failed its predeclared acceptance rule (section 5).
 M2's own probes show
@@ -402,12 +403,40 @@ What follows for the model:
   already used the queue bound of 38 alone, with the same source and binary.
   Its capacity result (276 versus 270.28 counted) and baseline-matching
   doitgen-1 result (24,142,751 cycles) are reused here. These exploratory
-  results motivate the target values. The full application distribution still
-  requires measurement with the target builders.
+  results motivated the target values used in the certified comparison below.
 - Nothing is proposed for M2's window: a value for the waiting-work bound
   that M2 doitgen shows would rest on one loop.
 - fdtd2d and vips (section 4) stream through arrays far larger than L1;
   these captures are L1-resident and say nothing about them.
+
+## 6. Certified three-device comparison
+
+The full run measured the target builders at
+`5c8ed4a683a2e3ba2808e904b63dd0608e0b1e83`.
+All 1,656 points passed validation across 2,520 raw execution records
+(certificate SHA-256
+`fe49ea6d3de81e3f1c8456fa368dac1b69e4b365cc4de97d62a181d771704796`).
+The later revision `1f29f28` changed a profile test and a Go comment.
+
+All 792 whole-program cycle counts matched the certified baseline. Across the
+723 qualified applications, every error stayed the same. There were no new
+or deeper underpredictions and no model/reference ratio crossed below 0.8.
+
+| Device | Qualified applications | Mean error | Median error | Maximum error |
+|---|---:|---:|---:|---:|
+| Grace | 237 | 10.606877% | 7.873813% | 46.707675% |
+| M1 | 240 | 9.183616% | 5.651829% | 45.790342% |
+| M2 | 246 | 15.816498% | 14.413331% | 49.791762% |
+
+Six of the 73 capacity microbenchmarks improved on each Apple core. They use
+64- or 96-multiply gates with 64, 128 or 192 FP fillers between gates. All
+other microbenchmark cycle counts matched the baseline, including every Grace
+point. Across all 73 capacity cases per Apple core, the error changed as follows.
+
+| Device | Baseline mean | Queue-bound mean | Baseline median | Queue-bound median |
+|---|---:|---:|---:|---:|
+| M1 | 25.22062% | 22.66425% | 24.14642% | 23.78560% |
+| M2 | 16.56748% | 12.47878% | 12.75354% | 12.29689% |
 
 ## Limits
 
@@ -417,16 +446,16 @@ What follows for the model:
   FP register counts in section 5 came from probe lower bounds; what
   waits in M2's chains and the reference clock are hypotheses. A transition
   of a probe is not taken for a structure.
-- The full-suite effects of the queue bounds are unknown. Both larger M1 windows at
+- Both larger M1 windows at
   which they were run take time off fdtd2d and ludcmp (416: the first
   inputs; 512: the sixth, where it also corrects the over-predicted FP
   kernels and brings fdtd2d-6 to 0.65 points from the 50% limit); 630
   breaks the limit on M2 doitgen. The fetch rule was not run.
 - The counted captures were made once, on one core of one machine of each
   kind. Twelve remote runs tested the combined candidate, followed by four M1
-  queue-only runs. The other capacity rows were not run with the candidate.
-- The capacity probe exercises the multiply bound. Its effect on applications
-  beyond the three controls is unknown. The model charges every filler from the first,
+  queue-only runs. Section 6 reports the subsequent full run with the target
+  builders.
+- The capacity probe still reveals a gap. The model charges every filler from the first,
   where both cores take about 160 at no cost, and counts a NOP as a window
   entry; the rows from 256 fillers to the rise stay serial at a window of
   256, 20 to 43% slow, with or without the bound.

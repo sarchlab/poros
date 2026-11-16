@@ -14,14 +14,15 @@ A device with parameters of its own declares them in
 and `grace` (see [NVIDIA Grace profile](#nvidia-grace-profile)).
 
 The Apple OoO profiles bound integer multiplies waiting between dispatch and
-issue. The candidate limits are 38 for M2 and 43 for M1. They come from a
+issue. The profile limits are 38 for M2 and 43 for M1. They come from a
 capacity probe with two dependent multiply chains. At 64 FP fillers, the model
 predicts 276 cycles per iteration on M2 and 261 on M1, against 270.28 and
 257.01 counted on hardware. These are effective scheduling limits. The probe
 cannot identify a physical queue or determine its size. Grace and the generic
 `ooo.DefaultSpec()` use zero (unlimited). M5 Max inherits the M2 parameters.
-The application controls and remaining uncertainties are recorded in
-[Residual accuracy, round 2](residual-accuracy-round2.md).
+In the certified three-device comparison, six capacity microbenchmarks per
+Apple core improved, and all 792 whole-program cycle counts matched the
+baseline. See [Residual accuracy, round 2](residual-accuracy-round2.md#6-certified-three-device-comparison).
 
 ## Apple M1 profile
 
