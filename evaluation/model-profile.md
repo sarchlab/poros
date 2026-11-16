@@ -352,7 +352,8 @@ above. They are not measurements of the structures they are named after.
   than the lines ahead have room in their L1 sets. Both rules are
   assumptions: neither document gives a distance, and the GH200 user times do
   not establish one. The distance has been counted three ways, and the first
-  two are why it is counted as it is. The runs and their limits are in the
+  two are why it is counted as it is. The runs, the completed comparison and
+  their limits are in the
   [Grace residual investigation](grace-residual-investigation.md).
 
   In steps (the profile as first compared, revision `82e9983`). The 48 were
@@ -401,6 +402,18 @@ above. They are not measurements of the structures they are named after.
   follows the published L1 geometry and has no number of its own. Its
   evidence is these inputs and nothing else, and it explains the two mvt
   sizes unequally (see the investigation).
+
+  Compared in full on 2026-11-16, at revision `b6de5ca` (1,656 points,
+  certificate SHA-256
+  `15358deb6284a4d2f5204fd1c7419badb16f99caeec3af0b20fb0de96b4f5819`). Every
+  qualified application of the three devices is within 50% and every
+  device's median is below 20%: Grace's maximum went from 77.55% to 46.71%
+  and its median from 7.88% to 7.87%, and M1 and M2 did not move. Of the 237
+  Grace applications 27 have a smaller error and 34 a larger one, and symm's
+  sixth input is newly below 0.8 of its reference (1.058 to 0.764). That is
+  acceptance on one fixed reference suite, with these regressions. It does
+  not make either rule a property of the core; both stay assumptions, as
+  the page limit is.
 
 **Carried from M2 and not established for Grace:** the 256-instruction window,
 retirement and dispatch width (the SWOG gives eight MOPs per cycle), the branch
@@ -456,12 +469,12 @@ user times converted at the assumed clock.
   deriche.
 - The runs in the previous item preceded every bound on the follower's reach.
   With the reach counted in accesses and bounded by room in L1, mvt at 3,072
-  rows is prefetched eight steps ahead and at 3,584 rows sixteen: one run
-  each has them at 0.96 and 0.80 of the GH200's time, where the comparison at
-  `82e9983` had 0.71 and 0.69 and the one at `a061e92`, which bounded the
-  reach in bytes, 1.16 and 1.14. The walk's lines return from the record of
-  L2 victims at its 138 cycles, which is M2's latency and not established
-  for Grace. These runs are not a comparison; see the
+  rows is prefetched eight steps ahead and at 3,584 rows sixteen: the
+  comparison at `b6de5ca` has them at 0.96 and 0.80 of the GH200's time,
+  where the one at `82e9983` had 0.71 and 0.69 and the one at `a061e92`,
+  which bounded the reach in bytes, 1.16 and 1.14. The walk's lines return
+  from the record of L2 victims at its 138 cycles, which is M2's latency and
+  not established for Grace. See the
   [Grace residual investigation](grace-residual-investigation.md).
 - The follower takes up every walk anew: three misses before its first
   prefetch. A walk that restarts for every column and misses every eighth
@@ -476,10 +489,10 @@ user times converted at the assumed clock.
   miss every eighth row at inputs 2 and 5 and every fourth row of every other
   column at 1 and 6. With the reach counted in accesses the model takes 3.3
   and 3.6 cycles per trip at the first two and 3.0 and 2.9 at the others:
-  0.83 and 0.76 of the GH200's time at inputs 1 and 6 (one run each). The
-  byte bound had these two at 0.98 and 1.06, with their lines arriving late,
-  and inputs 2 and 5 33% and 62% slow. What symm costs the GH200 that the
-  model lacks is not identified.
+  0.83 and 0.76 of the GH200's time at inputs 1 and 6 (one run each, and the
+  same in the comparison at `b6de5ca`). The byte bound had these two at 0.98
+  and 1.06, with their lines arriving late, and inputs 2 and 5 33% and 62%
+  slow. What symm costs the GH200 that the model lacks is not identified.
 - The follower's addresses are signed 64-bit numbers. A walk at or above 2^63
   is recognised and never prefetched. Nothing measured here reaches it: the
   ELF loader admits segments only below 2^48 and the process stack lies below

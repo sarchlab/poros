@@ -1,15 +1,74 @@
 # Grace residual investigation
 
-Status: **the cause of the two new failures is established and a change to
-the stride follower is proposed. It has not been compared in full.** Every
-number of a changed model below is one run of one input, and the inputs were
-chosen, not sampled. The proposal makes three inputs worse that were within
-14%, one of them to below 0.8 of the reference; they are listed under
-"Worse".
+Status: **the change has been compared in full and meets the acceptance
+limits on this reference suite; 34 Grace inputs are worse than before, one
+of them newly below 0.8 of its reference.** The result is under "Final
+comparison". Everything after that section is the note as it stood before
+the comparison, when the change was a proposal run on fifteen chosen inputs.
 
-Evidence is labelled **retained** (the completed comparison; nothing rerun),
-**run** (one run of this work, at the measured input unless said otherwise)
-or **reading** (an inference).
+Evidence is labelled **retained** (the completed comparison of the baseline;
+nothing rerun), **run** (one run of this work, at the measured input unless
+said otherwise) or **reading** (an inference).
+
+## Final comparison (2026-11-16)
+
+The three-device comparison was repeated for revision
+`b6de5ca5d9f4fa2ade4053ce52765fcbc350a008`, which has the change described
+below. All 1,656 points (2,520 execution records) completed with no failure
+and no rerun, and every original record passed the canonical audit. The
+completion certificate has SHA-256
+`15358deb6284a4d2f5204fd1c7419badb16f99caeec3af0b20fb0de96b4f5819`. The
+baseline is the `a061e92` comparison, with the same references, inputs,
+quality classes and exclusions. This section was written afterwards and
+changes documents only: `b6de5ca` is what was measured. Where a value
+changed it is given as baseline → `b6de5ca`:
+
+| Qualified applications | Mean | Median | Maximum | Within 50% | Model / reference below 0.8 |
+|---|---:|---:|---:|---:|---:|
+| Grace, 237 | 11.65% → 10.61% | 7.88% → 7.87% | 77.55% → 46.71% | 235 → 237 | 9 → 10 |
+| M1, 240 | 9.18% | 5.65% | 45.79% | 240 | 13 |
+| M2, 246 | 15.82% | 14.41% | 49.79% | 246 | 17 |
+
+**The limits are met on this suite:** all 723 qualified applications are
+within 50% and each device's median is below 20%. On M1 and M2 nothing
+moved: no qualified application's error and no microbenchmark prediction.
+
+Of the 237 Grace applications 27 have a smaller error, 34 a larger one and
+176 are within 0.01 points of the baseline:
+
+- **Better.** symm-5 61.88% → 2.83% and syrk-6 77.55% → 31.59%, the two that
+  were above 50%; mvt at 3,200, 3,328, 3,456 and 3,712 rows 40.72 to 49.68%
+  → 9.45 to 14.33%; symm-2 33.19% → 2.70%. Of pull request 84's gains,
+  deriche-6 stays at 13.78%, mvt-3072 goes from 16.25% to 4.39% and syrk-4
+  from 39.52% to 32.02%; symm-6 is lost (next item). The maximum is now
+  syr2k-3, 46.71% (47.34% before).
+- **Worse.** symm-6 5.78% → 30.95% (model / reference 1.058 → 0.764, the one
+  input newly below 0.8), symm-1 2.10% → 20.38% (0.979 → 0.831), syr2k-6
+  6.67% → 17.80% (0.938 → 0.849), mvt-3584 13.58% → 24.62% (1.136 → 0.802)
+  and deriche-2 0.95% → 4.20%; the other 29 by less than 3 points each.
+- **Below the reference.** Twelve inputs changed side and are now
+  under-predicted: the six mvt sizes, syr2k-2, syr2k-4, syr2k-5, symm-2,
+  symm-6 and deriche-1. 162 of the 237 are below their reference where 150
+  were, and 28 that already were are farther below.
+- **Ranking.** Grace's Pearson coefficient against the references goes from
+  0.9764 to 0.9874 and Kendall's tau from 0.8389 to 0.8447 (pairs in
+  reference order 91.95% → 92.23%); pooled over the 723, 0.9725 → 0.9744 and
+  0.8051 → 0.8065 (90.26% → 90.33%).
+- **Diagnostics.** 26 of Grace's 140 memory-diagnostic predictions changed,
+  by at most 19.87% in cycles; no other Grace microbenchmark prediction
+  changed. Grace has no hardware reference for the diagnostics, so this is a
+  change of prediction and says nothing about accuracy.
+
+What this is. The comparison accepts a calibration against one fixed set of
+GH200, M1 and M2 application times, regressions included. It does not show
+that a Neoverse V2 prefetches 48 accesses ahead or stops at what an L1 set
+holds: both rules stay assumptions of the model, with the evidence and
+limits given below. It says nothing about other programs, inputs or
+machines.
+
+**Written before the final comparison.** From here down the note is as it
+stood when the change was a proposal; the section above answers its
+"proposed", "so far", "not run" and "not known".
 
 ## Baseline (retained)
 
@@ -129,6 +188,9 @@ reduced input only.
 
 ## Results so far (run; one each; not a comparison)
 
+(Before the final comparison, which has the errors of this table at all
+fifteen Grace inputs to within 0.01 points.)
+
 Cycles in millions, model / reference and error. The first twelve rows were
 run by the coordinator on other hosts with the switch build set to the two
 rules; the last four locally with the product code. The product code takes
@@ -149,7 +211,7 @@ and instruction counts equal the retained ones in every run.
 | syr2k-3 | 134.23, 0.682 (46.72%) | 133.66, 0.679 (47.34%) | 134.24, 0.682 (46.71%) |
 | ludcmp-5 | 102.34, 0.816 (22.49%) | 100.06, 0.798 (25.28%) | 100.03, 0.798 (25.32%) |
 | deriche-6 | 293.31, 2.819 (181.91%) | 91.44, 0.879 (13.78%) | 91.44, 0.879 (13.78%) |
-| symm-1 | 64.66, 0.869 (15.09%) | 72.89, 0.980 (2.10%) | 61.82, 0.831 (20.38%) |
+| symm-1 | 64.66, 0.869 (15.09%) | 72.89, 0.979 (2.10%) | 61.82, 0.831 (20.38%) |
 | syrk-1 | 42.92, 1.360 (35.99%) | 35.42, 1.122 (12.22%) | 35.42, 1.122 (12.23%) |
 | syrk-2 | 56.08, 1.425 (42.51%) | 44.94, 1.142 (14.20%) | 45.01, 1.144 (14.38%) |
 | M2, M1 deriche-2 | | 60,339,580 and 59,587,667 cycles | the same cycles |
@@ -158,15 +220,18 @@ Not run: mvt at 3,328, 3,456 and 3,712 rows, the five other Deriche inputs,
 and everything else. Walks whose every access misses are prefetched as in
 the parent, so the other Deriche inputs are expected near their parent
 values (0.937 to 1.061, against 0.956 to 1.061 in the baseline); that is a
-reading.
+reading. (Run since, in the final comparison: mvt-3328 0.875, mvt-3456 0.914
+and mvt-3712 0.901; deriche-2 to deriche-5 0.960, 0.937, 0.952 and 0.952,
+their parent values; deriche-1 0.992, not its parent's 1.061.)
 
 ## Worse, or below the reference
 
-Against the baseline, in the runs above:
+Against the baseline, in the runs above (the final comparison adds syr2k-6
+and the smaller regressions in its list):
 
 - **symm-6: 5.78% to 30.95%, model / reference 1.058 to 0.764, newly below
   0.8.** It is where the parent had it (0.747).
-- **symm-1: 2.10% to 20.38%, 0.980 to 0.831.** Below the parent (0.869).
+- **symm-1: 2.10% to 20.38%, 0.979 to 0.831.** Below the parent (0.869).
 - **mvt-3584: 13.58% to 24.62%, 1.136 to 0.802.** Rule 2 gives this walk 16
   steps, which hides more than the GH200 does.
 - mvt-3200 changes side: 1.483 to 0.907 (10.26%). mvt-3072: 1.163 to 0.958.
@@ -204,8 +269,10 @@ GH200 that the model lacks is not identified.
   prefetch distance, an L2 index function or a latency behind L2.
 - The model's caches index by line number modulo the number of sets. That is
   an assumption of the model, not a measured property.
-- Fifteen Grace inputs and one input each of M2 and M1 were run with the
-  change. Whether the 237 keep their median, and whether another input
-  crosses 50% or 0.8, is not known until the comparison is repeated.
+- When this was written, fifteen Grace inputs and one input each of M2 and
+  M1 had been run with the change, and whether the 237 keep their median or
+  another input crosses 50% or 0.8 was not known. The final comparison
+  answers that for this suite and for no other: the median is kept, no
+  input is above 50%, and symm-6 is the one new input below 0.8.
 - References, workload binaries, input lists, quality classes and the
   completed comparison are not changed by this work.
