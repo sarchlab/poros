@@ -2274,7 +2274,7 @@ def live_progress(live, totals=None):
         body += "Whole-program cases complete; diagnostics remain. "
     if validated:
         # What was validated, where it is not a retained bundle.
-        body += live.get("validated_note", "Complete validated bundle.")
+        body += esc(live.get("validated_note", "Complete validated bundle."))
     if live.get("updated_at"):
         body += ' Updated ' + esc(live["updated_at"]) + "."
     body += "</p>"

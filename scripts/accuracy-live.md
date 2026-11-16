@@ -57,6 +57,8 @@ explicitly validated unsupported-base row resolves that role. A partial pair or
 a point assigned to an active worker is in progress; neither can inflate the
 completed segment. IDs are namespaced by suite, so the legacy memory group and
 memory diagnostics are distinct. Complete CI pages use the same calculation.
+After validation, the progress panel displays the optional plain-text
+`validated_note` from `progress`. If omitted, it displays “Complete validated bundle.”
 
 The exporter derives memory activity from the prepared plan's memory assignments
 for active shards and emits it through the existing `diagnostic_progress` role/ID
