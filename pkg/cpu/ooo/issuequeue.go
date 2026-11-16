@@ -8,6 +8,9 @@ import "golang.org/x/arch/arm64/arm64asm"
 // only that many links ahead of its oldest unissued one, however large the
 // window is.
 //
+// The multiply issue queue (Spec.MultiplyIssueQueue) holds integer multiplies
+// in the same way and bounds a chain of dependent multiplies alike.
+//
 // An entry is held from the cycle its instruction is dispatched in until the
 // cycle the instruction issues, and for the whole dispatch cycle at least:
 // dispatch can reuse it in the cycle the instruction issues, but never in the
@@ -24,22 +27,34 @@ func queuesFP(inst arm64asm.Inst, fpSources []int) bool {
 	return false
 }
 
-// holdFPEntry takes an entry for an instruction dispatched in the current
-// cycle that issues at issueCycle.
-func (p *middleware) holdFPEntry(issueCycle uint64) {
-	p.comp.State.FpQueue = append(p.comp.State.FpQueue, max(issueCycle, p.comp.State.Cycles+1))
+// queuesMultiply reports whether an instruction waits in the multiply issue
+// queue.
+func queuesMultiply(op arm64asm.Op) bool {
+	switch op {
+	case arm64asm.MUL, arm64asm.MADD, arm64asm.MSUB, arm64asm.MNEG,
+		arm64asm.SMULL, arm64asm.UMULL, arm64asm.SMADDL, arm64asm.UMADDL,
+		arm64asm.SMSUBL, arm64asm.UMSUBL, arm64asm.SMNEGL, arm64asm.UMNEGL,
+		arm64asm.SMULH, arm64asm.UMULH:
+		return true
+	}
+	return false
 }
 
-// fpQueueFull forgets the entries that are free again and reports whether no
-// entry is left for another instruction.
-func (p *middleware) fpQueueFull() bool {
-	queue := p.comp.State.FpQueue
-	kept := queue[:0]
-	for _, free := range queue {
+// holdEntry takes an entry of queue for an instruction dispatched in the
+// current cycle that issues at issueCycle.
+func (p *middleware) holdEntry(queue *[]uint64, issueCycle uint64) {
+	*queue = append(*queue, max(issueCycle, p.comp.State.Cycles+1))
+}
+
+// queueFull forgets the entries of queue that are free again and reports
+// whether none of its capacity is left for another instruction.
+func (p *middleware) queueFull(queue *[]uint64, capacity int) bool {
+	kept := (*queue)[:0]
+	for _, free := range *queue {
 		if free > p.comp.State.Cycles {
 			kept = append(kept, free)
 		}
 	}
-	p.comp.State.FpQueue = kept
-	return len(kept) >= p.comp.Spec.FPIssueQueue
+	*queue = kept
+	return len(kept) >= capacity
 }

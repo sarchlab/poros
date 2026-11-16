@@ -585,6 +585,87 @@ func TestFPIssueQueueEntryLifetime(t *testing.T) {
 	}
 }
 
+// A full multiply issue queue stops dispatch until a multiply issues. Both
+// multiply forms take entries; other integer work takes none but cannot pass a
+// stalled multiply.
+func TestMultiplyIssueQueueBoundsWaitingWork(t *testing.T) {
+	words := []uint32{mulX0X1X2, umulhX0X1X2, mulX0X1X2, addX9}
+	dispatched := func(queue int) (*middleware, int) {
+		p := specPipeline(t, words, nil, func(s *Spec) { s.MultiplyIssueQueue = queue })
+		p.comp.State.GprReady[1] = 100
+		p.fetchAndProcess()
+		if p.comp.State.Err != "" {
+			t.Fatal(p.comp.State.Err)
+		}
+		return p, p.comp.State.RobCount
+	}
+	if _, got := dispatched(0); got != len(words) {
+		t.Fatalf("unlimited queue dispatched %d of %d", got, len(words))
+	}
+	p, got := dispatched(2)
+	if got != 2 || len(p.comp.State.MultiplyQueue) != 2 {
+		t.Fatalf("two entries admitted %d instructions with %d queued; the two multiplies should fill them", got, len(p.comp.State.MultiplyQueue))
+	}
+	// Nothing more enters while both wait, however many cycles pass.
+	p.comp.State.Cycles = 99
+	p.fetchAndProcess()
+	if p.comp.State.RobCount != 2 {
+		t.Fatalf("dispatched %d while the queue was full", p.comp.State.RobCount)
+	}
+	// Both issue at cycle 100; from then on the rest is admitted.
+	p.comp.State.Cycles = 100
+	p.fetchAndProcess()
+	if p.comp.State.Err != "" || p.comp.State.RobCount != len(words) {
+		t.Fatalf("after the queue drained: dispatched %d of %d (err %q)", p.comp.State.RobCount, len(words), p.comp.State.Err)
+	}
+}
+
+// A chain of dependent multiplies is dispatched only as far ahead of its
+// oldest unissued link as the queue has entries, and no later than unbounded
+// dispatch would complete it; work of other kinds does not use the queue.
+func TestMultiplyIssueQueueLimitsChainNotOtherWork(t *testing.T) {
+	const mulX1X1X2 = 0x9b027c21 // MUL X1, X1, X2
+	if got := decodeWord(t, mulX1X1X2); got.Op != arm64asm.MUL || got.Args[0] != arm64asm.X1 || got.Args[1] != arm64asm.X1 {
+		t.Fatalf("%#x decodes to %v", mulX1X1X2, got)
+	}
+	chain := []uint32{mulX1X1X2, mulX1X1X2, mulX1X1X2, mulX1X1X2, mulX1X1X2, mulX1X1X2}
+	run := func(queue int) (inWindow []int, complete []uint64) {
+		p := specPipeline(t, chain, nil, func(s *Spec) { s.MultiplyIssueQueue = queue })
+		for cycle := uint64(1); cycle <= 4; cycle++ {
+			p.comp.State.Cycles = cycle
+			p.fetchAndProcess()
+			if p.comp.State.Err != "" {
+				t.Fatal(p.comp.State.Err)
+			}
+			inWindow = append(inWindow, p.comp.State.RobCount)
+		}
+		return inWindow, append([]uint64(nil), p.comp.State.Rob[:p.comp.State.RobCount]...)
+	}
+	// The links issue at cycles 1, 4, 7, ...: three cycles apart.
+	free, freeComplete := run(0)
+	if want := []int{6, 6, 6, 6}; !reflect.DeepEqual(free, want) {
+		t.Fatalf("unlimited queue: %v in the window by cycles 1 to 4, want %v", free, want)
+	}
+	// Two entries: the first link issues in cycle 1 and frees its entry for
+	// cycle 2, the second waits until cycle 4.
+	bounded, boundedComplete := run(2)
+	if want := []int{2, 3, 3, 4}; !reflect.DeepEqual(bounded, want) {
+		t.Errorf("queue of two: %v in the window by cycles 1 to 4, want %v", bounded, want)
+	}
+	// The chain itself is not delayed: each link dispatched completes when it
+	// would have without the queue.
+	if !reflect.DeepEqual(boundedComplete, freeComplete[:len(boundedComplete)]) {
+		t.Errorf("queue of two completes the links at %v, unlimited at %v", boundedComplete, freeComplete)
+	}
+	// FP and other integer work is admitted whatever the queue holds.
+	p := specPipeline(t, []uint32{mulX0X1X2, faddD5D6D6, addX9, faddD7D6D6}, nil, func(s *Spec) { s.MultiplyIssueQueue = 1 })
+	p.comp.State.GprReady[1] = 100
+	p.fetchAndProcess()
+	if p.comp.State.Err != "" || p.comp.State.RobCount != 4 || len(p.comp.State.MultiplyQueue) != 1 {
+		t.Errorf("one waiting multiply: %d of 4 dispatched, %d queued (err %q)", p.comp.State.RobCount, len(p.comp.State.MultiplyQueue), p.comp.State.Err)
+	}
+}
+
 func TestInvalidLatencyConfigurationRejected(t *testing.T) {
 	for name, adjust := range map[string]func(*Spec){
 		"negative latency":             func(s *Spec) { s.Latencies.FPMultiply = -1 },
@@ -592,6 +673,7 @@ func TestInvalidLatencyConfigurationRejected(t *testing.T) {
 		"negative dividers":            func(s *Spec) { s.NumIntDiv = -1 },
 		"negative store-forward":       func(s *Spec) { s.StoreForwardLatency = -1 },
 		"negative FP issue queue":      func(s *Spec) { s.FPIssueQueue = -1 },
+		"negative multiply queue":      func(s *Spec) { s.MultiplyIssueQueue = -1 },
 		"negative FP divide occupancy": func(s *Spec) { s.Latencies.FPDivideOccupancy = -1 },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -616,7 +698,7 @@ func TestNewTimingFieldsDefaultToAbsent(t *testing.T) {
 	if err = json.Unmarshal(raw, &fields); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"latencies", "num_int_div", "store_forward_latency", "fp_issue_queue"} {
+	for _, name := range []string{"latencies", "num_int_div", "store_forward_latency", "fp_issue_queue", "multiply_issue_queue"} {
 		if _, present := fields[name]; present {
 			t.Errorf("default Spec serializes %q", name)
 		}
