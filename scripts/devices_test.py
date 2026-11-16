@@ -447,10 +447,24 @@ class ReportTests(ReportFixture):
         for absent in ("Kendall", "Pearson", "Qualified reference vs. prediction", "S-curve", "Absolute error",
                        "<th>Reference</th>", "Head error", "Base error", "Mean error", "Native ns/", "Estimated native IPC",
                        'href="reference.json"', 'href="throughput.json"', 'href="forwarding.json"',
-                       "Usable microbenchmark references", "Store/load dependency probes", "macOS",
-                       ">reference</span>", ">base</span>", "No comparable points"):
+                       "Usable microbenchmark references", "macOS", "Apple M2 ·", "P10/median/P90",
+                       ">reference</span>", ">native</span>", ">base</span>", "No comparable points"):
             self.assertNotIn(absent, page)
         self.assertIn('<span style="color:#087e8b">head</span>', page)  # Predicted curves are still drawn.
+        # Every device goes through the suites' own panels. This one has no
+        # measurement, so each panel draws its predictions and says so; the
+        # suite without an axis stays a table, and says that too.
+        forwarding = page[page.index("<h3>Store/load dependency probes</h3>"):page.index('id="throughput-progress"')]
+        self.assertEqual(forwarding.count("<figure>"), 4)
+        self.assertIn('data-reference="none"', forwarding)
+        self.assertIn("Prediction only · no hardware comparison.", forwarding)
+        self.assertIn("No native Apple M5 Max measurement of this suite exists.", forwarding)
+        self.assertEqual(forwarding.count('<span style="color:#087e8b">head</span>'), 4)
+        self.assertIn("gpr64_same: no native measurement; head ", forwarding)
+        throughput = page[page.index('id="throughput-table"'):page.index('id="throughput-simulated-table"')]
+        self.assertIn("This section is a table by design", throughput)
+        self.assertIn("<th>Probe</th><th>Simulated IPC</th>", throughput)
+        self.assertEqual(page.count('data-reference="none"'), 2)
         markdown = self.root / "m5-max/report.md"
         self.assertTrue(markdown.exists())
 
@@ -1794,7 +1808,10 @@ class CommitReportTests(ReportFixture):
         self.assertIn("across 6 qualified observations: mean 48.3333%, median 50.0000%, maximum 100.0000%.", text)
         self.assertIn("Kendall’s τ-b = 0.8667", text)
         self.assertIn('id="pooled-partial"', text)
-        self.assertIn("location.reload()", page)
+        # While a campaign runs the page patches itself; it never reloads.
+        self.assertIn('data-live-state="polling"', page)
+        self.assertIn("fetch(location.href, {cache:'no-store'", page)
+        self.assertNotIn("location.reload", page)
         for absent in ('href="devices.json"', "commit.json", "Report history"):  # Nothing is retained for a live view.
             self.assertNotIn(absent, page)
         parsed = Page(page)
@@ -1854,12 +1871,15 @@ class CommitReportTests(ReportFixture):
         site.write(paths["syn-b"], progress.snapshot(self.device_report("syn-b"), source, done))
         page = live.CommitView([paths["m2"], paths["syn-b"]]).load()[0].decode()
         self.assertEqual(labels(page)[:2], [("m2", "running"), ("syn-b", "validation pending")])
-        self.assertIn("location.reload()", page)
+        self.assertIn('data-live-state="polling"', page)
         site.write(paths["m2"], progress.snapshot(self.device_report("m2"), source, done))
         page = live.CommitView([paths["m2"], paths["syn-b"]]).load()[0].decode()
         self.assertEqual(labels(page), [("m2", "validation pending"), ("syn-b", "validation pending"),
                                         ("syn-c", "pending"), ("syn-d", "pending")])
-        self.assertNotIn("location.reload()", page)
+        # Settled: the document carries no script that could ask for it again.
+        self.assertIn('data-live-state="settled"', page)
+        for absent in ("location.reload", "fetch(", "setTimeout"):
+            self.assertNotIn(absent, page)
         overview = view(page, "overview")
         self.assertIn("6 qualified observations from 2 of 4 devices: m2 2 of 246, syn-b 4 of 246.", overview)
         self.assertIn("across 6 qualified observations: mean 48.3333%, median 50.0000%, maximum 100.0000%.", overview)
@@ -1884,6 +1904,137 @@ class CommitReportTests(ReportFixture):
         self.assertIn("1 qualified observations from 1 of 4 devices: syn-b 1 of 246.", overview)
         self.assertIn("Not pooled: m2 (no qualified application cases); syn-c (no report yet); syn-d (no report yet).", overview)
         self.assertIn("0 qualified of 246", overview)
+
+    def live_pages(self):
+        """Three successive documents of one live commit report: both campaigns
+        running; syn-b finished, which adds a notice above its rows; nothing running."""
+        source = self.world[0]
+        running = dict(state="running", completed_cases=264, required_cases=264, completed_shards=131, required_shards=132,
+                       active_cases=[], errors=[], updated_at=datetime.now(timezone.utc).isoformat())
+        done = dict(running, state="complete", completed_shards=132)
+        paths = {ident: self.root / (ident + "-live.json") for ident in ("m2", "syn-b")}
+        pages = []
+        for states in ((running, running), (running, done), (done, done)):
+            for ident, state in zip(("m2", "syn-b"), states):
+                site.write(paths[ident], progress.snapshot(self.device_report(ident), source, state))
+            pages.append(live.CommitView([paths["m2"], paths["syn-b"]]).load()[0].decode())
+        return pages
+
+    def test_live_commit_report_updates_in_place_and_keeps_the_readers_state(self):
+        """The page's own scripts, run in Node against the documents the server returns."""
+        first, second, settled = self.live_pages()
+        table, point = "#device-syn-b_benchmark-table", "#device-syn-b circle"
+        steps = [["navigate", "#device-syn-b"], ["open", table], ["anchor", table], ["watch", 'nav.views a[href="#device-syn-b"]']]
+        observed = fixtures.live_dom([first, second, settled], steps + [["observe", None]])
+        if observed is None:
+            self.skipTest("Node is not installed")
+        # Put the open table at the top of the window and point at a point, then let the page refresh three times.
+        steps += [["scroll", observed[0]["anchorTop"]], ["focus", point], ["click", point], ["observe", None]]
+        before, after, final, later = fixtures.live_dom([first, second, settled], steps + [["refresh", None]] * 3)
+        self.assertEqual((before["shownView"], before["timers"], before["anchorTop"], before["liveState"]),
+                         ("device-syn-b", [15000], 0, "polling"))
+        self.assertEqual((before["focusView"], before["tip"]["hidden"], before["tip"]["view"]), ("device-syn-b", False, "device-syn-b"))
+        # One request, no reload, and the new document's content is shown.
+        self.assertEqual((after["fetches"], after["reloads"]), (1, 0))
+        self.assertEqual(before["text"]['nav.views a[href="#device-syn-b"]'], "syn-b · running")
+        self.assertEqual(after["text"]['nav.views a[href="#device-syn-b"]'], "syn-b · validation pending")
+        # The reader is still in the same view, which the address selects...
+        self.assertEqual((after["targetConnected"], after["shownView"], after["current"]), (True, "device-syn-b", ["#device-syn-b"]))
+        # ...with the table still open, the same point focused and under the tip...
+        self.assertIn("device-syn-b_benchmark-table", after["open"])
+        self.assertEqual((after["focus"], after["focusView"]), (before["focus"], "device-syn-b"))
+        self.assertEqual(after["tip"], dict(before["tip"], connected=True))
+        # ...and what they were reading has not moved, although a notice was inserted above it.
+        self.assertEqual(after["anchorTop"], 0)
+        self.assertEqual(after["scrollY"], before["scrollY"] + 10)
+        # Still running: one more request is scheduled. Settled: none, ever.
+        self.assertEqual((after["liveState"], after["timers"]), ("polling", [15000]))
+        self.assertEqual((final["liveState"], final["timers"], final["fetches"], final["reloads"]), ("settled", [], 2, 0))
+        self.assertEqual((final["shownView"], final["anchorTop"]), ("device-syn-b", 0))
+        self.assertIn("device-syn-b_benchmark-table", final["open"])
+        self.assertEqual((later["fetches"], later["timers"]), (2, []))
+
+    def test_live_update_keeps_the_tip_until_the_reader_scrolls(self):
+        """An update scrolls, to keep the reader's place, and focuses what was
+        focused. Neither takes the tip from its point; the reader's own scroll,
+        which moves the point, does."""
+        first, second, _ = self.live_pages()
+        table, point = "#device-syn-b_benchmark-table", "#device-syn-b circle"
+        steps = [["navigate", "#device-syn-b"], ["open", table], ["anchor", table]]
+        observed = fixtures.live_dom([first, second], steps + [["observe", None]])
+        if observed is None:
+            self.skipTest("Node is not installed")
+        # The reader has focused the table's heading and points at a point; after
+        # the update they scroll on by 30.
+        top = observed[0]["anchorTop"]
+        steps += [["scroll", top], ["focus", table + " summary"], ["click", point], ["observe", None], ["refresh", None],
+                  ["scroll", top + 40], ["observe", None]]
+        before, after, scrolled = fixtures.live_dom([first, second], steps)
+        self.assertEqual((before["focus"], before["tip"]["hidden"], before["tip"]["view"]), ("summary", False, "device-syn-b"))
+        # The update scrolled by the height of the notice it inserted above, and the page's listeners were told.
+        self.assertEqual((after["scrollY"], after["anchorTop"], after["focus"]), (before["scrollY"] + 10, 0, "summary"))
+        self.assertEqual(after["tip"], dict(before["tip"], connected=True))
+        self.assertEqual((scrolled["scrollY"], scrolled["tip"]["hidden"]), (after["scrollY"] + 30, True))
+        # Control: a listener that hides the tip at every scroll event loses it to the update's own scroll.
+        naive = first.replace("window.addEventListener('scroll', tip.settle, true);", "window.addEventListener('scroll', () => { tip.hidden = true; }, true);")
+        self.assertNotEqual(naive, first)
+        before, after, _ = fixtures.live_dom([naive, second], steps)
+        self.assertEqual((before["tip"]["hidden"], after["scrollY"], after["tip"]["hidden"]), (False, before["scrollY"] + 10, True))
+
+    def test_live_commit_report_keeps_a_view_addressed_through_an_element_inside_it(self):
+        first, second, _ = self.live_pages()
+        steps = [["navigate", "#device-syn-b_microbenchmarks"], ["observe", None], ["refresh", None]]
+        observed = fixtures.live_dom([first, second], steps)
+        if observed is None:
+            self.skipTest("Node is not installed")
+        before, after = observed
+        self.assertEqual((before["shownView"], after["shownView"], after["targetConnected"], after["fetches"]),
+                         ("device-syn-b", "device-syn-b", True, 1))
+        # The address names nothing: the overview is shown, before and after.
+        before, after = fixtures.live_dom([first, second], [["observe", None], ["refresh", None]])
+        self.assertEqual((before["shownView"], after["shownView"], after["current"]), ("overview", "overview", ["#overview"]))
+
+    def test_replacing_the_addressed_view_would_lose_it(self):
+        """Control for the tests above: the same page, patched to replace
+        everything instead of keeping the addressed element, falls back to the
+        overview. That is what a browser does, and what the page avoids."""
+        first, second, _ = self.live_pages()
+        naive = first.replace("graft(root, next, target && root.contains(target) ? target : null);", "root.replaceChildren(...next.childNodes);")
+        self.assertNotEqual(naive, first)
+        observed = fixtures.live_dom([naive, second], [["navigate", "#device-syn-b"], ["observe", None], ["refresh", None]])
+        if observed is None:
+            self.skipTest("Node is not installed")
+        before, after = observed
+        self.assertEqual((before["shownView"], after["fetches"], after["targetConnected"], after["shownView"]),
+                         ("device-syn-b", 1, False, "overview"))
+
+    def test_live_commit_report_keeps_the_last_good_document(self):
+        first, second, settled = self.live_pages()
+        other = first.replace('data-report-identity="', 'data-report-identity="0')
+        truncated = second.replace('data-report-end="', 'data-report-cut="')
+        steps = [["navigate", "#device-syn-b"], ["watch", 'nav.views a[href="#device-syn-b"]'], ["observe", None]] + [["refresh", None]] * 5
+        observed = fixtures.live_dom([first, None, {"status": 503}, other, truncated, second], steps)
+        if observed is None:
+            self.skipTest("Node is not installed")
+        # Unreachable, refused, another campaign's document and an incomplete one change nothing and are asked for again.
+        for state in observed[1:5]:
+            self.assertEqual((state["text"], state["elements"], state["shownView"], state["timers"], state["reloads"]),
+                             (observed[0]["text"], observed[0]["elements"], "device-syn-b", [15000], 0))
+        self.assertEqual(observed[5]["text"]['nav.views a[href="#device-syn-b"]'], "syn-b · validation pending")
+        self.assertEqual(observed[5]["fetches"], 5)
+
+    def test_finished_reports_never_ask_for_themselves_again(self):
+        """A settled live report and an archived report: no timer, no request, no reload."""
+        self.staged()
+        archived = (self.folder_of(self.commit) / "index.html").read_text()
+        self.assertNotIn('id="accuracy-report"', archived)
+        for page in (self.live_pages()[2], archived):
+            observed = fixtures.live_dom([page, page], [["navigate", "#device-syn-b"], ["observe", None], ["refresh", None]])
+            if observed is None:
+                self.skipTest("Node is not installed")
+            for state in observed:
+                self.assertEqual((state["timers"], state["fetches"], state["reloads"], state["shownView"], state["current"]),
+                                 ([], 0, 0, "device-syn-b", ["#device-syn-b"]))
 
     def test_staged_site_can_be_walked_from_history_to_commit_to_device(self):
         """The preview a reader clicks through: history, then a commit, then its devices."""

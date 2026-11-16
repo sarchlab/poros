@@ -64,8 +64,9 @@ type CacheConfig struct {
 	// no boundary.
 	PrefetchPageBytes int
 	// PrefetchStrideBytes is the largest constant stride between demand
-	// misses that the stream prefetcher follows (followStride in stride.go).
-	// 0 follows only neighbouring lines.
+	// misses that the stream prefetcher follows, and the farthest ahead of a
+	// miss, in bytes, that it prefetches such a walk (followStride in
+	// stride.go). 0 follows only neighbouring lines.
 	PrefetchStrideBytes int `json:",omitempty"`
 	// SLCSize is the capacity in bytes of a memory-side cache that keeps the
 	// lines L2 evicts: the most recent SLCSize/L2LineSize victims, in the
@@ -174,6 +175,11 @@ type CacheStats struct {
 	// SLCHits counts L2 line fetches supplied by the memory-side cache
 	// (demand misses, prefetches and writeback allocations alike).
 	SLCHits uint64
+	// L2HitsBeforeEviction counts demand accesses and adjacent-line fills
+	// issued before the cycle at which their line left L2: the tags had
+	// already changed in dispatch order, and L2 still supplies the line
+	// (notYetEvicted).
+	L2HitsBeforeEviction uint64 `json:",omitempty"`
 	// TLBWalks counts page walks started by Translate. TLBWaitCycles sums how
 	// long translations were not yet available to the accesses that asked.
 	TLBWalks      uint64
@@ -687,6 +693,19 @@ func (c *Cache) accessLine(addr uint64, size int, isWrite bool, now uint64) (Hit
 		if l2Ready > now {
 			c.stats.L2HitsInFlight++
 		}
+	} else if held := c.notYetEvicted(addr, now); held != nil {
+		// Replaced in dispatch order by a request issued after this one: at
+		// this request's cycle the line is still in L2.
+		c.stats.L2Hits++
+		c.stats.L2HitsBeforeEviction++
+		if held.prefetched {
+			c.stats.PrefetchedL2Hits++
+			held.prefetched = false
+		}
+		l2Ready = held.residentAt
+		if l2Ready > now {
+			c.stats.L2HitsInFlight++
+		}
 	} else {
 		c.stats.L2Misses++
 		l2Ready, level = c.fetchL2(addr, now, false)
@@ -767,7 +786,7 @@ func (c *Cache) fetchL2(addr uint64, now uint64, prefetched bool) (uint64, HitLe
 	level, earliest, arrival := HitDRAM, now, now+uint64(c.cfg.DRAMLatency)
 	if c.slc != nil {
 		if held, ok := c.slc.take(c.l2Line(addr)); ok {
-			earliest = max(now, held)
+			earliest = max(now, held.readyAt)
 			level, arrival = HitSLC, earliest+uint64(c.cfg.SLCLatency)
 			c.stats.SLCHits++
 		}
@@ -787,20 +806,62 @@ func (c *Cache) fetchL2(addr uint64, now uint64, prefetched bool) (uint64, HitLe
 // memory-side cache. The line cannot be supplied from there before it left
 // L2, nor before its data had arrived in, or been written to, L2, nor before
 // it has been moved: a clean victim's 128 bytes travel on the spill
-// transport, one line after another. (A dirty victim's transfer was already
-// booked on the fill transport by the caller, and left is its end.) Tags are
-// updated in dispatch order, so a request visited later but issued earlier
-// than left still finds the line here and waits until then: it can be later
-// than the hardware would be, never earlier.
-func (c *Cache) keepInSLC(victim cacheLine, left uint64) {
+// transport, one line after another. A dirty victim's transfer was already
+// booked on the fill transport by the caller and ends at written; left is
+// the earlier cycle at which the eviction stage admitted it. Between the two
+// the stage owns the line: it is neither in L2 nor yet behind it. Tags are
+// updated in dispatch order, so a request visited later can be issued earlier
+// than left: the record keeps left and the line's state in L2 for it
+// (notYetEvicted).
+func (c *Cache) keepInSLC(victim cacheLine, left, written uint64) {
 	if c.slc == nil {
 		return
 	}
 	ready := max(left, victim.readyAt, victim.dirtyAt)
-	if !victim.dirty {
+	if victim.dirty {
+		ready = max(ready, written)
+	} else {
 		ready = c.spill.deliver(ready, c.cfg.L2LineSize)
 	}
-	c.slc.keep(victim.tag, ready)
+	c.slc.keep(victimLine{line: victim.tag, leftAt: left, residentAt: victim.readyAt, prefetched: victim.prefetched, readyAt: ready})
+}
+
+// notYetEvicted returns the record of the L2 line of addr when the tags no
+// longer hold that line but it has not left L2 at cycle now, and nil
+// otherwise.
+//
+// Tags change in dispatch order, so the request that replaced a line can be
+// issued later than a request for that line visited after it: a store whose
+// data is late allocates its line long after a younger load has read. Such an
+// earlier request finds the line in L2. It is answered from the record, which
+// says when the line's data was there. That keeps the eviction as it was
+// booked and adds nothing to L2: the line stays behind L2 for every request
+// from the cycle it left, no tag is replaced for it and nothing is fetched
+// from the memory side. So it cannot need an L2 writeback slot, and one line
+// is never fetched twice. What the request does to L1 is the ordinary fill:
+// the caller books the L2-to-L1 transfer and writes back the L1 line it
+// displaces if that is dirty. A stream prefetch of such a line has nothing to
+// fetch. A dirty L1 line's writeback is not such a request: it has to leave
+// the line in L2, and brings it back as before (writebackL1).
+//
+// A clean line left L2 at the issue cycle of the request that replaced it. A
+// dirty one left when the eviction stage admitted its write; until that write
+// has ended it is in neither place, and a request then waits for the end of
+// the write and for the return from behind L2. Nothing is read from the
+// stage.
+//
+// What the model does not do is keep the line in L2 past the eviction because
+// it was read before it: replacement stays in dispatch order, and the line's
+// next request after that cycle pays a return from behind L2 where the
+// hardware might still have had it.
+func (c *Cache) notYetEvicted(addr, now uint64) *victimLine {
+	if c.slc == nil {
+		return nil
+	}
+	if held := c.slc.find(c.l2Line(addr)); held != nil && now < held.leftAt {
+		return held
+	}
+	return nil
 }
 
 // prefetchAdjacent brings the next 64 B line into L1 with a real arrival time.
@@ -820,6 +881,9 @@ func (c *Cache) prefetchAdjacent(addr uint64, now uint64, demandFill bool, deman
 	var l2Ready uint64
 	if line := c.l2.find(next); line != nil {
 		l2Ready = line.readyAt
+	} else if held := c.notYetEvicted(next, now); held != nil {
+		c.stats.L2HitsBeforeEviction++
+		l2Ready = held.residentAt
 	} else {
 		l2Ready, _ = c.fetchL2(next, now, false)
 	}
@@ -926,7 +990,7 @@ func (c *Cache) trainAndPrefetch(addr uint64, now uint64) {
 		if c.cfg.PrefetchPageBytes > 0 && lineAddr/uint64(c.cfg.PrefetchPageBytes) != addr/uint64(c.cfg.PrefetchPageBytes) {
 			return // page bounded: the next page re-trains on its own misses
 		}
-		if c.l2.peek(lineAddr) == nil {
+		if c.l2.peek(lineAddr) == nil && c.notYetEvicted(lineAddr, now) == nil {
 			c.fetchL2(lineAddr, now, true)
 			c.stats.Prefetches++
 		}

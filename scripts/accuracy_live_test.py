@@ -431,6 +431,52 @@ class LiveReportTests(unittest.TestCase):
         self.assertNotIn(b'Complete validated bundle', broken)
         self.assertIn(b'setTimeout', broken)
 
+    def test_live_report_updates_in_place_until_validated(self):
+        """The page's own scripts, run in Node: one device's report grows, then is validated."""
+        def partial(count):
+            value = self.snapshot()
+            report = value["report"]
+            report["cases"] = copy.deepcopy(self.report["cases"][:count])
+            report["summary"] = site.compute.summaries(report["cases"], True)
+            value["progress"].update(completed_cases=count, active_cases=[report["workload_manifest"]["cases"][count]["id"]])
+            return value
+        view = self.view(partial(30), self.bundle)
+        pages = [view.load()[0].decode()]
+        site.write(view.snapshot, partial(60))
+        pages.append(view.load()[0].decode())
+        site.write(view.snapshot, self.snapshot(True))
+        pages.append(view.load()[0].decode())
+        self.assertEqual([page.count('data-live-state="polling"') for page in pages], [1, 1, 0])
+        steps = [["open", "#benchmark-table"], ["anchor", "#benchmark-table"], ["watch", "#live-progress-label"]]
+        observed = fixtures.live_dom(pages, steps + [["observe", None]])
+        if observed is None:
+            self.skipTest("Node is not installed")
+        steps += [["scroll", observed[0]["anchorTop"]], ["focus", "circle"], ["click", "circle"], ["observe", None]]
+        before, grown, validated, later = fixtures.live_dom(pages, steps + [["refresh", None]] * 3)
+        self.assertEqual((before["timers"], before["liveState"], before["anchorTop"]), ([15000], "polling", 0))
+        self.assertIn("30 / 264", pages[0])
+        # More results arrived: same table open, same point focused, same place on screen.
+        self.assertEqual((grown["fetches"], grown["reloads"], grown["liveState"], grown["timers"]), (1, 0, "polling", [15000]))
+        self.assertNotEqual(grown["text"], before["text"])
+        self.assertGreater(grown["elements"], before["elements"])
+        self.assertIn("benchmark-table", grown["open"])
+        self.assertEqual((grown["focus"], grown["anchorTop"]), (before["focus"], 0))
+        # The point the tip was on is still in its chart, but the new results moved it
+        # (rank 1 is now rank 13): the tip is not left behind where the point was.
+        self.assertIn("rank 1 ·", before["tip"]["text"])
+        self.assertIn("rank 13 ·", grown["tip"]["text"])
+        self.assertNotEqual(grown["tip"]["top"], before["tip"]["top"])
+        self.assertEqual((before["tip"]["hidden"], grown["tip"]["hidden"], grown["tip"]["connected"]), (False, True, True))
+        # Validated: shown, and never asked for again.
+        self.assertEqual((validated["liveState"], validated["timers"], validated["fetches"], validated["reloads"]), ("validated", [], 2, 0))
+        self.assertIn("benchmark-table", validated["open"])
+        self.assertIn("Complete", validated["text"]["#live-progress-label"])
+        self.assertEqual((later["fetches"], later["timers"]), (2, []))
+        # A validated or archived page loaded directly has nothing that could ask.
+        for page in (pages[2], site.detail(self.report, dict(commit=self.report["head"]["commit"]))):
+            for state in fixtures.live_dom([page, pages[0]], [["observe", None], ["refresh", None]]):
+                self.assertEqual((state["timers"], state["fetches"], state["reloads"]), ([], 0, 0))
+
     def test_refresh_identity_is_stable_across_progress_but_not_other_campaigns(self):
         entry = dict(commit=self.report['head']['commit'])
         value = self.snapshot()

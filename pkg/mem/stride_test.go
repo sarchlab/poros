@@ -18,7 +18,17 @@ func strideWalk(cfg CacheConfig, base uint64, stride int64, n int) (*Cache, []Hi
 // constant stride starts prefetching the lines the walk will reach.
 func TestStreamPrefetcherFollowsConstantStrides(t *testing.T) {
 	const base = 0x4000000
-	for _, stride := range []int64{6168, -6168, 65536, -65536} { // deriche-like, and exactly the limit
+	for _, tc := range []struct {
+		stride     int64
+		prefetches uint64
+	}{
+		// deriche-like: ten steps are within the limit. Three triggers issue the
+		// full degree; then the walk is ten steps ahead and each trigger adds one.
+		{6168, 3*4 + 3}, {-6168, 3*4 + 3},
+		// Exactly the limit: one step ahead is as far as it goes.
+		{65536, 6}, {-65536, 6},
+	} {
+		stride := tc.stride
 		plain := DefaultCacheConfig()
 		c, levels := strideWalk(plain, base, stride, 8)
 		if s := c.Stats(); s.Prefetches != 0 || s.StreamsTrained != 0 || levels[7] != HitDRAM {
@@ -37,13 +47,57 @@ func TestStreamPrefetcherFollowsConstantStrides(t *testing.T) {
 		if s.StreamsTrained != 1 || s.L2Misses != 3 || s.PrefetchedL2Hits != 5 {
 			t.Fatalf("stride %d: %+v", stride, s)
 		}
-		// Each trigger issues PrefetchDegree lines, one stride apart, ahead of demand.
-		if want := uint64(6 * plain.PrefetchDegree); s.Prefetches != want {
-			t.Fatalf("stride %d: %d prefetches, want %d", stride, s.Prefetches, want)
+		// Each trigger issues up to PrefetchDegree lines, one stride apart, ahead
+		// of demand and within the limit of it.
+		if s.Prefetches != tc.prefetches {
+			t.Fatalf("stride %d: %d prefetches, want %d", stride, s.Prefetches, tc.prefetches)
 		}
 		next := uint64(int64(base) + 8*stride)
 		if line := c.l2.peek(next); c.Probe(next) != HitL2 || line == nil || !line.prefetched {
 			t.Fatalf("stride %d: the next line of the walk is not prefetched into L2", stride)
+		}
+	}
+}
+
+// The lookahead is bounded in bytes as well as in steps. A step is the
+// distance between two misses: a walk that misses only every eighth access has
+// a step of eight strides, and PrefetchDistance such steps would reach far
+// beyond a short walk. Whatever the step, nothing is prefetched farther ahead
+// of a miss than the stride limit.
+func TestStridePrefetchReachIsBoundedInBytes(t *testing.T) {
+	const base, limit = 0x4000000, 65536
+	for _, tc := range []struct {
+		name          string
+		step          int64
+		misses, ahead int // demand misses walked, and whole steps prefetched ahead of the last
+	}{
+		{"every access misses, short stride", 1024, 40, 48}, // 48 steps are 49152 bytes: the step bound
+		{"every access misses, deriche stride", 8000, 40, 8},
+		{"every eighth access misses, syrk stride", 8 * 2120, 40, 3},
+		{"descending", -8 * 2120, 40, 3},
+		{"mvt stride", 24576, 40, 2},
+	} {
+		cfg := DefaultCacheConfig()
+		cfg.PrefetchStrideBytes = limit
+		c := NewCache(cfg)
+		last := uint64(0)
+		for i := 0; i < tc.misses; i++ {
+			last = uint64(int64(base) + int64(i)*tc.step)
+			c.Access(last, 8, false, uint64(100+i))
+		}
+		// Everything up to the bound is in L2, prefetched; the next step is not.
+		for k := 1; k <= tc.ahead+1; k++ {
+			addr := uint64(int64(last) + int64(k)*tc.step)
+			if line := c.l2.peek(addr); (line != nil && line.prefetched) != (k <= tc.ahead) {
+				t.Fatalf("%s: step %d ahead of the last miss prefetched=%v, want the walk prefetched exactly %d steps ahead", tc.name, k, line != nil, tc.ahead)
+			}
+		}
+		if reach := int64(tc.ahead) * tc.step; reach > limit || reach < -limit {
+			t.Fatalf("%s: test expects a reach of %d bytes, beyond the limit", tc.name, reach)
+		}
+		// The walk itself is still covered: after training every miss finds its line.
+		if s := c.Stats(); s.L2Misses != 3 || s.PrefetchedL2Hits != uint64(tc.misses-3) {
+			t.Fatalf("%s: %+v", tc.name, s)
 		}
 	}
 }

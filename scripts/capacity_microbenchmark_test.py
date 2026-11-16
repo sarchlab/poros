@@ -81,6 +81,39 @@ class CapacityTests(unittest.TestCase):
         for series in boundary.args[1]:
             self.assertEqual(len(series[1]), 17)  # Noisy rows remain plotted.
 
+    def test_live_update_keeps_an_interior_boundary_row_in_place(self):
+        """The page's own scripts, run in Node. Every boundary row of a gate
+        starts with that gate, so a row is known by its case: a reader with a
+        middle row at the top of the window stays there across an update that
+        changes nothing."""
+        profiles = {role: {"configuration": {"freq": 3490000000}} for role in ("base", "head")}
+        graphs, tables = site.capacity_panels(self.reference, self.comparison, profiles)
+        # A running report around the capacity panels: what the update script asks of a document.
+        page = site.live_document("Capacity", '<header><h1>Capacity</h1></header><div role="progressbar"></div>' + graphs + tables,
+                                  dict(report="capacity"), True)
+        gate = sorted((row["id"] for row in self.reference["boundary"]["cases"] if row["id"].startswith("fp_g64_")),
+                      key=lambda ident: int(ident.split("_n")[1]))
+        self.assertEqual((len(gate), page.count(' data-row-key="fp_g')), (17, 34))
+        middle = gate[8]
+
+        def across_an_update(document, attribute):
+            row = f'#capacity-boundary-table tr[{attribute}="{middle}"]'
+            steps = [["open", "#capacity-boundary-table"], ["anchor", row]]
+            observed = fixtures.live_dom([document, document], steps + [["observe", None]])
+            if observed is None:
+                self.skipTest("Node is not installed")
+            before, after = fixtures.live_dom([document, document], steps + [["scroll", observed[0]["anchorTop"]], ["observe", None], ["refresh", None]])
+            self.assertEqual((before["anchorTop"], after["fetches"], after["reloads"], after["open"]), (0, 1, 0, ["capacity-boundary-table"]))
+            return after["anchorTop"], after["scrollY"] - before["scrollY"]
+
+        self.assertEqual(across_an_update(page, "data-row-key"), (0, 0))
+        # Control: the same rows known only by their first cell, as they were. All 17 of a gate are then one
+        # row to the update, which puts the last of them where the reader's row was.
+        unkeyed = page.replace(' data-row-key="fp_g', ' data-case="fp_g')
+        moved, scrolled = across_an_update(unkeyed, "data-case")
+        self.assertLess(moved, 0)
+        self.assertEqual(scrolled, -moved)
+
 
     def test_frozen_boundary_inference_is_explicit_and_deterministic(self):
         result = suite.infer_transition(self.reference["boundary"])

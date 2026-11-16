@@ -910,18 +910,28 @@ POINT_TIPS = """<div id="point-tip" role="tooltip" hidden></div><script>
     }
     if (!point) { tip.hidden = true; return; }
     tip.textContent = point.dataset.tip;
+    tip.point = point; // a live update keeps the tip on this point's successor
     tip.hidden = false;
     const box = point.getBoundingClientRect();
+    tip.at = [box.left, box.top]; // where the point is while the tip is beside it
     const x = event.clientX ?? box.right, y = event.clientY ?? box.top;
     tip.style.left = Math.max(4, Math.min(x + 10, innerWidth - tip.offsetWidth - 4)) + 'px';
     tip.style.top = Math.max(4, Math.min(y + 12, innerHeight - tip.offsetHeight - 4)) + 'px';
   }
+  // The tip goes when its point is no longer where the tip was put beside it.
+  // A reader's scroll moves the point. A live update scrolls as well, to keep
+  // the reader's place (LIVE_REFRESH), and that puts the point back where it
+  // was: the scroll events it causes arrive afterwards and leave the tip.
+  tip.settle = () => {
+    const box = !tip.hidden && tip.point?.isConnected ? tip.point.getBoundingClientRect() : null;
+    if (!box || Math.abs(box.left - tip.at[0]) >= 2 || Math.abs(box.top - tip.at[1]) >= 2) tip.hidden = true;
+  };
   for (const name of ['pointermove','focusin','click']) document.addEventListener(name, show);
   for (const name of ['pointerout','focusout']) document.addEventListener(name, e => {
     if (e.target.closest('[data-tip]')) tip.hidden = true;
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') tip.hidden = true; });
-  window.addEventListener('scroll', () => { tip.hidden = true; }, true);
+  window.addEventListener('scroll', tip.settle, true);
 })();
 </script>"""
 
@@ -930,38 +940,60 @@ LIVE_REFRESH = """<script>
 (() => {
   const root = document.getElementById('accuracy-report');
   const identity = root.dataset.reportIdentity;
+  const tip = document.getElementById('point-tip');
   root.style.overflowAnchor = 'none'; // Scroll anchoring is restored explicitly below.
   // Semantic keys survive newly inserted charts and changing table row order.
-  function key(node) {
-    if (node === root) return 'report';
+  // Inside a view of a commit report they carry the view's name, so the same
+  // chart or table of two devices stays two.
+  function key(node, top) {
+    if (node === top) return 'report';
     if (node.id) return 'id:' + node.id;
     const tag = node.localName;
-    if (tag === 'figure') return 'figure:' + node.querySelector('figcaption').textContent;
-    if (tag === 'details') return 'details:' + node.querySelector('summary').textContent.split('·')[0].trim();
-    if (/^h[123]$/.test(tag)) return tag + ':' + node.textContent;
+    const view = node.closest('.view');
+    const scope = view && view !== node && top.contains(view) ? view.id + '|' : '';
+    if (tag === 'figure') return scope + 'figure:' + node.querySelector('figcaption').textContent;
+    if (tag === 'details') return scope + 'details:' + node.querySelector('summary').textContent.split('·')[0].trim();
+    if (/^h[123]$/.test(tag)) return scope + tag + ':' + node.textContent;
     const parent = node.parentElement;
-    if (!parent || !root.contains(parent)) return null;
-    const prefix = key(parent);
+    if (!parent || !top.contains(parent)) return null;
+    const prefix = key(parent, top);
     if (tag === 'tr' && node.querySelector('td')) return prefix + '/row:' +
       (node.dataset.rowKey || node.querySelector('td').textContent);
     if (node.dataset.pointKey) return prefix + '/point:' + node.dataset.pointKey;
     if (tag === 'a') return prefix + '/link:' + node.getAttribute('href');
     return prefix + '/' + tag + ':' + [...parent.children].filter(n => n.localName === tag).indexOf(node);
   }
+  // The element the address names selects the view that is shown (:target),
+  // and a browser does not move that to a new element of the same name. So
+  // that element and its ancestors stay in the document: each takes the new
+  // attributes, and the new children around the one child that is kept.
+  function graft(old, fresh, target) {
+    const kept = target && target !== old ? [...old.children].find(n => n.contains(target)) : null;
+    const twin = kept ? [...fresh.children].find(n => key(n, fresh) === key(kept, old)) : null;
+    if (!twin) { old.replaceChildren(...fresh.childNodes); return; }
+    for (const attribute of [...kept.attributes]) if (!twin.hasAttribute(attribute.name)) kept.removeAttribute(attribute.name);
+    for (const attribute of [...twin.attributes]) kept.setAttribute(attribute.name, attribute.value);
+    const incoming = [...fresh.childNodes], at = incoming.indexOf(twin);
+    old.replaceChildren(...incoming.slice(0, at), kept, ...incoming.slice(at + 1));
+    graft(kept, twin, target);
+  }
   function apply(next) {
     const oldNodes = [...root.querySelectorAll('*')];
     const states = oldNodes.filter(n => n.localName === 'details' || n.scrollLeft || n.scrollTop)
-      .map(n => ({key:key(n), open:n.localName === 'details' ? n.open : null, x:n.scrollLeft, y:n.scrollTop}));
-    const focused = root.contains(document.activeElement) ? key(document.activeElement) : null;
-    const anchors = [...root.querySelectorAll('figure,figcaption,details,summary,tr,h2,h3,pre')]
-      .map(n => ({key:key(n), box:n.getBoundingClientRect()}))
+      .map(n => ({key:key(n, root), open:n.localName === 'details' ? n.open : null, x:n.scrollLeft, y:n.scrollTop}));
+    const focused = root.contains(document.activeElement) ? key(document.activeElement, root) : null;
+    const hovered = !tip.hidden && tip.point && root.contains(tip.point) ? key(tip.point, root) : null;
+    const beside = [tip.at, tip.style.left, tip.style.top];
+    const anchors =[...root.querySelectorAll('figure,figcaption,details,summary,tr,h2,h3,pre')]
+      .map(n => ({key:key(n, root), box:n.getBoundingClientRect()}))
       .filter(a => a.box.height && a.box.bottom > 0 && a.box.top < innerHeight)
       .sort((a,b) => Math.abs(a.box.top)-Math.abs(b.box.top));
     const x = scrollX, y = scrollY;
-    document.getElementById('point-tip').hidden = true;
-    root.replaceChildren(...next.childNodes);
+    let target = null;
+    try { target = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null; } catch (_) {}
+    graft(root, next, target && root.contains(target) ? target : null);
     root.dataset.liveState = next.dataset.liveState;
-    const nodes = new Map([...root.querySelectorAll('*')].map(n => [key(n), n]));
+    const nodes = new Map([...root.querySelectorAll('*')].map(n => [key(n, root), n]));
     // Reopen every disclosure before scroll writes force layout. Replacing
     // long open tables with collapsed ones can temporarily clamp window scroll.
     for (const saved of states) {
@@ -978,6 +1010,18 @@ LIVE_REFRESH = """<script>
     const anchor = anchors.find(a => nodes.has(a.key));
     const delta = anchor ? nodes.get(anchor.key).getBoundingClientRect().top - anchor.box.top : 0;
     window.scrollTo(x, anchor ? scrollY + delta : y);
+    // The tip stays on the point it was on when that point still exists and
+    // is where it was. This comes last: focusing an element above shows or
+    // hides a tip as a reader's focus does, and until the scroll position is
+    // restored every point is somewhere else.
+    const point = nodes.get(hovered);
+    tip.hidden = !point;
+    if (point) {
+      tip.textContent = point.dataset.tip; tip.point = point;
+      [tip.at, tip.style.left, tip.style.top] = beside;
+      tip.settle();
+    }
+    document.dispatchEvent(new Event('report-updated'));
   }
   async function refresh() {
     const controller = new AbortController();
@@ -987,9 +1031,11 @@ LIVE_REFRESH = """<script>
       if (!response.ok) throw new Error('Report unavailable');
       const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
       const next = doc.getElementById('accuracy-report');
+      // Only a complete document of this same report is taken: polling, or
+      // finished (validated, or settled: nothing in it is still running).
       if (!next || next.dataset.reportIdentity !== identity ||
-          !['polling','validated'].includes(next.dataset.liveState) ||
-          !next.querySelector('#case-progress') || !next.querySelector('header') ||
+          !['polling','validated','settled'].includes(next.dataset.liveState) ||
+          !next.querySelector('[role="progressbar"]') || !next.querySelector('header') ||
           next.lastElementChild?.dataset.reportEnd !== identity) {
         throw new Error('Invalid or different report');
       }
@@ -999,7 +1045,8 @@ LIVE_REFRESH = """<script>
     } finally {
       clearTimeout(timeout);
       // Schedule only after this request finishes; never overlap requests.
-      if (root.dataset.liveState !== 'validated') setTimeout(refresh, 15000);
+      // A finished document is never asked for again.
+      if (root.dataset.liveState === 'polling') setTimeout(refresh, 15000);
     }
   }
   setTimeout(refresh, 15000);
@@ -1272,13 +1319,21 @@ def prediction_text(values, role, digits=4, missing="pending"):
     return format(values[role], f".{digits}f") if role in values else missing
 
 
+def predictions_text(values, roles, digits=4):
+    """A point's predictions as a tooltip names them: only the simulators that are drawn."""
+    return ", ".join(f"{role} {prediction_text(values, role, digits)}" for role in roles)
+
+
 def simulation_index(simulations):
     return {role: {row["id"]: row for row in rows} for role, rows in simulations.items()}
 
 
 def diagnostic_progress(report, name, reference=None):
-    """Execution progress of one suite. Without a native reference the cases
-    come from the retained definition and the text says nothing native exists."""
+    """Execution progress of one suite, for the reference its panel is given.
+
+    Without one the cases come from the retained definition; a device that
+    declares no reference of the suite (unreferenced) is told apart from one
+    with its declared reference, and the text says what, if anything, is native."""
     simulations = report.get(name + "_simulation", [] if name == "throughput" else {"base": [], "head": []})
     rows = {"head": simulations} if name == "throughput" else simulations
     predicted = diagnostic_roles(report, name)
@@ -1290,8 +1345,12 @@ def diagnostic_progress(report, name, reference=None):
     state = item.get("state", "complete" if completed == total else "partial" if completed else "pending")
     counts = "; ".join(f"{role} {len(values)}/{required}" for role, values in rows.items())
     errors = " ".join(item.get("errors", []))
-    note = ('Native references are shown; missing predictions are pending.' if reference is not None
-            else 'No native reference exists for this device: simulated counters only.')
+    if reference is None or ("unreferenced" in reference and not reference["native"]):
+        note = 'No native reference exists for this device: predictions only.'
+    elif "unreferenced" in reference:
+        note = "This device's own native times are shown where it was measured; missing predictions are pending."
+    else:
+        note = 'Native references are shown; missing predictions are pending.'
     if name != "throughput" and "base" not in predicted:
         note += ' The base revision does not model this device.'
     return (f'<p id="{name}-progress" data-section-state="{esc(state)}"><strong>{esc(name.title())}: {esc(state)}</strong> · '
@@ -1299,14 +1358,11 @@ def diagnostic_progress(report, name, reference=None):
             + (" " + esc(errors) if errors else "") + '</p>')
 
 
-def unmeasured_diagnostic_table(report, name):
-    """Simulated counters of a suite this device has no native reference for.
-
-    Nothing native is plotted or compared, so no hardware's numbers can stand in."""
-    cases = definition_cases(report, name)
-    simulations = report.get(name + "_simulation", [] if name == "throughput" else {"base": [], "head": []})
-    indexed = simulation_index({"head": simulations} if name == "throughput" else simulations)
-    predicted = [role for role in ("base", "head") if role in diagnostic_roles(report, name)]
+def simulated_counters_table(name, cases, simulations, predicted):
+    """Simulated counters of a suite the device declares no native reference
+    for, for the roles in predicted. Nothing native is in it, so no hardware's
+    numbers can stand in."""
+    indexed = simulation_index(simulations)
     table = (f'<details id="{name}-simulated-table"><summary>{esc(name.title())} simulated counters · {len(cases)} points</summary>'
              '<div class="table"><table><thead><tr><th>Point</th><th>Instructions</th>'
              + ''.join(f'<th>{role.title()} cycles</th><th>{role.title()} cycles/instruction</th>' for role in predicted)
@@ -1324,11 +1380,105 @@ def unmeasured_diagnostic_table(report, name):
                 cells += [f'{row["cycles"]:,}', f'{row["cycles"] / row["instructions"]:.4f}']
         table += f'<tr data-row-key="{esc(case["id"])}">' + ''.join('<td>' + cell + '</td>' for cell in cells) + '</tr>'
     return (table + '</tbody></table></div><p>Counters are differences between a short and a long run of the same assembly, '
-            'with checked instruction counts and outputs. No native reference exists for this device, so nothing here is '
+            'with checked instruction counts and outputs. They are simulated: nothing in this table is '
             'compared with hardware and nothing enters application statistics.</p></details>')
 
 
+SERIES = (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b"))
+
+
+def unreferenced(hardware, cases, native=None, source=None):
+    """A suite for a device that declares no reference file of it.
+
+    Every device goes through the suite's one panel. This is what that panel
+    is given instead of the declared reference: the suite's own cases, and,
+    where the device was measured with the suite's Linux collector, native:
+    per case the native time of the simulated work (the long run less the
+    short one) as median_seconds, p10_seconds, p90_seconds and quality, with
+    source saying where it comes from. A case without one is a prediction
+    only. Nothing of another device can enter here."""
+    return dict(unreferenced=True, hardware=hardware, cases=cases, native=native or {}, source=source)
+
+
+def validate_unreferenced(name, simulations, cases, *, partial=False, base_large_image_support=None):
+    """Row checks of a suite shown without a declared reference. A base revision that does not model the device has no rows."""
+    if not isinstance(simulations, dict) or set(simulations) != {"base", "head"}:
+        raise ValueError(name + " requires both base and head simulation")
+    if simulations["base"] == []:
+        (memory.validate_rows if name == "memory" else DIAGNOSTIC_SUITES[name].validate_simulation)(simulations["head"], cases, partial=partial)
+    elif name == "memory":
+        memory.validate_comparison(simulations, cases, base_large_image_support, partial=partial)
+    else:
+        DIAGNOSTIC_SUITES[name].validate_comparison(simulations, cases, partial=partial)
+
+
+def native_times(reference, case, scale):
+    """P10, median and P90 of an unreferenced suite's native time of one case, times scale. None: a prediction only."""
+    measured = reference["native"].get(case["id"])
+    if measured is None:
+        return None
+    values = [measured[key + "_seconds"] for key in ("p10", "median", "p90")]
+    if any(type(value) not in (int, float) or not math.isfinite(value) or value <= 0 for value in values) or values != sorted(values):
+        raise ValueError("invalid native time of " + case["id"])
+    return dict(zip(("p10", "median", "p90"), (value * scale for value in values)))
+
+
+def native_note(reference):
+    """What an unreferenced suite's panel says about hardware, before its charts."""
+    if reference["native"]:
+        return (f'<p class="notice" data-reference="native"><strong>Measured on {esc(reference["hardware"])}.</strong> '
+                f'{esc(reference["source"])} {len(reference["native"])} of {len(reference["cases"])} points have a native time; '
+                'any other point is a prediction only.</p>')
+    return (f'<p class="notice" data-reference="none"><strong>Prediction only · no hardware comparison.</strong> '
+            f'No native {esc(reference["hardware"])} measurement of this suite exists. The points are simulator predictions on the '
+            "suite's own axes: nothing is compared with hardware, no other device's measurement is shown and no accuracy is stated.</p>")
+
+
+def model_roles(reference, simulations):
+    """The simulators a panel draws: both beside a declared reference. For any
+    other device a base revision that predicted nothing is left out, not drawn empty."""
+    return ("base", "head") if "unreferenced" not in reference or simulations["base"] else ("head",)
+
+
+def series_of(points, roles=("base", "head")):
+    """Chart series of (x, native or None, predictions by role, tooltip) points. Native is a series only where something was measured."""
+    drawn = [(role, color) for role, color in SERIES
+             if (any(native is not None for _, native, _, _ in points) if role == "native" else role in roles)]
+    return [(role, [(x, native if role == "native" else model[role], tip) for x, native, model, tip in points
+                    if (native is not None if role == "native" else role in model)], color) for role, color in drawn]
+
+
+def pending_text(reference):
+    """What a panel's chart says while it has no point, as chart() options."""
+    return {"empty": "No predictions yet."} if "unreferenced" in reference and not reference["native"] else {}
+
+
+def unreferenced_table(name, title, unit, rows, digits=4):
+    """A suite's table for a device measured without a declared reference file:
+    (id, native or None, quality, predictions by role) per point. A device with
+    no native time at all has no such table: its predictions are in the charts
+    and its counters in the simulated-counters table, and no native column is
+    left empty."""
+    if not any(native for _, native, _, _ in rows):
+        return ""
+    table = (f'<details id="{name}-table"><summary>{esc(title)} · {len(rows)} probes</summary><div class="table"><table><thead><tr>'
+             f'<th>Probe</th><th>Native {unit}</th><th>P10–P90</th><th>Native quality</th><th>Base {unit}</th><th>Head {unit}</th>'
+             '<th>Head / native</th></tr></thead><tbody>')
+    for ident, native, quality, model in rows:
+        measured = ([f'{native["median"]:.{digits}f}', f'{native["p10"]:.{digits}f}–{native["p90"]:.{digits}f}', esc(quality)]
+                    if native else ["—", "—", "not measured"])
+        ratio = f'{model["head"] / native["median"]:.3f}' if native and "head" in model else "—"
+        table += (f'<tr data-row-key="{esc(ident)}"><td>{esc(ident)}</td>' + ''.join(f'<td>{cell}</td>' for cell in measured)
+                  + f'<td>{prediction_text(model, "base", digits)}</td><td>{prediction_text(model, "head", digits)}</td><td>{ratio}</td></tr>')
+    return table + ('</tbody></table></div><p>Simulation differences use the same assembly, with checked instruction counts and outputs. '
+                    'A native value is the device\'s own measurement of that same work; where there is none, nothing is compared with hardware.</p></details>')
+
+
 def throughput_table(reference, simulated=None, *, partial=False):
+    """Instruction throughput is a table on purpose: its probes are unrelated
+    instruction mixes with one rate each and no shared axis to draw them on."""
+    if "unreferenced" in reference:
+        return unreferenced_throughput_table(reference, simulated, partial=partial)
     throughput.validate_reference(reference)
     if simulated is not None:
         throughput.validate_simulation(simulated, reference["cases"], partial=partial)
@@ -1357,23 +1507,56 @@ def throughput_table(reference, simulated=None, *, partial=False):
             'These cases are excluded from application accuracy statistics. <a href="throughput.json">Reference data</a></p>')
 
 
+def unreferenced_throughput_table(reference, simulated=None, *, partial=False):
+    """The throughput table of a device without a declared reference: the same probes, its own native rate where measured."""
+    if simulated is not None:
+        throughput.validate_simulation(simulated, reference["cases"], partial=partial)
+    by_id = {row["id"]: row for row in simulated or []}
+    span = throughput.ITERATIONS[1] - throughput.ITERATIONS[0]
+    # A device with no native time at all gets no native column to leave empty.
+    measured = bool(reference["native"])
+    body = ('<h3>Instruction throughput suite</h3>' + native_note(reference)
+            + '<div class="table"><table><thead><tr><th>Probe</th>'
+            + ('<th>Native ns/instruction</th><th>P10–P90 ns/instruction</th><th>Native quality</th>' if measured else '')
+            + '<th>Simulated IPC</th></tr></thead><tbody>')
+    for case in reference["cases"]:
+        native = native_times(reference, case, 1e9 / span / case["instructions_per_iteration"])
+        cells = [] if not measured else (
+            [f'{native["median"]:.3f}', f'{native["p10"]:.3f}–{native["p90"]:.3f}', esc(reference["native"][case["id"]]["quality"])]
+            if native else ["—", "—", "not measured"])
+        predicted = by_id.get(case["id"])
+        body += (f'<tr data-row-key="{esc(case["id"])}"><td>{esc(case["id"])}</td>' + ''.join(f'<td>{cell}</td>' for cell in cells)
+                 + '<td>' + (f"{predicted['instructions'] / predicted['cycles']:.2f}" if predicted else "pending") + '</td></tr>')
+    return body + ('</tbody></table></div><p>Simulation uses the same assembly loops, differencing 1,024 and 2,048 iterations, with '
+                   'analytically checked checksums. This section is a table by design: the probes are unrelated instruction mixes with '
+                   'one rate each and share no axis. These cases are excluded from application accuracy statistics.</p>')
+
+
 def forwarding_panels(reference, simulations, profiles, *, partial=False):
     """Render dependency probes only in the microbenchmark section."""
-    forwarding.validate_reference(reference)
-    forwarding.validate_comparison(simulations, reference["cases"], partial=partial)
+    declared = "unreferenced" not in reference
+    if declared:
+        forwarding.validate_reference(reference)
+        forwarding.validate_comparison(simulations, reference["cases"], partial=partial)
+    else:
+        validate_unreferenced("forwarding", simulations, reference["cases"], partial=partial)
     indexed = simulation_index(simulations)
     frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
     if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
         raise ValueError("invalid forwarding model frequency")
     rows = {}
     for index, case in enumerate(reference["cases"]):
-        updates = case["iterations"] * forwarding.UPDATES_PER_ITERATION
-        native = {key: case[key + "_seconds"] * 1e9 / updates for key in ("p10", "median", "p90")}
+        if declared:
+            updates = case["iterations"] * forwarding.UPDATES_PER_ITERATION
+            native = {key: case[key + "_seconds"] * 1e9 / updates for key in ("p10", "median", "p90")}
+        else:
+            native = native_times(reference, case, 1e9 / forwarding.UPDATES_PER_ITERATION / (forwarding.ITERATIONS[1] - forwarding.ITERATIONS[0]))
         model = {role: indexed[role][case["id"]]["cycles"] * 1e9 / indexed[role][case["id"]]["updates"] / frequencies[role]
                  for role in ("base", "head") if case["id"] in indexed[role]}
-        spread = 100 * (native["p90"] - native["p10"]) / native["median"]
-        tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.4f}/{native["median"]:.4f}/{native["p90"]:.4f} ns/update; '
-                   f'spread {spread:.2f}%; base {prediction_text(model, "base", 4)}, head {prediction_text(model, "head", 4)} ns/update')
+        spread = 100 * (native["p90"] - native["p10"]) / native["median"] if native else None
+        tooltip = (f'{case["id"]}: ' + (f'native P10/median/P90 {native["p10"]:.4f}/{native["median"]:.4f}/{native["p90"]:.4f} ns/update; '
+                                        f'spread {spread:.2f}%' if native else 'no native measurement')
+                   + '; ' + predictions_text(model, model_roles(reference, simulations), 4) + ' ns/update')
         rows[case["id"]] = dict(native=native, model=model, spread=spread, tooltip=tooltip)
     groups = (
         ("64-bit GPR dependencies", ("gpr64_register", "gpr64_same", "gpr64_disjoint", "gpr64_indexed", "gpr64_indexed_load", "gpr64_indexed_store"),
@@ -1382,27 +1565,31 @@ def forwarding_panels(reference, simulations, profiles, *, partial=False):
         ("Compare/select dependencies", ("select_register", "select_same"), ("reg", "direct")),
         ("FP dependencies", ("fp_register", "fp_same", "fp_disjoint"), ("reg", "direct", "apart")),
     )
-    graphs = '<h3>Store/load dependency probes</h3><p>Value-varying assembly updates; native macOS thread CPU time. '
-    graphs += (f'{esc(reference["hardware"])} · {esc(reference["collected_at_utc"])}. '
-               'Nine alternating long-minus-short pairs; 64 updates per loop iteration. '
-               'Hover a point for P10/median/P90, spread and both simulator predictions. '
-               'Core and instantaneous frequency were unobserved. '
-               + 'Simulation converts cycles using the declared model frequency: '
+    if declared:
+        graphs = '<h3>Store/load dependency probes</h3><p>Value-varying assembly updates; native macOS thread CPU time. '
+        graphs += (f'{esc(reference["hardware"])} · {esc(reference["collected_at_utc"])}. '
+                   'Nine alternating long-minus-short pairs; 64 updates per loop iteration. '
+                   'Hover a point for P10/median/P90, spread and both simulator predictions. '
+                   'Core and instantaneous frequency were unobserved. ')
+    else:
+        graphs = ('<h3>Store/load dependency probes</h3>' + native_note(reference)
+                  + '<p>Value-varying assembly updates; 64 updates per loop iteration. Hover a point for its values. ')
+    graphs += ('Simulation converts cycles using the declared model frequency: '
                + ', '.join(f'{role} {hz/1e9:g} GHz' for role, hz in frequencies.items())
                + '. These probes are excluded from application accuracy statistics.</p><div class="charts">')
     for title, names, labels in groups:
-        series = []
-        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
-            values = [(i+1, rows[name]["native"]["median"] if role == "native" else rows[name]["model"][role], rows[name]["tooltip"])
-                      for i, name in enumerate(names) if role == "native" or role in rows[name]["model"]]
-            series.append((role, values, color))
+        series = series_of([(i+1, rows[name]["native"] and rows[name]["native"]["median"], rows[name]["model"], rows[name]["tooltip"])
+                            for i, name in enumerate(names)], model_roles(reference, simulations))
         graphs += chart(title, series, "Probe form", "ns/update", scatter=True,
-                        x_ticks=[(i+1, label) for i, label in enumerate(labels)])
+                        x_ticks=[(i+1, label) for i, label in enumerate(labels)], **pending_text(reference))
     graphs += ('</div><p>Reg is the same-class register chain; direct uses immediate-offset load/store; apart is a '
                'nonoverlap throughput control, not a latency baseline. Idx uses register offsets on both sides, '
                'idx ld/st on one side. Compare/select increments and wraps modulo 65,536. '
                'Matched memory-minus-register differences estimate effective dependency cost including instruction/address overhead, '
                'not physical bypass latency. P10/P90 are variability summaries, not confidence intervals.</p>')
+    if not declared:
+        return graphs, unreferenced_table("forwarding", "Store/load dependency table", "ns/update", [
+            (name, row["native"], reference["native"].get(name, {}).get("quality"), row["model"]) for name, row in rows.items()])
     table = (f'<details id="forwarding-table"><summary>Store/load dependency table · {len(rows)} probes</summary>'
              '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/update</th><th>P10–P90 ns/update</th>'
              '<th>Spread / median</th><th>Base ns/update</th><th>Head ns/update</th><th>Native memory − register (ns/update)</th>'
@@ -1420,19 +1607,27 @@ def forwarding_panels(reference, simulations, profiles, *, partial=False):
 
 def scheduling_panels(reference, simulations, profiles, *, partial=False):
     """Compare additional independent work around the same dependent chain."""
-    scheduling.validate_reference(reference)
-    scheduling.validate_comparison(simulations, reference["cases"], partial=partial)
+    declared = "unreferenced" not in reference
+    if declared:
+        scheduling.validate_reference(reference)
+        scheduling.validate_comparison(simulations, reference["cases"], partial=partial)
+    else:
+        validate_unreferenced("scheduling", simulations, reference["cases"], partial=partial)
     indexed = simulation_index(simulations)
     frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
     if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
         raise ValueError("invalid scheduling model frequency")
+    span = scheduling.ITERATIONS[1] - scheduling.ITERATIONS[0]
     rows = {}
     for index, case in enumerate(reference["cases"]):
-        native = {key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")}
+        native = ({key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")} if declared
+                  else native_times(reference, case, 1e9 / span))
         modeled = {role: indexed[role][case["id"]]["cycles"] * 1e9 / (scheduling.ITERATIONS[1] - scheduling.ITERATIONS[0]) / frequencies[role]
                    for role in ("base", "head") if case["id"] in indexed[role]}
-        tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.3f}/{native["median"]:.3f}/{native["p90"]:.3f} ns/iteration; '
-                   f'base {prediction_text(modeled, "base", 3)}, head {prediction_text(modeled, "head", 3)} ns/iteration; {case["instructions_per_iteration"]} instructions/iteration')
+        tooltip = (f'{case["id"]}: ' + (f'native P10/median/P90 {native["p10"]:.3f}/{native["median"]:.3f}/{native["p90"]:.3f} ns/iteration'
+                                        if native else 'no native measurement')
+                   + '; ' + predictions_text(modeled, model_roles(reference, simulations), 3)
+                   + f' ns/iteration; {case["instructions_per_iteration"]} instructions/iteration')
         rows[case["id"]] = dict(case=case, native=native, modeled=modeled, tooltip=tooltip)
     groups = (("Integer dependency and independent work", ("int_chain", "int_interleaved")),
               ("FP dependency and independent work", ("fp_chain", "fp_interleaved")))
@@ -1445,21 +1640,24 @@ def scheduling_panels(reference, simulations, profiles, *, partial=False):
               'The independent accumulator resets before each block. '
               f'Instructions per iteration: {counts}. '
               'Compare the incremental cost of independent work per iteration, not equal-instruction throughput. '
-              f'Native {esc(reference["hardware"])} · {esc(reference["collected_at_utc"])}. '
-              'Nine alternating long-minus-short native macOS thread CPU-time pairs. '
-              'Core and instantaneous frequency were unobserved; simulation uses declared frequencies: '
+              + (f'Native {esc(reference["hardware"])} · {esc(reference["collected_at_utc"])}. '
+                 'Nine alternating long-minus-short native macOS thread CPU-time pairs. '
+                 'Core and instantaneous frequency were unobserved; simulation' if declared else 'Simulation')
+              + ' uses declared frequencies: '
               + ", ".join(f'{role} {hz/1e9:g} GHz' for role, hz in frequencies.items())
               + '. These tested operand patterns do not establish physical M2 scheduling dimensions or arbitrary instruction latencies '
               'and are excluded from application accuracy statistics.</p><div class="charts">')
+    if not declared:
+        graphs = graphs.replace('</h3><p>', '</h3>' + native_note(reference) + '<p>', 1)
     for title, names in groups:
-        selected = [rows[name] for name in names]
-        series = []
-        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
-            points = [(i + 1, row["native"]["median"] if role == "native" else row["modeled"][role], row["tooltip"]) for i, row in enumerate(selected) if role == "native" or role in row["modeled"]]
-            series.append((role, points, color))
+        series = series_of([(i + 1, rows[name]["native"] and rows[name]["native"]["median"], rows[name]["modeled"], rows[name]["tooltip"])
+                            for i, name in enumerate(names)], model_roles(reference, simulations))
         graphs += chart(title, series, "Instruction arrangement", "ns/iteration", scatter=True,
-                        x_ticks=[(1, "chain"), (2, "interleaved")])
+                        x_ticks=[(1, "chain"), (2, "interleaved")], **pending_text(reference))
     graphs += '</div>'
+    if not declared:
+        return graphs, unreferenced_table("scheduling", "Execution-unit scheduling table", "ns/iteration", [
+            (name, row["native"], reference["native"].get(name, {}).get("quality"), row["modeled"]) for name, row in rows.items()], 3)
     table = ('<details id="scheduling-table"><summary>Execution-unit scheduling table · 4 probes</summary>'
              '<div class="table"><table><thead><tr><th>Probe</th><th>Native ns/iteration</th><th>P10–P90</th>'
              '<th>Base ns/iteration</th><th>Head ns/iteration</th><th>Native ns/instruction</th></tr></thead><tbody>')
@@ -1495,24 +1693,39 @@ RECURRENCE_GROUPS = (
 )
 
 
-def recurrence_panels(reference, simulations, *, partial=False):
+def recurrence_panels(reference, simulations, profiles=None, *, partial=False):
     """Compare/select and memory-recurrence probes, in cycles per update.
 
-    Native and simulated values share one unit, so no frequency enters."""
-    recurrence.validate_reference(reference)
-    recurrence.validate_comparison(simulations, reference["cases"], partial=partial)
+    Native and simulated values of a declared reference share one unit, so no
+    frequency enters. A native time of an unreferenced suite is converted at
+    the head profile's clock, which profiles then has to give."""
+    declared = "unreferenced" not in reference
+    if declared:
+        recurrence.validate_reference(reference)
+        recurrence.validate_comparison(simulations, reference["cases"], partial=partial)
+    else:
+        validate_unreferenced("recurrence", simulations, reference["cases"], partial=partial)
     indexed = simulation_index(simulations)
+    span = recurrence.ITERATIONS[1] - recurrence.ITERATIONS[0]
     rows = {}
     for case in reference["cases"]:
-        native = {key: case[key + "_cycles_per_update"] for key in ("p10", "median", "p90")}
+        if declared:
+            native = {key: case[key + "_cycles_per_update"] for key in ("p10", "median", "p90")}
+            measured = f'spread {case["relative_spread"]:.2%}; {case["quality"]}; '
+        else:
+            native = native_times(reference, case, profiles["head"]["configuration"]["freq"] / span / case["updates_per_iteration"]
+                                  if reference["native"] else 0)
+            measured = f'{reference["native"][case["id"]]["quality"]}; ' if native else ''
         model = {role: indexed[role][case["id"]]["cycles"] / indexed[role][case["id"]]["updates"]
                  for role in ("base", "head") if case["id"] in indexed[role]}
-        tooltip = (f'{case["id"]}: native P10/median/P90 {native["p10"]:.4f}/{native["median"]:.4f}/{native["p90"]:.4f} cycles/update; '
-                   f'spread {case["relative_spread"]:.2%}; {case["quality"]}; '
-                   f'base {prediction_text(model, "base", 4)}, head {prediction_text(model, "head", 4)} cycles/update')
+        tooltip = (f'{case["id"]}: ' + (f'native P10/median/P90 {native["p10"]:.4f}/{native["median"]:.4f}/{native["p90"]:.4f} cycles/update; '
+                                        if native else 'no native measurement; ') + measured
+                   + predictions_text(model, model_roles(reference, simulations), 4) + ' cycles/update')
         rows[case["id"]] = dict(case=case, native=native, model=model, tooltip=tooltip)
     if sorted(rows) != sorted(name for _, names, _ in RECURRENCE_GROUPS for name in names):
         raise ValueError("recurrence panel requires exactly the declared probes")
+    if not declared:
+        return unreferenced_recurrence(reference, simulations, rows, profiles)
     campaign, environment = reference["campaign"], reference["environment"]
     counted = "counter_cycles_per_cpu_second" in campaign
     graphs = ('<h3>Compare/select and memory-recurrence probes</h3>'
@@ -1532,26 +1745,7 @@ def recurrence_panels(reference, simulations, *, partial=False):
               + 'Simulated values are model cycles per update, so native and simulated points share one unit and no frequency is assumed. '
               'Hover a point for P10/median/P90, spread, quality and both simulator predictions. '
               'These probes are excluded from application accuracy statistics.</p><div class="charts">')
-    for title, names, labels in RECURRENCE_GROUPS:
-        series = []
-        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
-            values = [(i + 1, rows[name]["native"]["median"] if role == "native" else rows[name]["model"][role], rows[name]["tooltip"])
-                      for i, name in enumerate(names) if role == "native" or role in rows[name]["model"]]
-            series.append((role, values, color))
-        graphs += chart(title, series, "Probe", "cycles/update", scatter=True,
-                        x_ticks=[(i + 1, label) for i, label in enumerate(labels)])
-    graphs += ('</div><p>Pair latency: W and X are 32- and 64-bit register compares selecting the compared registers, '
-               'a adjacent, s with one instruction between, 8 and 4 the loop shifted by that many bytes (at 4 every fourth pair '
-               'straddles a 64-byte line). Operand forms, all 32-bit and adjacent except 15s: swap selects the compared registers '
-               'in the other order, dst writes a third register, other selects two registers that were not compared; '
-               '15r compares with immediate 15 and selects between the compared register and one other; 15a, 15s, 16a and shl '
-               'compare with an immediate (15, 15, 16, 1 LSL 12) and select two registers that were not compared; inc uses CSINC. '
-               'Mix is the independent compare/select/add/add stream. Store/load: same base register, a second base register '
-               'holding the same address, displacement 8, a 32-bit load of a 64-bit store, no memory dependency, FP; near, mid and far '
-               'reload 0, 4 and 8 instructions after the store; addr carries the recurrence through the load address. '
-               'Maximum: constant or changing stored value and the separated pair; t is one static pair per taken branch '
-               '(t same reloads into the register it stores); '
-               'k is the eleven-instruction Nussinov loop replica. P10/P90 are variability summaries, not confidence intervals.</p>')
+    graphs += recurrence_charts(rows, reference, simulations)
     table = (f'<details id="recurrence-table"><summary>Compare/select and memory-recurrence table · {len(rows)} probes</summary>'
              '<div class="table"><table><thead><tr><th>Probe</th><th>Native cycles/update</th><th>P10–P90</th><th>Spread / median</th>'
              '<th>Quality</th><th>Visits used / excluded</th><th>Base cycles/update</th><th>Head cycles/update</th>'
@@ -1569,25 +1763,67 @@ def recurrence_panels(reference, simulations, *, partial=False):
     return graphs, table
 
 
+def unreferenced_recurrence(reference, simulations, rows, profiles):
+    """The recurrence panel of a device without a declared reference of the suite."""
+    graphs = ('<h3>Compare/select and memory-recurrence probes</h3>' + native_note(reference)
+              + '<p>Simulated values are model cycles per update. '
+              + (f'A native time is converted to cycles at the head profile\'s clock, {profiles["head"]["configuration"]["freq"] / 1e9:g} GHz, '
+                 'which is an assumption about the measured core. ' if reference["native"] else '')
+              + 'Hover a point for its values. These probes are excluded from application accuracy statistics.</p><div class="charts">')
+    return graphs + recurrence_charts(rows, reference, simulations), unreferenced_table(
+        "recurrence", "Compare/select and memory-recurrence table", "cycles/update",
+        [(name, row["native"], reference["native"].get(name, {}).get("quality"), row["model"]) for name, row in rows.items()])
+
+
+def recurrence_charts(rows, reference, simulations):
+    """The recurrence charts and their legend, the same for every device."""
+    graphs = ''
+    for title, names, labels in RECURRENCE_GROUPS:
+        series = series_of([(i + 1, rows[name]["native"] and rows[name]["native"]["median"], rows[name]["model"], rows[name]["tooltip"])
+                            for i, name in enumerate(names)], model_roles(reference, simulations))
+        graphs += chart(title, series, "Probe", "cycles/update", scatter=True,
+                        x_ticks=[(i + 1, label) for i, label in enumerate(labels)], **pending_text(reference))
+    return graphs + ('</div><p>Pair latency: W and X are 32- and 64-bit register compares selecting the compared registers, '
+               'a adjacent, s with one instruction between, 8 and 4 the loop shifted by that many bytes (at 4 every fourth pair '
+               'straddles a 64-byte line). Operand forms, all 32-bit and adjacent except 15s: swap selects the compared registers '
+               'in the other order, dst writes a third register, other selects two registers that were not compared; '
+               '15r compares with immediate 15 and selects between the compared register and one other; 15a, 15s, 16a and shl '
+               'compare with an immediate (15, 15, 16, 1 LSL 12) and select two registers that were not compared; inc uses CSINC. '
+               'Mix is the independent compare/select/add/add stream. Store/load: same base register, a second base register '
+               'holding the same address, displacement 8, a 32-bit load of a 64-bit store, no memory dependency, FP; near, mid and far '
+               'reload 0, 4 and 8 instructions after the store; addr carries the recurrence through the load address. '
+               'Maximum: constant or changing stored value and the separated pair; t is one static pair per taken branch '
+               '(t same reloads into the register it stores); '
+               'k is the eleven-instruction Nussinov loop replica. P10/P90 are variability summaries, not confidence intervals.</p>')
+
+
 def capacity_panels(reference, simulations, profiles, *, partial=False):
     """Capacity controls and divider probes never enter application summaries."""
-    capacity.validate_reference(reference)
-    capacity.validate_comparison(simulations, reference["cases"], partial=partial)
+    declared = "unreferenced" not in reference
+    if declared:
+        capacity.validate_reference(reference)
+        capacity.validate_comparison(simulations, reference["cases"], partial=partial)
+    else:
+        validate_unreferenced("capacity", simulations, reference["cases"], partial=partial)
     indexed = simulation_index(simulations)
     frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
     if any(type(hz) not in (int, float) or not math.isfinite(hz) or hz <= 0 for hz in frequencies.values()):
         raise ValueError("invalid capacity model frequency")
+    span = capacity.ITERATIONS[1] - capacity.ITERATIONS[0]
     rows = []
     for index, case in enumerate(reference["cases"]):
-        native = {key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")}
+        native = ({key: case[key + "_seconds"] * 1e9 / case["iterations"] for key in ("p10", "median", "p90")} if declared
+                  else native_times(reference, case, 1e9 / span))
         modeled = {role: indexed[role][case["id"]]["cycles"] * 1e9 / (capacity.ITERATIONS[1] - capacity.ITERATIONS[0]) / frequencies[role] for role in ("base", "head") if case["id"] in indexed[role]}
-        spread = 100 * (native["p90"] - native["p10"]) / native["median"]
-        tip = f'{case["id"]}: native {native["median"]:.3f} ns/iteration; P10-P90 {native["p10"]:.3f}-{native["p90"]:.3f}; base {prediction_text(modeled, "base", 3)}, head {prediction_text(modeled, "head", 3)}'
+        spread = 100 * (native["p90"] - native["p10"]) / native["median"] if native else None
+        tip = (f'{case["id"]}: ' + (f'native {native["median"]:.3f} ns/iteration; P10-P90 {native["p10"]:.3f}-{native["p90"]:.3f}' if native else 'no native measurement')
+               + '; ' + predictions_text(modeled, model_roles(reference, simulations), 3))
         rows.append(dict(case=case, native=native, modeled=modeled, spread=spread, tooltip=tip))
     graphs = ('<h3>FP capacity and divider controls</h3><p>Two independent integer dependency gates surround independent FP destinations. '
               'Gate lengths, NOP fillers and ungated FP throughput distinguish rename pressure from ROB, dependency and execution-port limits. '
-              'Native ns are thread CPU-time differences; core and instantaneous frequency were unobserved. '
-              'Model ns use each profile’s assumed frequency to convert simulated cycles. '
+              + ('Native ns are thread CPU-time differences; core and instantaneous frequency were unobserved. '
+                 if declared or reference["native"] else '')
+              + 'Model ns use each profile’s assumed frequency to convert simulated cycles. '
               'The model FP destination cap is separate from its ROB capacity and is not a physical register-file size. '
               'Divider controls include trivial fixed points and normal reciprocal / sqrt(x+1) recurrences. '
               'All results remain separate from application accuracy statistics.</p><div class="charts">')
@@ -1599,15 +1835,20 @@ def capacity_panels(reference, simulations, profiles, *, partial=False):
             groups.append((op.upper() + (" normal operands" if normal else " trivial operand control"),
                            [r for r in rows if r["case"]["kind"] == op and ("normal" in r["case"]["id"]) == normal],
                            "Independent active lanes", "lanes"))
+    if not declared:
+        graphs = graphs.replace('</h3><p>', '</h3>' + native_note(reference) + '<p>', 1)
     for title, selected, xlabel, separator in groups:
         selected.sort(key=lambda r: int(r["case"]["id"].split(separator)[1]))
-        series = []
-        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
-            points = [(int(r["case"]["id"].split(separator)[1]),
-                       r["native"]["median"] if role == "native" else r["modeled"][role], r["tooltip"]) for r in selected if role == "native" or role in r["modeled"]]
-            series.append((role, points, color))
+        series = series_of([(int(r["case"]["id"].split(separator)[1]), r["native"] and r["native"]["median"], r["modeled"], r["tooltip"])
+                            for r in selected], model_roles(reference, simulations))
         graphs += chart(title, series, xlabel, "ns/iteration", scatter=True,
-                        x_ticks=[(n, str(n)) for n in (1, 4, 16)] if separator == "lanes" else None)
+                        x_ticks=[(n, str(n)) for n in (1, 4, 16)] if separator == "lanes" else None, **pending_text(reference))
+    if not declared:
+        # The paired boundary sweep is a native acquisition of its own; a device without one has no such chart.
+        return (graphs + '</div><p>The paired capacity boundary (ABBA) is a separate native acquisition. '
+                f'None exists for {esc(reference["hardware"])}, so that chart is not drawn here.</p>',
+                unreferenced_table("capacity", "FP capacity and divider table", "ns/iteration", [
+                    (r["case"]["id"], r["native"], reference["native"].get(r["case"]["id"], {}).get("quality"), r["modeled"]) for r in rows], 3))
     inference = capacity.infer_transition(reference["boundary"])
     boundary_series, boundary_ranges = [], []
     boundary_table = ('<details id="capacity-boundary-table"><summary>Paired capacity boundary · 34 rows</summary>'
@@ -1624,7 +1865,8 @@ def capacity_panels(reference, simulations, profiles, *, partial=False):
             tip = f'gate {gate}, {count} destinations: {row["median_ratio"]:.4f}; P10–P90 {row["p10_ratio"]:.4f}–{row["p90_ratio"]:.4f}; {quality}'
             points.append((count, row["median_ratio"], tip))
             boundary_ranges.append((count, row["p10_ratio"], row["p90_ratio"], color))
-            boundary_table += (f'<tr><td>{gate}</td><td>{count}</td><td>{row["median_ratio"]:.4f}</td>'
+            # A gate has 17 rows: a live update finds a row again by its case, not by its first cell.
+            boundary_table += (f'<tr data-row-key="{esc(row["id"])}"><td>{gate}</td><td>{count}</td><td>{row["median_ratio"]:.4f}</td>'
                                f'<td>{row["p10_ratio"]:.4f}–{row["p90_ratio"]:.4f}</td><td>{quality}</td></tr>')
         boundary_series.append((f"gate {gate}", points, color))
         inferred = inference[gate]
@@ -1653,8 +1895,12 @@ def capacity_panels(reference, simulations, profiles, *, partial=False):
 
 def memory_panels(reference, simulations, profiles, base_large_image_support, *, partial=False):
     """One canonical renderer for CI reports, live snapshots and diagnostic previews."""
-    memory.validate_reference(reference)
-    memory.validate_comparison(simulations, reference["cases"], base_large_image_support, partial=partial)
+    declared = "unreferenced" not in reference
+    if declared:
+        memory.validate_reference(reference)
+        memory.validate_comparison(simulations, reference["cases"], base_large_image_support, partial=partial)
+    else:
+        validate_unreferenced("memory", simulations, reference["cases"], partial=partial, base_large_image_support=base_large_image_support)
     indexed = simulation_index(simulations)
     frequencies = {role: profiles[role]["configuration"]["freq"] for role in ("base", "head")}
     if any(not memory.finite(hz) for hz in frequencies.values()):
@@ -1662,43 +1908,52 @@ def memory_panels(reference, simulations, profiles, base_large_image_support, *,
     rows = []
     for index, case in enumerate(reference["cases"]):
         chase = case["kind"] <= 5
-        native_seconds = {k: case[k + "_seconds"] / case["native_passes"] for k in ("p10", "median", "p90")}
+        # A native time of an unreferenced suite covers the simulated passes.
+        native_seconds = ({k: case[k + "_seconds"] / case["native_passes"] for k in ("p10", "median", "p90")} if declared
+                          else native_times(reference, case, 1 / case["passes"]))
         predicted = {role: indexed[role][case["id"]]["cycles"] / frequencies[role] / case["passes"]
                      for role in frequencies if case["id"] in indexed[role] and "cycles" in indexed[role][case["id"]]}
         def metric(seconds):
             return seconds * 1e9 / case["operations_per_pass"] if chase else case["effective_bytes_per_pass"] / seconds / 1e9
-        native = {k: metric(v) for k, v in native_seconds.items()}
+        native = {k: metric(v) for k, v in native_seconds.items()} if native_seconds else None
         modeled = {k: metric(v) for k, v in predicted.items()}
         unit = "ns/load" if chase else "GB/s"
         size = case["working_set_bytes"]
         label = f"{size // 1048576} MiB" if size >= 1048576 else f"{size // 1024} KiB"
-        low, high = sorted((native["p10"], native["p90"]))
+        low, high = sorted((native["p10"], native["p90"])) if native else (None, None)
+        quality = case["quality"] if declared else reference["native"].get(case["id"], {}).get("quality")
         tooltip = (f'{case["pattern"]} · {label} ({size:,} total resident bytes)\n'
-                   f'Native {native["median"]:.4f} {unit}; P10–P90 time-derived range {low:.4f}–{high:.4f} {unit}\n'
-                   f'Base {prediction_text(modeled, "base", missing="unsupported image capacity" if case["id"] in indexed["base"] else "pending")}; head {prediction_text(modeled, "head", 4)} {unit}\n'
-                   f'Native quality {case["quality"]}; paired-time spread {case["relative_spread"]:.2%}')
-        rows.append(dict(case=case, native=native, modeled=modeled, unit=unit, size_label=label, low=low, high=high, tooltip=tooltip))
-    usable = sum(row["case"]["quality"] == "usable" for row in rows)
+                   + (f'Native {native["median"]:.4f} {unit}; P10–P90 time-derived range {low:.4f}–{high:.4f} {unit}\n' if native
+                      else 'No native measurement\n')
+                   + (f'Base {prediction_text(modeled, "base", missing="unsupported image capacity" if case["id"] in indexed["base"] else "pending")}; head'
+                      if "base" in model_roles(reference, simulations) else 'Head')
+                   + f' {prediction_text(modeled, "head", 4)} {unit}'
+                   + (f'\nNative quality {case["quality"]}; paired-time spread {case["relative_spread"]:.2%}' if declared
+                      else f'\nNative quality {quality}' if native else ''))
+        rows.append(dict(case=case, native=native, modeled=modeled, unit=unit, size_label=label, low=low, high=high, tooltip=tooltip, quality=quality))
+    usable = sum(row["quality"] == "usable" for row in rows)
+    measured = declared or bool(reference["native"])
     graphs = ('<h3 id="memory-diagnostics">Memory latency, parallelism and bandwidth</h3>'
-              f'<p>{len(rows)} diagnostic points; {usable} usable native references. Single-core scalar assembly; '
-              'the same function instruction bytes run natively as Mach-O and in simulated ELF. '
-              'Each short and long execution follows initialization and two full warmup passes. '
-              'Native values use nine alternating long-minus-short thread CPU-time pairs. '
-              'Core identity and instantaneous frequency were unobserved. '
-              'The total working set stays fixed across chain counts; Copy includes both buffers. '
+              + ('' if declared else native_note(reference))
+              + f'<p>{len(rows)} diagnostic points' + (f'; {usable} usable native references' if measured else '')
+              + '. Single-core scalar assembly; '
+              + ('the same function instruction bytes run natively as Mach-O and in simulated ELF. '
+                 'Each short and long execution follows initialization and two full warmup passes. '
+                 'Native values use nine alternating long-minus-short thread CPU-time pairs. '
+                 'Core identity and instantaneous frequency were unobserved. ' if declared else
+                 'each short and long execution follows initialization and two full warmup passes. ')
+              + 'The total working set stays fixed across chain counts; Copy includes both buffers. '
               'These points do not enter application accuracy statistics.</p>'
               '<p>One random chain measures dependent-load loop latency; multiple chains show aggregate time per load, '
               'not individual access latency. Streaming plots show effective scalar bytes/s, not cache-line or DRAM-bus traffic '
               'and not peak vector bandwidth. Sizes describe working sets, not verified physical cache levels. '
-              'Noisy native points remain visible and are identified in every tooltip. '
-              'Vertical ranges show native P10–P90 repeat variability, not confidence intervals or seed sensitivity. '
-              'Base points absent because of image capacity are explicitly marked in the table.</p><div class="charts">')
+              + ('Noisy native points remain visible and are identified in every tooltip. '
+                 'Vertical ranges show native P10–P90 repeat variability, not confidence intervals or seed sensitivity. ' if measured else '')
+              + 'Base points absent because of image capacity are explicitly marked in the table.</p><div class="charts">')
     for pattern in memory.PATTERNS:
         selected = [r for r in rows if r["case"]["pattern"] == pattern["id"]]
-        series = []
-        for role, color in (("native", "#9a6a17"), ("base", "#71838d"), ("head", "#087e8b")):
-            points = [(math.log2(r["case"]["working_set_bytes"]), r["native"]["median"] if role == "native" else r["modeled"][role], r["tooltip"]) for r in selected if role == 'native' or role in r['modeled']]
-            series.append((role, points, color))
+        series = series_of([(math.log2(r["case"]["working_set_bytes"]), r["native"] and r["native"]["median"], r["modeled"], r["tooltip"])
+                            for r in selected], model_roles(reference, simulations))
         # Anchor the full logarithmic range rather than indexing into a matrix
         # whose transition samples may become denser over time.
         tick_sizes = {selected[0]['case']['working_set_bytes'], selected[-1]['case']['working_set_bytes'],
@@ -1707,9 +1962,24 @@ def memory_panels(reference, simulations, profiles, base_large_image_support, *,
                  if r['case']['working_set_bytes'] in tick_sizes]
         title = (f'Random pointer chase · {pattern["chains"]} chain' + ('' if pattern['chains'] == 1 else 's')) if pattern['kind'] <= 5 else f'Sequential {pattern["id"].title()}'
         ylabel = ('Dependent ns/load' if pattern['kind'] == 1 else 'Aggregate ns/load') if pattern['kind'] <= 5 else 'Effective GB/s'
-        ranges = [(math.log2(r['case']['working_set_bytes']), r['low'], r['high'], '#9a6a17') for r in selected]
-        graphs += chart(title, series, 'Total working set (log₂ spacing)', ylabel, x_ticks=ticks, y_ranges=ranges)
+        ranges = [(math.log2(r['case']['working_set_bytes']), r['low'], r['high'], '#9a6a17') for r in selected if r['native']]
+        graphs += chart(title, series, 'Total working set (log₂ spacing)', ylabel, x_ticks=ticks, y_ranges=ranges, **pending_text(reference))
     graphs += '</div>'
+    if not declared and not reference["native"]:
+        return graphs, ""  # predictions are in the charts and counters in the simulated-counters table; no native column is left empty
+    if not declared:
+        table = (f'<details id="memory-diagnostics-table"><summary>Memory diagnostics table · {len(rows)} points</summary>'
+                 '<div class="table"><table><thead><tr><th>Pattern</th><th>Total working set</th><th>Unit</th><th>Native</th>'
+                 '<th>P10–P90 time-derived range</th><th>Base</th><th>Head</th><th>Native quality</th></tr></thead><tbody>')
+        for row in rows:
+            c, n, m = row['case'], row['native'], row['modeled']
+            table += (f'<tr data-row-key="{esc(c["id"])}"><td>{esc(c["pattern"])}</td><td>{esc(row["size_label"])}</td><td>{row["unit"]}</td>'
+                      + (f'<td>{n["median"]:.4f}</td><td>{row["low"]:.4f}–{row["high"]:.4f}</td>' if n else '<td>—</td><td>—</td>')
+                      + f'<td>{prediction_text(m, "base", missing="Unsupported image capacity" if c["id"] in indexed["base"] else "pending")}</td>'
+                      f'<td>{prediction_text(m, "head", 4)}</td><td>{esc(row["quality"]) if n else "not measured"}</td></tr>')
+        return graphs, table + ('</tbody></table></div><p>Simulation differences cover complete passes with exact instruction counts and '
+                                'checked outputs. A native value is the device\'s own measurement of the same passes; where there is '
+                                'none, nothing is compared with hardware.</p></details>')
     table = (f'<details id="memory-diagnostics-table"><summary>Memory diagnostics table · {len(rows)} points</summary>'
              '<div class="table"><table><thead><tr><th>Pattern</th><th>Total working set</th><th>Unit</th><th>Native</th>'
              '<th>P10–P90 time-derived range</th><th>Base</th><th>Head</th><th>Quality</th><th>Time spread</th></tr></thead><tbody>')
@@ -2003,7 +2273,8 @@ def live_progress(live, totals=None):
     if live["completed_cases"] == live["required_cases"] and completed < required:
         body += "Whole-program cases complete; diagnostics remain. "
     if validated:
-        body += "Complete validated bundle."
+        # What was validated, where it is not a retained bundle.
+        body += live.get("validated_note", "Complete validated bundle.")
     if live.get("updated_at"):
         body += ' Updated ' + esc(live["updated_at"]) + "."
     body += "</p>"
@@ -2071,6 +2342,46 @@ def detail(report, entry, preview=False, **references):
             + body + f'<span hidden data-report-end="{identity}"></span></div>')
     refresh = LIVE_REFRESH if state == 'polling' else ''
     return page("Poros accuracy · " + entry["commit"][:12], body, POINT_TIPS + refresh)
+
+
+def diagnostic_sections(report, references, frontend=None, profiles=None):
+    """The diagnostic suites of one device: each suite's progress and panel,
+    then the tables, in the one order every device's report has them.
+
+    references gives each suite what its panel draws from: the device's
+    declared native reference, or the suite's own cases for a device that
+    declares none (unreferenced). report carries the simulated rows and
+    profiles the clocks (read from the report when not given). Every device,
+    in every report, comes through here, so a device selects data and never a
+    layout. Throughput is a table for every device: it has no axis to draw."""
+    partial = report["artifact_status"] == "partial"
+    if profiles is None and any(references.get(name) is not None for name in ("memory", "scheduling", "capacity", "forwarding", "recurrence")):
+        profiles = model_profiles.validate(report)
+    body, tables = "", {}
+    if references.get("memory") is not None:
+        charts, tables["memory"] = memory_panels(references["memory"], report.get("memory_simulation"), profiles,
+                                                 report.get("memory_base_large_image_support"), partial=partial)
+        body += diagnostic_progress(report, "memory", references["memory"]) + charts
+    for name, panels in (("scheduling", scheduling_panels), ("capacity", capacity_panels),
+                         ("forwarding", forwarding_panels), ("recurrence", recurrence_panels)):
+        if references.get(name):
+            charts, tables[name] = panels(references[name], report.get(name + "_simulation"), profiles, partial=partial)
+            body += diagnostic_progress(report, name, references[name]) + charts
+    if references.get("throughput"):
+        body += diagnostic_progress(report, "throughput", references["throughput"])
+        body += (f'<details id="throughput-table"><summary>Instruction throughput table · {len(references["throughput"]["cases"])} probes</summary>'
+                 + throughput_table(references["throughput"], report.get("throughput_simulation"), partial=partial) + '</details>')
+    elif frontend:
+        body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
+                 + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
+    body += "".join(tables.get(name, "") for name in ("memory", "scheduling", "forwarding", "recurrence", "capacity"))
+    # The raw counters behind the predictions of a suite the device declares no reference for.
+    for name in DIAGNOSTIC_SUITES:
+        if references.get(name) is not None and "unreferenced" in references[name]:
+            simulations = report.get(name + "_simulation", [] if name == "throughput" else {"base": [], "head": []})
+            body += simulated_counters_table(name, references[name]["cases"], {"head": simulations} if name == "throughput" else simulations,
+                                             [role for role in ("base", "head") if role in diagnostic_roles(report, name)])
+    return body
 
 
 def detail_body(report, entry, preview=False, frontend=None, throughput_reference=None, live=None, forwarding_reference=None, scheduling_reference=None, memory_reference=None, capacity_reference=None, recurrence_reference=None, embedded=False):
@@ -2158,45 +2469,17 @@ def detail_body(report, entry, preview=False, frontend=None, throughput_referenc
     elif full_inventory:
         accesses = next(g["iterations"] for g in report_manifest(report)["workloads"] if g["id"] == "memory")
         body += f"<p>Memory x axis uses log₂ spacing with actual byte-size labels; times are untransformed. Memory: {accesses:,} accesses per point, plus initialization of the declared working set. Cache-boundary positions describe the configured model, not validated hardware capacities.</p>"
-    memory_table = ""
-    if memory_reference is not None:
-        memory_charts, memory_table = memory_panels(memory_reference, report.get("memory_simulation"), model_profiles.validate(report), report.get("memory_base_large_image_support"), partial=report["artifact_status"] == "partial")
-        body += diagnostic_progress(report, "memory", memory_reference) + memory_charts
-    elif full_inventory and memory.declared(report.get("head", {}).get("files", {})) and devices.measured(report, "memory"):
-        raise ValueError("memory reference required by tested source")
-    scheduling_table = ""
-    if scheduling_reference:
-        scheduling_charts, scheduling_table = scheduling_panels(
-            scheduling_reference, report.get("scheduling_simulation"), model_profiles.validate(report), partial=report["artifact_status"] == "partial")
-        body += diagnostic_progress(report, "scheduling", scheduling_reference) + scheduling_charts
-    capacity_table = ""
-    if capacity_reference:
-        capacity_charts, capacity_table = capacity_panels(capacity_reference, report.get("capacity_simulation"), model_profiles.validate(report), partial=report["artifact_status"] == "partial")
-        body += diagnostic_progress(report, "capacity", capacity_reference) + capacity_charts
-    forwarding_table = ""
-    if forwarding_reference:
-        forwarding_charts, forwarding_table = forwarding_panels(
-            forwarding_reference, report.get("forwarding_simulation"), model_profiles.validate(report), partial=report["artifact_status"] == "partial")
-        body += diagnostic_progress(report, "forwarding", forwarding_reference) + forwarding_charts
-    recurrence_table = ""
-    if recurrence_reference:
-        recurrence_charts, recurrence_table = recurrence_panels(
-            recurrence_reference, report.get("recurrence_simulation"), partial=report["artifact_status"] == "partial")
-        body += diagnostic_progress(report, "recurrence", recurrence_reference) + recurrence_charts
-    if throughput_reference:
-        body += diagnostic_progress(report, "throughput", throughput_reference)
-        body += (f'<details id="throughput-table"><summary>Instruction throughput table · {len(throughput_reference["cases"])} probes</summary>'
-                 + throughput_table(throughput_reference, report.get("throughput_simulation"), partial=report["artifact_status"] == "partial") + '</details>')
-    elif frontend:
-        body += (f'<details id="frontend-table"><summary>Frontend throughput table · {len(frontend["loops"])} probes</summary>'
-                 + frontend_table(frontend, report.get("frontend_simulation")) + '</details>')
-    body += memory_table + scheduling_table + forwarding_table + recurrence_table + capacity_table
+    # Suites run for every device and every device goes through the same
+    # panels. A suite the device declares no reference for is given its cases
+    # alone: the panels then draw the predictions and say nothing is measured.
+    references = dict(memory=memory_reference, scheduling=scheduling_reference, capacity=capacity_reference,
+                      forwarding=forwarding_reference, recurrence=recurrence_reference, throughput=throughput_reference)
     if full_inventory and report.get("schema") == 4:
-        # Suites run for every device. Without a native reference of the
-        # device's own there are only simulated counters to show.
-        for name in declared_diagnostics(report):
-            if not devices.measured(report, name):
-                body += diagnostic_progress(report, name) + unmeasured_diagnostic_table(report, name)
+        references.update({name: unreferenced(devices.entry(report)["hardware"], definition_cases(report, name))
+                           for name in declared_diagnostics(report) if not devices.measured(report, name)})
+    if references["memory"] is None and full_inventory and memory.declared(report.get("head", {}).get("files", {})) and devices.measured(report, "memory"):
+        raise ValueError("memory reference required by tested source")
+    body += diagnostic_sections(report, references, frontend)
     body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
              + timing_table(micros, micro_ids, referenced) + '</details></section>')
     replacement = report.get("reference", {}).get("streamcluster_replacement")
@@ -2712,20 +2995,34 @@ def embed(body, device):
 VIEW_SCRIPT = """<script>
 (() => {
   // Navigation is plain fragment links; this only tells assistive technology which view is shown.
-  const links = [...document.querySelectorAll('nav.views a')];
   function mark() {
     let target = null;
     try { target = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null; } catch (_) {}
     const view = (target && target.closest('.view')) || document.getElementById('overview');
-    for (const link of links) {
+    // A live update replaces the navigation, so the links are looked up each time.
+    for (const link of document.querySelectorAll('nav.views a')) {
       if (link.getAttribute('href') === '#' + view.id) link.setAttribute('aria-current', 'true');
       else link.removeAttribute('aria-current');
     }
   }
   addEventListener('hashchange', mark);
+  document.addEventListener('report-updated', mark);
   mark();
 })();
 </script>"""
+
+
+def view_style(names):
+    """The style that shows one view of a report at a time: the view the
+    address names, or the first (the overview) when it names none. names are
+    the views' element names, the overview first."""
+    selected = '.report:has(.view:target,.view :target)'
+    return ('<style>@supports selector(:has(*)){'
+            + selected + '>.view:not(:target):not(:has(:target)){display:none}'
+            '.report:not(:has(.view:target,.view :target))>.view:not(#overview){display:none}'
+            + ','.join(['.report:not(:has(.view:target,.view :target)) .views a[href="#overview"]']
+                       + [f'.report:has(#{name}:target,#{name} :target) .views a[href="#{name}"]' for name in names])
+            + '{background:#18343e;color:white;border-color:#18343e}}</style>')
 
 
 def commit_evaluation(evaluation):
@@ -2759,19 +3056,16 @@ def commit_report(commit, record, views, *, releases=(), live=False, retained=Tr
     A view is a section reached by a fragment link, so the address names the
     view, and back, forward and a copied link all return to it. Where the
     browser supports it only the addressed view is shown; otherwise the views
-    simply follow each other. Nothing depends on scripts."""
+    simply follow each other. Nothing depends on scripts.
+
+    A live report is updated in place while a campaign of it is running, by
+    the same script as one device's live report: the view, open tables, scroll
+    position, focus and tip stay as they are. Once nothing is running the
+    document is settled and makes no further request."""
     overview, summary, pooled = commit_overview(record, views, retained=retained)
     if evaluation is not None:
         overview = commit_evaluation(evaluation) + overview
-    selected = '.report:has(.view:target,.view :target)'
-    style = ('<style>@supports selector(:has(*)){'
-             + selected + '>.view:not(:target):not(:has(:target)){display:none}'
-             '.report:not(:has(.view:target,.view :target))>.view:not(#overview){display:none}'
-             + ','.join(['.report:not(:has(.view:target,.view :target)) .views a[href="#overview"]']
-                        + [f'.report:has(#{name}:target,#{name} :target) .views a[href="#{name}"]'
-                           for name in ["overview", *("device-" + view["id"] for view in views)]])
-             + '{background:#18343e;color:white;border-color:#18343e}}</style>')
-    body = (style + '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
+    body = (view_style(["overview", *("device-" + view["id"] for view in views)]) + '<header><div class="eyebrow">Poros / Accuracy evidence</div><h1>Whole-program user time</h1><p class="muted"><code>'
             + esc(commit) + '</code></p>'
             + ('<p>Live commit view · Not a published result</p>' if live else '<p><a href="../../index.html">← Report history</a></p>')
             + (('<p>Pinned by release: ' + esc(', '.join(release["tag"] for release in releases)) + '</p>') if releases else '')
@@ -2782,6 +3076,7 @@ def commit_report(commit, record, views, *, releases=(), live=False, retained=Tr
              + overview
              + ('<p class="downloads"><a href="commit.json">Commit record: declaration, device bundles and digests</a></p>' if retained else '')
              + '</section>')
+    identities = {}
     for view in views:
         declared = view["declared"]
         name = declared["hardware"] if declared is not None and declared["hardware"] else "device"
@@ -2796,12 +3091,28 @@ def commit_report(commit, record, views, *, releases=(), live=False, retained=Tr
             if view["state"] == VALIDATION_PENDING:
                 body += ('<p class="notice">This campaign has finished, and its final bundle has not been validated here. '
                          'The rows below are its validated snapshot; it is not a report until that bundle passes.</p>')
-            inner, _, _ = detail_body(view["report"], view["entry"], embedded=True, live=view.get("live"), **view["references"])
+            inner, identities[view["id"]], _ = detail_body(view["report"], view["entry"], embedded=True, live=view.get("live"), **view["references"])
             body += embed(inner, view["id"])
         body += '</section>'
-    # A live view is re-read while any device is still running. The address keeps its fragment.
-    reload = '<script>setTimeout(() => location.reload(), 15000);</script>' if live and any(view["state"] == "running" for view in views) else ''
-    return page("Poros accuracy · " + commit[:12], body + '</div>', POINT_TIPS + VIEW_SCRIPT + reload), summary, pooled
+    body += '</div>'
+    if not live:
+        return page("Poros accuracy · " + commit[:12], body, POINT_TIPS + VIEW_SCRIPT), summary, pooled
+    return live_document("Poros accuracy · " + commit[:12], body, dict(commit=commit, devices=identities),
+                         any(view["state"] == "running" for view in views), VIEW_SCRIPT), summary, pooled
+
+
+def live_document(title, body, identity, running, scripts=""):
+    """A page that is updated in place while running and is final once it is not.
+
+    identity names the campaigns shown; a document of any other identity is
+    never taken over this one. A running document polls and patches itself
+    (LIVE_REFRESH). A settled one carries no polling script at all, so a
+    finished report makes no further request."""
+    identity = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    state = 'polling' if running else 'settled'
+    body = (f'<div id="accuracy-report" data-report-identity="{identity}" data-live-state="{state}">'
+            + body + f'<span hidden data-report-end="{identity}"></span></div>')
+    return page(title, body, POINT_TIPS + scripts + (LIVE_REFRESH if running else ''))
 
 
 def archived_views(site, entry, bundles):

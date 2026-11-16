@@ -24,9 +24,16 @@ const strideSkip = 4
 // A second miss within the stride limit of a stream's first sets its step. A
 // miss a few whole steps past the last one continues the stream, and from
 // PrefetchTrainMisses consistent misses on it prefetches up to PrefetchDegree
-// L2 lines, one step apart, no farther than PrefetchDistance steps ahead and,
-// with a nonzero PrefetchPageBytes, only within that page of the miss. Like
-// the sequential table, this one changes in dispatch order.
+// L2 lines, one step apart, no farther than PrefetchDistance steps ahead, no
+// farther than the stride limit in bytes ahead and, with a nonzero
+// PrefetchPageBytes, only within that page of the miss. Like the sequential
+// table, this one changes in dispatch order.
+//
+// The byte bound matters because a step is the distance between two misses,
+// not between two accesses: a walk whose lines are mostly in L1 misses only
+// every few accesses, and its step is that many strides. Counted in steps
+// alone, the lookahead of such a walk was many times the walk itself, and
+// short walks restarted for every column filled L2 with lines beyond them.
 //
 // Limitation: the frontier is a signed 64-bit address, so a walk at or above
 // 1<<63 is followed and never prefetched. User programs are loaded below
@@ -83,13 +90,14 @@ func (c *Cache) followStride(addr uint64, now uint64) bool {
 		c.stats.StreamsTrained++
 	}
 	for issued := 0; issued < max(c.cfg.PrefetchDegree, 1); issued++ {
-		if s.frontier < 0 || (s.frontier-int64(addr))/s.step > int64(c.cfg.PrefetchDistance) {
+		ahead := s.frontier - int64(addr)
+		if s.frontier < 0 || ahead/s.step > int64(c.cfg.PrefetchDistance) || ahead > limit || ahead < -limit {
 			break
 		}
 		if page := c.cfg.PrefetchPageBytes; page > 0 && uint64(s.frontier)/uint64(page) != addr/uint64(page) {
 			break // page bounded, as the sequential frontier is: the next page starts with its own miss
 		}
-		if c.l2.peek(uint64(s.frontier)) == nil {
+		if c.l2.peek(uint64(s.frontier)) == nil && c.notYetEvicted(uint64(s.frontier), now) == nil {
 			c.fetchL2(uint64(s.frontier), now, true)
 			c.stats.Prefetches++
 		}
