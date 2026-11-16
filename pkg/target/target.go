@@ -39,12 +39,14 @@ type Target struct {
 // configuration; it may start from another target's and replace any part.
 var builders = []func() Target{M2, M1, Grace, M5Max}
 
-// M2 is the calibrated Apple M2 performance-core configuration, the defaults of
-// the pipeline and cache packages.
+// M2 is the calibrated Apple M2 performance-core configuration, including the effective
+// limit on integer multiplies waiting to issue from the counted capacity probe.
 func M2() Target {
+	core := ooo.DefaultSpec()
+	core.MultiplyIssueQueue = 38
 	return Target{
 		Identity: Identity{Name: "m2", Hardware: "Apple M2", ParameterSource: "m2"},
-		OoO:      ooo.DefaultSpec(),
+		OoO:      core,
 		InOrder:  inorder.DefaultSpec(),
 		Cache:    mem.DefaultCacheConfig(),
 	}
@@ -52,6 +54,7 @@ func M2() Target {
 
 // M1 is the Apple M1 performance core: the M2 configuration with the
 // differences M1 measurements establish (evaluation/model-profile.md):
+//   - a bound of 43 waiting integer multiplies from the same capacity probe;
 //   - its clock, inferred from one-cycle dependency chains on the M1 host and
 //     consistent with counted user cycles;
 //   - fetch groups that continue across one correctly predicted taken branch,
@@ -74,6 +77,7 @@ func M2() Target {
 func M1() Target {
 	t := M2().as("m1", "Apple M1")
 	t.ParameterSource = "m1"
+	t.OoO.MultiplyIssueQueue = 43
 	t.OoO.FetchTakenBranches = 1
 	t.OoO.StoreDependencePrediction = true
 	t.OoO.StoreQueueInOrder = true
@@ -129,6 +133,7 @@ func Grace() Target {
 	t.OoO.NumLDST, t.OoO.NumLoad, t.OoO.NumStore = 3, 3, 2
 	t.OoO.StoreForwardLatency = 6
 	t.OoO.FPIssueQueue = 36
+	t.OoO.MultiplyIssueQueue = 0 // The Apple capacity probes do not cover Grace.
 	t.OoO.BranchPenalty = 11
 	t.Cache.L1Size, t.Cache.L1Ways, t.Cache.L1Latency = 64<<10, 4, 4
 	t.Cache.L2Size, t.Cache.L2Ways, t.Cache.L2LineSize = 1<<20, 8, 64

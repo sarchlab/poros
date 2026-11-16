@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/sarchlab/poros/internal/benchmarks"
-	"github.com/sarchlab/poros/pkg/cpu/inorder"
 	"github.com/sarchlab/poros/pkg/cpu/ooo"
 	"github.com/sarchlab/poros/pkg/linuxuser"
 	"github.com/sarchlab/poros/pkg/target"
@@ -127,12 +126,13 @@ func TestEmptyTargetIsM2(t *testing.T) {
 		if !reflect.DeepEqual(implicit, explicit) || implicit.Timing.Target.Name != "m2" {
 			t.Fatalf("%s: default target differs from m2", model)
 		}
-		var defaults any = ooo.DefaultSpec()
+		device := target.M2()
+		var defaults any = device.OoO
 		if model == "inorder" {
-			defaults = inorder.DefaultSpec()
+			defaults = device.InOrder
 		}
 		if !reflect.DeepEqual(implicit.Timing.Configuration, defaults) {
-			t.Fatalf("%s: default target no longer uses the package defaults", model)
+			t.Fatalf("%s: default target differs from the M2 configuration", model)
 		}
 	}
 }

@@ -2,7 +2,7 @@
 
 `model-profile.json` declares the default OoO timing configuration used by the
 accuracy harness. The Go test `TestDeclaredModelProfileMatchesRuntimeDefaults`
-checks it against the actual CPU and cache defaults. Keep the declaration in
+checks it against the CPU and cache selected by default for ELF execution. Keep the declaration in
 canonical JSON (sorted keys, two-space indentation, final newline).
 
 This is the Apple M2 profile, the simulator's `m2` target. A
@@ -13,18 +13,23 @@ A device with parameters of its own declares them in
 `model-profile-<device>.json`: `m1` (see [Apple M1 profile](#apple-m1-profile))
 and `grace` (see [NVIDIA Grace profile](#nvidia-grace-profile)).
 
+The Apple OoO profiles bound integer multiplies waiting between dispatch and
+issue. The candidate limits are 38 for M2 and 43 for M1. They come from a
+capacity probe with two dependent multiply chains. At 64 FP fillers, the model
+predicts 276 cycles per iteration on M2 and 261 on M1, against 270.28 and
+257.01 counted on hardware. These are effective scheduling limits. The probe
+cannot identify a physical queue or determine its size. Grace and the generic
+`ooo.DefaultSpec()` use zero (unlimited). M5 Max inherits the M2 parameters.
+The application controls and remaining uncertainties are recorded in
+[Residual accuracy, round 2](residual-accuracy-round2.md).
+
 ## Apple M1 profile
 
-`model-profile-m1.json` is the `m1` target: the M2 profile with seven
-differences. Four are established by measurements on the M1 Linux host used
-for the m1-7031aa3 campaign; the last three implement a store rule fitted to
-probe timings on that host, which is an interpretation of them and not a
-measured structure. `TestM1DiffersFromM2OnlyInMeasuredParameters` keeps
-every other core, in-order and cache parameter equal to M2's. The three new
-core fields and the new cache field are zero in the M2 profile and are omitted
-from its declaration, so M2 timing and its declared configuration are
-unchanged.
+`model-profile-m1.json` is the `m1` target. Its differences from M2 are
+listed below. `TestM1DiffersFromM2OnlyInMeasuredParameters` checks every other
+core, in-order and cache parameter against M2.
 
+- `multiply_issue_queue` 43, from the counted capacity probe described above.
 - `freq` 3,203,500,000 Hz: one-cycle ADD and three-cycle FADD chains on the M1
   host give 3.2028 to 3.2037 GHz, and counted user cycles of the integer
   control match the model's cycles (48.0 M). The whole-program workload

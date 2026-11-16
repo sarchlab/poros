@@ -1,11 +1,13 @@
 # Residual accuracy, round 2
 
-Status: **no target or profile is changed, no prediction changes, and no
-physical mechanism is established.** One pipeline parameter was added, off
-by default and off in every target (a bound on multiplies that wait to
-issue); one candidate that uses it is under test and has not been run
-(section 5). Two candidate causes
-were examined and neither can be taken as it stands. M2's own probes show
+The M1 and M2 target profiles now bound the number of integer multiplies
+waiting to issue at **43 and 38**, respectively. With the existing 256-entry
+reorder window and 360 FP physical registers, the 64-filler capacity probe
+agrees within 3% on each core. Three selected application
+controls kept their baseline cycles. A full three-device comparison is pending.
+The larger M1 window tested alongside this change raised fdtd2d-1 error from
+42.17% to 46.46% and failed its predeclared acceptance rule (section 5).
+M2's own probes show
 it fetching across a taken branch where its profile does not; what that rule
 alone would do to the M2 applications was not run. A larger reorder window
 was run at three bracket sizes. At 512, on eight measured M1 inputs, it
@@ -15,13 +17,14 @@ from 0.801 to 0.743 of its reference; at 630 it takes M2 doitgen-1 to 64%.
 No size for it is accepted. Counted cycles on both cores then showed that
 neither stops at 256 instructions, and that work which waits bounds the
 overlap of the probe's multiply chains on both and of doitgen's chains on
-M2, a kind of bound the model does not have. What was measured, what the
+M2. The source of the latter limit remains unresolved. What was measured, what the
 runs showed and what is missing is below.
 
 Evidence is labelled **retained** (the certified `b6de5ca` comparison and the
 committed native references; nothing rerun), **run** (one local run of this
-work each, 40 in all), **remote run** (one run each by the coordinator, eight
-in all, each audited by it), **counted** (four native captures of user-mode
+work each, 40 in all), **remote run** (one run each by the coordinator,
+eight at window 512, twelve for the combined candidate and four for the
+subsequent queue-only test, all audited), **counted** (four native captures of user-mode
 cycles made for this work, section 5), **reading** (arithmetic on retained
 or counted numbers) or
 **hypothesis** (an explanation that the available evidence does not test).
@@ -327,7 +330,7 @@ targets the same values within half a cycle:
 - **Below the rise the gates overlap only in part.** Both cores sit at six
   cycles per multiply of one gate less a constant, 127.0 cycles on M1 and
   113.7 on M2, at both gate lengths: the second gate starts when 42.7 (M1)
-  or 38.2 (M2) multiplies of the first are still waiting. The model overlaps
+  or 38.2 (M2) multiplies of the first are still waiting. The certified baseline overlaps
   the gates completely there and is 14 to 37% fast up to 192 fillers. From
   about 160 FP destinations, or 300 NOPs, the level rises by about 0.14
   cycles per destination and 0.07 per NOP on both cores.
@@ -363,15 +366,44 @@ What follows for the model:
   both cores. 256 stands in for limits on waiting work that the model does
   not have, which is why a larger window alone corrects M1's over-predicted
   FP kernels and breaks M2 doitgen (section 2).
-- **Under test, in no target or profile.** For M1: a window of 416 and 384
-  FP destinations, the two lower bounds above, with a bound of 43 on
-  multiplies that wait between dispatch and issue; for M2 that bound alone,
-  at 38. The multiply bound is a new pipeline parameter, off by default and
-  off in every target, so no prediction changes with it. The values come
-  from the capacity rows and from no application. Twelve small runs are
-  requested to see whether the model then follows the M1 rows on both sides
-  of the rise and leaves M1 doitgen-1, fdtd2d-1 and M2 doitgen-1 where they
-  are; none has been made.
+- **A candidate was tested and rejected (remote run).** For M1: a window of
+  416 and 384 FP destinations, the two lower bounds above, with a bound of
+  43 on multiplies that wait between dispatch and issue; for M2 that bound
+  alone, at 38. The values came from the capacity rows and from no
+  application, and the rule for rejecting them was fixed before the twelve
+  runs. The other parameters in the M1 combination changed alongside the
+  multiply bound, so its effect required a separate test.
+
+  | Run | Certified model | Candidate | Counted or rule |
+  |---|---:|---:|---:|
+  | M1 capacity, 64 FP destinations | 194.0 | 261.0 | 257.0 |
+  | M1 capacity, 384 | 401.0 | 301.0 | 287.8 |
+  | M1 capacity, 416 | 405.0 | 389.0 | 402.3 |
+  | M2 capacity, 64 (bound only) | 194.0 | 276.0 | 270.3 |
+  | M1 doitgen-1, cycles | 42,086,698 | 42,048,233 | within 0.5%: kept |
+  | **M1 fdtd2d-1, cycles** | 40,652,073 | **39,461,037** | **at least 39,676,000: failed** |
+  | M1 ludcmp-1, cycles | 44,838,580 | 42,678,971 | reported |
+  | M2 doitgen-1, cycles (bound only) | 24,142,751 | 24,142,751 | equal: kept |
+
+  The model follows the counted rows on both sides of the rise, within 1.6
+  to 4.6%, so the values reproduce these rows. But the window part
+  again takes time off the two M1 kernels that are already too fast:
+  fdtd2d-1 loses 2.9% (error 42.17% to 46.46%) and ludcmp-1 4.8% (7.65% to
+  13.09%). By the rule the combination is rejected; 416 and 384 are not
+  adjusted to pass. The M1 window stays 256 until what slows fdtd2d and
+  ludcmp on the M1 is in the model.
+- **The multiply bound alone (remote run).** Four M1 runs held the window
+  at 256 and FP registers at 360 and set only the queue bound to 43. At 1,024
+  and 2,048 iterations, the capacity probe took exactly the same 268,664 and
+  535,928 cycles as the combined candidate, or 261 cycles per iteration
+  against 257.01 counted. M1 fdtd2d-1 and doitgen-1 took 40,652,073 and
+  42,086,698 cycles, exactly their certified baseline counts. Their existing
+  underpredictions therefore kept their depth. On M2 the preceding experiment
+  already used the queue bound of 38 alone, with the same source and binary.
+  Its capacity result (276 versus 270.28 counted) and baseline-matching
+  doitgen-1 result (24,142,751 cycles) are reused here. These exploratory
+  results motivate the target values. The full application distribution still
+  requires measurement with the target builders.
 - Nothing is proposed for M2's window: a value for the waiting-work bound
   that M2 doitgen shows would rest on one loop.
 - fdtd2d and vips (section 4) stream through arrays far larger than L1;
@@ -379,21 +411,30 @@ What follows for the model:
 
 ## Limits
 
-- No physical mechanism is established by this work, and no parameter value
-  is adopted. 370, 512 and 630 are bracket points of a sensitivity; the
-  values under test in section 5 are lower bounds read from one probe; what
+- The queue counts are effective parameters inferred from probe timing.
+  The probe does not establish a physical queue size. The window settings
+  of 370, 512 and 630 bracket a sensitivity, and the larger M1 window and
+  FP register counts in section 5 came from probe lower bounds; what
   waits in M2's chains and the reference clock are hypotheses. A transition
   of a probe is not taken for a structure.
-- No change described here is shown to be safe: the window that was run
-  breaks the 50% limit on M2 and brings fdtd2d-6 to 0.65 points from it on
-  M1; the candidate of section 5 and the fetch rule were not run.
+- The full-suite effects of the queue bounds are unknown. Both larger M1 windows at
+  which they were run take time off fdtd2d and ludcmp (416: the first
+  inputs; 512: the sixth, where it also corrects the over-predicted FP
+  kernels and brings fdtd2d-6 to 0.65 points from the 50% limit); 630
+  breaks the limit on M2 doitgen. The fetch rule was not run.
 - The counted captures were made once, on one core of one machine of each
-  kind. The model figures set beside them are retained records; the
-  candidate's are hand readings of the dispatch rules, not runs.
-- The multiply bound is exercised by the capacity probe and by no
-  application known here. The model charges every filler from the first,
+  kind. Twelve remote runs tested the combined candidate, followed by four M1
+  queue-only runs. The other capacity rows were not run with the candidate.
+- The capacity probe exercises the multiply bound. Its effect on applications
+  beyond the three controls is unknown. The model charges every filler from the first,
   where both cores take about 160 at no cost, and counts a NOP as a window
-  entry; with the candidate the NOP rows stay about 50% slow.
+  entry; the rows from 256 fillers to the rise stay serial at a window of
+  256, 20 to 43% slow, with or without the bound.
+- Not solved: what slows fdtd2d, vips and ludcmp on the M1 (so that a window
+  at the counted lower bound is too fast for them); what bounds the overlap
+  of M2's doitgen
+  chains; the clock of the M2 references; M2's fetch rule against its
+  already-fast kernels; Grace.
 - 40 local runs, one each; fourteen are measured inputs with a window other
   than 256, all on first inputs; the reduced inputs have no reference.
 - Eight remote runs, one each, at one bracket size, on inputs chosen for
