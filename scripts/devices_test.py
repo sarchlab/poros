@@ -74,9 +74,11 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(m1["cache_config"]["L2Latency"], 18)
         self.assertEqual(m1["configuration"]["freq"], 3203500000)
         self.assertEqual(m1["configuration"]["store_buffer_size"], 140)
+        self.assertEqual(m1["configuration"]["multiply_issue_queue"], 43)
+        self.assertEqual(m2["configuration"]["multiply_issue_queue"], 38)
         self.assertEqual({k for k in m1["configuration"] if m1["configuration"][k] != m2["configuration"].get(k)},
                          {"freq", "fetch_taken_branches", "store_dependence_prediction", "store_buffer_size",
-                          "store_queue_in_order"})
+                          "store_queue_in_order", "multiply_issue_queue"})
         case = dict(id="x", frequency_hz=3490000000)
         self.assertEqual(devices.at_profile_clock(case, m2), case)
         self.assertEqual(devices.at_profile_clock(case, m1), dict(id="x", frequency_hz=3203500000))
@@ -90,7 +92,7 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual({k for k in grace["configuration"] if grace["configuration"][k] != m2["configuration"].get(k)},
                          {"freq", "latencies", "num_int_div", "num_fp_div", "num_ldst", "store_forward_latency",
                           "fp_issue_queue", "branch_penalty"})
-        self.assertEqual(set(m2["configuration"]) - set(grace["configuration"]), set())
+        self.assertEqual(set(m2["configuration"]) - set(grace["configuration"]), {"multiply_issue_queue"})
         self.assertEqual({k for k in grace["cache_config"] if grace["cache_config"][k] != m2["cache_config"].get(k)},
                          {"L1Size", "L1Ways", "L1Latency", "L2Size", "L2Ways", "L2LineSize", "SLCSize",
                           "PrefetchStrideBytes", "TLBPageBytes", "TLBWays"})

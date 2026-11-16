@@ -118,6 +118,7 @@ const M1Frequency = 3_203_500_000 * timing.Hz
 // up to a page, as many accesses ahead as the sequential one runs lines ahead
 // and no farther than the walk's lines have room in L1.
 //
+// The integer multiply queue is unlimited because its capacity is unknown on Grace.
 // Everything else is M2's and is not established for Grace: the window, the
 // predictor, compare/select fusion as measured on M2, the front end, the L2,
 // memory-side and DRAM latencies, both fill transports, the stream prefetcher
