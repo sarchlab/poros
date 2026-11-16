@@ -117,6 +117,18 @@ class LiveReportTests(unittest.TestCase):
                 if state == "failed":
                     self.assertIn('bundle &lt;validation&gt; failed', rendered)
 
+    def test_validated_note_is_plain_text(self):
+        progress = dict(state="complete", completed_cases=1, required_cases=1,
+                        active_cases=[], errors=[], validated_bundle=True)
+        self.assertIn("Complete validated bundle.", site.live_progress(progress))
+        for note, expected in (("All receipts certified.", "All receipts certified."),
+                               ("<b>A & B</b>", "&lt;b&gt;A &amp; B&lt;/b&gt;")):
+            with self.subTest(note=note):
+                rendered = site.live_progress(dict(progress, validated_note=note))
+                self.assertIn(expected, rendered)
+                self.assertNotIn("Complete validated bundle.", rendered)
+                self.assertNotIn("<b>", rendered)
+
     def test_progress_counts_use_unique_active_cases_and_validate_disjointness(self):
         value = self.snapshot()
         progress = value["progress"]
