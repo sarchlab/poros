@@ -77,11 +77,16 @@ def application_row(case, native, measured, report, head, base, executor):
     row = dict(id=case["id"], split=case["split"], status="unverified", mapped_image_bytes=case["mapped_image_bytes"],
                base_status=case_base_status(report, case))
     if referenced:
+        protocol = measured["protocol"]
+        if protocol == reference.PINNED_LINUX_PROTOCOL:
+            reason = "Native Linux ELF user time on a fixed performance core; startup/output included; exact measured ELF"
+        elif protocol == reference.LINUX_PROTOCOL:
+            reason = "Native Linux ELF user accounting; startup/output included; CPU affinity recorded, instantaneous core/frequency unobserved; external summary, raw captures not independently audited"
+        else:
+            reason = "Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved"
         row.update(reference_user_seconds=native["median_user_seconds"], reference_quality=native["quality"],
                    reference_p10_seconds=native["p10_user_seconds"], reference_p90_seconds=native["p90_user_seconds"],
-                   reason=("Native Linux ELF user accounting; startup/output included; CPU affinity recorded, instantaneous core/frequency unobserved; external summary, raw captures not independently audited"
-                           if measured["protocol"] == reference.LINUX_PROTOCOL else
-                           "Native macOS Mach-O user accounting; startup included; core/frequency unknown; no accuracy threshold approved"))
+                   reason=reason)
         if "streamcluster_replacement" in measured:
             row["reference_origin"] = reference.reference_origin(measured, case)
     else:

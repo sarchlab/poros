@@ -6,7 +6,7 @@
       "id": "m2",
       "parameter_source": "m2",
       "references": {
-        "application": "evaluation/usertime/performance-v1.json",
+        "application": "evaluation/usertime/apple-pcore/m2-reference.json",
         "capacity": "evaluation/microbenchmarks/capacity/m2.json",
         "forwarding": "evaluation/microbenchmarks/forwarding/m2.json",
         "memory": "evaluation/microbenchmarks/memory/m2.json",
@@ -19,7 +19,9 @@
       "hardware": "Apple M1",
       "id": "m1",
       "parameter_source": "m1",
-      "references": {}
+      "references": {
+        "application": "evaluation/usertime/apple-pcore/m1-reference.json"
+      }
     },
     {
       "hardware": "NVIDIA Grace (Arm Neoverse V2)",

@@ -21,6 +21,7 @@ import compute_usertime as compute
 import devices
 import linux_reference as linux
 import model_profiles
+import pcore_reference as pcore
 import performance_compare as comparison
 import performance_reference as performance
 import publish_accuracy as publisher
@@ -327,6 +328,35 @@ class LinuxReferenceTests(unittest.TestCase):
                          "64 KiB pages", "255 usable and 9 noisy", "raw captures", "Benchmark timing curves", "nussinov"):
                 self.assertIn(text, page)
             self.assertNotIn("native macOS thread CPU time", page)
+
+
+class ApplePerformanceCoreReferenceTests(unittest.TestCase):
+    def test_active_apple_devices_use_the_audited_capture_and_exact_shared_elfs(self):
+        declaration = devices.load(ROOT)
+        manifests = []
+        for chip, usable in (("m1", 235), ("m2", 236)):
+            entry = devices.select(declaration, chip)
+            self.assertEqual(entry["references"]["application"], pcore.reference_path(chip))
+            manifest, reference = performance.load(ROOT, require_native=True,
+                path=entry["references"]["application"], hardware=entry["hardware"])
+            self.assertEqual(reference["protocol"], performance.PINNED_LINUX_PROTOCOL)
+            self.assertEqual(reference["native_environment"]["affinity"], [4])
+            self.assertEqual(sum(r["quality"] == "usable" and not comparison.is_micro_case(r)
+                                 for r in reference["cases"]), usable)
+            self.assertEqual(len(manifest["binary_bindings"]), 44)
+            self.assertEqual(reference["capture_evidence"]["sample_count"], 5544)
+            manifests.append(manifest)
+        self.assertEqual(manifests[0], manifests[1])
+
+    def test_reject_wrong_hardware_or_lower_performance_cpu(self):
+        manifest, reference = performance.load(ROOT, require_native=True,
+            path=pcore.reference_path("m2"), hardware="Apple M2")
+        with self.assertRaisesRegex(ValueError, "hardware mismatch"):
+            performance.validate(reference, manifest, hardware="Apple M1")
+        native = reference["native_environment"]
+        native.update(core=0, affinity=[0])
+        with self.assertRaisesRegex(ValueError, "highest-performance cluster"):
+            performance.validate(reference, manifest, hardware="Apple M2")
 
 
 if __name__ == "__main__":

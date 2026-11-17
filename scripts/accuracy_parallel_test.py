@@ -146,7 +146,7 @@ class ParallelAccuracyTests(unittest.TestCase):
         # These synthetic source snapshots predate the Grace acquisition. They
         # exercise transport/device ownership without borrowing current native
         # data whose exact 64 KiB inputs are tested in linux_reference_test.py.
-        declaration = parallel.devices.load()
+        declaration = fixtures.macho_device_declaration()
         parallel.devices.select(declaration, "grace")["references"] = {}
         chosen = fixtures.device_selection(ident, HEAD, self.plan["head"]["files"], BASE if base_declared else None,
                                            declaration=declaration)

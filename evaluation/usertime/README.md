@@ -1,26 +1,14 @@
 # Whole-program user-time accuracy
 
-Poros compares simulated AArch64 ELF whole-program user time with native macOS
-**Mach-O** measurements on Apple M2. Both use the same GCC computation assembly
-and linked musl math, checked by the original 175-function audit plus the
-five-function Streamcluster repetition audit and exact complete-output
-comparisons for all 264 input points. macOS reserves x18, so
-14 workloads have documented register renaming; startup, argument/output
-adapters, addresses and page placement differ. The entire executable instruction
-stream is therefore not claimed to be identical.
+The Apple M1 and M2 comparisons use [fixed performance-core Asahi Linux
+measurements](apple-pcore/README.md). Both devices use the same 16 KiB-aligned
+ARM64 Linux fixtures. The simulator runs the exact ELF measured for each case.
+The NVIDIA Grace reference uses its own measured Linux ELFs.
 
-These references were measured on Apple M2 and are compared only with the `m2`
-device. The other [modeled devices](../README.md#modeled-devices) run the same
-264 points and report predictions without any reference time or error.
-
-The reference measures direct-child `wait4.ru_utime`, including native startup,
-initialization, computation and output. Simulator-host elapsed time and system
-CPU time are not substituted. Core identity and instantaneous frequency remain
-unknown; hardware timing accuracy is **unverified**. Linux VM measurements are
-historical evidence only and cannot feed new active accuracy comparisons.
-
-The error is `100 * abs(simulated - reference) / min(simulated, reference)`.
-No offset fitting or anchor removal is used. The CPU timing profile assumes 3.49 GHz.
+The reference measures direct-child `wait4.ru_utime`, including startup,
+initialization, computation and output. Each device converts simulated cycles
+using its declared model clock. The error is
+`100 * abs(simulated - reference) / min(simulated, reference)`.
 
 ## Independent correctness and performance inventories
 
@@ -33,7 +21,8 @@ No offset fitting or anchor removal is used. The CPU timing profile assumes 3.49
   complete output shapes for each of the other 40 programs.
 
 Manifest `reference_file` fields name local raw-capture or historical protocol files;
-the active committed plotting reference is `evaluation/usertime/performance-v1.json`.
+active plotting references come from each device’s `references.application` entry
+in `evaluation/devices.json`.
 
 Both inventories execute the same rebuilt ELF files except Streamcluster's
 performance-only `streamcluster-repeat.elf`. Its six points use n = 160000,
@@ -54,6 +43,18 @@ split labels for reproducibility. All workloads may guide model tuning.
 
 ## Native evidence and quality
 
+Every Apple fixed-core case has one warmup and 21 measured processes. Samples,
+CPU affinity, fixture hashes and output identities are checked before the
+reference is derived. The quality gate excludes a case from aggregate error
+statistics when any user time is nonpositive, its median is below 100
+microseconds, or `(P90-P10)/median > 0.20`. These cases remain visible.
+
+## Historical macOS M2 reference and output oracle
+
+The former M2 application reference remains in `performance-v1.json` as
+historical evidence and the complete-output oracle for targets that lack a
+native reference. This section describes that Mach-O capture.
+
 Each formal case executes one warmup and 21 measured processes. The original 264-point campaign is retained for 258 cases. Six Streamcluster
 points were replaced by one separately captured, predefined six-size campaign;
 all 21 trials of each selected case are retained. A case
@@ -62,20 +63,19 @@ time is nonpositive, the median is below 100 microseconds, or
 `(P90-P10)/median > 0.20` (the unchanged order-statistic definition). No sample is
 selected, retried, replaced by total CPU time, or selected by simulator error.
 
-The active reference has **264 qualified points**, across all 44 workloads,
+The historical Mach-O reference has **264 qualified points**, across all 44 workloads,
 with no nonpositive references. Application coverage is 246/246. The six
 Streamcluster replacement points all pass the unchanged quality rule. These are measurement
 quality results, not a claim of improved simulator accuracy.
 
-Only compact plotting data is committed: `performance-v1.json` contains each
+For the historical Mach-O capture, `performance-v1.json` contains each
 case's median, P10/P90, extrema, sample/nonpositive counts, quality, and complete
 native output SHA256/length, with exact collection/source/ELF identities. The
 serializer first validates every local raw sample and full output, then derives
 these statistics. Full raw campaigns, diagnostic pilots, and output witnesses
 stay local; they are not Git or Pages assets. A campaign's execution records
 stay in its local run directory; hosted runs kept them as transient workflow
-artifacts. Superseded active references are removed, while previously published
-historical bundles remain readable.
+artifacts. Previously published historical bundles remain readable.
 
 Complete output validation remains byte-exact: every decoded simulator byte
 contributes to the native-output SHA256 comparison, with exact length, normal exit,

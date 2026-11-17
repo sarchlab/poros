@@ -1,0 +1,61 @@
+{
+  "target": "m1",
+  "hardware": "Apple Mac mini (M1, 2020)",
+  "host": "marin-0",
+  "platform": "Linux-6.14.2-401.asahi.fc42.aarch64+16k-aarch64-with-glibc2.41",
+  "binary_origin_revision": "7031aa3b432cc8a1c83b11f6c0d732cb0a943022",
+  "timer": "wait4.ru_utime",
+  "core": 4,
+  "affinity": [
+    4
+  ],
+  "cpu_capacity": {
+    "0": 493,
+    "1": 493,
+    "2": 493,
+    "3": 493,
+    "4": 1024,
+    "5": 1024,
+    "6": 1024,
+    "7": 1024
+  },
+  "cpufreq_policies": [
+    {
+      "cpus": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "maximum_khz": 2064000,
+      "governor": "performance",
+      "minimum_policy_khz": 600000,
+      "maximum_policy_khz": 2064000
+    },
+    {
+      "cpus": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "maximum_khz": 3204000,
+      "governor": "performance",
+      "minimum_policy_khz": 600000,
+      "maximum_policy_khz": 3204000
+    }
+  ],
+  "governor": "performance",
+  "measured_blocks": 21,
+  "warmup_blocks": 1,
+  "seed": 7031,
+  "page_size": 16384,
+  "inputs_sha256": "6444e4daf2f49fbdc8f7dde218f77b34920bcb70401ed8e3fc5b66467b1c8cd5",
+  "collector_sha256": "aa91148a6acae9fbd1bdb13a36e7f4fb508c32b66b316930be24ce6619277dfe",
+  "start_load": [
+    0.857421875,
+    1.1494140625,
+    0.94970703125
+  ],
+  "started_unix": 1794953920.21901
+}

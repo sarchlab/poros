@@ -46,12 +46,12 @@ def selection(ident, base_declared=False):
 
 
 class DeclarationTests(unittest.TestCase):
-    def test_repository_declares_four_devices_and_grace_has_application_reference(self):
+    def test_repository_declares_four_devices_and_three_application_references(self):
         declaration = devices.load()
         self.assertEqual([d["id"] for d in declaration["devices"]], IDS)
         self.assertEqual(declaration["default"], devices.DEFAULT)
         self.assertEqual({d["id"]: devices.reference_status(d) for d in declaration["devices"]},
-                         {"m2": "measured", "m1": "unmeasured", "grace": "partial", "m5-max": "unmeasured"})
+                         {"m2": "measured", "m1": "partial", "grace": "partial", "m5-max": "unmeasured"})
         # Placeholders say whose parameters they carry rather than claiming their own.
         self.assertEqual({d["id"]: d["parameter_source"] for d in declaration["devices"]},
                          {"m2": "m2", "m1": "m1", "grace": "grace", "m5-max": "m2"})
@@ -100,7 +100,7 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(devices.at_profile_clock(case, grace), dict(id="x", frequency_hz=3429000000))
 
     def test_declared_references_are_the_files_the_reports_bind(self):
-        expected = {"application": site.performance.PATH,
+        expected = {"application": "evaluation/usertime/apple-pcore/m2-reference.json",
                     **{name: suite.REFERENCE for name, suite in site.DIAGNOSTIC_SUITES.items()}}
         self.assertEqual(devices.select(devices.load(), "m2")["references"], expected)
         self.assertEqual(set(expected), set(devices.KINDS))
@@ -322,7 +322,7 @@ class ReportFixture(unittest.TestCase):
         # These synthetic reports predate the external Grace acquisition. Keep
         # their original declaration explicit; current Grace coverage is tested
         # against the real imported reference in linux_reference_test.py.
-        declaration = devices.load()
+        declaration = fixtures.macho_device_declaration()
         devices.select(declaration, "grace")["references"] = {}
         return declaration
 
@@ -782,7 +782,7 @@ class CommitReportTests(ReportFixture):
     def setUpClass(cls):
         super().setUpClass()
         cls.declared = dict(schema=1, default="m2", devices=[
-            copy.deepcopy(devices.select(devices.load(), "m2")),
+            devices.select(fixtures.macho_device_declaration(), "m2"),
             dict(id="syn-b", hardware="Synthetic device B", parameter_source="m2", references=dict(application=SYNTHETIC_B)),
             dict(id="syn-c", hardware="Synthetic device C", parameter_source="m2", references={}),
             dict(id="syn-d", hardware="Synthetic device D", parameter_source="m2", references={})])

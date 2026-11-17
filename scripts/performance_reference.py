@@ -22,6 +22,9 @@ HARDWARE = "Apple M2"
 PROTOCOL = "performance-summary-v1"  # Historical Linux VM archives.
 NATIVE_PROTOCOL = "performance-macho-summary-v1"
 LINUX_PROTOCOL = "performance-linux-summary-v1"
+PINNED_LINUX_PROTOCOL = "performance-linux-pcore-v1"
+LINUX_PROTOCOLS = (LINUX_PROTOCOL, PINNED_LINUX_PROTOCOL)
+NATIVE_PROTOCOLS = (NATIVE_PROTOCOL, *LINUX_PROTOCOLS)
 NUMERICAL = {"gramschmidt", "blackscholes", "bodytrack", "canneal", "raytrace", "facesim", "x264"}
 
 
@@ -78,11 +81,12 @@ def summarize(case, samples, sha, length, numerical):
 
 def validate(reference, declared, hardware=HARDWARE):
     compute.validate_expanded(declared)
-    if reference.get("schema") != 1 or reference.get("protocol") not in (PROTOCOL, NATIVE_PROTOCOL, LINUX_PROTOCOL) or reference.get("inventory_sha256") != compute.object_digest(declared):
+    if reference.get("schema") != 1 or reference.get("protocol") not in (PROTOCOL, *NATIVE_PROTOCOLS) or reference.get("inventory_sha256") != compute.object_digest(declared):
         raise ValueError("compact reference protocol/input identity mismatch")
     if reference.get("quality_policy") != compute.QUALITY_POLICY or reference.get("metric") != "child_user_cpu_seconds" or reference.get("timer") != "wait4.ru_utime":
         raise ValueError("compact reference accounting/quality mismatch")
-    is_linux = reference["protocol"] == LINUX_PROTOCOL
+    is_linux = reference["protocol"] in LINUX_PROTOCOLS
+    is_pinned = reference["protocol"] == PINNED_LINUX_PROTOCOL
     if ("binary_bindings" in declared) != is_linux:
         raise ValueError("alternate ELF bindings require the native Linux reference protocol")
     if (not re.fullmatch(r"[0-9a-f]{40}", reference.get("collection_commit", ""))
@@ -91,7 +95,10 @@ def validate(reference, declared, hardware=HARDWARE):
     is_native = reference["protocol"] == NATIVE_PROTOCOL
     if not is_native and ("streamcluster_replacement" in reference or "historical_input_sources" in reference):
         raise ValueError("replacement provenance requires native protocol")
-    if is_linux:
+    if is_pinned:
+        import pcore_reference
+        pcore_reference.validate_metadata(reference, declared, hardware)
+    elif is_linux:
         import linux_reference
         linux_reference.validate_metadata(reference, declared, hardware)
     elif is_native:
@@ -104,7 +111,8 @@ def validate(reference, declared, hardware=HARDWARE):
         end = datetime.strptime(reference["completed_at_utc"], "%Y-%m-%dT%H:%M:%SZ")
     except (KeyError, ValueError):
         raise ValueError("invalid compact measurement timestamps") from None
-    if end < start or reference.get("core_identity") != "unknown" or reference.get("instantaneous_frequency") != "unknown":
+    if (end < start or (not is_pinned and reference.get("core_identity") != "unknown")
+            or reference.get("instantaneous_frequency") != "unknown"):
         raise ValueError("invalid measurement scope/time order")
     for key in ("hardware", "platform", "measurement_id"):
         if not isinstance(reference.get(key), str) or not reference[key]:
@@ -126,8 +134,14 @@ def validate(reference, declared, hardware=HARDWARE):
     expected_inputs = input_sources(declared, reference["micro_manifest_sha256"], reference["build_manifest_sha256"])
     if is_linux:
         expected_inputs.update({b["file"]: b["sha256"] for b in declared["binary_bindings"].values()})
-        expected_inputs.update({linux_reference.SUMMARY: reference["source_summary"]["sha256"],
-                               linux_reference.SCRIPT: reference["input_sources"].get(linux_reference.SCRIPT)})
+        if is_pinned:
+            evidence = pcore_reference.evidence_paths(pcore_reference.chip_for(hardware))
+            if not set(evidence) <= reference["input_sources"].keys():
+                raise ValueError("missing Apple native capture evidence")
+            expected_inputs.update({p: reference["input_sources"][p] for p in evidence})
+        else:
+            expected_inputs.update({linux_reference.SUMMARY: reference["source_summary"]["sha256"],
+                                   linux_reference.SCRIPT: reference["input_sources"].get(linux_reference.SCRIPT)})
     if reference["input_sources"] != expected_inputs:
         raise ValueError("compact input sources differ from exact ELF/build inventory")
     if [r["id"] for r in reference["cases"]] != [c["id"] for c in declared["cases"]]:
@@ -162,14 +176,18 @@ def reference_origin(reference, case):
 def load(root, *, require_native=False, path=PATH, hardware=HARDWARE):
     root = Path(root)
     raw = compute.read(root / path)
-    declared = inventory(root, raw.get("binary_bindings") if raw.get("protocol") == LINUX_PROTOCOL else None)
+    declared = inventory(root, raw.get("binary_bindings") if raw.get("protocol") in LINUX_PROTOCOLS else None)
     reference = validate(raw, declared, hardware)
-    if require_native and reference["protocol"] not in (NATIVE_PROTOCOL, LINUX_PROTOCOL):
+    if require_native and reference["protocol"] not in NATIVE_PROTOCOLS:
         raise ValueError("active accuracy requires a native reference")
     for name, sha in reference["input_sources"].items():
         if contract.digest(root / name) != sha:
             raise ValueError("live source/ELF changed since measurement")
-    if reference["protocol"] == LINUX_PROTOCOL:
+    if reference["protocol"] == PINNED_LINUX_PROTOCOL:
+        import pcore_reference
+        if pcore_reference.derive(root, pcore_reference.chip_for(hardware)) != reference:
+            raise ValueError("pinned Linux reference differs from retained raw captures")
+    elif reference["protocol"] == LINUX_PROTOCOL:
         import linux_reference
         if linux_reference.derive(root) != reference:
             raise ValueError("native Linux reference differs from retained external summary")

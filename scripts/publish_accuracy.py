@@ -79,6 +79,12 @@ def verify_source(source, bundle, commit):
         site.performance.require_collection_ancestor(source, reference["collection_commit"], commit)
         if site.digest(Path(bundle) / "reference.json") != report["head"]["files"].get(reference_path):
             raise ValueError("compact reference differs from source commit")
+        if reference["protocol"] == site.performance.PINNED_LINUX_PROTOCOL:
+            import pcore_reference
+            chip = pcore_reference.chip_for(reference["hardware"])
+            if pcore_reference.derive_at(source, commit, chip) != reference:
+                raise ValueError("pinned Linux reference differs from the exact revision and capture")
+            return
         if reference["protocol"] == site.performance.LINUX_PROTOCOL:
             import linux_reference
             # This comparison checks the retained contributor summary and every
