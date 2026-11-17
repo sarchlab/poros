@@ -214,7 +214,8 @@ class LinuxReferenceTests(unittest.TestCase):
                       reference_sha256=contract.digest(ROOT / linux.REFERENCE),
                       reference={k: v for k, v in self.reference.items() if k not in ("cases", "input_sources", "collector_sources")},
                       cases=[])
-        report["device"] = fixtures.device_selection("grace", report["head"]["commit"], files, report["base_commit"])
+        report["device"] = fixtures.device_selection("grace", report["head"]["commit"], files,
+                                                      report["base_commit"], declaration=devices.load())
         profile = compute.read(ROOT / model_profiles.PATH)
         files[model_profiles.PATH] = contract.digest(ROOT / model_profiles.PATH)
         report["model_profiles"] = {
