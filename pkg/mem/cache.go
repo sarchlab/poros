@@ -602,6 +602,13 @@ func (c *Cache) Probe(addr uint64) HitLevel {
 	return HitDRAM
 }
 
+// L1Ready reports whether the L1 has the addressed line's data at cycle.
+// It observes the current tag and its scheduled arrival without mutating the cache.
+func (c *Cache) L1Ready(addr, cycle uint64) bool {
+	line := c.l1.peek(addr)
+	return line != nil && line.readyAt <= cycle
+}
+
 // Prefetch silently brings addr into L1 (legacy instant next-line prefetch).
 // It does not account for dirty evictions: use only for pre-run warming when
 // combined with timed stores, never interleave it with the timed write path.

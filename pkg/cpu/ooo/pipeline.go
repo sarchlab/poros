@@ -33,6 +33,9 @@ type Spec struct {
 	// NumFPDiv is the number of FP pipes eligible for scalar divide/sqrt.
 	// These are a subset of NumFP, so ordinary arithmetic shares their capacity.
 	NumFPDiv int `json:"num_fp_div"`
+	// L1ReadBankPeriod is the byte distance over which eight-byte L1 read
+	// groups repeat. Zero disables read-port conflicts.
+	L1ReadBankPeriod int `json:"l1_read_bank_period,omitempty"`
 	// NumLDST counts physical memory pipes. NumLoad and NumStore are eligible
 	// subsets, not extra pipes: the first NumLoad accept loads and the last
 	// NumStore accept stores, sharing the overlapping reservation calendars.
@@ -193,6 +196,9 @@ type State struct {
 	// With Spec.CompareBranchFusion: which ROB entries hold a branch fused
 	// with the compare before it.
 	RobFused []bool `json:",omitempty"`
+	// L1ReadIssues holds the aligned addresses served by L1 read ports at
+	// each still-relevant issue cycle. Only the banked profile populates it.
+	L1ReadIssues map[uint64][]uint64 `json:",omitempty"`
 }
 type storeBufferEntry struct {
 	PC                 uint64 // static store, for dependence prediction
@@ -238,6 +244,10 @@ func (s *State) Initialize(c *Comp) {
 	}
 	if v.FetchTakenBranches < 0 || v.FetchGroupLimit < 0 || v.FetchLead < 0 || v.ConditionalBranches < 0 {
 		panic("ooo: invalid fetch taken-branch count, group limit, lead or branch limit")
+	}
+	s.L1ReadIssues = nil
+	if v.L1ReadBankPeriod < 0 || v.L1ReadBankPeriod%8 != 0 {
+		panic("ooo: L1 read bank period must be a nonnegative multiple of eight bytes")
 	}
 	if v.CompareBranchFusion {
 		s.RobFused = make([]bool, v.ROBCapacity)
@@ -317,6 +327,9 @@ func (p *middleware) Handle(_ timing.Event) bool {
 	}
 	if len(p.comp.State.StoreDrainUntil) != p.comp.Spec.StoreBufferSize {
 		panic("ooo: missing or incompatible store-allocation state; pipeline-only checkpoint restore is unsupported")
+	}
+	if len(p.comp.State.L1ReadIssues) > 0 {
+		delete(p.comp.State.L1ReadIssues, p.comp.State.Cycles)
 	}
 	p.comp.State.Cycles++
 	p.pruneUnitReservations()
@@ -628,6 +641,9 @@ func (p *middleware) fetchAndProcess() {
 			issueCycle = p.reserveIssuePair(ut, issueCycle, occupancy)
 		} else if usesUnit && (!indexedLoad || issueCycle != addressCycle) {
 			issueCycle = p.reserveIssue(ut, issueCycle, occupancy)
+			if p.comp.Spec.L1ReadBankPeriod > 0 && ut == unitLoad && !forwarding.forwarded && !indexedLoad {
+				issueCycle = p.replayL1Read(inst, cached, issueCycle)
+			}
 		}
 		if queued {
 			p.holdEntry(&p.comp.State.FpQueue, issueCycle)

@@ -43,6 +43,7 @@
     "fp_phys_limit": 839,
     "freq": 4590000000,
     "func_hook_cycles": null,
+    "l1_read_bank_period": 256,
     "latencies": {
       "divide_base": 7,
       "divide_occupancy": 2,
