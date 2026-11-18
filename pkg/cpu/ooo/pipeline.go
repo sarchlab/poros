@@ -88,6 +88,9 @@ type Spec struct {
 	// MultiplyIssueQueue is the number of integer multiplies that can wait
 	// between dispatch and issue; see issuequeue.go. Zero is unlimited.
 	MultiplyIssueQueue int `json:"multiply_issue_queue,omitempty"`
+	// StoreDataQueue bounds immediate-offset scalar 32/64-bit stores waiting
+	// for their source register. The address and cache retain their own timing.
+	StoreDataQueue int `json:"store_data_queue,omitempty"`
 }
 
 func DefaultSpec() Spec {
@@ -149,6 +152,8 @@ type State struct {
 	FpQueue []uint64
 	// With Spec.MultiplyIssueQueue: the same for its entries.
 	MultiplyQueue []uint64
+	// With Spec.StoreDataQueue: cycles when store data slots become free.
+	StoreDataQueue []uint64 `json:",omitempty"`
 }
 type storeBufferEntry struct {
 	PC                 uint64 // static store, for dependence prediction
@@ -198,7 +203,7 @@ func (s *State) Initialize(c *Comp) {
 	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
 		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
 	}
-	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.AdjacentFPForwardLatency < 0 || v.FPIssueQueue < 0 || v.MultiplyIssueQueue < 0 {
+	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.AdjacentFPForwardLatency < 0 || v.FPIssueQueue < 0 || v.MultiplyIssueQueue < 0 || v.StoreDataQueue < 0 {
 		panic("ooo: invalid latency configuration")
 	}
 	if v.NumIntDiv > 0 {
@@ -393,6 +398,14 @@ func (p *middleware) fetchAndProcess() {
 			storeSlot = p.availableStoreSlot()
 			if storeSlot < 0 || len(p.comp.State.StoreBuffer)+2 > p.forwardingCapacity() {
 				return
+			}
+			if p.comp.Spec.StoreDataQueue > 0 {
+				if ready, tracked := p.scalarStoreDataReady(inst); tracked {
+					if p.queueFull(&p.comp.State.StoreDataQueue, p.comp.Spec.StoreDataQueue) {
+						return
+					}
+					p.holdEntry(&p.comp.State.StoreDataQueue, ready)
+				}
 			}
 		}
 

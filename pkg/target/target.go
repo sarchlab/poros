@@ -160,6 +160,7 @@ func M5Max() Target {
 	t.OoO.StoreBufferSize, t.OoO.NumIntDiv = 137, 1
 	t.OoO.MultiplyIssueQueue = 48
 	t.OoO.AdjacentFPForwardLatency = 11
+	t.OoO.StoreDataQueue = 76
 	t.OoO.Latencies = ooo.Latencies{MultiplyAdd: 4, DivideBase: 7, DivideOccupancy: 2, FPArithmetic: 2, FPMultiply: 3, FPMultiplyAdd: 3, FPDivide: 9}
 	t.OoO.LoadLatency, t.Cache.L1Latency, t.Cache.L2Latency = 3, 3, 12
 	t.Cache.AlternatingStoreLineCycles = 24

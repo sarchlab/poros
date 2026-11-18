@@ -1,6 +1,9 @@
 package ooo
 
-import "golang.org/x/arch/arm64/arm64asm"
+import (
+	instinfo "github.com/sarchlab/poros/pkg/cpu/internal/inst"
+	"golang.org/x/arch/arm64/arm64asm"
+)
 
 // The FP issue queue (Spec.FPIssueQueue) holds FP work between dispatch and
 // issue: operations on the FP pipes and the data of an FP store. Dispatch
@@ -57,4 +60,30 @@ func (p *middleware) queueFull(queue *[]uint64, capacity int) bool {
 	}
 	*queue = kept
 	return len(kept) >= capacity
+}
+
+// scalarStoreDataReady reads only the stored register. A delayed base or
+// cache allocation holds the ordinary store slot, but not the store data.
+func (p *middleware) scalarStoreDataReady(inst arm64asm.Inst) (uint64, bool) {
+	if inst.Op != arm64asm.STR {
+		return 0, false
+	}
+	address, ok := inst.Args[1].(arm64asm.MemImmediate)
+	if !ok || address.Mode != arm64asm.AddrOffset {
+		return 0, false
+	}
+	reg, ok := inst.Args[0].(arm64asm.Reg)
+	if !ok {
+		return 0, false
+	}
+	if i := instinfo.GprIdx(reg); i >= 0 {
+		if i == 31 {
+			return 0, true
+		}
+		return p.comp.State.GprReady[i], true
+	}
+	if (reg >= arm64asm.S0 && reg <= arm64asm.S31) || (reg >= arm64asm.D0 && reg <= arm64asm.D31) {
+		return p.comp.State.FpReady[instinfo.FpIdx(reg)], true
+	}
+	return 0, false
 }

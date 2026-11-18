@@ -42,3 +42,67 @@ func TestStoreQueueInOrderDoesNotWaitForOlderNonStores(t *testing.T) {
 		t.Fatalf("stores behind the divide release at their own completions %v, got %v (divide completes at %d)", rob[1:3], slots[:2], rob[0])
 	}
 }
+
+// Both register files use the same data slots. A store with ready data still
+// needs a free slot, even when it writes the same bytes as older stores.
+func TestStoreDataQueueAdmission(t *testing.T) {
+	words := []uint32{strD1X2, strX1X2, strX3X2Off8, addX9}
+	for _, capacity := range []int{0, 2} {
+		p := specPipeline(t, words, nil, func(s *Spec) { s.StoreDataQueue = capacity })
+		p.comp.Resources.Emu.Regs.WriteX(2, 0x2000)
+		p.comp.State.FpReady[1] = 100
+		p.comp.State.GprReady[1] = 110
+		p.fetchAndProcess()
+		if capacity == 0 {
+			if p.comp.State.Err != "" || p.comp.State.RobCount != 4 || len(p.comp.State.StoreDataQueue) != 0 {
+				t.Fatalf("disabled: err=%q dispatched=%d data slots=%v", p.comp.State.Err, p.comp.State.RobCount, p.comp.State.StoreDataQueue)
+			}
+			continue
+		}
+		if p.comp.State.Err != "" || p.comp.State.RobCount != 2 || len(p.comp.State.StoreDataQueue) != 2 {
+			t.Fatalf("full: err=%q dispatched=%d data slots=%v", p.comp.State.Err, p.comp.State.RobCount, p.comp.State.StoreDataQueue)
+		}
+		p.comp.State.Cycles = 99
+		p.fetchAndProcess()
+		if p.comp.State.RobCount != 2 {
+			t.Fatal("ready store entered a full data queue")
+		}
+		p.comp.State.Cycles = 100
+		p.fetchAndProcess()
+		if p.comp.State.Err != "" || p.comp.State.RobCount != 4 {
+			t.Fatalf("released: err=%q dispatched=%d", p.comp.State.Err, p.comp.State.RobCount)
+		}
+	}
+}
+
+func TestStoreDataSlotReleasedBeforeLateAddress(t *testing.T) {
+	p := specPipeline(t, []uint32{strD1X2, strX1X2}, nil, func(s *Spec) { s.StoreDataQueue = 1 })
+	p.comp.Resources.Emu.Regs.WriteX(2, 0x2000)
+	p.comp.State.GprReady[2] = 100
+	p.fetchAndProcess()
+	if p.comp.State.RobCount != 1 || p.comp.State.Rob[0] < 100 {
+		t.Fatalf("late address did not delay execution: dispatched=%d done=%d", p.comp.State.RobCount, p.comp.State.Rob[0])
+	}
+	p.comp.State.Cycles++
+	p.fetchAndProcess()
+	if p.comp.State.Err != "" || p.comp.State.RobCount != 2 || p.comp.State.StoreDrainUntil[0] < 100 {
+		t.Fatalf("address retained a data slot: err=%q dispatched=%d", p.comp.State.Err, p.comp.State.RobCount)
+	}
+}
+
+// Paired stores have a different measured threshold. Other unmeasured forms
+// also continue to use the ordinary store slots.
+func TestStoreDataQueueForms(t *testing.T) {
+	p := specPipeline(t, []uint32{addX9}, nil, nil)
+	for _, tc := range []struct {
+		word    uint32
+		tracked bool
+	}{
+		{strX1X2, true}, {0xb9000041, true}, {strD1X2, true}, {0xbd000041, true},
+		{0xf900005f, true}, {0xad000441, false}, {0xf8216841, false}, {0x3d800041, false},
+	} {
+		if _, tracked := p.scalarStoreDataReady(decodeWord(t, tc.word)); tracked != tc.tracked {
+			t.Errorf("encoding %#x tracked %v, want %v", tc.word, tracked, tc.tracked)
+		}
+	}
+}
