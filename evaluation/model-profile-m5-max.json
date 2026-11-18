@@ -7,6 +7,8 @@
     "FillBytesPerCycle": 32,
     "L1Latency": 3,
     "L1LineSize": 64,
+    "L1ReadFillBankCycles": 3,
+    "L1ReadFillBanks": 8,
     "L1Size": 131072,
     "L1Ways": 8,
     "L2Latency": 12,

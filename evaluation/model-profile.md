@@ -70,6 +70,29 @@ some displacements of less than 128 bytes between the two arrays' page
 offsets sustained 1.4–3.1 cycles/trip, while displacements of 128–8,192
 bytes generally took 6.0. The write-stream probes use doubleword stores.
 
+A two-column read probe measured sensitivity to the relative address of two
+lines fetched from L2. With 426 active rows, a stride of 320 doubles in both
+columns, and congruent column bases modulo 512 bytes, M5 Max measured about
+6.2 cycles per read pair. Offsetting the second column by 64 bytes reduced
+this to 4.2. The starting model issued about two L1 misses per pair and
+predicted 4.1 cycles at both placements. A broader address sweep found
+similar differences at a stride of 384 doubles. A stride of 321 doubles
+kept the working lines in L1 and stayed near 1.5 cycles per pair across
+placements. The sum of each column was checked independently.
+
+The M5 profile preserves the shared fill bandwidth and schedules L2-hit
+demand read fills in eight line-address groups. Fills in one group must
+start at least three cycles apart. The group is the line number modulo
+eight. This is an effective timing model. The probes constrain the extra
+service cost and an address pattern, and leave the physical bank count
+and mapping undetermined. Demand writes and memory-side fills retain
+their existing timing. The model gives 6.08 and 4.09 cycles per pair in
+the two 320-double stride examples above. Seven standard memory controls
+retained their simulated cycles, and the eight-chain 1 MiB chase moved
+from 7.71% to 4.76% error. The unchanged SYR2K 426 × 320 application input
+moved from 76.61% to 20.43% error relative to its existing native reference.
+The 460 × 346 application control moved from 34.26% to 35.56%.
+
 Parameters omitted here retain their M2 settings. The core and memory probes
 do not identify every stage, and assembly loop timing depends on placement,
 working set and the access pattern. For example, the L1-resident eleven-op
