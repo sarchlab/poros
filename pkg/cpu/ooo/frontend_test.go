@@ -1,6 +1,7 @@
 package ooo
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -376,6 +377,11 @@ func TestRedirectEmptiesFetchBuffer(t *testing.T) {
 func TestNegativeFetchGroupParametersRejected(t *testing.T) {
 	for _, adjust := range []func(*Spec){
 		func(s *Spec) { s.FetchGroupLimit = -1 },
+		func(s *Spec) { s.FetchRepeatMin = -1 },
+		func(s *Spec) { s.FetchRepeatExitDelay = -1 },
+		func(s *Spec) { s.FetchGroupLimit, s.FetchRepeatMin = 16, 1 },
+		func(s *Spec) { s.FetchGroupLimit, s.FetchRepeatExitDelay = 16, 4 },
+		func(s *Spec) { s.FetchRepeatMin, s.FetchRepeatExitDelay = 6, 4 },
 		func(s *Spec) { s.FetchGroupLimit, s.FetchLead = 16, -1 },
 	} {
 		func() {
@@ -421,5 +427,71 @@ func TestUnfusedFlagBranchResolution(t *testing.T) {
 				t.Fatalf("correctly predicted fallthrough dispatched %d, completed at %d", s.RobCount, s.Rob[3])
 			}
 		})
+	}
+}
+
+func TestRepeatedFetchGroupExit(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		count     int
+		end, next uint64
+		delay     uint64
+		warm      int
+	}{
+		{"cold exit", 5, 0x1030, 0x1040, 0, 0},
+		{"saturated self transfer", 12, 0x101c, 0x1000, 0, 6},
+		{"different successor", 6, 0x101c, 0x1040, 4, 0},
+		{"different terminator same target", 6, 0x1030, 0x1000, 4, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := specPipeline(t, []uint32{nop}, nil, func(s *Spec) {
+				s.FetchGroupLimit, s.FetchRepeatMin, s.FetchRepeatExitDelay = 16, 6, 4
+			})
+			s := &p.comp.State
+			s.FetchGroupStart, s.FetchGroupCycle, s.Cycles = 0x1000, 10, 30
+			for i := 0; i < tc.count; i++ {
+				p.finishRepeatedGroup(0x101c, 0x1000)
+			}
+			p.finishRepeatedGroup(tc.end, tc.next)
+			if s.FetchGroupCycle != 10+tc.delay || s.FrontendReady != 0 || s.FetchRepeatCount != tc.warm {
+				t.Fatalf("got fetch cycle %d, rename gate %d, repetition count %d", s.FetchGroupCycle, s.FrontendReady, s.FetchRepeatCount)
+			}
+			p.startFetchGroup(tc.next)
+			if s.FetchGroupCycle != 11+tc.delay {
+				t.Fatalf("buffered next fetch available at %d", s.FetchGroupCycle)
+			}
+		})
+	}
+}
+
+func TestRepeatedFetchGroupCheckpointAndRedirect(t *testing.T) {
+	p := specPipeline(t, []uint32{nop}, nil, func(s *Spec) {
+		s.FetchGroupLimit, s.FetchRepeatMin, s.FetchRepeatExitDelay = 16, 2, 4
+	})
+	s := &p.comp.State
+	s.FetchGroupStart = 0x1000
+	p.finishRepeatedGroup(0x100c, 0x1000)
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored State
+	if err := json.Unmarshal(b, &restored); err != nil {
+		t.Fatal(err)
+	}
+	*s = restored
+	p.finishRepeatedGroup(0x100c, 0x1000)
+	if s.FetchRepeatCount != 2 || s.FetchRepeatStart != 0x1000 || s.FetchRepeatEnd != 0x100c {
+		t.Fatal("checkpoint failed to preserve the partially warmed group")
+	}
+	p.redirect(100)
+	p.finishRepeatedGroup(0x1010, 0x1008)
+	if s.FetchGroupCycle != 99 || s.FetchRepeatCount != 0 {
+		t.Fatalf("misprediction recovery retained repeat delay: %+v", s)
+	}
+	p.finishRepeatedGroup(0x100c, 0x1000)
+	s.Initialize(p.comp)
+	if s.FetchRepeatStart != 0 || s.FetchRepeatEnd != 0 || s.FetchRepeatCount != 0 {
+		t.Fatal("initialization retained a repeated group")
 	}
 }

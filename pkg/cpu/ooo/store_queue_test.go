@@ -106,3 +106,50 @@ func TestStoreDataQueueForms(t *testing.T) {
 		}
 	}
 }
+
+func TestRegisterOffsetStoresShareDataQueue(t *testing.T) {
+	const strD1Indexed = 0xfc237841 // STR D1, [X2, X3, LSL #3]
+	for _, enabled := range []bool{false, true} {
+		p := specPipeline(t, []uint32{strD1Indexed, strX1X2, addX9}, nil, func(s *Spec) {
+			s.StoreDataQueue, s.RegisterOffsetStoreData = 1, enabled
+		})
+		p.comp.Resources.Emu.Regs.WriteX(2, 0x2000)
+		p.comp.State.FpReady[1] = 50
+		p.comp.State.GprReady[3] = 100
+		p.fetchAndProcess()
+		if !enabled {
+			if p.comp.State.RobCount != 3 {
+				t.Fatalf("disabled: admitted %d", p.comp.State.RobCount)
+			}
+			continue
+		}
+		if p.comp.State.RobCount != 1 || p.comp.State.StoreDataQueue[0] != 50 {
+			t.Fatalf("indexed store did not hold shared slot until its data was ready")
+		}
+		p.comp.State.Cycles = 49
+		p.fetchAndProcess()
+		if p.comp.State.RobCount != 1 {
+			t.Fatal("immediate store entered occupied data slot")
+		}
+		p.comp.State.Cycles++
+		p.fetchAndProcess()
+		if p.comp.State.RobCount != 3 || p.comp.State.StoreDrainUntil[0] < 100 {
+			t.Fatal("data slot release followed address execution")
+		}
+	}
+}
+
+func TestRegisterOffsetStoreDataShapes(t *testing.T) {
+	p := specPipeline(t, []uint32{nop}, nil, func(s *Spec) { s.StoreDataQueue, s.RegisterOffsetStoreData = 2, true })
+	for _, tc := range []struct {
+		word    uint32
+		tracked bool
+	}{
+		{0xf8236841, true}, {0xfc237841, true}, {0xfc23d841, true}, {0xb8236841, false},
+		{0xbc236841, false}, {0xfc008441, false}, {0x3ca36841, false},
+	} {
+		if _, ok := p.scalarStoreDataReady(decodeWord(t, tc.word)); ok != tc.tracked {
+			t.Errorf("encoding %#x tracked %v", tc.word, ok)
+		}
+	}
+}

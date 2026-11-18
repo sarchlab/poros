@@ -70,6 +70,12 @@ type Spec struct {
 	// FetchLead+1 places before it began rename, so a stalled rename stage
 	// resumes with at most FetchLead+1 groups to take in one cycle.
 	FetchLead int `json:"fetch_lead,omitempty"`
+	// FetchRepeatMin counts consecutive correctly predicted groups that end at
+	// the same instruction and transfer back to their first instruction.
+	// FetchRepeatExitDelay delays the following fetch when such a group
+	// changes its ending or successor. Both zero disables repeat timing.
+	FetchRepeatMin       int `json:"fetch_repeat_min,omitempty"`
+	FetchRepeatExitDelay int `json:"fetch_repeat_exit_delay,omitempty"`
 	// ConditionalBranches, when positive, is how many conditional branches
 	// (B.cond, CBZ, CBNZ, TBZ, TBNZ) rename takes in one cycle.
 	ConditionalBranches int `json:"conditional_branches,omitempty"`
@@ -119,6 +125,9 @@ type Spec struct {
 	// StoreDataQueue bounds immediate-offset scalar 32/64-bit stores waiting
 	// for their source register. The address and cache retain their own timing.
 	StoreDataQueue int `json:"store_data_queue,omitempty"`
+	// RegisterOffsetStoreData includes 64-bit STR X/D with a register offset
+	// in that same store-data queue.
+	RegisterOffsetStoreData bool `json:"register_offset_store_data,omitempty"`
 }
 
 func DefaultSpec() Spec {
@@ -189,6 +198,10 @@ type State struct {
 	FetchGroupStart uint64 `json:",omitempty"`
 	FetchGroupSize  int    `json:",omitempty"`
 	FetchGroupEnded bool   `json:",omitempty"`
+	// A run of correctly predicted self-transfers, saturated at FetchRepeatMin.
+	FetchRepeatStart uint64 `json:",omitempty"`
+	FetchRepeatEnd   uint64 `json:",omitempty"`
+	FetchRepeatCount int    `json:",omitempty"`
 	// The cycles in which the last FetchLead+1 groups began rename, by group
 	// number modulo FetchLead+1, and the number of groups fetched.
 	FetchGroupRenamed []uint64 `json:",omitempty"`
@@ -249,6 +262,12 @@ func (s *State) Initialize(c *Comp) {
 	if v.L1ReadBankPeriod < 0 || v.L1ReadBankPeriod%8 != 0 {
 		panic("ooo: L1 read bank period must be a nonnegative multiple of eight bytes")
 	}
+	if v.FetchRepeatMin < 0 || v.FetchRepeatExitDelay < 0 ||
+		(v.FetchRepeatMin > 0) != (v.FetchRepeatExitDelay > 0) ||
+		(v.FetchRepeatMin > 0 && v.FetchGroupLimit == 0) {
+		panic("ooo: fetch repetition requires a group, positive threshold and exit delay")
+	}
+	s.FetchRepeatStart, s.FetchRepeatEnd, s.FetchRepeatCount = 0, 0, 0
 	if v.CompareBranchFusion {
 		s.RobFused = make([]bool, v.ROBCapacity)
 	}
@@ -258,6 +277,9 @@ func (s *State) Initialize(c *Comp) {
 	}
 	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
 		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
+	}
+	if v.RegisterOffsetStoreData && v.StoreDataQueue == 0 {
+		panic("ooo: register-offset store data requires a store-data queue")
 	}
 	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.AdjacentFPForwardLatency < 0 || v.FPIssueQueue < 0 || v.MultiplyIssueQueue < 0 || v.StoreDataQueue < 0 {
 		panic("ooo: invalid latency configuration")
@@ -849,6 +871,9 @@ func (p *middleware) fetchAndProcess() {
 			// fetch delivers it in a later group. Rename continues with
 			// whatever fetch has already delivered.
 			p.comp.State.FetchGroupEnded = true
+			if p.comp.Spec.FetchRepeatMin > 0 {
+				p.finishRepeatedGroup(pc, p.comp.Resources.backend().CPURegisters().PC)
+			}
 		}
 
 		fetched += slot

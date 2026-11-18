@@ -161,6 +161,7 @@ func M5Max() Target {
 	t.ParameterSource = "m5-max"
 	t.OoO.FetchWidth, t.OoO.RetireWidth = 10, 10
 	t.OoO.FetchGroupLimit, t.OoO.FetchLead = 16, 2
+	t.OoO.FetchRepeatMin, t.OoO.FetchRepeatExitDelay = 6, 4
 	t.OoO.ConditionalBranches = 2
 	t.OoO.CompareBranchFusion = true
 	t.OoO.FlagBranchDependency = true
@@ -174,6 +175,7 @@ func M5Max() Target {
 	t.OoO.FPIssueQueue = 256
 	t.OoO.AdjacentFPForwardLatency = 11
 	t.OoO.StoreDataQueue = 76
+	t.OoO.RegisterOffsetStoreData = true
 	t.OoO.Latencies = ooo.Latencies{MultiplyAdd: 4, DivideBase: 7, DivideOccupancy: 2, FPArithmetic: 2, FPMultiply: 3, FPMultiplyAdd: 3, FPDivide: 9}
 	t.OoO.LoadLatency, t.Cache.L1Latency, t.Cache.L2Latency = 3, 3, 12
 	t.Cache.AlternatingStoreLineCycles = 24

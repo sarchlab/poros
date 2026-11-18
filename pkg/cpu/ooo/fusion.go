@@ -180,9 +180,32 @@ func countsAsConditional(inst arm64asm.Inst) bool {
 func (p *middleware) redirect(cycle uint64) {
 	p.comp.State.FrontendReady = cycle
 	if p.comp.Spec.FetchGroupLimit > 0 {
+		p.comp.State.FetchRepeatStart, p.comp.State.FetchRepeatEnd, p.comp.State.FetchRepeatCount = 0, 0, 0
 		p.comp.State.FetchGroupCycle = cycle - 1
 		p.comp.State.FetchGroupEnded = true
 		clear(p.comp.State.FetchGroupRenamed)
+	}
+}
+
+// finishRepeatedGroup records a correctly predicted fetch-group boundary.
+func (p *middleware) finishRepeatedGroup(end, next uint64) {
+	s, spec := &p.comp.State, &p.comp.Spec
+	start := s.FetchGroupStart
+	self := next == start
+	if self && s.FetchRepeatCount > 0 && start == s.FetchRepeatStart && end == s.FetchRepeatEnd {
+		if s.FetchRepeatCount < spec.FetchRepeatMin {
+			s.FetchRepeatCount++
+		}
+		return
+	}
+	if s.FetchRepeatCount == spec.FetchRepeatMin && start == s.FetchRepeatStart {
+		// The following group becomes available later. Rename can still
+		// use the lead it accumulated before encountering this boundary.
+		s.FetchGroupCycle += uint64(spec.FetchRepeatExitDelay)
+	}
+	s.FetchRepeatStart, s.FetchRepeatEnd, s.FetchRepeatCount = 0, 0, 0
+	if self {
+		s.FetchRepeatStart, s.FetchRepeatEnd, s.FetchRepeatCount = start, end, 1
 	}
 }
 

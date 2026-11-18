@@ -37,6 +37,8 @@
     "conditional_branches": 2,
     "fetch_group_limit": 16,
     "fetch_lead": 2,
+    "fetch_repeat_exit_delay": 4,
+    "fetch_repeat_min": 6,
     "fetch_width": 10,
     "flag_branch_dependency": true,
     "fp_issue_queue": 256,
@@ -72,6 +74,7 @@
       "tagged_hist_len": 32,
       "tagged_table_size": 2048
     },
+    "register_offset_store_data": true,
     "retire_width": 10,
     "rob_capacity": 1334,
     "store_buffer_size": 137,

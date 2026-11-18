@@ -68,12 +68,22 @@ func (p *middleware) scalarStoreDataReady(inst arm64asm.Inst) (uint64, bool) {
 	if inst.Op != arm64asm.STR {
 		return 0, false
 	}
-	address, ok := inst.Args[1].(arm64asm.MemImmediate)
-	if !ok || address.Mode != arm64asm.AddrOffset {
-		return 0, false
-	}
 	reg, ok := inst.Args[0].(arm64asm.Reg)
 	if !ok {
+		return 0, false
+	}
+	switch address := inst.Args[1].(type) {
+	case arm64asm.MemImmediate:
+		if address.Mode != arm64asm.AddrOffset {
+			return 0, false
+		}
+	case arm64asm.MemExtend:
+		fullWidth := reg >= arm64asm.X0 && reg <= arm64asm.XZR ||
+			reg >= arm64asm.D0 && reg <= arm64asm.D31
+		if !p.comp.Spec.RegisterOffsetStoreData || !fullWidth {
+			return 0, false
+		}
+	default:
 		return 0, false
 	}
 	if i := instinfo.GprIdx(reg); i >= 0 {

@@ -43,10 +43,34 @@ separate populations.
 | Two-cycle scalar FP arithmetic, four-cycle integer MADD, three-cycle scalar fused FP multiply-add, nine-cycle FP divide | Dependent FADD took 2.10 counted cycles. The integer scheduling loop has 64 dependent MADD instructions and eight dependent ADDs per trip. The corresponding FP loop has 64 dependent FMADD instructions and eight dependent FADDs. The two integer controls took 267–270 cycles/trip and the FP controls took 220. A dependent chain of 64 bounded FDIVs took 578 cycles. Related opcode variants use the same class timings. |
 | ROB 1,334, 839 in-flight FP destinations, 137 store slots, 48 waiting integer multiplies | On the local two-chain probe the 64-MUL gates took 242–246 cycles with 64–448 FP fillers and 243–249 with 256–640 NOPs. The model uses published measurements on the M5 Super core for the window with a mix of ordinary instructions, FP destinations, and stores. These are effective limits in Poros. In particular, its store slots account for pending store execution and cache admission. The limit of 48 multiplies gives 244 cycles with 64 FP fillers. |
 | 256 waiting FP operations | Round-3 gate probes (`window2`, 1,600 qualified Super-core intervals) block retirement with a 16-deep FDIV chain, then place N fillers before an independent 32-deep multiply chain. Scalar loads, integer adds, independent FADDs and NOPs stay at 156 cycles/trip through 256-384 fillers, so no smaller load, integer or rename limit applies there. A dependent FADD chain that waits on the gate rises from 156 at 128 links to 200, 256, 365 and 551 at 160, 192, 256 and 384; four-instruction load/load/FMADD units that wait on the gate stay near 157 through 256 instructions and reach 182 and 227 at 320 and 384. One shared capacity of 256 waiting FP operations (FP arithmetic, divides and FP store data) gives 199, 257, 343 and 514 for the chain and 154 and 196 for the units, and keeps the round-2 fan-out case of up to 192 FADDs waiting on one value flat; 240 and 272 fit almost as well, 192 and 288 clearly worse. It is an effective limit of the model, not a measured physical queue. |
-| 76 scalar stores waiting for data | A counted two-gate probe placed scalar stores between independent FP-divide and integer-multiply chains. For immediate-offset STR of W, X, S and D registers, a 77th delayed store blocked overlap. With 16 divides, 76 delayed FP64 stores added 12 cycles relative to the ready-data control and 77 added 98. Repeating one address and alternating FP64/GPR64 gave the same threshold. A ready store after 76 pending stores also stalled. The model admits each measured form to a separate queue and frees the slot when the source register is ready, after at least its dispatch cycle. Paired stores and address-only delays showed different thresholds. |
+| 76 scalar stores waiting for data | A counted two-gate probe placed scalar stores between independent FP-divide and integer-multiply chains. For immediate-offset STR of W, X, S and D registers, a 77th delayed store blocked overlap. With 16 divides, 76 delayed FP64 stores added 12 cycles relative to the ready-data control and 77 added 98. Repeating one address and alternating FP64/GPR64 gave the same threshold. A ready store after 76 pending stores also stalled. The model admits these forms to a shared store-data queue and frees the slot when the source register is ready, after at least its dispatch cycle. Paired stores and address-only delays showed different thresholds. |
 | Eleven-cycle adjacent double store/load | The same-address double-add chain in `mem_fadd` took about 13 counted cycles/update. The independent distance sweep gave 13.00–13.08 cycles/update for the 64-way unrolled chain at four placements. The model charges 11 cycles from readiness of the load address and store data when consecutive ordinary scalar FP64 STR/LDR instructions transfer the same eight bytes and the store is still in flight. The dependent FADD adds two cycles. Different instruction spacing and register-addressing forms keep their existing timing. |
 | Three-cycle FP multiply, seven-cycle integer divide that starts every two cycles | Measured independently on the M5 Super core. |
 | Three-cycle L1D hit, 12-cycle L2 hit | The single dependent pointer chain took 2.99–3.00 cycles/hop at 8–64 KiB and 11.43–12.42 at 256 KiB–1 MiB. The host reports a 128 KiB Super-core L1D and 16 MiB L2 per six Super cores. The chase slows within the nominal L2 at larger footprints. |
+
+A fetch group can repeatedly end at the same instruction and transfer back
+to its own first instruction. After six consecutive such transfers, changing
+the ending instruction or successor adds four cycles to the availability of
+the following fetch group. Rename can use the groups it has already buffered.
+A full branch misprediction clears the repetition state and takes its usual
+recovery latency. Six transfers and four cycles approximate the transition in
+counted nested loops. The M5 Super core took 4.05, 6.79, 10.16, 20.03,
+28.05 and 36.06 cycles per row at lengths 4, 6, 8, 16, 24 and 32,
+respectively. A flat loop took 16.0 cycles per 16 elements. In an independent
+Ferret-like row of 16 dimensions, hardware took 20.03 cycles and the earlier
+profile took 16.00. At length 48 the model already incurred a full branch
+miss on a control whose measured cost was 52.1 cycles against 67 modeled.
+The measurements support an effective exit delay over part of the trip-count
+range and leave the physical prediction mechanism unresolved.
+
+Register-offset scalar STR X/D also use the 76-entry store-data queue. In
+a two-gate experiment, increasing the number of waiting stores from 76 to
+77 increased the measured delayed-minus-ready cost from 17 to 106 cycles
+for STR X, from 13 to 101 for STR D with a scaled X index and from 13 to
+102 for STR D with an extended W index. Alternating immediate-offset and
+register-offset STR D gave 12 and 100 cycles at the same boundary. These
+stores release their slot when their data becomes ready. A distinct
+late-address load control had its transition at 65 loads.
 
 An unfused conditional flag branch waits for its NZCV producer and an integer
 pipe before it resolves. Fetch follows correct predictions speculatively.
