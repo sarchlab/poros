@@ -163,6 +163,7 @@ func M5Max() Target {
 	t.OoO.FetchGroupLimit, t.OoO.FetchLead = 16, 2
 	t.OoO.ConditionalBranches = 2
 	t.OoO.CompareBranchFusion = true
+	t.OoO.FlagBranchDependency = true
 	t.OoO.NumINT = 8
 	t.OoO.ROBCapacity, t.OoO.FpPhysLimit = 1334, 839
 	t.OoO.StoreBufferSize, t.OoO.NumIntDiv = 137, 1

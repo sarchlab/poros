@@ -38,6 +38,7 @@
     "fetch_group_limit": 16,
     "fetch_lead": 2,
     "fetch_width": 10,
+    "flag_branch_dependency": true,
     "fp_issue_queue": 256,
     "fp_phys_limit": 839,
     "freq": 4590000000,

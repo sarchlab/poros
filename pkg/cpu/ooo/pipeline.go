@@ -73,9 +73,12 @@ type Spec struct {
 	// CompareBranchFusion fuses, at most once per cycle, a flag-setting integer
 	// compare of a register with a register or an immediate and the B.cond
 	// immediately after it, or an ADD/SUB of an immediate and a CBZ/CBNZ of
-	// its result immediately after it. The branch takes no rename slot, retire
-	// slot or integer pipe of its own.
+	// its result immediately after it. The pair shares a rename and retirement
+	// slot and issues once on two integer pipes.
 	CompareBranchFusion bool `json:"compare_branch_fusion,omitempty"`
+	// FlagBranchDependency makes an unfused B.cond wait for NZCV when it
+	// issues. Fetch can follow a correct prediction before the flags exist.
+	FlagBranchDependency bool `json:"flag_branch_dependency,omitempty"`
 	// StoreDependencePrediction makes a load that last overlapped an in-flight
 	// store wait for the youngest instance of that static store, even when this
 	// instance writes other bytes; see storedep.go.
@@ -519,7 +522,9 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		// Flags (NZCV) dependency.
-		if instinfo.UsesFlags(inst.Op) && p.comp.State.FlagsReady > srcReady {
+		readsFlags := instinfo.UsesFlags(inst.Op) ||
+			(p.comp.Spec.FlagBranchDependency && !branchFused && conditionalBranch(inst))
+		if readsFlags && p.comp.State.FlagsReady > srcReady {
 			srcReady = p.comp.State.FlagsReady
 		}
 

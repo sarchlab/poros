@@ -48,6 +48,17 @@ separate populations.
 | Three-cycle FP multiply, seven-cycle integer divide that starts every two cycles | Measured independently on the M5 Super core. |
 | Three-cycle L1D hit, 12-cycle L2 hit | The single dependent pointer chain took 2.99–3.00 cycles/hop at 8–64 KiB and 11.43–12.42 at 256 KiB–1 MiB. The host reports a 128 KiB Super-core L1D and 16 MiB L2 per six Super cores. The chase slows within the nominal L2 at larger footprints. |
 
+An unfused conditional flag branch waits for its NZCV producer and an integer
+pipe before it resolves. Fetch follows correct predictions speculatively.
+In a Super-core counter experiment with fixed pseudo-random branch directions,
+a branch checked a value either before or after a chain of twelve dependent
+integer multiplies. Attaching the branch to the chain increased the cost from
+14.89 to 33.14 cycles per trip with CMP, NOP and B.EQ, and from 14.28 to 32.72
+with CBZ. With a constant direction both flag variants took 6.01 cycles. The
+profile therefore accounts for the flag dependency at issue, alongside the
+existing register dependency for CBZ. A fused compare and branch still resolve
+together.
+
 The window, rename capacity, store count and arithmetic measurements above
 come from the [M5 microarchitecture measurements](https://github.com/useless-husband/m5-uarch).
 The 460-cycle DRAM latency is an effective estimate from dependent pointer

@@ -130,6 +130,7 @@ func TestFusedBranchResolvesWithItsProducer(t *testing.T) {
 				p := specPipeline(t, form.words, nil, func(s *Spec) {
 					s.NumINT = 2
 					s.CompareBranchFusion = true
+					s.FlagBranchDependency = true
 				})
 				p.comp.Resources.Emu.Regs.WriteX(0, 2) // the backedge is taken; a cold predictor misses it
 				p.comp.State.GprReady[0] = tc.ready
@@ -385,5 +386,40 @@ func TestNegativeFetchGroupParametersRejected(t *testing.T) {
 			}()
 			specPipeline(t, []uint32{nop}, nil, adjust)
 		}()
+	}
+}
+
+// An ordinary branch resolves on a pipe after its flags arrive. Correct
+// predictions can still deliver the following instructions in the same cycle.
+func TestUnfusedFlagBranchResolution(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		x0   uint64
+		miss bool
+	}{{"cold taken", 2, true}, {"correct fallthrough", 1, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := specPipeline(t, []uint32{subsX0, nop, bneMinus8, nop}, nil, func(s *Spec) {
+				s.FlagBranchDependency = true
+				s.NumINT = 1
+				s.FetchWidth = 4
+			})
+			p.comp.Resources.Emu.Regs.WriteX(0, tc.x0)
+			s := &p.comp.State
+			s.GprReady[0] = 100
+			s.IntUnits[0] = []UnitReservation{{101, 104}}
+			bp := p.predictor()
+			bp.Bimodal[bp.bimodalIndex(0x1008)] = 0
+			p.fetchAndProcess()
+			if s.Rob[0] != 101 || s.Rob[2] != 105 {
+				t.Fatalf("producer completed at %d, branch at %d", s.Rob[0], s.Rob[2])
+			}
+			if tc.miss {
+				if s.RobCount != 3 || s.FrontendReady != 104+uint64(p.comp.Spec.BranchPenalty) {
+					t.Fatalf("branch miss dispatched %d, fetch restarts at %d", s.RobCount, s.FrontendReady)
+				}
+			} else if s.RobCount != 4 || s.Rob[3] >= 100 {
+				t.Fatalf("correctly predicted fallthrough dispatched %d, completed at %d", s.RobCount, s.Rob[3])
+			}
+		})
 	}
 }
