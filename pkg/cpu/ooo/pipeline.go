@@ -77,6 +77,11 @@ type Spec struct {
 	// store that holds all its bytes has issued, whatever the instruction
 	// forms and the register loaded. Zero keeps the two paths of forwardLoad.
 	StoreForwardLatency int `json:"store_forward_latency,omitempty"`
+	// AdjacentFPForwardLatency times an 8-byte immediate-offset FP store and
+	// load of the same address in consecutive dispatch positions. It starts
+	// when the load address and the supplying store data are both ready.
+	// StoreForwardLatency, if enabled, retains precedence.
+	AdjacentFPForwardLatency int `json:"adjacent_fp_forward_latency,omitempty"`
 	// FPIssueQueue is the number of FP operations and FP store data that can
 	// wait between dispatch and issue; see issuequeue.go. Zero is unlimited.
 	FPIssueQueue int `json:"fp_issue_queue,omitempty"`
@@ -157,6 +162,9 @@ type storeBufferEntry struct {
 	// preserves the conventional forwarding path for those entries.
 	ReadyCycle          uint64
 	FastForwardEligible bool
+	// A qualifying FP store records the one dispatch position at which its
+	// consumer would be adjacent. Zero also covers older saved states.
+	NextFPReload uint64 `json:",omitempty"`
 }
 type unitType int
 
@@ -190,7 +198,7 @@ func (s *State) Initialize(c *Comp) {
 	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
 		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
 	}
-	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.FPIssueQueue < 0 || v.MultiplyIssueQueue < 0 {
+	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.AdjacentFPForwardLatency < 0 || v.FPIssueQueue < 0 || v.MultiplyIssueQueue < 0 {
 		panic("ooo: invalid latency configuration")
 	}
 	if v.NumIntDiv > 0 {
@@ -475,6 +483,8 @@ func (p *middleware) fetchAndProcess() {
 			if storeData, cached, storeSupplied = p.suppliedLoad(accesses); storeSupplied {
 				// A load that stores supply only in part reads the rest from the cache.
 				forwarding = loadForwarding{issueCycle: issueCycle, latency: uint64(p.comp.Spec.StoreForwardLatency), forwarded: len(cached) == 0}
+			} else if adjacent, ok := p.forwardAdjacentFP(inst, accesses, issueCycle); ok {
+				forwarding = adjacent
 			} else {
 				forwarding = p.forwardLoad(accesses, issueCycle, directGPRTransfer(inst))
 			}
@@ -616,8 +626,14 @@ func (p *middleware) fetchAndProcess() {
 			if p.comp.Spec.StoreDependencePrediction {
 				p.recordStoreInstance(pc, p.comp.Resources.backend().MemoryAccesses(), completeCycle)
 			}
-			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+			accesses := p.comp.Resources.backend().MemoryAccesses()
+			var nextFPReload uint64
+			if p.comp.Spec.AdjacentFPForwardLatency > 0 && len(accesses) == 1 && accesses[0].Size == 8 && scalarFPOffset(inst, arm64asm.STR) {
+				nextFPReload = p.comp.State.InstDone + uint64(p.comp.State.RobCount) + 1
+			}
+			for _, acc := range accesses {
 				entry := storeBufferEntry{
+					NextFPReload:        nextFPReload,
 					PC:                  pc,
 					Addr:                acc.Addr,
 					Size:                acc.Size,

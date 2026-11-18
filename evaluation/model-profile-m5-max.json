@@ -30,6 +30,7 @@
     "WriteBufferEntries": 56
   },
   "configuration": {
+    "adjacent_fp_forward_latency": 11,
     "branch_penalty": 17,
     "branch_prediction": true,
     "fetch_taken_branches": 1,
