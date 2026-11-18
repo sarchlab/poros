@@ -54,9 +54,11 @@ In a Super-core counter experiment with fixed pseudo-random branch directions,
 a branch checked a value either before or after a chain of twelve dependent
 integer multiplies. Attaching the branch to the chain increased the cost from
 14.89 to 33.14 cycles per trip with CMP, NOP and B.EQ, and from 14.28 to 32.72
-with CBZ. At 8,192–16,384 simulated trips, the detached and attached flag
-branches cost 13.15 and 31.78 cycles per trip. The increase was 18.63 cycles
-in the model and 18.25 on hardware. With a constant direction both native
+with CBZ. For each flag-branch variant, subtracting the simulated cycles at
+8,192 trips from those at 16,384 trips and dividing by the 8,192 additional
+trips gives 13.15 cycles per trip for the detached branch and 31.78 for the
+attached branch. Attaching the branch added 18.63 cycles per trip in the
+model and 18.25 on hardware. With a constant direction both native
 flag variants took 6.01 cycles. A fused compare and branch still resolve
 together.
 
