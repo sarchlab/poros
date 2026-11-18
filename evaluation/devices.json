@@ -34,7 +34,7 @@
     {
       "hardware": "Apple M5 Max",
       "id": "m5-max",
-      "parameter_source": "m2",
+      "parameter_source": "m5-max",
       "references": {}
     }
   ],

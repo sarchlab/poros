@@ -176,6 +176,8 @@ def macho_device_declaration():
     import devices
     import performance_reference as performance
     declaration = devices.load()
+    # These historical fixtures predate the separate M5 Max profile.
+    devices.select(declaration, "m5-max")["parameter_source"] = "m2"
     devices.select(declaration, "m2")["references"]["application"] = performance.PATH
     devices.select(declaration, "m1")["references"].pop("application", None)
     return declaration

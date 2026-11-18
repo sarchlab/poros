@@ -86,15 +86,12 @@ to the targets the simulator builds. Each entry states three things, and every
 report repeats them:
 
 - **hardware**: what the device stands for, for example `Apple M1`.
-- **parameter_source**: the device whose model profile is simulated. `m2`,
-  `m1` and `grace` have parameters of their own. `m1`'s are the M2 profile with
+- **parameter_source**: the device whose model profile is simulated. Each target has parameters of its own. `m1`'s are the M2 profile with
   the differences M1 measurements establish (see
   [the Apple M1 profile](model-profile.md#apple-m1-profile)). `grace`'s are the
   M2 profile with the differences Arm and NVIDIA publish for the Neoverse V2
   and a few effective values inferred from the GH200 user times (see
-  [the NVIDIA Grace profile](model-profile.md#nvidia-grace-profile)). `m5-max`
-  names `m2`: it runs the M2 core, memory and frequency until its own are
-  established, and is labeled as a placeholder wherever it appears.
+  [the NVIDIA Grace profile](model-profile.md#nvidia-grace-profile)). `m5-max` uses the measured Super-core clock and timing parameters described in [the Apple M5 Max profile](model-profile.md#apple-m5-max-profile).
 - **references**: the native reference file of each kind (whole-program user
   time and each diagnostic suite). `m2` has all of them. `m1` and `grace`
   each have whole-program user times.

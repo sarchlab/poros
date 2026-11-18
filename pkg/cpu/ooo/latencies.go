@@ -15,6 +15,8 @@ type Latencies struct {
 	// Multiply is the result latency of MUL, MADD, MSUB and the long
 	// multiplies. UMULH keeps its default.
 	Multiply int `json:"multiply,omitempty"`
+	// MultiplyAdd overrides Multiply for MADD and MSUB when positive.
+	MultiplyAdd int `json:"multiply_add,omitempty"`
 	// DivideBase and DivideBitsPerCycle describe an integer divider that ends
 	// early on a short quotient: SDIV and UDIV take DivideBase cycles plus one
 	// for every DivideBitsPerCycle significant bits of the quotient's
@@ -27,6 +29,8 @@ type Latencies struct {
 	FPArithmetic int `json:"fp_arithmetic,omitempty"`
 	// FPMultiply is the result latency of FMUL and FNMUL.
 	FPMultiply int `json:"fp_multiply,omitempty"`
+	// FPMultiplyAdd is the full result latency of scalar fused multiply-adds.
+	FPMultiplyAdd int `json:"fp_multiply_add,omitempty"`
 	// FPAccumulate is the latency from the addend of a fused multiply-add to
 	// its result when an FP multiply or another fused multiply-add produced
 	// that addend: the instruction may then issue before the addend is ready,
@@ -46,7 +50,7 @@ type Latencies struct {
 }
 
 func (l Latencies) valid() bool {
-	return l.Multiply >= 0 && l.DivideBase >= 0 && l.DivideBitsPerCycle >= 0 && l.FPArithmetic >= 0 &&
+	return l.Multiply >= 0 && l.MultiplyAdd >= 0 && l.FPMultiplyAdd >= 0 && l.DivideBase >= 0 && l.DivideBitsPerCycle >= 0 && l.FPArithmetic >= 0 &&
 		l.FPMultiply >= 0 && l.FPAccumulate >= 0 && l.FPDivide >= 0 && l.FPDivideOccupancy >= 0 && l.FPLoadExtra >= 0 &&
 		// An early-ending divider needs its fixed part.
 		(l.DivideBitsPerCycle == 0 || l.DivideBase > 0)
@@ -70,12 +74,19 @@ func (p *middleware) executeLatency(inst arm64asm.Inst) uint64 {
 	l := p.comp.Spec.Latencies
 	override := 0
 	switch inst.Op {
-	case arm64asm.MUL, arm64asm.MADD, arm64asm.MSUB, arm64asm.UMULL, arm64asm.SMULL, arm64asm.SMADDL, arm64asm.UMADDL:
+	case arm64asm.MADD, arm64asm.MSUB:
+		override = l.MultiplyAdd
+		if override == 0 {
+			override = l.Multiply
+		}
+	case arm64asm.MUL, arm64asm.UMULL, arm64asm.SMULL, arm64asm.SMADDL, arm64asm.UMADDL:
 		override = l.Multiply
 	case arm64asm.FADD, arm64asm.FSUB, arm64asm.FCMP, arm64asm.FCMPE, arm64asm.FCSEL, arm64asm.FNEG, arm64asm.FABS:
 		override = l.FPArithmetic
 	case arm64asm.FMUL, arm64asm.FNMUL:
 		override = l.FPMultiply
+	case arm64asm.FMADD, arm64asm.FMSUB, arm64asm.FNMADD, arm64asm.FNMSUB:
+		override = l.FPMultiplyAdd
 	case arm64asm.FDIV:
 		override = l.FPDivide
 	}
@@ -159,7 +170,7 @@ func (p *middleware) accumulateSlack(inst arm64asm.Inst) (addend int, slack uint
 		return -1, 0
 	}
 	addend = instinfo.ArgFP(inst.Args[3])
-	latency := instinfo.ExecuteLatency(inst.Op)
+	latency := int(p.executeLatency(inst))
 	if addend < 0 || accumulate >= latency || !p.comp.State.FpLateForward[addend] {
 		return -1, 0
 	}

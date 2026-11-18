@@ -11,7 +11,8 @@ source is validated against this same declaration until it has parameters of
 its own; `TestDeclaredModelProfileCoversTargetsCarryingIt` checks each of them.
 A device with parameters of its own declares them in
 `model-profile-<device>.json`: `m1` (see [Apple M1 profile](#apple-m1-profile))
-and `grace` (see [NVIDIA Grace profile](#nvidia-grace-profile)).
+`grace` (see [NVIDIA Grace profile](#nvidia-grace-profile)) and `m5-max`
+(see [Apple M5 Max profile](#apple-m5-max-profile)).
 
 The Apple OoO profiles bound integer multiplies waiting between dispatch and
 issue. The profile limits are 38 for M2 and 43 for M1. They come from a
@@ -19,10 +20,42 @@ capacity probe with two dependent multiply chains. At 64 FP fillers, the model
 predicts 276 cycles per iteration on M2 and 261 on M1, against 270.28 and
 257.01 counted on hardware. These are effective scheduling limits. The probe
 cannot identify a physical queue or determine its size. Grace and the generic
-`ooo.DefaultSpec()` use zero (unlimited). M5 Max inherits the M2 parameters.
+`ooo.DefaultSpec()` use zero (unlimited). The M5 Max has a separately measured scheduling profile.
 In the certified three-device comparison, six capacity microbenchmarks per
 Apple core improved, and all 792 whole-program cycle counts matched the
 baseline. See [Residual accuracy, round 2](residual-accuracy-round2.md#6-certified-three-device-comparison).
+
+## Apple M5 Max profile
+
+`model-profile-m5-max.json` describes one Super core. The native observations
+come from the M5 Max v0.1.3 campaign on macOS 27.2.1, using the checked-in
+recurrence, capacity, throughput, scheduling and memory assembly loops. Native
+durations below are converted at 4.59 GHz unless a counted measurement is
+specified. The external four-device paired comparison includes resized inputs
+and repeated measurements. Its application rows and microbenchmarks are
+separate populations.
+
+| Parameter | Measurement and interpretation |
+| --- | --- |
+| 4.59 GHz | The one-cycle integer ADD chain took 0.218 ns/update. The native recurrence campaign counted 4.579 billion cycles per CPU-second across all intervals. The repeated Nussinov Super-core trials also ran near 4.59 GHz. The model uses a fixed effective clock. |
+| Fetch and retire width 10, cross one predicted taken branch | Four NOP loops of 34 to 514 instructions per trip took 3.30 to 51.41 cycles/trip, close to N/10. The shortest loop requires fetch across a loop boundary in this model. The throughput constrains the narrower stage and does not identify the physical widths separately. |
+| Eight integer pipes | The 16-chain ADD loop sustains about 7.2 adds/cycle. Eight is an effective issue width. The load/store and independent FP throughput probes support keeping three loads, two stores and four FP operations per cycle. |
+| Two-cycle scalar FP arithmetic, four-cycle integer MADD, three-cycle scalar fused FP multiply-add, nine-cycle FP divide | Dependent FADD took 2.10 counted cycles. The integer scheduling loop has 64 dependent MADD instructions and eight dependent ADDs per trip. The corresponding FP loop has 64 dependent FMADD instructions and eight dependent FADDs. The two integer controls took 267–270 cycles/trip and the FP controls took 220. A dependent chain of 64 bounded FDIVs took 578 cycles. Related opcode variants use the same class timings. |
+| ROB 768, 448 in-flight FP destinations, 48 waiting integer multiplies | On the two-chain capacity probe, 64-MUL gates took about 242–246 cycles with 64–448 FP fillers, and 243–249 with 256–640 NOPs. The former 256-entry window imposed a strong rise absent from the measurements. These are effective model capacities. 448 is the largest tested FP filler count. A bound of 48 waiting multiplies gives 244 cycles on the shortest probe. The model still rises to 282 cycles with 448 FP fillers. |
+| Three-cycle L1D hit, 12-cycle L2 hit | The single dependent pointer chain took 2.99–3.00 cycles/hop at 8–64 KiB and 11.43–12.42 at 256 KiB–1 MiB. The host reports a 128 KiB Super-core L1D and 16 MiB L2 per six Super cores. The chase slows within the nominal L2 at larger footprints. |
+
+Parameters omitted here retain their M2 settings. The core and memory probes
+do not identify every stage, and assembly loop timing depends on placement,
+working set and the access pattern. For example, the L1-resident eleven-op
+integer maximum loop took 2.03 cycles/update in its constant-data control,
+while the application takes about seven cycles/inner update at its principal
+timing mode. In a Super-core follow-up on the 601 input, retaining the same
+stores but carrying their value in a register reduced median native cycles
+from 253 million to 56 million. Removing only the frequent reload of the
+floating-point accumulator likewise reduced TRMM at 288 × 384 from 216
+million to 44 million cycles, compared with 24 to 19 million at 232 × 309.
+The experiment implicates the memory-carried dependence. Its different costs
+across inputs limit the accuracy of a single forwarding latency.
 
 ## Apple M1 profile
 

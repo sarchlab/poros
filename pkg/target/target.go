@@ -149,8 +149,19 @@ func Grace() Target {
 // ran at was not observed.
 const GraceFrequency = 3_429_000_000 * timing.Hz
 
-// M5Max carries the M2 core, memory and clock until its own are established.
-func M5Max() Target { return M2().as("m5-max", "Apple M5 Max") }
+// M5Max selects the Apple M5 Max Super-core timing profile.
+func M5Max() Target {
+	t := M2().as("m5-max", "Apple M5 Max")
+	t.ParameterSource = "m5-max"
+	t.OoO.FetchWidth, t.OoO.RetireWidth = 10, 10
+	t.OoO.FetchTakenBranches = 1
+	t.OoO.NumINT = 8
+	t.OoO.ROBCapacity, t.OoO.FpPhysLimit = 768, 448
+	t.OoO.MultiplyIssueQueue = 48
+	t.OoO.Latencies = ooo.Latencies{MultiplyAdd: 4, FPArithmetic: 2, FPMultiplyAdd: 3, FPDivide: 9}
+	t.OoO.LoadLatency, t.Cache.L1Latency, t.Cache.L2Latency = 3, 3, 12
+	return t.WithFrequency(4_590_000_000 * timing.Hz)
+}
 
 // as names a configuration for another device. The parameter source is kept,
 // so the result says whose parameters it carries.
