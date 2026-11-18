@@ -104,7 +104,11 @@ latency. A one-cycle ADD chain whose every link is read by one to six other inte
 loops with seven to fourteen independent ADDs sustain about 6.7 to 7.3 integer operations per cycle.
 Compiled GEMM, SYRK, JACOBI-1D, x264 and Floyd-Warshall inner loops on L1-resident data run at 1.10 to
 1.17 cycles per iteration where the model gives 1.02, and changing addressing mode, unrolling or
-store-data timing does not remove the difference. The model issues each operation at its earliest
+store-data timing does not remove the difference. Those probes put the GEMM, SYRK and Floyd-Warshall
+load streams 16 KiB apart, in the same L1 set. Three loads per cycle to lines in three different sets
+run at full rate, but two or three loads repeated to different lines of one set take 1.18 or 2.16
+cycles where three load pipes give 0.67 or 1.00, and a GEMM-like load stream whose same-set lines
+advance through their words loses about 5%. The model issues each operation at its earliest
 dependence-ready slot on any free pipe and charges none of these costs.
 
 Parameters omitted here retain their M2 settings. The core and memory probes

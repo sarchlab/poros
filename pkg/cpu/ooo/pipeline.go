@@ -382,16 +382,17 @@ func (p *middleware) fetchAndProcess() {
 	takenLeft := p.comp.Spec.FetchTakenBranches
 	grouped := p.comp.Spec.FetchGroupLimit > 0
 	var pair fusedSelect
-	// The conditional branch after a compare that fuses with it, if any, and
-	// whether this cycle has fused a pair already.
-	var fusedBranch uint64
+	// The conditional branch completing a compare/branch pair, if any, and
+	// whether this cycle has fused such a pair already.
+	var branchPair fusedBranch
 	fusedThisCycle := false
 	conditionals := 0
 	for p.comp.State.RobCount < p.comp.Spec.ROBCapacity && !p.comp.Resources.backend().Stopped() {
 		// 1. Peek at instruction at emulator's current PC.
 		pc := p.comp.Resources.backend().CPURegisters().PC
-		branchFused := fusedBranch != 0 && fusedBranch == pc
-		fusedBranch = 0
+		fused := branchPair
+		branchFused := fused.pending && fused.pc == pc
+		branchPair.pending = false
 		if fetched >= p.comp.Spec.FetchWidth && !branchFused {
 			return
 		}
@@ -437,9 +438,10 @@ func (p *middleware) fetchAndProcess() {
 		}
 		// A compare that fuses with the branch after it brings that branch
 		// into this cycle; the pair waits whole for room under the
-		// conditional-branch limit.
+		// conditional-branch limit. Only a pair this cycle can deliver whole
+		// fuses, and only a producer's form reads the next instruction.
 		fuses := false
-		if p.comp.Spec.CompareBranchFusion && !fusedThisCycle && !branchFused && !compares {
+		if p.comp.Spec.CompareBranchFusion && !fusedThisCycle && !branchFused && !compares && p.deliversBranchPair(inst, pc) {
 			next, err := p.comp.Resources.backend().Peek(pc + 4)
 			fuses = err == nil && fusesWithBranch(inst, next)
 		}
@@ -541,6 +543,11 @@ func (p *middleware) fetchAndProcess() {
 			// nothing and completes with the flags the pair produced.
 			issueCycle, usesUnit = pair.complete-1, false
 		}
+		if branchFused {
+			// The pair issued once, with its compare, which also reserved
+			// the branch's pipe: the branch resolves in that cycle.
+			issueCycle = fused.issue
+		}
 		if instinfo.IsLoad(inst.Op) {
 			// Forwarding eligibility depends on when a load could issue.
 			// Other instructions need only the final resource selection below.
@@ -610,7 +617,11 @@ func (p *middleware) fetchAndProcess() {
 				mshr, issueCycle = p.acquireMSHR(issueCycle)
 			}
 		}
-		if usesUnit && (!indexedLoad || issueCycle != addressCycle) {
+		if fuses {
+			// A compare/branch pair issues once, on an integer pipe for each
+			// half: fusion saves the branch's rename and retire slots only.
+			issueCycle = p.reserveIssuePair(ut, issueCycle, occupancy)
+		} else if usesUnit && (!indexedLoad || issueCycle != addressCycle) {
 			issueCycle = p.reserveIssue(ut, issueCycle, occupancy)
 		}
 		if queued {
@@ -651,6 +662,10 @@ func (p *middleware) fetchAndProcess() {
 		}
 		if mshr >= 0 {
 			p.comp.State.MshrBusyUntil[mshr] = completeCycle
+		}
+		if branchFused {
+			// Both halves of the pair complete together.
+			completeCycle = fused.complete
 		}
 		if compares {
 			pair = fusedSelect{pc: pc + 4, complete: completeCycle, pending: true}
@@ -820,7 +835,7 @@ func (p *middleware) fetchAndProcess() {
 			conditionals++
 		}
 		if fuses {
-			fusedBranch = pc + 4
+			branchPair = fusedBranch{pc: pc + 4, issue: issueCycle, complete: completeCycle, pending: true}
 			fusedThisCycle = true
 		}
 		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC {

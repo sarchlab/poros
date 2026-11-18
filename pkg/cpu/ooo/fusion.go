@@ -21,6 +21,16 @@ type fusedSelect struct {
 	pending  bool
 }
 
+// fusedBranch links an admitted compare to the conditional branch that
+// completes its pair (Spec.CompareBranchFusion). Like fusedSelect it lives
+// within one fetchAndProcess call.
+type fusedBranch struct {
+	pc       uint64 // address of the branch
+	issue    uint64 // cycle in which the pair issued; the branch resolves then
+	complete uint64 // cycle at which both halves complete
+	pending  bool
+}
+
 // compareSelectFuses reports whether a compare and the select after it have a
 // fusible form: a 32-bit CMP of two plain registers, or of a register and an
 // unshifted immediate up to 15, followed by a 32-bit CSEL, where the two
@@ -85,16 +95,27 @@ func wordRegister(arg arm64asm.Arg) (arm64asm.Reg, bool) {
 // operation (Spec.CompareBranchFusion): a flag-setting integer compare whose
 // second operand is an immediate or an unshifted, unextended register,
 // followed by B.cond; or an ADD/SUB of an immediate followed by CBZ/CBNZ of
-// the register it wrote. The M5 Max NOP-loop probes measured CMP, CMN, TST,
-// SUBS, ADDS and ANDS with B.cond, and SUB with CBNZ; a shifted-register CMP
-// and a pair separated by a NOP did not fuse.
+// the register it wrote. The M5 Max NOP-loop probes measured X-register
+// SUBS, CMP, CMN, ADDS, ANDS and TST and a W-register CMP with B.NE or B.GT,
+// and SUB with CBNZ; a shifted-register CMP and a pair separated by a NOP did
+// not fuse. The other register widths and immediate forms, mixed W/X views,
+// ADD and CBZ extend those measured pairs without measurements of their own.
 func fusesWithBranch(inst, next arm64asm.Inst) bool {
+	if !branchFusionProducer(inst) {
+		return false
+	}
+	if inst.Op == arm64asm.ADD || inst.Op == arm64asm.SUB {
+		return (next.Op == arm64asm.CBZ || next.Op == arm64asm.CBNZ) && instinfo.ArgGPR(next.Args[0]) == instinfo.ArgGPR(inst.Args[0])
+	}
+	return conditionalBranch(next)
+}
+
+// branchFusionProducer reports whether inst has the form of the first half of
+// a compare/branch pair; only such an instruction reads the one after it.
+func branchFusionProducer(inst arm64asm.Inst) bool {
 	operand := lastArg(inst)
 	switch inst.Op {
 	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST, arm64asm.SUBS, arm64asm.ADDS, arm64asm.ANDS:
-		if !conditionalBranch(next) {
-			return false
-		}
 		if _, register := operand.(arm64asm.RegExtshiftAmount); register {
 			_, plain := instinfo.UnmodifiedReg(operand)
 			return plain
@@ -103,10 +124,20 @@ func fusesWithBranch(inst, next arm64asm.Inst) bool {
 	case arm64asm.ADD, arm64asm.SUB:
 		_, immediate := operand.(arm64asm.ImmShift)
 		written := instinfo.ArgGPR(inst.Args[0])
-		return immediate && (next.Op == arm64asm.CBZ || next.Op == arm64asm.CBNZ) && written >= 0 && written < 31 &&
-			instinfo.ArgGPR(next.Args[0]) == written
+		return immediate && written >= 0 && written < 31
 	}
 	return false
+}
+
+// deliversBranchPair reports whether inst at pc can open a compare/branch pair
+// that this cycle admits whole: it has a producer's form, two integer pipes
+// and two ROB entries exist for the pair, and with fetch groups the branch
+// belongs to inst's group. A pair that cannot be delivered whole runs as two
+// ordinary instructions.
+func (p *middleware) deliversBranchPair(inst arm64asm.Inst, pc uint64) bool {
+	spec := p.comp.Spec
+	return branchFusionProducer(inst) && spec.NumINT >= 2 && p.comp.State.RobCount+2 <= spec.ROBCapacity &&
+		(spec.FetchGroupLimit == 0 || p.continuesFetchGroup(pc, pc+4))
 }
 
 // lastArg is an instruction's last operand.
@@ -183,12 +214,12 @@ func (p *middleware) continuesFetchGroup(pc, next uint64) bool {
 // fusedPartner returns the register sources of the select after inst when the
 // two form a fusible pair. A pair needs two fetch slots and two ROB entries
 // in one cycle; a configuration that can never provide them, a pair
-// straddling an instruction line and an unreadable next instruction do not
-// fuse.
+// straddling an instruction line or a fetch group and an unreadable next
+// instruction do not fuse.
 func (p *middleware) fusedPartner(inst arm64asm.Inst, pc uint64) ([]int, bool) {
 	spec := p.comp.Spec
 	if spec.NumSelectFusion == 0 || inst.Op != arm64asm.CMP || spec.FetchWidth < 2 || spec.ROBCapacity < 2 ||
-		pc/fusionLineBytes != (pc+4)/fusionLineBytes {
+		pc/fusionLineBytes != (pc+4)/fusionLineBytes || spec.FetchGroupLimit > 0 && !p.continuesFetchGroup(pc, pc+4) {
 		return nil, false
 	}
 	next, sources, _, err := p.comp.Resources.peekSources(pc + 4)
