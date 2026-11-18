@@ -54,31 +54,59 @@ In a Super-core counter experiment with fixed pseudo-random branch directions,
 a branch checked a value either before or after a chain of twelve dependent
 integer multiplies. Attaching the branch to the chain increased the cost from
 14.89 to 33.14 cycles per trip with CMP, NOP and B.EQ, and from 14.28 to 32.72
-with CBZ. With a constant direction both flag variants took 6.01 cycles. The
-profile therefore accounts for the flag dependency at issue, alongside the
-existing register dependency for CBZ. A fused compare and branch still resolve
+with CBZ. At 8,192–16,384 simulated trips, the detached and attached flag
+branches cost 13.15 and 31.78 cycles per trip. The increase was 18.63 cycles
+in the model and 18.25 on hardware. With a constant direction both native
+flag variants took 6.01 cycles. A fused compare and branch still resolve
 together.
 
 An L1 read-port experiment held the instruction stream and number of accesses
-fixed while changing the spacing of resident eight-byte words. Twelve scalar
-double streams cost 0.334 cycles per load at an eight-byte stride, 0.405 at
-64 bytes, 0.554 at 128 bytes, 0.982 at 256 bytes, and 0.334 at 72 bytes.
-Integer loads had similar timings. With two streams at a 256-byte stride the
-cost was 0.598 cycles per double load. The profile groups aligned scalar
-eight-byte LDR/LDUR reads by their address modulo 256 bytes. Reads in one cycle
-can share a line. A different line in the same group consumes the attempted
-load-pipe slot and retries after the three-cycle L1 lookup. This effective
-mapping models the placement dependence. The bank wiring and replay delay
-were not independently measured. The model predicts 0.50 cycles per load for
-two streams at stride 256 and 1.00 for twelve. It applies to data already
-resident in L1 at issue, with ordinary offset addressing. Cache fills,
-forwarding, paired and writeback forms use their existing paths.
+fixed while changing the spacing of resident eight-byte words. It used
+zero-offset `LDR X` and `LDR D` instructions and set the base registers
+before the timed loop. Twelve scalar double streams cost 0.334 cycles per
+load at an eight-byte stride, 0.405 at 64 bytes, 0.554 at 128 bytes, 0.982
+at 256 bytes, and 0.334 at 72 bytes. Integer loads had similar timings. At a
+256-byte stride, two and twelve double streams cost 0.598 and 0.982 cycles
+per load on hardware, compared with 0.50 and 1.00 in the model.
 
-Across 24 independently measured compiled loops and ablations the RMS log
-error changes from 0.108 to 0.106. The GEMM and SYRK inner loops reach 1.124
-cycles per iteration against 1.151 and 1.166 measured. GEMM with its store
-removed reaches 1.250 against 1.098. These isolated loops used fixed
-placements; their changes do not measure whole-program error.
+The profile groups naturally aligned eight-byte L1 reads by their address
+modulo 256 bytes. Reads issued in one cycle can share a line. A read to a
+different line in the same group consumes its attempted load-pipe slot and
+retries after the three-cycle L1 lookup. The rule requires a single access to
+data ready in L1 at issue and excludes forwarded loads, pairs and pre- or
+post-indexed writeback. The implementation covers immediate-offset `LDR` and
+`LDUR`, register-offset `LDR` and PC-relative literal `LDR`. The placement
+experiment isolates the address effect for immediate-offset `LDR`. Applying
+the same rule to the other encodings is an extrapolation. The bank wiring
+and replay delay have no independent measurement.
+
+An earlier suite of 13 load streams used immediate offsets. Moving a pair of
+loads from one line to lines 16 KiB apart raised native cycles per pair from
+0.667 to 1.181 and simulated cycles from 0.667 to 1.000. For three loads,
+native cycles per triple rose from 1.000 to 2.163 and simulated cycles from
+1.000 to 2.033. A GEMM-like stream with one fixed load and two advancing
+loads 16 KiB apart, plus a store, cost 5.0% more on hardware than the
+three-adjacent-line load and store control. The simulated increase was 1.6%.
+Across all 13 streams, RMS log error dropped from 0.267 at revision
+`da123935` to 0.050.
+
+Across 24 held-out compiled loops and ablations, RMS log error changed from
+0.107 at `da123935` to 0.106. The values below are cycles per inner iteration
+at the fixed placements used by these probes.
+
+| Kernel | Native M5 | Model at `da123935` | Model with both corrections |
+| --- | ---: | ---: | ---: |
+| GEMM | 1.151 | 1.019 | 1.124 |
+| SYRK | 1.166 | 1.019 | 1.124 |
+| Floyd-Warshall | 1.133 | 1.020 | 1.250 |
+
+The model now overshoots Floyd-Warshall. It also reverses the direction of
+three GEMM ablations. Removing the store, removing the two multiplies or
+storing a value computed before the loop reduced native cycles per iteration to 1.098,
+1.129 and 1.109, respectively. The model rose to 1.250, 1.258 and 1.250.
+Whether the model retries a load depends on its placement and on which other
+loads issue in the same cycle. These fixed-placement measurements leave the
+size of either effect in whole applications uncertain.
 
 The window, rename capacity, store count and arithmetic measurements above
 come from the [M5 microarchitecture measurements](https://github.com/useless-husband/m5-uarch).
@@ -134,12 +162,14 @@ cost 1.00, 1.01, 1.06, 1.13, 1.20, 1.29, 1.35 and 1.40 cycles per link for N = 1
 latency. A one-cycle ADD chain whose every link is read by one to six other integer instructions takes
 1.03 to 1.67 cycles per link, while the same number of unrelated instructions costs at most 1.06. Tiny
 loops with seven to fourteen independent ADDs sustain about 6.7 to 7.3 integer operations per cycle.
-Compiled GEMM, SYRK, JACOBI-1D, x264 and Floyd-Warshall inner loops on L1-resident data run at 1.10 to
-1.17 cycles per iteration where the model gives 1.02, and changing addressing mode, unrolling or
-store-data timing does not remove the difference. Those probes put the GEMM, SYRK and Floyd-Warshall load streams
-16 KiB apart. The read-port model above accounts for part of the cost at that
-placement. The issue model continues to omit much of the dependence on chain
-fan-out and on the order of mixed integer, FP, load and store operations.
+The JACOBI-1D and x264 SAD inner loops on L1-resident data took 1.153 and
+1.095 cycles per iteration on hardware. The model gives 1.019 for each.
+In the fixed-offset GEMM variant, the three loads have distinct residues
+modulo 256 (0, 64 and 128 relative to the buffer base). They trigger no
+read conflict with one another. This variant takes 1.148 cycles per iteration
+on hardware and 1.018 in the model. The issue model continues to omit much of
+the dependence on chain fan-out and on the order of mixed integer, FP, load
+and store operations.
 
 Parameters omitted here retain their M2 settings. The core and memory probes
 do not identify every stage, and assembly loop timing depends on placement,
