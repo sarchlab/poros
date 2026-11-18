@@ -458,7 +458,7 @@ func TestRepeatedFetchGroupExit(t *testing.T) {
 			}
 			p.startFetchGroup(tc.next)
 			if s.FetchGroupCycle != 11+tc.delay {
-				t.Fatalf("buffered next fetch available at %d", s.FetchGroupCycle)
+				t.Fatalf("next fetch available at %d", s.FetchGroupCycle)
 			}
 		})
 	}
@@ -493,5 +493,69 @@ func TestRepeatedFetchGroupCheckpointAndRedirect(t *testing.T) {
 	s.Initialize(p.comp)
 	if s.FetchRepeatStart != 0 || s.FetchRepeatEnd != 0 || s.FetchRepeatCount != 0 {
 		t.Fatal("initialization retained a repeated group")
+	}
+}
+
+// An eight-element inner row starts with MOV X0,#8. Its last SUB/CBNZ falls
+// through into the outer backedge. Only the six middle iterations are
+// self-transfers from the inner group's own start. Preload the two branch
+// targets so these tests select the exit prediction independently of training.
+func TestRepeatedFetchGroupThroughPipeline(t *testing.T) {
+	const movX0Eight, subsX1, bneMinus16 = 0xd2800100, 0xf1000421, 0x54ffff81
+	const innerBranch, outerBranch = 0x1008, 0x1010
+	for _, tc := range []struct {
+		name            string
+		miss, keepGoing bool
+		renameStall     uint64
+	}{
+		{name: "correct exit"},
+		{name: "mispredicted exit", miss: true},
+		{name: "unchanged loop", keepGoing: true},
+		{name: "buffer bound after rename stall", renameStall: 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := specPipeline(t, []uint32{movX0Eight, subX0, cbnzX0, subsX1, bneMinus16}, nil, func(s *Spec) {
+				s.FetchWidth, s.NumINT = 10, 8
+				s.FetchGroupLimit, s.FetchLead = 16, 0
+				s.FetchRepeatMin, s.FetchRepeatExitDelay = 6, 4
+			})
+			bp := p.predictor()
+			bp.btbUpdate(innerBranch, 0x1004)
+			bp.btbUpdate(outerBranch, 0x1000)
+			regs := p.comp.Resources.Emu.Regs
+			regs.WriteX(1, 2)
+			admitted(p, 7)
+			s := &p.comp.State
+			if s.FetchRepeatCount != 6 || regs.ReadX(0) != 1 || regs.PC != 0x1004 {
+				t.Fatalf("after seven iterations count=%d, X0=%d, PC=%#x", s.FetchRepeatCount, regs.ReadX(0), regs.PC)
+			}
+			if tc.keepGoing {
+				regs.WriteX(0, 2)
+			} else if !tc.miss {
+				bp.Bimodal[bp.bimodalIndex(innerBranch)] = 0
+			}
+			// The current group was fetched before rename stalled. With
+			// FetchLead=0, the next group must also wait for this one to
+			// begin rename. A long stall completely hides the exit delay.
+			fetchedAt := s.FetchGroupCycle
+			s.Cycles += tc.renameStall
+			p.fetchAndProcess()
+			if tc.miss {
+				last := (s.RobTail + len(s.Rob) - 1) % len(s.Rob)
+				want := s.Rob[last] - 1 + uint64(p.comp.Spec.BranchPenalty)
+				if regs.PC != innerBranch+4 || s.FrontendReady != want || s.FetchGroupCycle != want-1 || s.FetchRepeatCount != 0 {
+					t.Fatalf("mispredicted exit: PC=%#x restart=%d fetch cycle=%d count=%d, want restart=%d", regs.PC, s.FrontendReady, s.FetchGroupCycle, s.FetchRepeatCount, want)
+				}
+				return
+			}
+			wantFetch, wantPC, wantCount := fetchedAt+5, uint64(0x1000), 0
+			if tc.keepGoing {
+				wantFetch, wantPC, wantCount = fetchedAt+1, 0x1004, 6
+			}
+			wantFetch = max(wantFetch, s.Cycles+1)
+			if regs.PC != wantPC || s.FetchRepeatCount != wantCount || s.FrontendReady != 0 || s.FetchGroupCycle != wantFetch {
+				t.Fatalf("PC=%#x count=%d rename gate=%d next fetch=%d, want PC=%#x count=%d next fetch=%d", regs.PC, s.FetchRepeatCount, s.FrontendReady, s.FetchGroupCycle, wantPC, wantCount, wantFetch)
+			}
+		})
 	}
 }

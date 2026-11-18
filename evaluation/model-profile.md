@@ -48,29 +48,72 @@ separate populations.
 | Three-cycle FP multiply, seven-cycle integer divide that starts every two cycles | Measured independently on the M5 Super core. |
 | Three-cycle L1D hit, 12-cycle L2 hit | The single dependent pointer chain took 2.99–3.00 cycles/hop at 8–64 KiB and 11.43–12.42 at 256 KiB–1 MiB. The host reports a 128 KiB Super-core L1D and 16 MiB L2 per six Super cores. The chase slows within the nominal L2 at larger footprints. |
 
+### Repeated fetch groups and indexed store data on M5
+
 A fetch group can repeatedly end at the same instruction and transfer back
 to its own first instruction. After six consecutive such transfers, changing
 the ending instruction or successor adds four cycles to the availability of
-the following fetch group. Rename can use the groups it has already buffered.
-A full branch misprediction clears the repetition state and takes its usual
-recovery latency. Six transfers and four cycles approximate the transition in
-counted nested loops. The M5 Super core took 4.05, 6.79, 10.16, 20.03,
-28.05 and 36.06 cycles per row at lengths 4, 6, 8, 16, 24 and 32,
-respectively. A flat loop took 16.0 cycles per 16 elements. In an independent
-Ferret-like row of 16 dimensions, hardware took 20.03 cycles and the earlier
-profile took 16.00. At length 48 the model already incurred a full branch
-miss on a control whose measured cost was 52.1 cycles against 67 modeled.
-The measurements support an effective exit delay over part of the trip-count
-range and leave the physical prediction mechanism unresolved.
+the following fetch group. Rename can continue with previously fetched work.
+How much of the delay is visible depends on the model's two-group fetch
+buffer, whose depth has not been measured. A full branch misprediction
+takes its usual recovery latency and clears the repetition count. The effect
+of occasional mispredictions on hardware warm-up remains unmeasured.
 
-Register-offset scalar STR X/D also use the 76-entry store-data queue. In
-a two-gate experiment, increasing the number of waiting stores from 76 to
-77 increased the measured delayed-minus-ready cost from 17 to 106 cycles
-for STR X, from 13 to 101 for STR D with a scaled X index and from 13 to
-102 for STR D with an extended W index. Alternating immediate-offset and
-register-offset STR D gave 12 and 100 cycles at the same boundary. These
-stores release their slot when their data becomes ready. A distinct
-late-address load control had its transition at 65 loads.
+The threshold and delay were fitted on counted nested loops. In the measured
+shape, the first inner iteration shares a group with the outer reset and the
+last iteration exits. A row of length L gives L−2 self-transfers, so the first
+four-cycle model delay occurs at eight elements.
+
+| Elements per row | 6 | 7 | 8 | 12 | 16 | 24 | 32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Measured Super-core cycles | 6.79 | 8.52 | 10.16 | 15.03 | 20.03 | 28.05 | 36.06 |
+| Model cycles | 6 | 7 | 12 | 16 | 20 | 28 | 36 |
+
+A flat control takes 16.03 cycles per 16 elements against 16.00 modeled.
+A Ferret-derived 16-element row takes 20.03 cycles against 16.00 previously
+and 20.00 with the delay. Multiplied by the actual 690 × 4,096 rows, the
+twin's shortfall predicts 11.39 million cycles against the independently
+measured 11.03-million-cycle shortfall in the original Ferret-1 search.
+Unrolling the twin gives 12.27 hardware cycles against 16.00 modeled.
+At lengths 32 and 48, changing the inner and outer backedges to share a
+target raises native cycles from 36.06 and 52.11 to 53.57 and 71.77.
+The model gives 36 and 67 for the nested shape, and approximately 36 and
+66 for the shared-target shape. A full predicted-direction miss already
+costs too much on the 48-element nested case.
+
+RMS log cycle error on the 136 finite-row probes changed from 0.2167 to
+0.1567 and on the 222 control-flow probes from 0.1713 to 0.1209 in the
+fetch-only experiment. Both sets contain shapes used to develop or fit the
+model. Ferret and x264 motivated the work. On the original whole-process
+inputs, the combined product at `2e1f6a0` matches the archived instruction
+count and complete output for both. Ferret-1 moves from 45,711,079 to
+56,977,775 simulated cycles (simulated/native time 0.7905 to 0.9854), and
+x264-1 from 34,281,528 to 41,673,645 (0.8102 to 0.9849).
+
+The store-data queue normally admits immediate-offset STR W/X/S/D. M5 also
+admits register-offset STR X/D to these same 76 slots. A two-gate experiment
+measured delayed-minus-ready cycles using the following forms.
+
+| Store form | Hardware at 76 / 77 stores | Model at 76 / 77 stores |
+| --- | ---: | ---: |
+| STR X, unscaled X index | 17 / 106 | 0 / 96 |
+| STR D, scaled X index | 13 / 101 | 0 / 93 |
+| STR D, extended W index (SXTW #3) | 13 / 102 | 0 / 93 |
+| Alternating immediate-offset and scaled-X-index STR D | 12 / 100 | 0 / 93 |
+
+The model extends these observations to other legal X/D register offsets,
+including scaled or W-extended STR X and unscaled STR D. Post-indexed
+STR D with a zero update also gave 13 / 100 in hardware and stays outside
+the modeled data queue. The separate late-index **load** control had a
+transition at 65. A register-offset store with a late index frees its slot
+when the data register becomes ready, following the existing immediate-offset
+late-base rule. Late-index stores were not measured.
+
+On the held-out Correlation-2 input, baseline and fetch-only both take
+31,853,946 simulated cycles. Indexed-store-only and the combined product
+both take 43,118,336 cycles. Simulated/native time rises from 0.9664 to
+1.3082. This size-dependent regression and the motivating-program results
+must be evaluated alongside the full application distribution.
 
 An unfused conditional flag branch waits for its NZCV producer and an integer
 pipe before it resolves. Fetch follows correct predictions speculatively.
