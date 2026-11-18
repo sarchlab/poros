@@ -156,10 +156,13 @@ func M5Max() Target {
 	t.OoO.FetchWidth, t.OoO.RetireWidth = 10, 10
 	t.OoO.FetchTakenBranches = 1
 	t.OoO.NumINT = 8
-	t.OoO.ROBCapacity, t.OoO.FpPhysLimit = 768, 448
+	t.OoO.ROBCapacity, t.OoO.FpPhysLimit = 1334, 839
+	t.OoO.StoreBufferSize, t.OoO.NumIntDiv = 137, 1
 	t.OoO.MultiplyIssueQueue = 48
-	t.OoO.Latencies = ooo.Latencies{MultiplyAdd: 4, FPArithmetic: 2, FPMultiplyAdd: 3, FPDivide: 9}
+	t.OoO.Latencies = ooo.Latencies{MultiplyAdd: 4, DivideBase: 7, DivideOccupancy: 2, FPArithmetic: 2, FPMultiply: 3, FPMultiplyAdd: 3, FPDivide: 9}
 	t.OoO.LoadLatency, t.Cache.L1Latency, t.Cache.L2Latency = 3, 3, 12
+	t.Cache.AlternatingStoreLineCycles = 24
+	t.Cache.DRAMLatency = 460
 	return t.WithFrequency(4_590_000_000 * timing.Hz)
 }
 

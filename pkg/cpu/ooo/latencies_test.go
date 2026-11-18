@@ -738,3 +738,18 @@ func TestLatencyTestEncodings(t *testing.T) {
 		}
 	}
 }
+
+func TestPipelinedIntegerDivide(t *testing.T) {
+	p := specPipeline(t, []uint32{udivX0X1X2}, nil, func(s *Spec) {
+		s.Latencies.DivideBase = 7
+		s.Latencies.DivideOccupancy = 2
+		s.NumIntDiv = 1
+	})
+	p.fetchAndProcess()
+	if p.comp.State.Rob[0] != 8 {
+		t.Fatalf("divide completes at %d, want 8", p.comp.State.Rob[0])
+	}
+	if !reflect.DeepEqual(p.comp.State.IntDividers[0], []UnitReservation{{1, 3}}) {
+		t.Fatalf("divide reservations %v", p.comp.State.IntDividers)
+	}
+}

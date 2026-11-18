@@ -24,6 +24,9 @@ type Latencies struct {
 	// DivideBase cycles.
 	DivideBase         int `json:"divide_base,omitempty"`
 	DivideBitsPerCycle int `json:"divide_bits_per_cycle,omitempty"`
+	// DivideOccupancy sets the issue interval of a pipelined integer divider.
+	// Zero reserves the divider for the latency of the whole division.
+	DivideOccupancy int `json:"divide_occupancy,omitempty"`
 	// FPArithmetic is the result latency of FADD, FSUB, FCMP, FCMPE, FCSEL,
 	// FNEG and FABS. Conversions and FMOV keep their default.
 	FPArithmetic int `json:"fp_arithmetic,omitempty"`
@@ -50,10 +53,10 @@ type Latencies struct {
 }
 
 func (l Latencies) valid() bool {
-	return l.Multiply >= 0 && l.MultiplyAdd >= 0 && l.FPMultiplyAdd >= 0 && l.DivideBase >= 0 && l.DivideBitsPerCycle >= 0 && l.FPArithmetic >= 0 &&
+	return l.Multiply >= 0 && l.MultiplyAdd >= 0 && l.FPMultiplyAdd >= 0 && l.DivideBase >= 0 && l.DivideBitsPerCycle >= 0 && l.DivideOccupancy >= 0 && l.FPArithmetic >= 0 &&
 		l.FPMultiply >= 0 && l.FPAccumulate >= 0 && l.FPDivide >= 0 && l.FPDivideOccupancy >= 0 && l.FPLoadExtra >= 0 &&
 		// An early-ending divider needs its fixed part.
-		(l.DivideBitsPerCycle == 0 || l.DivideBase > 0)
+		((l.DivideBitsPerCycle == 0 && l.DivideOccupancy == 0) || l.DivideBase > 0)
 }
 
 // fusedMultiplyAdd reports the scalar fused multiply-add family.
@@ -154,6 +157,9 @@ func magnitude(v int64) uint64 {
 func (p *middleware) occupancy(inst arm64asm.Inst, divide uint64) uint64 {
 	switch {
 	case divide > 0:
+		if interval := p.comp.Spec.Latencies.DivideOccupancy; interval > 0 {
+			return uint64(interval)
+		}
 		return divide
 	case inst.Op == arm64asm.FDIV && p.comp.Spec.Latencies.FPDivideOccupancy > 0:
 		return uint64(p.comp.Spec.Latencies.FPDivideOccupancy)

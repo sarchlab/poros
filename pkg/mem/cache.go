@@ -96,6 +96,9 @@ type CacheConfig struct {
 	// stores in flight. False accepts every store miss at once into a
 	// pending-line entry, as if every store stream were prefetched.
 	InterleavedStoreRunsWait bool `json:",omitempty"`
+	// AlternatingStoreLineCycles bounds the rate of new L1 allocations by
+	// two alternating contiguous store streams. Zero keeps normal admission.
+	AlternatingStoreLineCycles int `json:",omitempty"`
 }
 
 // DefaultCacheConfig returns a reasonable default configuration.
@@ -400,6 +403,7 @@ type Cache struct {
 	timingDone                 bool
 	shared                     *SharedL2
 	run                        storeRun // the followed run of contiguous stores
+	alternating                alternatingStores
 }
 
 // NewCache creates a cache hierarchy from the given configuration.
@@ -434,6 +438,9 @@ func newMemorySideCache(cfg CacheConfig) (*victimStore, *fillChannel) {
 }
 
 func (c *Cache) initTimed() {
+	if c.cfg.AlternatingStoreLineCycles < 0 {
+		panic("mem: negative alternating store allocation interval")
+	}
 	if c.cfg.WriteBufferEntries < 0 {
 		panic("mem: negative write-buffer capacity")
 	}

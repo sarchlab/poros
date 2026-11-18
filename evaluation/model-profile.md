@@ -41,8 +41,34 @@ separate populations.
 | Fetch and retire width 10, cross one predicted taken branch | Four NOP loops of 34 to 514 instructions per trip took 3.30 to 51.41 cycles/trip, close to N/10. The shortest loop requires fetch across a loop boundary in this model. The throughput constrains the narrower stage and does not identify the physical widths separately. |
 | Eight integer pipes | The 16-chain ADD loop sustains about 7.2 adds/cycle. Eight is an effective issue width. The load/store and independent FP throughput probes support keeping three loads, two stores and four FP operations per cycle. |
 | Two-cycle scalar FP arithmetic, four-cycle integer MADD, three-cycle scalar fused FP multiply-add, nine-cycle FP divide | Dependent FADD took 2.10 counted cycles. The integer scheduling loop has 64 dependent MADD instructions and eight dependent ADDs per trip. The corresponding FP loop has 64 dependent FMADD instructions and eight dependent FADDs. The two integer controls took 267–270 cycles/trip and the FP controls took 220. A dependent chain of 64 bounded FDIVs took 578 cycles. Related opcode variants use the same class timings. |
-| ROB 768, 448 in-flight FP destinations, 48 waiting integer multiplies | On the two-chain capacity probe, 64-MUL gates took about 242–246 cycles with 64–448 FP fillers, and 243–249 with 256–640 NOPs. The former 256-entry window imposed a strong rise absent from the measurements. These are effective model capacities. 448 is the largest tested FP filler count. A bound of 48 waiting multiplies gives 244 cycles on the shortest probe. The model still rises to 282 cycles with 448 FP fillers. |
+| ROB 1,334, 839 in-flight FP destinations, 137 store slots, 48 waiting integer multiplies | On the local two-chain probe the 64-MUL gates took 242–246 cycles with 64–448 FP fillers and 243–249 with 256–640 NOPs. The model uses published measurements on the M5 Super core for the window with a mix of ordinary instructions, FP destinations, and stores. These are effective limits in Poros. In particular, its store slots account for pending store execution and cache admission. The limit of 48 multiplies gives 244 cycles with 64 FP fillers. |
+| Three-cycle FP multiply, seven-cycle integer divide that starts every two cycles | Measured independently on the M5 Super core. |
 | Three-cycle L1D hit, 12-cycle L2 hit | The single dependent pointer chain took 2.99–3.00 cycles/hop at 8–64 KiB and 11.43–12.42 at 256 KiB–1 MiB. The host reports a 128 KiB Super-core L1D and 16 MiB L2 per six Super cores. The chase slows within the nominal L2 at larger footprints. |
+
+The window, rename capacity, store count and arithmetic measurements above
+come from the [M5 microarchitecture measurements](https://github.com/useless-husband/m5-uarch).
+The 460-cycle DRAM latency is an effective estimate from dependent pointer
+chases on the M5 Max. The 128 and 256 MiB chases cost 484 and 490 cycles/hop,
+including translation. The model also charges up to 30 cycles for a page walk.
+
+Two alternating ascending store streams on this M5 Max slowed beyond L1.
+A native assembly probe kept the Streamcluster initialization arithmetic and
+varied the destination addresses. When writing 80 MiB, one contiguous stream
+took 1.20 cycles per two doubles written, and two streams with bases 4 KiB or
+8 KiB apart modulo a 16 KiB page took 6.0. Both rates were about 1.2 on
+L1-resident arrays. A third store to a third stream took about 2 cycles per
+three doubles in the large run. A direct bracket around the distance function
+on the unchanged Streamcluster input measured 1.14 cycles per element in
+distance computation and 6.20 elsewhere, principally initialization.
+
+The model admits one new 64-byte L1 allocation every 24 cycles when two
+alternating ascending store streams each advance for at least a line. This
+gives six cycles per two eight-byte stores when both streams miss. It is an
+effective bandwidth inferred from these measurements. The model omits the
+dependence on placement for nearly congruent arrays. In an offset sweep,
+some displacements of less than 128 bytes between the two arrays' page
+offsets sustained 1.4–3.1 cycles/trip, while displacements of 128–8,192
+bytes generally took 6.0. The write-stream probes use doubleword stores.
 
 Parameters omitted here retain their M2 settings. The core and memory probes
 do not identify every stage, and assembly loop timing depends on placement,

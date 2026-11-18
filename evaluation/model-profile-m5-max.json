@@ -1,7 +1,8 @@
 {
   "cache_config": {
+    "AlternatingStoreLineCycles": 24,
     "DRAMBytesPerCycle": 16,
-    "DRAMLatency": 335,
+    "DRAMLatency": 460,
     "DisableAdjacentL1Prefetch": true,
     "FillBytesPerCycle": 32,
     "L1Latency": 3,
@@ -31,12 +32,15 @@
     "branch_prediction": true,
     "fetch_taken_branches": 1,
     "fetch_width": 10,
-    "fp_phys_limit": 448,
+    "fp_phys_limit": 839,
     "freq": 4590000000,
     "func_hook_cycles": null,
     "latencies": {
+      "divide_base": 7,
+      "divide_occupancy": 2,
       "fp_arithmetic": 2,
       "fp_divide": 9,
+      "fp_multiply": 3,
       "fp_multiply_add": 3,
       "multiply_add": 4
     },
@@ -45,6 +49,7 @@
     "num_fp": 4,
     "num_fp_div": 1,
     "num_int": 8,
+    "num_int_div": 1,
     "num_ldst": 4,
     "num_load": 3,
     "num_mshr_entries": 12,
@@ -59,7 +64,7 @@
       "tagged_table_size": 2048
     },
     "retire_width": 10,
-    "rob_capacity": 768,
-    "store_buffer_size": 56
+    "rob_capacity": 1334,
+    "store_buffer_size": 137
   }
 }
