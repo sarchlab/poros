@@ -81,6 +81,105 @@ func wordRegister(arg arm64asm.Arg) (arm64asm.Reg, bool) {
 	return register, register >= arm64asm.W0 && register <= arm64asm.W30
 }
 
+// fusesWithBranch reports whether inst and the branch after it form one
+// operation (Spec.CompareBranchFusion): a flag-setting integer compare whose
+// second operand is an immediate or an unshifted, unextended register,
+// followed by B.cond; or an ADD/SUB of an immediate followed by CBZ/CBNZ of
+// the register it wrote. The M5 Max NOP-loop probes measured CMP, CMN, TST,
+// SUBS, ADDS and ANDS with B.cond, and SUB with CBNZ; a shifted-register CMP
+// and a pair separated by a NOP did not fuse.
+func fusesWithBranch(inst, next arm64asm.Inst) bool {
+	operand := lastArg(inst)
+	switch inst.Op {
+	case arm64asm.CMP, arm64asm.CMN, arm64asm.TST, arm64asm.SUBS, arm64asm.ADDS, arm64asm.ANDS:
+		if !conditionalBranch(next) {
+			return false
+		}
+		if _, register := operand.(arm64asm.RegExtshiftAmount); register {
+			_, plain := instinfo.UnmodifiedReg(operand)
+			return plain
+		}
+		return true
+	case arm64asm.ADD, arm64asm.SUB:
+		_, immediate := operand.(arm64asm.ImmShift)
+		written := instinfo.ArgGPR(inst.Args[0])
+		return immediate && (next.Op == arm64asm.CBZ || next.Op == arm64asm.CBNZ) && written >= 0 && written < 31 &&
+			instinfo.ArgGPR(next.Args[0]) == written
+	}
+	return false
+}
+
+// lastArg is an instruction's last operand.
+func lastArg(inst arm64asm.Inst) arm64asm.Arg {
+	var last arm64asm.Arg
+	for _, arg := range inst.Args {
+		if arg == nil {
+			break
+		}
+		last = arg
+	}
+	return last
+}
+
+// conditionalBranch reports B.cond.
+func conditionalBranch(inst arm64asm.Inst) bool {
+	if inst.Op != arm64asm.B {
+		return false
+	}
+	for _, arg := range inst.Args {
+		if _, ok := arg.(arm64asm.Cond); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// countsAsConditional reports the branches bounded by Spec.ConditionalBranches.
+func countsAsConditional(inst arm64asm.Inst) bool {
+	switch inst.Op {
+	case arm64asm.CBZ, arm64asm.CBNZ, arm64asm.TBZ, arm64asm.TBNZ:
+		return true
+	}
+	return conditionalBranch(inst)
+}
+
+// redirect restarts fetch at cycle after a misprediction or another
+// unpredicted change of the PC; with fetch groups, the fetch buffer empties
+// and a new group starts there.
+func (p *middleware) redirect(cycle uint64) {
+	p.comp.State.FrontendReady = cycle
+	if p.comp.Spec.FetchGroupLimit > 0 {
+		p.comp.State.FetchGroupCycle = cycle - 1
+		p.comp.State.FetchGroupEnded = true
+		clear(p.comp.State.FetchGroupRenamed)
+	}
+}
+
+// startFetchGroup fetches the next group, starting at pc: one cycle after
+// the previous group, and only once the fetch buffer has room, i.e. the cycle
+// after the group FetchLead+1 places earlier began rename.
+func (p *middleware) startFetchGroup(pc uint64) {
+	s := &p.comp.State
+	renamed := s.FetchGroupRenamed
+	slot := s.FetchGroups % uint64(len(renamed))
+	s.FetchGroupCycle = max(s.FetchGroupCycle+1, renamed[slot]+1)
+	// Until the group's first instruction is renamed, assume it is renamed
+	// when fetched; the dispatch loop records the actual cycle.
+	renamed[slot] = max(s.FetchGroupCycle, s.Cycles)
+	s.FetchGroups++
+	s.FetchGroupStart = pc
+	s.FetchGroupSize = 0
+	s.FetchGroupEnded = false
+}
+
+// continuesFetchGroup reports whether the instruction at next, executed after
+// the one at pc, belongs to the current fetch group: it must lie ahead of pc
+// inside the group's window of FetchGroupLimit instruction slots.
+func (p *middleware) continuesFetchGroup(pc, next uint64) bool {
+	end := p.comp.State.FetchGroupStart + 4*uint64(p.comp.Spec.FetchGroupLimit)
+	return next > pc && next < end
+}
+
 // fusedPartner returns the register sources of the select after inst when the
 // two form a fusible pair. A pair needs two fetch slots and two ROB entries
 // in one cycle; a configuration that can never provide them, a pair

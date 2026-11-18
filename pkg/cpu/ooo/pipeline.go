@@ -54,6 +54,28 @@ type Spec struct {
 	// FetchTakenBranches is how many correctly predicted taken branches one
 	// fetch group may continue across. Zero ends the group at every one.
 	FetchTakenBranches int `json:"fetch_taken_branches,omitempty"`
+	// FetchGroupLimit, when positive, separates fetch from rename: fetch
+	// delivers at most one group per cycle, a window of this many instruction
+	// slots from the group's first instruction, and FetchWidth counts rename
+	// slots, which may take instructions of several fetched groups in one
+	// cycle. A correctly predicted taken branch ends the group unless its
+	// target lies ahead inside the window; FetchTakenBranches is not used.
+	// Zero keeps one combined fetch/rename group of FetchWidth.
+	FetchGroupLimit int `json:"fetch_group_limit,omitempty"`
+	// FetchLead, with FetchGroupLimit, is how many fetched groups wait for
+	// rename: fetch delivers a group no earlier than the cycle after the group
+	// FetchLead+1 places before it began rename, so a stalled rename stage
+	// resumes with at most FetchLead+1 groups to take in one cycle.
+	FetchLead int `json:"fetch_lead,omitempty"`
+	// ConditionalBranches, when positive, is how many conditional branches
+	// (B.cond, CBZ, CBNZ, TBZ, TBNZ) rename takes in one cycle.
+	ConditionalBranches int `json:"conditional_branches,omitempty"`
+	// CompareBranchFusion fuses, at most once per cycle, a flag-setting integer
+	// compare of a register with a register or an immediate and the B.cond
+	// immediately after it, or an ADD/SUB of an immediate and a CBZ/CBNZ of
+	// its result immediately after it. The branch takes no rename slot, retire
+	// slot or integer pipe of its own.
+	CompareBranchFusion bool `json:"compare_branch_fusion,omitempty"`
 	// StoreDependencePrediction makes a load that last overlapped an in-flight
 	// store wait for the youngest instance of that static store, even when this
 	// instance writes other bytes; see storedep.go.
@@ -154,6 +176,20 @@ type State struct {
 	MultiplyQueue []uint64
 	// With Spec.StoreDataQueue: cycles when store data slots become free.
 	StoreDataQueue []uint64 `json:",omitempty"`
+	// With Spec.FetchGroupLimit: the cycle the current fetch group was
+	// fetched in, how many instructions it holds so far, and whether the next
+	// instruction starts another group.
+	FetchGroupCycle uint64 `json:",omitempty"`
+	FetchGroupStart uint64 `json:",omitempty"`
+	FetchGroupSize  int    `json:",omitempty"`
+	FetchGroupEnded bool   `json:",omitempty"`
+	// The cycles in which the last FetchLead+1 groups began rename, by group
+	// number modulo FetchLead+1, and the number of groups fetched.
+	FetchGroupRenamed []uint64 `json:",omitempty"`
+	FetchGroups       uint64   `json:",omitempty"`
+	// With Spec.CompareBranchFusion: which ROB entries hold a branch fused
+	// with the compare before it.
+	RobFused []bool `json:",omitempty"`
 }
 type storeBufferEntry struct {
 	PC                 uint64 // static store, for dependence prediction
@@ -197,8 +233,15 @@ func (s *State) Initialize(c *Comp) {
 	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumFPDiv < 1 || v.NumFPDiv > v.NumFP || v.NumLDST < 1 || v.LoadLatency < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
 	}
-	if v.FetchTakenBranches < 0 {
-		panic("ooo: invalid fetch taken-branch count")
+	if v.FetchTakenBranches < 0 || v.FetchGroupLimit < 0 || v.FetchLead < 0 || v.ConditionalBranches < 0 {
+		panic("ooo: invalid fetch taken-branch count, group limit, lead or branch limit")
+	}
+	if v.CompareBranchFusion {
+		s.RobFused = make([]bool, v.ROBCapacity)
+	}
+	if v.FetchGroupLimit > 0 {
+		s.FetchGroupRenamed = make([]uint64, v.FetchLead+1)
+		s.FetchGroupEnded = true
 	}
 	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
 		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
@@ -299,7 +342,12 @@ func (p *middleware) Handle(_ timing.Event) bool {
 // completeCycle <= currentCycle, up to RetireWidth per cycle.
 func (p *middleware) retire() {
 	retired := 0
-	for retired < p.comp.Spec.RetireWidth && p.comp.State.RobCount > 0 {
+	for p.comp.State.RobCount > 0 {
+		// A branch fused with its compare retires in the compare's slot.
+		fused := len(p.comp.State.RobFused) > 0 && p.comp.State.RobFused[p.comp.State.RobHead]
+		if !fused && retired >= p.comp.Spec.RetireWidth {
+			break
+		}
 		if p.comp.State.Rob[p.comp.State.RobHead] > p.comp.State.Cycles {
 			break // head entry not yet complete
 		}
@@ -307,7 +355,9 @@ func (p *middleware) retire() {
 		p.comp.State.InstDone++
 		p.comp.State.RobHead = (p.comp.State.RobHead + 1) % p.comp.Spec.ROBCapacity
 		p.comp.State.RobCount--
-		retired++
+		if !fused {
+			retired++
+		}
 	}
 }
 
@@ -330,10 +380,29 @@ func (p *middleware) fetchAndProcess() {
 
 	fetched := 0
 	takenLeft := p.comp.Spec.FetchTakenBranches
+	grouped := p.comp.Spec.FetchGroupLimit > 0
 	var pair fusedSelect
-	for fetched < p.comp.Spec.FetchWidth && p.comp.State.RobCount < p.comp.Spec.ROBCapacity && !p.comp.Resources.backend().Stopped() {
+	// The conditional branch after a compare that fuses with it, if any, and
+	// whether this cycle has fused a pair already.
+	var fusedBranch uint64
+	fusedThisCycle := false
+	conditionals := 0
+	for p.comp.State.RobCount < p.comp.Spec.ROBCapacity && !p.comp.Resources.backend().Stopped() {
 		// 1. Peek at instruction at emulator's current PC.
 		pc := p.comp.Resources.backend().CPURegisters().PC
+		branchFused := fusedBranch != 0 && fusedBranch == pc
+		fusedBranch = 0
+		if fetched >= p.comp.Spec.FetchWidth && !branchFused {
+			return
+		}
+		if grouped {
+			if p.comp.State.FetchGroupEnded {
+				p.startFetchGroup(pc)
+			}
+			if p.comp.State.FetchGroupCycle > p.comp.State.Cycles {
+				return // the next group is fetched in a later cycle
+			}
+		}
 		inst, gprs, fps, err := p.comp.Resources.peekSources(pc)
 		if err != nil {
 			if p.comp.Resources.processMode() {
@@ -364,6 +433,18 @@ func (p *middleware) fetchAndProcess() {
 			partner, compares = p.fusedPartner(inst, pc)
 		}
 		if compares && (fetched+2 > p.comp.Spec.FetchWidth || p.comp.State.RobCount+2 > p.comp.Spec.ROBCapacity) {
+			return
+		}
+		// A compare that fuses with the branch after it brings that branch
+		// into this cycle; the pair waits whole for room under the
+		// conditional-branch limit.
+		fuses := false
+		if p.comp.Spec.CompareBranchFusion && !fusedThisCycle && !branchFused && !compares {
+			next, err := p.comp.Resources.backend().Peek(pc + 4)
+			fuses = err == nil && fusesWithBranch(inst, next)
+		}
+		if limit := p.comp.Spec.ConditionalBranches; limit > 0 && conditionals >= limit &&
+			(fuses || (!branchFused && countsAsConditional(inst))) {
 			return
 		}
 
@@ -454,7 +535,7 @@ func (p *middleware) fetchAndProcess() {
 		// NOP is eliminated before execution, while retaining frontend, ROB
 		// and retirement accounting. Other HINT instructions are not assumed
 		// to have the same resource behavior.
-		usesUnit := inst.Op != arm64asm.NOP
+		usesUnit := inst.Op != arm64asm.NOP && !branchFused
 		if selects {
 			// The pair issued once, with its compare. The select reserves
 			// nothing and completes with the flags the pair produced.
@@ -663,9 +744,26 @@ func (p *middleware) fetchAndProcess() {
 		// 10. Add to ROB and track FP register usage.
 		p.comp.State.Rob[p.comp.State.RobTail] = completeCycle
 		p.comp.State.RobFPDests[p.comp.State.RobTail] = fpDests
+		if len(p.comp.State.RobFused) > 0 {
+			p.comp.State.RobFused[p.comp.State.RobTail] = branchFused
+		}
 		p.comp.State.FpInFlight += fpDests
 		p.comp.State.RobTail = (p.comp.State.RobTail + 1) % p.comp.Spec.ROBCapacity
 		p.comp.State.RobCount++
+
+		// A fused branch shares its compare's rename slot.
+		slot := 1
+		if branchFused {
+			slot = 0
+		}
+		if grouped {
+			if p.comp.State.FetchGroupSize == 0 {
+				// The group began rename now; it leaves the fetch buffer.
+				renamed := p.comp.State.FetchGroupRenamed
+				renamed[(p.comp.State.FetchGroups-1)%uint64(len(renamed))] = p.comp.State.Cycles
+			}
+			p.comp.State.FetchGroupSize++
+		}
 
 		// 11. Handle branch.
 		if instinfo.IsBranch(inst.Op) && p.comp.Spec.BranchPrediction {
@@ -687,7 +785,7 @@ func (p *middleware) fetchAndProcess() {
 				(predTaken && predTarget != actualTarget)
 
 			if mispredicted {
-				p.comp.State.FrontendReady = issueCycle + uint64(p.comp.Spec.BranchPenalty)
+				p.redirect(issueCycle + uint64(p.comp.Spec.BranchPenalty))
 				break
 			}
 			// Correct prediction, taken: BTB provides the target in the
@@ -695,21 +793,36 @@ func (p *middleware) fetchAndProcess() {
 			// (loop stream detector / micro-op cache eliminates the
 			// redirect bubble for well-predicted branches). The group ends
 			// here unless it may still continue at the target.
-			if actualTaken && takenLeft == 0 {
-				p.comp.State.FrontendReady = p.comp.State.Cycles + 1 // 0-cycle redirect
-				fetched++
-				break
-			}
-			if actualTaken {
-				takenLeft--
+			if !grouped {
+				if actualTaken && takenLeft == 0 {
+					p.comp.State.FrontendReady = p.comp.State.Cycles + 1 // 0-cycle redirect
+					fetched += slot
+					break
+				}
+				if actualTaken {
+					takenLeft--
+				}
 			}
 		} else if branched {
 			// Fallback for non-branch PC changes or nil predictor.
-			p.comp.State.FrontendReady = issueCycle + uint64(p.comp.Spec.BranchPenalty)
+			p.redirect(issueCycle + uint64(p.comp.Spec.BranchPenalty))
 			break
 		}
+		if grouped && !p.continuesFetchGroup(pc, p.comp.Resources.backend().CPURegisters().PC) {
+			// The next instruction is behind this one or beyond the window:
+			// fetch delivers it in a later group. Rename continues with
+			// whatever fetch has already delivered.
+			p.comp.State.FetchGroupEnded = true
+		}
 
-		fetched++
+		fetched += slot
+		if countsAsConditional(inst) {
+			conditionals++
+		}
+		if fuses {
+			fusedBranch = pc + 4
+			fusedThisCycle = true
+		}
 		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC {
 			p.comp.State.Serializing = true
 			return
