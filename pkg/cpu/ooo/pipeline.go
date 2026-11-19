@@ -159,6 +159,7 @@ type Comp = ticking.Component[Spec, State, Resources, Ports, Middlewares]
 type State struct {
 	Serializing                  bool
 	GprReady, FpReady            [32]uint64
+	FAddWakeup                   faddWakeupState `json:",omitzero"`
 	FlagsReady                   uint64
 	IntUnits, FpUnits, LdstUnits [][]UnitReservation
 	Rob                          []uint64
@@ -268,6 +269,7 @@ func (s *State) Initialize(c *Comp) {
 		panic("ooo: fetch repetition requires a group, positive threshold and exit delay")
 	}
 	s.FetchRepeatStart, s.FetchRepeatEnd, s.FetchRepeatCount = 0, 0, 0
+	s.FAddWakeup = faddWakeupState{}
 	if v.CompareBranchFusion {
 		s.RobFused = make([]bool, v.ROBCapacity)
 	}
@@ -540,13 +542,21 @@ func (p *middleware) fetchAndProcess() {
 		// The addend of a fused multiply-add is its last FP source; a producer
 		// that forwards late lets the instruction issue before it is ready.
 		addend, slack := p.accumulateSlack(inst)
+		wakeup := &p.comp.State.FAddWakeup
+		wakeupEnabled := p.comp.Spec.Latencies.FAddWakeupSpan > 0
+		doubleAdd := wakeupEnabled && scalarFAdd64(inst)
+		var fraction uint64
 		for i, fp := range fps {
 			ready := p.comp.State.FpReady[fp]
 			if fp == addend && i == len(fps)-1 {
 				ready -= min(ready, slack)
 			}
-			if ready > srcReady {
-				srcReady = ready
+			var remainder uint64
+			if doubleAdd {
+				ready, remainder = p.faddOperandReady(wakeup, fp, ready)
+			}
+			if ready > srcReady || (ready == srcReady && remainder > fraction) {
+				srcReady, fraction = ready, remainder
 			}
 		}
 		// A fused pair issues when every register either half reads is ready.
@@ -732,6 +742,17 @@ func (p *middleware) fetchAndProcess() {
 		}
 		if fp >= 0 {
 			p.comp.State.FpReady[fp] = completeCycle
+			if wakeupEnabled {
+				wakeup.Producers[fp] = faddProducer{}
+				if doubleAdd {
+					// A later dispatch or pipe reservation already hid any
+					// fractional delay inherited from this operand.
+					if issueCycle > srcReady {
+						fraction = 0
+					}
+					wakeup.Producers[fp] = faddProducer{Position: wakeup.Position, Fraction: fraction, Valid: true}
+				}
+			}
 			p.comp.State.FpLateForward[fp] = inst.Op == arm64asm.FMUL || inst.Op == arm64asm.FNMUL || fusedMultiplyAdd(inst.Op)
 		}
 		fpDests := 0
@@ -744,6 +765,9 @@ func (p *middleware) fetchAndProcess() {
 			}
 			if fp2 >= 0 {
 				p.comp.State.FpReady[fp2] = completeCycle
+				if wakeupEnabled {
+					wakeup.Producers[fp2] = faddProducer{}
+				}
 				p.comp.State.FpLateForward[fp2] = false
 				fpDests++
 			}
@@ -821,6 +845,10 @@ func (p *middleware) fetchAndProcess() {
 				renamed[(p.comp.State.FetchGroups-1)%uint64(len(renamed))] = p.comp.State.Cycles
 			}
 			p.comp.State.FetchGroupSize++
+		}
+
+		if wakeupEnabled {
+			p.advanceFAddWakeup(wakeup, inst, branched)
 		}
 
 		// 11. Handle branch.

@@ -49,6 +49,8 @@
     "latencies": {
       "divide_base": 7,
       "divide_occupancy": 2,
+      "fadd_wakeup_span": 6,
+      "fadd_wakeup_taken": 2,
       "fp_arithmetic": 2,
       "fp_divide": 9,
       "fp_multiply": 3,

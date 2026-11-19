@@ -30,6 +30,12 @@ type Latencies struct {
 	// FPArithmetic is the result latency of FADD, FSUB, FCMP, FCMPE, FCSEL,
 	// FNEG and FABS. Conversions and FMOV keep their default.
 	FPArithmetic int `json:"fp_arithmetic,omitempty"`
+	// FAddWakeupSpan and FAddWakeupTaken model the effective wakeup time
+	// of carried scalar double-precision FADDs. FAddWakeupSpan bounds the
+	// fractional delay, and FAddWakeupTaken weights a taken branch. Both
+	// count equivalent instruction slots. A zero span disables the model.
+	FAddWakeupSpan  int `json:"fadd_wakeup_span,omitempty"`
+	FAddWakeupTaken int `json:"fadd_wakeup_taken,omitempty"`
 	// FPMultiply is the result latency of FMUL and FNMUL.
 	FPMultiply int `json:"fp_multiply,omitempty"`
 	// FPMultiplyAdd is the full result latency of scalar fused multiply-adds.
@@ -54,6 +60,7 @@ type Latencies struct {
 
 func (l Latencies) valid() bool {
 	return l.Multiply >= 0 && l.MultiplyAdd >= 0 && l.FPMultiplyAdd >= 0 && l.DivideBase >= 0 && l.DivideBitsPerCycle >= 0 && l.DivideOccupancy >= 0 && l.FPArithmetic >= 0 &&
+		l.FAddWakeupSpan >= 0 && l.FAddWakeupTaken >= 0 && (l.FAddWakeupSpan > 0 || l.FAddWakeupTaken == 0) &&
 		l.FPMultiply >= 0 && l.FPAccumulate >= 0 && l.FPDivide >= 0 && l.FPDivideOccupancy >= 0 && l.FPLoadExtra >= 0 &&
 		// An early-ending divider needs its fixed part.
 		((l.DivideBitsPerCycle == 0 && l.DivideOccupancy == 0) || l.DivideBase > 0)

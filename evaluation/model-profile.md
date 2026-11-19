@@ -48,6 +48,26 @@ separate populations.
 | Three-cycle FP multiply, seven-cycle integer divide that starts every two cycles | Measured independently on the M5 Super core. |
 | Three-cycle L1D hit, 12-cycle L2 hit | The single dependent pointer chain took 2.99–3.00 cycles/hop at 8–64 KiB and 11.43–12.42 at 256 KiB–1 MiB. The host reports a 128 KiB Super-core L1D and 16 MiB L2 per six Super cores. The chase slows within the nominal L2 at larger footprints. |
 
+### Scalar double FADD wakeup on M5
+
+A carried double FADD takes 2.50 counted cycles in a one-add loop and
+2.06–2.13 cycles in loops with four to 64 consecutive dependent adds.
+Changing a branch to taken at the same next address adds about 0.27 cycles
+per add when placed after each add. Placing four NOPs between every pair
+costs 2.50 cycles per add, versus 2.07 when the same NOPs sit at the loop
+tail. Independent ready loads have a much smaller effect than NOPs.
+
+The M5 model approximates this with a fractional wakeup delay from a scalar
+double FADD producer to a scalar double FADD consumer. The numerator is
+the dynamic instruction distance, excluding loads and adding two equivalent
+slots per taken branch, capped at six slots. The denominator is the rename
+width. Uncharged fractions follow the critical operand through the dependency
+chain. The delay is disabled for a consumer at least one base FADD latency
+times the rename width away. This keeps the effect local when sustained
+front-end delivery already spaces out successive adds. The parameters are
+effective values from the measured shapes. The experiments leave the physical
+cause of the delay open.
+
 ### Repeated fetch groups and indexed store data on M5
 
 A fetch group can repeatedly end at the same instruction and transfer back
