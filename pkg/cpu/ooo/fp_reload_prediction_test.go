@@ -173,3 +173,73 @@ func TestScalarFPFeedbackThroughDispatch(t *testing.T) {
 		t.Fatalf("short forwarding distance changed timing: %d vs %d", on, off)
 	}
 }
+
+func TestOverlappingFPRefillsTrainAndExpire(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		secondIssue uint64
+		wantHold    bool
+	}{
+		{"overlapping intervals", 9, true},
+		{"touching intervals", 10, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := State{RobCount: 12}
+			state.FPReload.LastFeedback = 12
+			// Two PCs read streams 16 KiB apart, eight bytes at a time.
+			// Two reads establish the stride, then two matching refills train.
+			for i := uint64(0); i < 4; i++ {
+				at, offset := 20*i, i*8
+				state.noteFPRefill(0x1000, 0x20000+offset, at, at+10, true)
+				state.noteFPRefill(0x1004, 0x24000+offset, at+tc.secondIssue, at+20, true)
+				if i < 3 && state.conservativeReloadActive() {
+					t.Fatal("single matching refill opened the conservative window")
+				}
+			}
+			if got := state.conservativeReloadActive(); got != tc.wantHold {
+				t.Fatalf("active after training = %t, want %t", got, tc.wantHold)
+			}
+			if tc.wantHold {
+				state.RobCount = 0
+				state.InstDone = 12 + conservativeReloadWindow - 1
+				if !state.conservativeReloadActive() {
+					t.Fatal("window expired before its final position")
+				}
+				state.InstDone++
+				if state.conservativeReloadActive() {
+					t.Fatal("window survived its expiry position")
+				}
+			}
+		})
+	}
+}
+
+func TestNewerReadyProducerUsesYoungestOverlap(t *testing.T) {
+	const loadPC, predictedPC, addr, issue = 0x1000, 0x2000, 0x4000, 10
+	load := emu.MemAccess{Addr: addr, Size: 8}
+	predicted := storeBufferEntry{PC: predictedPC, Addr: addr + 128, Size: 8, CompleteCycle: 30}
+	ready := storeBufferEntry{PC: 0x2004, Addr: addr, Size: 8, ReadyCycle: issue}
+	partial := storeBufferEntry{PC: 0x2008, Addr: addr + 4, Size: 4, ReadyCycle: issue}
+	pending := storeBufferEntry{PC: 0x200c, Addr: addr, Size: 8, ReadyCycle: issue + 1}
+	for _, tc := range []struct {
+		name   string
+		stores []storeBufferEntry
+		want   bool
+	}{
+		{"newer exact ready store", []storeBufferEntry{predicted, ready}, true},
+		{"exact store precedes prediction", []storeBufferEntry{ready, predicted}, false},
+		{"younger partial overlap", []storeBufferEntry{predicted, ready, partial}, false},
+		{"younger data still pending", []storeBufferEntry{predicted, ready, pending}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &middleware{comp: &Comp{}}
+			state := &p.comp.State
+			state.StoreBuffer = tc.stores
+			state.StoreDependence.LoadStore = map[uint64]uint64{loadPC: predictedPC}
+			p.recordStoreInstance(predictedPC, []emu.MemAccess{{Addr: predicted.Addr, Size: predicted.Size}}, predicted.CompleteCycle)
+			if got := p.newerReadyProducer(loadPC, load, issue); got != tc.want {
+				t.Fatalf("bypass predicted wait = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}

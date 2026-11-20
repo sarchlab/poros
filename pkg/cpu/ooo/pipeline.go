@@ -21,6 +21,8 @@ type HookCycles struct {
 // Spec contains immutable structural and timing parameters.
 type Spec struct {
 	// ScalarFPReloadPrediction models M5 scalar FP feedback and ordering under competing reads.
+	// With general store-dependence prediction off, an eligible load learns the
+	// static store PC only when the youngest overlapping store supplies exact feedback.
 	ScalarFPReloadPrediction bool        `json:"scalar_fp_reload_prediction,omitempty"`
 	Freq                     timing.Freq `json:"freq"`
 	FetchWidth               int         `json:"fetch_width"`
@@ -656,7 +658,7 @@ func (p *middleware) fetchAndProcess() {
 			} else {
 				forwarding = p.forwardLoad(accesses, issueCycle, directGPRTransfer(inst))
 				if forwarding.forwarded && scalarReload {
-					forwarding = p.forwardFeedback(accesses[0], issueCycle, forwarding)
+					forwarding = p.trainAndForwardFeedback(accesses[0], issueCycle, forwarding)
 				}
 			}
 			issueCycle = forwarding.issueCycle

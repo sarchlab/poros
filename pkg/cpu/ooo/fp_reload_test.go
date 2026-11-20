@@ -63,12 +63,12 @@ func TestPageAliasExpiresWhenTrainingLoadRetires(t *testing.T) {
 	// A subsequent store to the same address is still in flight on both sides of retirement.
 	state.StoreBuffer = []storeBufferEntry{{Addr: addr, Size: 8, Feedback: true, ScalarStorePosition: 70, ReadyCycle: 110, CompleteCycle: 113}}
 	state.InstDone = 60
-	if got := pipe.forwardFeedback(load, 100, fallback); got != fallback {
+	if got := pipe.trainAndForwardFeedback(load, 100, fallback); got != fallback {
 		t.Fatalf("live alias used fast forwarding: %+v", got)
 	}
 	state.InstDone = 61
 	want := loadForwarding{issueCycle: 100, dataReady: 110, latency: 1, forwarded: true}
-	if got := pipe.forwardFeedback(load, 100, fallback); got != want {
+	if got := pipe.trainAndForwardFeedback(load, 100, fallback); got != want {
 		t.Fatalf("retired alias still delayed forwarding: %+v", got)
 	}
 }
