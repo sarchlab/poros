@@ -79,6 +79,7 @@
     "register_offset_store_data": true,
     "retire_width": 10,
     "rob_capacity": 1334,
+    "scalar_fp_reload_prediction": true,
     "store_buffer_size": 137,
     "store_data_queue": 76
   }

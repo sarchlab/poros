@@ -20,11 +20,13 @@ type HookCycles struct {
 
 // Spec contains immutable structural and timing parameters.
 type Spec struct {
-	Freq        timing.Freq `json:"freq"`
-	FetchWidth  int         `json:"fetch_width"`
-	RetireWidth int         `json:"retire_width"`
-	ROBCapacity int         `json:"rob_capacity"`
-	NumINT      int         `json:"num_int"`
+	// ScalarFPReloadPrediction models M5 scalar FP feedback and ordering under competing reads.
+	ScalarFPReloadPrediction bool        `json:"scalar_fp_reload_prediction,omitempty"`
+	Freq                     timing.Freq `json:"freq"`
+	FetchWidth               int         `json:"fetch_width"`
+	RetireWidth              int         `json:"retire_width"`
+	ROBCapacity              int         `json:"rob_capacity"`
+	NumINT                   int         `json:"num_int"`
 	// NumSelectFusion is the number of integer pipes that can execute a fused
 	// compare/select pair. They are the last NumINT pipes, a subset shared with
 	// ordinary integer work. Zero disables the fusion.
@@ -157,6 +159,7 @@ type Comp = ticking.Component[Spec, State, Resources, Ports, Middlewares]
 
 // State owns mutable scheduling, queues, predictor tables, and counters.
 type State struct {
+	FPReload                     fpReloadState `json:",omitzero"`
 	Serializing                  bool
 	GprReady, FpReady            [32]uint64
 	FAddWakeup                   faddWakeupState `json:",omitzero"`
@@ -215,6 +218,7 @@ type State struct {
 	L1ReadIssues map[uint64][]uint64 `json:",omitempty"`
 }
 type storeBufferEntry struct {
+	Feedback           bool   `json:",omitempty"`
 	PC                 uint64 // static store, for dependence prediction
 	Addr               uint64
 	Size               int
@@ -229,6 +233,8 @@ type storeBufferEntry struct {
 	// A qualifying FP store records the one dispatch position at which its
 	// consumer would be adjacent. Zero also covers older saved states.
 	NextFPReload uint64 `json:",omitempty"`
+	// One-based dispatch position of a scalar FP store, for feedback timing.
+	ScalarStorePosition uint64 `json:",omitempty"`
 }
 type unitType int
 
@@ -622,14 +628,25 @@ func (p *middleware) fetchAndProcess() {
 		// With StoreForwardLatency: stores supply accesses of the load, and the
 		// data of the last of them issues at storeData.
 		var storeSupplied bool
-		var storeData uint64
+		var storeData, conflictReturn uint64
 		// The accesses of a load that the cache supplies: every one of them,
 		// unless stores supply some.
 		var cached []emu.MemAccess
 		if instinfo.IsLoad(inst.Op) {
 			accesses := p.comp.Resources.backend().MemoryAccesses()
-			if p.comp.Spec.StoreDependencePrediction {
-				issueCycle = p.predictedStoreWait(pc, accesses, issueCycle)
+			scalarReload := p.comp.Spec.ScalarFPReloadPrediction && len(accesses) == 1 && accesses[0].Size == 8 && scalarFPAddress(inst, arm64asm.LDR)
+			if p.comp.Spec.ScalarFPReloadPrediction {
+				p.observeFPLoadLines(inst, accesses)
+			}
+			if scalarReload {
+				issueCycle, conflictReturn = p.partialReloadWait(pc, accesses[0], issueCycle)
+			}
+			if p.comp.Spec.StoreDependencePrediction || scalarReload {
+				// When the entire load comes from a newer ready store, its producer is known.
+				// The older predicted store cannot contribute bytes to that load.
+				if !scalarReload || !p.newerReadyProducer(pc, accesses[0], issueCycle) {
+					issueCycle = p.predictedStoreWait(pc, accesses, issueCycle)
+				}
 			}
 			if storeData, cached, storeSupplied = p.suppliedLoad(accesses); storeSupplied {
 				// A load that stores supply only in part reads the rest from the cache.
@@ -638,10 +655,20 @@ func (p *middleware) fetchAndProcess() {
 				forwarding = adjacent
 			} else {
 				forwarding = p.forwardLoad(accesses, issueCycle, directGPRTransfer(inst))
+				if forwarding.forwarded && scalarReload {
+					forwarding = p.forwardFeedback(accesses[0], issueCycle, forwarding)
+				}
 			}
 			issueCycle = forwarding.issueCycle
 			if p.comp.Spec.StoreDependencePrediction {
 				p.trainStoreDependence(pc, accesses)
+			} else if scalarReload {
+				st := p.youngestOverlap(accesses[0])
+				if st != nil && st.Feedback && st.Addr == accesses[0].Addr && st.Size == 8 {
+					p.trainStoreDependence(pc, accesses)
+				} else {
+					delete(p.comp.State.StoreDependence.LoadStore, pc)
+				}
 			}
 		}
 
@@ -693,6 +720,13 @@ func (p *middleware) fetchAndProcess() {
 			latency = divide
 		} else {
 			latency, dataReady = p.instrLatencyWithPC(inst, pc, cached, issueCycle)
+			if p.comp.Spec.ScalarFPReloadPrediction && p.comp.Resources.Cache != nil && len(cached) == 1 && cached[0].Size == 8 &&
+				scalarFPAddress(inst, arm64asm.LDR) {
+				cfg := p.comp.Resources.Cache.Config()
+				late := dataReady > issueCycle+uint64(cfg.L1Latency)
+				p.comp.State.observeSourceSet(pc, cached[0].Addr, cfg.L1Size/(cfg.L1LineSize*cfg.L1Ways), cfg.L1LineSize, late)
+				p.comp.State.noteFPRefill(pc, cached[0].Addr, issueCycle, dataReady, late)
+			}
 			if extra := uint64(p.comp.Spec.Latencies.FPLoadExtra); ut == unitLoad && (fp >= 0 || fpSecond >= 0) {
 				// What the cache supplies reaches an FP register later.
 				latency += extra
@@ -701,7 +735,7 @@ func (p *middleware) fetchAndProcess() {
 				}
 			}
 		}
-		completeCycle := issueCycle + latency
+		completeCycle := max(issueCycle+latency, conflictReturn)
 		if !instinfo.IsStore(inst.Op) && dataReady > completeCycle {
 			completeCycle = dataReady
 		}
@@ -742,6 +776,9 @@ func (p *middleware) fetchAndProcess() {
 		}
 		if fp >= 0 {
 			p.comp.State.FpReady[fp] = completeCycle
+			if p.comp.Spec.ScalarFPReloadPrediction {
+				p.comp.State.FPReload.FeedbackFP[fp] = p.feedbackOrigins(inst)
+			}
 			if wakeupEnabled {
 				wakeup.Producers[fp] = faddProducer{}
 				if doubleAdd {
@@ -765,6 +802,9 @@ func (p *middleware) fetchAndProcess() {
 			}
 			if fp2 >= 0 {
 				p.comp.State.FpReady[fp2] = completeCycle
+				if p.comp.Spec.ScalarFPReloadPrediction {
+					p.comp.State.FPReload.FeedbackFP[fp2] = [2]feedbackOrigin{}
+				}
 				if wakeupEnabled {
 					wakeup.Producers[fp2] = faddProducer{}
 				}
@@ -799,7 +839,7 @@ func (p *middleware) fetchAndProcess() {
 		// 8. For stores: add to store buffer.
 		if instinfo.IsStore(inst.Op) {
 			eligible := directGPRTransfer(inst)
-			if p.comp.Spec.StoreDependencePrediction {
+			if p.comp.Spec.StoreDependencePrediction || (p.comp.Spec.ScalarFPReloadPrediction && scalarFPAddress(inst, arm64asm.STR)) {
 				p.recordStoreInstance(pc, p.comp.Resources.backend().MemoryAccesses(), completeCycle)
 			}
 			accesses := p.comp.Resources.backend().MemoryAccesses()
@@ -808,7 +848,17 @@ func (p *middleware) fetchAndProcess() {
 				nextFPReload = p.comp.State.InstDone + uint64(p.comp.State.RobCount) + 1
 			}
 			for _, acc := range accesses {
+				var feedback bool
+				var scalarStorePosition uint64
+				if p.comp.Spec.ScalarFPReloadPrediction && len(accesses) == 1 && acc.Size == 8 && scalarFPAddress(inst, arm64asm.STR) {
+					scalarStorePosition = p.comp.State.InstDone + uint64(p.comp.State.RobCount) + 1
+					for _, origin := range p.comp.State.FPReload.FeedbackFP[instinfo.ArgFP(inst.Args[0])] {
+						feedback = feedback || (origin.Valid && origin.Address == acc.Addr)
+					}
+				}
 				entry := storeBufferEntry{
+					Feedback:            feedback,
+					ScalarStorePosition: scalarStorePosition,
 					NextFPReload:        nextFPReload,
 					PC:                  pc,
 					Addr:                acc.Addr,
