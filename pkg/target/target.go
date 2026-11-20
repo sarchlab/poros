@@ -174,6 +174,7 @@ func M5Max() Target {
 	// probes (evaluation/model-profile.md); an effective, not physical, size.
 	t.OoO.FPIssueQueue = 256
 	t.OoO.AdjacentFPForwardLatency = 11
+	t.OoO.ScalarFPReloadPrediction = true
 	t.OoO.StoreDataQueue = 76
 	t.OoO.RegisterOffsetStoreData = true
 	t.OoO.Latencies = ooo.Latencies{
