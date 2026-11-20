@@ -10,6 +10,11 @@ import (
 // The hardware measurements bound the duration but do not identify a physical counter.
 const conservativeReloadWindow = 5_575_360
 
+// The M5 model compares the low 14 address bits and records one refill per
+// double in that span. This empirical comparator is independent of VM page size.
+const reloadAliasSpan = 16 * 1024
+const refillSlotBytes = 8
+
 type fpReloadState struct {
 	PooledBits                                     uint32
 	PooledSeen                                     bool
@@ -210,7 +215,7 @@ func (p *middleware) partialReloadWait(pc uint64, a emu.MemAccess, issueCycle ui
 	}
 	if match && p.comp.State.FPReload.TwoRecentLines {
 		state := &p.comp.State
-		if !expected && state.FPReload.LastFeedback > state.InstDone && (prev.Addr^a.Addr)&16383 == 0 {
+		if !expected && state.FPReload.LastFeedback > state.InstDone && (prev.Addr^a.Addr)&(reloadAliasSpan-1) == 0 {
 			state.FPReload.PageAliasChain = prev.Addr
 			state.FPReload.PageAliasLoad = state.InstDone + uint64(state.RobCount) + 1
 		}
@@ -260,7 +265,9 @@ func (s *State) conservativeReloadActive() bool {
 	return s.InstDone+uint64(s.RobCount) < s.FPReload.HoldThrough || s.FPReload.TransientThrough > s.InstDone
 }
 
-func (p *middleware) forwardFeedback(a emu.MemAccess, issue uint64, fallback loadForwarding) loadForwarding {
+// trainAndForwardFeedback observes live feedback stores on the conventional
+// forwarding path. Dispatch handles supplied-byte and adjacent forwarding separately.
+func (p *middleware) trainAndForwardFeedback(a emu.MemAccess, issue uint64, fallback loadForwarding) loadForwarding {
 	st := p.youngestOverlap(a)
 	if st == nil || !st.Feedback || st.Addr != a.Addr || st.Size != 8 || st.CompleteCycle <= issue {
 		return fallback
@@ -434,7 +441,7 @@ func (s *State) noteFPRefill(pc, addr, issue, ready uint64, late bool) {
 	f := &s.FPReload
 	if f.Streams == nil {
 		f.Streams = make([]observedInputStream, 64)
-		f.Refills = make([]observedFPRefill, 16384/8)
+		f.Refills = make([]observedFPRefill, reloadAliasSpan/refillSlotBytes)
 	}
 	stream := &f.Streams[(pc/4)%64]
 	if stream.PC != pc {
@@ -451,7 +458,7 @@ func (s *State) noteFPRefill(pc, addr, issue, ready uint64, late bool) {
 	if !late {
 		return
 	}
-	slot := &f.Refills[(addr%16384)/8]
+	slot := &f.Refills[(addr%reloadAliasSpan)/refillSlotBytes]
 	if f.LastFeedback > s.InstDone && step == slot.Step && slot.PC != pc && slot.Addr != addr && issue < slot.End && slot.Start < ready {
 		if stream.Confidence < 3 {
 			stream.Confidence++
