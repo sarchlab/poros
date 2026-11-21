@@ -35,7 +35,7 @@ func TestNamedAddressIsBaseAndScaledDisplacement(t *testing.T) {
 // The path follows the name of the address, not the address: a store through
 // another base register supplies the load in the plain forward latency.
 func TestBypassNeedsTheSameAddressOperand(t *testing.T) {
-	bypass := func(s *Spec) { s.BypassRecovery, s.PlainForwardLatency = 4, 6 }
+	bypass := func(s *Spec) { s.BypassRecovery, s.BypassValueRun, s.PlainForwardLatency = 4, 2, 6 }
 	if got := storeThenLoad(t, strX1X2, ldrX3X2, 0x2000, 0x2000, bypass); got != 101 {
 		t.Errorf("load through the store's base register ready at %d, want 101", got)
 	}
@@ -43,35 +43,36 @@ func TestBypassNeedsTheSameAddressOperand(t *testing.T) {
 		t.Errorf("load through another base register ready at %d, want 106", got)
 	}
 	if got := storeThenLoad(t, strX1X2, ldrX3X4, 0x2000, 0x2000, func(*Spec) {}); got != 101 {
-		t.Errorf("without the prediction the load is ready at %d, want 101", got)
+		t.Errorf("without the qualification the load is ready at %d, want 101", got)
 	}
 }
 
-// The named store wrote another address. A load that reads the value that
-// store wrote goes unnoticed; a different value costs the load's PC the path
-// for the recovery, also when the named store then does supply it.
-func TestBypassStaleValueDistrustsTheLoad(t *testing.T) {
+// A load keeps the path while its value changes at every execution or never
+// changes. Another value after a full run of equal ones takes the path away
+// from the load's PC for the recovery, whatever it reads meanwhile.
+func TestBypassValueRunBreakDistrustsTheLoad(t *testing.T) {
 	const pc = 0x4000
 	x2 := addressOperand{arm64asm.RegSP(arm64asm.X2), 0, true}
-	stale := storeBufferEntry{Addr: 0x1000, Size: 8, ReadyCycle: 20, CompleteCycle: 23, FastForwardEligible: true, Operand: x2, Value: 7}
-	fresh := storeBufferEntry{Addr: 0x1008, Size: 8, ReadyCycle: 30, CompleteCycle: 33, FastForwardEligible: true, Operand: x2, Value: 9}
+	store := storeBufferEntry{Addr: 0x1008, Size: 8, ReadyCycle: 30, CompleteCycle: 33, FastForwardEligible: true, Operand: x2}
 	load := decodeWord(t, ldrX3X2)
 	accesses := []emu.MemAccess{{Addr: 0x1008, Size: 8}}
 	em := emu.NewEmulator()
-	p := &middleware{comp: &Comp{Spec: Spec{BypassRecovery: 2, PlainForwardLatency: 6}, Resources: Resources{Emu: em}}}
-	step := func(stores []storeBufferEntry, loaded uint64) loadForwarding {
-		p.comp.State.StoreBuffer = stores
+	p := &middleware{comp: &Comp{Spec: Spec{BypassRecovery: 2, BypassValueRun: 3, PlainForwardLatency: 6},
+		State: State{StoreBuffer: []storeBufferEntry{store}}, Resources: Resources{Emu: em}}}
+	fast, slow := loadForwarding{5, 30, 1, true}, loadForwarding{5, 30, 6, true}
+	step := func(loaded uint64) loadForwarding {
 		em.Regs.WriteX(3, loaded)
 		return p.bypassLoad(load, pc, accesses, 5, p.forwardLoad(accesses, 5, true))
 	}
-	if got := step([]storeBufferEntry{stale}, 7); got.forwarded || len(p.comp.State.Bypass.Distrust) != 0 {
-		t.Fatalf("equal value: %+v, distrust %v", got, p.comp.State.Bypass.Distrust)
+	for i, value := range []uint64{1, 2, 3, 4, 4, 5, 5, 5} {
+		if got := step(value); got != fast {
+			t.Fatalf("execution %d reading %d before any full run: %+v", i, value, got)
+		}
 	}
-	if got := step([]storeBufferEntry{stale, fresh}, 9); got != (loadForwarding{5, 30, 1, true}) {
-		t.Fatalf("trusted load of its named store: %+v", got)
-	}
-	if got := step([]storeBufferEntry{stale}, 9); got.forwarded || p.comp.State.Bypass.Distrust[pc] != 2 {
-		t.Fatalf("different value: %+v, distrust %v", got, p.comp.State.Bypass.Distrust)
+	// The run of three fives is full; the six breaks it. The breaking
+	// execution itself still has the path.
+	if got := step(6); got != fast || p.comp.State.Bypass.Loads[pc].Distrust != 2 {
+		t.Fatalf("breaking execution: %+v, history %+v", got, p.comp.State.Bypass.Loads[pc])
 	}
 	raw, _ := json.Marshal(p.comp.State)
 	var restored State
@@ -79,16 +80,23 @@ func TestBypassStaleValueDistrustsTheLoad(t *testing.T) {
 		!reflect.DeepEqual(restored.StoreBuffer, p.comp.State.StoreBuffer) {
 		t.Fatal("bypass state did not round trip", err)
 	}
-	for range 2 {
-		if got := step([]storeBufferEntry{stale, fresh}, 9); got != (loadForwarding{5, 30, 6, true}) {
-			t.Fatalf("distrusted load: %+v", got)
+	for _, value := range []uint64{6, 7} {
+		if got := step(value); got != slow {
+			t.Fatalf("distrusted execution reading %d: %+v", value, got)
 		}
 	}
-	if got := step([]storeBufferEntry{stale, fresh}, 9); got != (loadForwarding{5, 30, 1, true}) || len(p.comp.State.Bypass.Distrust) != 0 {
-		t.Fatalf("recovered load: %+v, distrust %v", got, p.comp.State.Bypass.Distrust)
+	if got := step(7); got != fast || p.comp.State.Bypass.Loads[pc].Distrust != 0 {
+		t.Fatalf("recovered execution: %+v, history %+v", got, p.comp.State.Bypass.Loads[pc])
 	}
-	// A named store that has executed can no longer be bypassed.
-	if step([]storeBufferEntry{{Addr: 0x1000, Size: 8, ReadyCycle: 1, CompleteCycle: 4, FastForwardEligible: true, Operand: x2, Value: 7}}, 9); len(p.comp.State.Bypass.Distrust) != 0 {
-		t.Fatal("completed store was bypassed")
+	// Another PC has its own history, and a load the cache supplies only
+	// records its value.
+	p.comp.State.StoreBuffer = nil
+	for _, value := range []uint64{9, 9, 9, 8} {
+		if got := p.bypassLoad(load, pc+4, accesses, 5, func() loadForwarding { em.Regs.WriteX(3, value); return p.forwardLoad(accesses, 5, true) }()); got.forwarded {
+			t.Fatalf("cache-supplied load was forwarded: %+v", got)
+		}
+	}
+	if got := p.comp.State.Bypass.Loads[pc+4]; got != (valueHistory{Value: 8, Run: 1, Distrust: 2}) {
+		t.Fatalf("history of the second PC: %+v", got)
 	}
 }

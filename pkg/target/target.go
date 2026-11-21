@@ -177,7 +177,7 @@ func M5Max() Target {
 	t.OoO.ScalarFPReloadPrediction = true
 	t.OoO.StoreDataQueue = 76
 	t.OoO.RegisterOffsetStoreData = true
-	t.OoO.BypassRecovery, t.OoO.PlainForwardLatency = 8192, 6
+	t.OoO.BypassRecovery, t.OoO.BypassValueRun, t.OoO.PlainForwardLatency = 8192, 16, 6
 	t.OoO.Latencies = ooo.Latencies{
 		MultiplyAdd: 4, DivideBase: 7, DivideOccupancy: 2, FPArithmetic: 2,
 		FPMultiply: 3, FPMultiplyAdd: 3, FPDivide: 9,

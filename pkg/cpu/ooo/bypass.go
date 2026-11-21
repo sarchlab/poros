@@ -5,27 +5,39 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
-// BypassState times the exact GPR store-to-load path as a prediction, with
-// Spec.BypassRecovery. The prediction pairs a load with the youngest in-flight
-// store that names the same address operand: the same base register and
-// immediate displacement, and the same width. Nothing tracks whether the base
-// register changed in between, so the named store may have written another
-// address, or an unnamed younger store may supply the load. The value the
-// named store wrote is then delivered in place of the load's. Only a
-// different value exposes the error, and the load's PC then goes without the
-// bypass for BypassRecovery executions: a store that supplies it does so in
-// Spec.PlainForwardLatency cycles from its data.
+// BypassState qualifies the exact GPR store-to-load path of forwardLoad, with
+// Spec.BypassRecovery. Two conditions apply to a load the path would serve.
 //
-// The evidence is on the M5 Super core. A same-address increment through a
-// second base register takes 7.02 cycles per update against 1.67 through one
-// register. The Nussinov kernel with its destination table preset takes 1.8
-// cycles per inner iteration when all destinations hold one value and 7.1 when
-// consecutive destinations differ, with identical instructions, addresses and
-// source values, and 1.4 without the inner store. See
-// evaluation/model-profile.md.
+// The store must name the address as the load does: the same base register,
+// immediate displacement and width. A store through another register
+// supplies the load in Spec.PlainForwardLatency cycles from its data.
+//
+// The load's PC must not have broken a run of equal values. Each PC remembers
+// the value it last read and for how many consecutive executions. Reading
+// another value after Spec.BypassValueRun equal ones takes the path away from
+// that PC for its next BypassRecovery executions; a store then supplies it
+// with the plain forward latency as well. A load whose value changes at
+// every execution never builds a run and keeps the path.
+//
+// The evidence is on the M5 Super core. A same-address increment takes 1.67
+// cycles per update through one base register and 7.02 through a second. A
+// running maximum that reloads one value for 16 to 256 updates and then
+// another takes about eight cycles per update instead of two, also when the
+// address never changes and when a store through the same register precedes
+// every run. See evaluation/model-profile.md.
 type BypassState struct {
-	// Distrust maps a load's PC to the executions left without the bypass.
-	Distrust map[uint64]int `json:",omitempty"`
+	// Loads holds the value history of each eligible load, by PC.
+	Loads map[uint64]valueHistory `json:",omitempty"`
+}
+
+// valueHistory is what one load PC last read.
+type valueHistory struct {
+	Value uint64
+	// Run counts the consecutive executions that read Value, up to
+	// Spec.BypassValueRun.
+	Run int
+	// Distrust is the number of executions left without the bypass.
+	Distrust int `json:",omitempty"`
 }
 
 // addressOperand names the address of an immediate-offset GPR LDR or STR
@@ -45,9 +57,8 @@ func namedAddress(inst arm64asm.Inst) addressOperand {
 	return addressOperand{Base: address.Base, Imm: int32(inst.Enc>>10&0xfff) << (inst.Enc >> 30), Valid: true}
 }
 
-// transferValue is the value an eligible load read or an eligible store
-// wrote, after the instruction executed.
-func (p *middleware) transferValue(inst arm64asm.Inst, size int) uint64 {
+// loadedValue is the value an eligible load read, after it executed.
+func (p *middleware) loadedValue(inst arm64asm.Inst, size int) uint64 {
 	reg := inst.Args[0].(arm64asm.Reg)
 	index := int(reg - arm64asm.X0)
 	if reg >= arm64asm.W0 && reg <= arm64asm.W30 {
@@ -60,36 +71,35 @@ func (p *middleware) transferValue(inst arm64asm.Inst, size int) uint64 {
 	return value
 }
 
-// bypassLoad applies the prediction to a load that forwardLoad timed.
+// bypassLoad records the value of an eligible load and decides whether the
+// exact path that forwardLoad chose still serves it.
 func (p *middleware) bypassLoad(inst arm64asm.Inst, pc uint64, accesses []emu.MemAccess, issueCycle uint64, timed loadForwarding) loadForwarding {
 	operand := namedAddress(inst)
 	if !operand.Valid || len(accesses) != 1 || (accesses[0].Size != 4 && accesses[0].Size != 8) {
 		return timed
 	}
-	acc := accesses[0]
-	supplier := p.youngestOverlap(acc)
-	var named *storeBufferEntry
-	for i := range p.comp.State.StoreBuffer {
-		sb := &p.comp.State.StoreBuffer[i]
-		if sb.Operand == operand && sb.Size == acc.Size && sb.CompleteCycle > issueCycle {
-			named = sb
-		}
-	}
 	state := &p.comp.State.Bypass
-	distrusted := state.Distrust[pc] > 0
-	if distrusted {
-		if state.Distrust[pc]--; state.Distrust[pc] == 0 {
-			delete(state.Distrust, pc)
-		}
-	} else if named != nil && named != supplier && named.Value != p.transferValue(inst, acc.Size) {
-		if state.Distrust == nil {
-			state.Distrust = map[uint64]int{}
-		}
-		state.Distrust[pc] = p.comp.Spec.BypassRecovery
+	if state.Loads == nil {
+		state.Loads = map[uint64]valueHistory{}
 	}
-	exact := timed.forwarded && timed.latency == exactGPRForwardLatency
-	if exact && (distrusted || supplier != named) {
-		return loadForwarding{issueCycle: issueCycle, dataReady: supplier.ReadyCycle, latency: uint64(p.comp.Spec.PlainForwardLatency), forwarded: true}
+	history := state.Loads[pc]
+	value := p.loadedValue(inst, accesses[0].Size)
+	distrusted := history.Distrust > 0
+	if distrusted {
+		history.Distrust--
+	} else if history.Run >= p.comp.Spec.BypassValueRun && value != history.Value {
+		history.Distrust = p.comp.Spec.BypassRecovery
+	}
+	if history.Run > 0 && value == history.Value {
+		history.Run = min(history.Run+1, p.comp.Spec.BypassValueRun)
+	} else {
+		history.Value, history.Run = value, 1
+	}
+	state.Loads[pc] = history
+	if timed.forwarded && timed.latency == exactGPRForwardLatency {
+		if supplier := p.youngestOverlap(accesses[0]); distrusted || supplier.Operand != operand {
+			return loadForwarding{issueCycle: issueCycle, dataReady: supplier.ReadyCycle, latency: uint64(p.comp.Spec.PlainForwardLatency), forwarded: true}
+		}
 	}
 	return timed
 }

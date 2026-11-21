@@ -34,6 +34,7 @@
     "branch_penalty": 17,
     "branch_prediction": true,
     "bypass_recovery": 8192,
+    "bypass_value_run": 16,
     "compare_branch_fusion": true,
     "conditional_branches": 2,
     "fetch_group_limit": 16,

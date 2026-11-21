@@ -13,7 +13,8 @@ import (
 
 // On M5 the one-cycle store-to-load path follows the address operand: the
 // same-address increment through a second base register pays the plain
-// forward, and the fixed-address chains keep the path whatever they store.
+// forward. Chains whose value changes at every update, or never, keep the
+// path.
 func TestM5RecurrenceProbesBypassByAddressOperand(t *testing.T) {
 	image, err := os.ReadFile("../../evaluation/microbenchmarks/recurrence/recurrence.elf")
 	if err != nil {
@@ -37,20 +38,19 @@ func TestM5RecurrenceProbesBypassByAddressOperand(t *testing.T) {
 	if got := recurrenceCyclesPerUpdateOn(t, "m2", image, definition, "mem64_add_alias"); math.Abs(got-2) > 0.01 {
 		t.Errorf("mem64_add_alias costs %.4f cycles per update on M2, want 2.00", got)
 	}
-	// The kernel replica restarts each row with a store through the same
-	// operand, so its reload is never given a stale value.
+	// The kernel replica raises its maximum at every trip, or never: neither
+	// reload builds a run of equal values and then breaks it.
 	constant := recurrenceCyclesPerUpdateOn(t, "m5-max", image, definition, "nuss_const")
 	if got := recurrenceCyclesPerUpdateOn(t, "m5-max", image, definition, "nuss_chg"); got != constant || got > 2.05 {
 		t.Errorf("nuss_chg costs %.4f cycles per trip on M5, nuss_const %.4f", got, constant)
 	}
 }
 
-// The Nussinov kernel rewrites each destination through a register it
-// recomputes per destination. On M5 the first reload of a destination is
-// then given the previous destination's final value; the values differ, and
-// the reload loses the one-cycle path: seven to eight cycles per inner
-// iteration at this size against about three with the path. M2 keeps its
-// timing.
+// The Nussinov kernel reloads a destination's running maximum at every inner
+// iteration. The maximum stays put for long runs and then changes, within a
+// destination or at the next one, so on M5 the reload loses the one-cycle
+// path: seven to eight cycles per inner iteration at this size against about
+// three with the path. M2 keeps its timing.
 func TestM5NussinovReloadLosesTheBypass(t *testing.T) {
 	image, err := os.ReadFile("../../tests/benchmarks/nussinov.elf")
 	if err != nil {
