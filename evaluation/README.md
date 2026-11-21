@@ -86,18 +86,15 @@ to the targets the simulator builds. Each entry states three things, and every
 report repeats them:
 
 - **hardware**: what the device stands for, for example `Apple M1`.
-- **parameter_source**: the device whose model profile is simulated. `m2`,
-  `m1` and `grace` have parameters of their own. `m1`'s are the M2 profile with
+- **parameter_source**: the device whose model profile is simulated. Each target has parameters of its own. `m1`'s are the M2 profile with
   the differences M1 measurements establish (see
   [the Apple M1 profile](model-profile.md#apple-m1-profile)). `grace`'s are the
   M2 profile with the differences Arm and NVIDIA publish for the Neoverse V2
   and a few effective values inferred from the GH200 user times (see
-  [the NVIDIA Grace profile](model-profile.md#nvidia-grace-profile)). `m5-max`
-  names `m2`: it runs the M2 core, memory and frequency until its own are
-  established, and is labeled as a placeholder wherever it appears.
+  [the NVIDIA Grace profile](model-profile.md#nvidia-grace-profile)). `m5-max` uses the measured Super-core clock and timing parameters described in [the Apple M5 Max profile](model-profile.md#apple-m5-max-profile).
 - **references**: the native reference file of each kind (whole-program user
-  time and each diagnostic suite). `m2` has all of them and `grace` its
-  whole-program user times.
+  time and each diagnostic suite). `m2` has all of them. `m1` and `grace`
+  each have whole-program user times.
 
 Every device runs the complete campaign: all 264 programs functionally and
 timed, and every diagnostic point, with every output checked. What differs is
@@ -112,8 +109,8 @@ what the result is compared with:
   as zero or as a placeholder. Program outputs are still checked against the
   committed complete-output identities, which are what each program must print
   on any device. The report names that file as its output oracle. The file is
-  the M2 reference and is validated as a whole; none of its timings is shown
-  or compared.
+  the historical M2 Mach-O file, validated as a whole. For this use only
+  its output identities are displayed and checked.
 - The base revision is compared only if it models the device. A base that
   predates device declarations is `m2` and is run without a target, exactly as
   before. For any other device its predictions are absent and each case says
@@ -173,15 +170,12 @@ role_path`), and each role converts its cycles at its own profile's clock
 (`at_profile_clock`) instead of the workload contract's 3.49 GHz. A `grace`
 campaign whose base revision still declares `m2` as Grace's parameter source
 therefore compares the Grace profile at 3.429 GHz with the M2 profile at
-3.49 GHz; for `m2` both roles are the M2 profile and nothing changes. `m1` has
-no committed whole-program reference, so its campaigns have not been run
-through plans and reports. Giving a device a
-measured whole-program reference needs a file at the path its entry names under
-`references.application`, with that device's `hardware` and case identities
-that match the committed inventories. The capture-provenance checks of that
-file are still the ones written for the M2 Mach-O captures, and each diagnostic
-suite still reads the single M2 reference file, so a second device's suite
-references need those validators extended first.
+3.49 GHz. `m1` and `m2` use the
+[fixed-core Apple Linux references](usertime/apple-pcore/README.md) and the same
+16 KiB ELF fixtures. Giving a device a measured whole-program
+reference requires a file at the path named by `references.application`, with
+that device’s `hardware` and case identities that match the committed
+inventories. Diagnostic suites still have separate references.
 
 ## Memory diagnostics
 

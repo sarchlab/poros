@@ -228,3 +228,25 @@ func TestStorePartRejectsAPieceOutsideItsStore(t *testing.T) {
 	}()
 	c.StorePart(class, 0x100c, 4, 1)
 }
+
+func TestAlternatingWriteAllocations(t *testing.T) {
+	for _, streams := range []int{1, 2, 3} {
+		cfg := DefaultCacheConfig()
+		cfg.AlternatingStoreLineCycles = 24
+		c := NewCache(cfg)
+		for trip := 0; trip < 24; trip++ {
+			for stream := 0; stream < streams; stream++ {
+				c.Store(uint64(0x10000*stream+8*trip), 8, 0)
+			}
+		}
+		want := uint64(0)
+		if streams == 2 {
+			// The first two lines establish the runs. The two lines of
+			// each following trip group reserve four admissions in all.
+			want = 4 * 24
+		}
+		if c.alternating.nextLine != want {
+			t.Errorf("%d streams: final allocation slot %d, want %d", streams, c.alternating.nextLine, want)
+		}
+	}
+}

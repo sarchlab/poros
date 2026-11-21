@@ -35,8 +35,9 @@ func (c *Cache) Store(addr uint64, size int, now uint64) (accepted, drained uint
 // StoreClass is the store path's decision about one store, taken once from
 // the store's whole range and carried by every piece of it.
 type StoreClass struct {
-	addr, end uint64 // the classified bytes [addr, end)
-	waits     bool   // a store of an established, interleaved run (storeRun)
+	addr, end  uint64 // the classified bytes [addr, end)
+	waits      bool   // a store of an established, interleaved run (storeRun)
+	alternates bool
 }
 
 // ClassifyStore decides how the store path treats one store: all the bytes
@@ -52,6 +53,9 @@ func (c *Cache) ClassifyStore(addr uint64, size int) StoreClass {
 	class := StoreClass{addr: addr, end: addr + uint64(size)}
 	if c.cfg.InterleavedStoreRunsWait {
 		class.waits = c.run.follow(addr, uint64(size), uint64(c.cfg.L1LineSize), uint64(c.cfg.TLBPageBytes))
+	}
+	if c.cfg.AlternatingStoreLineCycles > 0 {
+		class.alternates = c.alternating.follow(addr, uint64(size), uint64(c.cfg.L1LineSize))
 	}
 	return class
 }
@@ -73,7 +77,7 @@ func (c *Cache) StorePart(class StoreClass, addr uint64, size int, now uint64) (
 		if n > size {
 			n = size
 		}
-		a, d := c.storeLine(addr, n, now, class.waits)
+		a, d := c.storeLine(addr, n, now, class)
 		if a > accepted {
 			accepted = a
 		}
@@ -156,7 +160,26 @@ func (r *storeRun) follow(addr, size, line, pageBytes uint64) bool {
 	return false
 }
 
-func (c *Cache) storeLine(addr uint64, size int, now uint64, waits bool) (uint64, uint64) {
+// alternatingStores follows the last two stores in program order. Both
+// positions must advance by contiguous stores for a line before admission
+// changes. Occasional stores, a single unbroken stream and three interleaved
+// streams therefore retain normal admission.
+type alternatingStores struct {
+	recent, older struct{ end, bytes uint64 }
+	nextLine      uint64
+}
+
+func (s *alternatingStores) follow(addr, size, line uint64) bool {
+	previous := s.older
+	s.older = s.recent
+	s.recent.end, s.recent.bytes = addr+size, size
+	if previous.bytes != 0 && previous.end == addr {
+		s.recent.bytes += previous.bytes
+	}
+	return s.older.bytes >= line && s.recent.bytes >= line
+}
+
+func (c *Cache) storeLine(addr uint64, size int, now uint64, class StoreClass) (uint64, uint64) {
 	line := c.l1.peek(addr)
 	if len(c.writes) == 0 || (line != nil && line.readyAt <= now) {
 		_, ready := c.accessLine(addr, size, true, now)
@@ -188,6 +211,11 @@ func (c *Cache) storeLine(addr uint64, size int, now uint64, waits bool) (uint64
 			now = c.writes[slot].Ready
 		}
 	}
+	if class.alternates && !merged && line == nil {
+		now = max(now, c.alternating.nextLine)
+		c.alternating.nextLine = now + uint64(c.cfg.AlternatingStoreLineCycles)
+	}
+
 	_, ready := c.accessLine(addr, size, true, now)
 	line = c.l1.peek(addr)
 	w := &c.writes[slot]
@@ -204,7 +232,7 @@ func (c *Cache) storeLine(addr uint64, size int, now uint64, waits bool) (uint64
 	if ready > w.Ready {
 		w.Ready = ready
 	}
-	if waits {
+	if class.waits {
 		// The store keeps its place in the store queue until its line is here.
 		c.stats.StoreRunWaits++
 		return max(now, ready), ready

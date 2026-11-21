@@ -11,7 +11,8 @@ source is validated against this same declaration until it has parameters of
 its own; `TestDeclaredModelProfileCoversTargetsCarryingIt` checks each of them.
 A device with parameters of its own declares them in
 `model-profile-<device>.json`: `m1` (see [Apple M1 profile](#apple-m1-profile))
-and `grace` (see [NVIDIA Grace profile](#nvidia-grace-profile)).
+`grace` (see [NVIDIA Grace profile](#nvidia-grace-profile)) and `m5-max`
+(see [Apple M5 Max profile](#apple-m5-max-profile)).
 
 The Apple OoO profiles bound integer multiplies waiting between dispatch and
 issue. The profile limits are 38 for M2 and 43 for M1. They come from a
@@ -19,10 +20,341 @@ capacity probe with two dependent multiply chains. At 64 FP fillers, the model
 predicts 276 cycles per iteration on M2 and 261 on M1, against 270.28 and
 257.01 counted on hardware. These are effective scheduling limits. The probe
 cannot identify a physical queue or determine its size. Grace and the generic
-`ooo.DefaultSpec()` use zero (unlimited). M5 Max inherits the M2 parameters.
+`ooo.DefaultSpec()` use zero (unlimited). The M5 Max has a separately measured scheduling profile.
 In the certified three-device comparison, six capacity microbenchmarks per
 Apple core improved, and all 792 whole-program cycle counts matched the
 baseline. See [Residual accuracy, round 2](residual-accuracy-round2.md#6-certified-three-device-comparison).
+
+## Apple M5 Max profile
+
+`model-profile-m5-max.json` describes one Super core. The native observations
+come from the M5 Max v0.1.3 campaign on macOS 27.2.1, using the checked-in
+recurrence, capacity, throughput, scheduling and memory assembly loops. Native
+durations below are converted at 4.59 GHz unless a counted measurement is
+specified. The external four-device paired comparison includes resized inputs
+and repeated measurements. Its application rows and microbenchmarks are
+separate populations.
+
+| Parameter | Measurement and interpretation |
+| --- | --- |
+| 4.59 GHz | The one-cycle integer ADD chain took 0.218 ns/update. The native recurrence campaign counted 4.579 billion cycles per CPU-second across all intervals. The repeated Nussinov Super-core trials also ran near 4.59 GHz. The model uses a fixed effective clock. |
+| Fetch groups of 16 instruction slots, 10 rename and retire slots, two conditional branches per cycle, compare/branch fusion | Measured with hardware cycle counters on Super cores only (round 3, `loopshape` and `fusion` captures, 1,352 qualified intervals). A loop of N instructions ending in SUBS/B.NE takes max(1, (N-1)/10, fetch groups per trip) cycles: N up to 11 takes 1.00, 12/14/16 take 1.10/1.30/1.50, 18 and 20 take 2.00, 24 and 32 take 2.30 and 3.10, and the earlier 34-514 loops 3.30-51.41, at every starting offset from 0 to 56 bytes. A group holds the 16 instruction slots from its first instruction and ends at a predicted taken branch unless the target lies ahead inside those slots: two taken branches per trip, one a short forward skip, still take 1.00. Two never-taken conditional branches per 8-instruction trip take 1.00, three 1.47-1.49, four 2.00 and six 3.00; an unconditional branch does not count. CMP, CMN, TST, SUBS, ADDS and ANDS of a register with an immediate or a plain register, followed by B.cond, and SUB of an immediate followed by CBNZ of its result, each save one slot; a shifted-register CMP and a pair separated by a NOP do not, and a second pair in the same 12-instruction trip saves nothing more. The model fetches one group per cycle into a two-group buffer (the buffer depth is not measured), renames 10 slots per cycle with at most one fused pair and two conditional branches, and retires a fused pair in one slot. |
+| Eight integer pipes | The 16-chain ADD loop sustains about 7.2 adds/cycle. Eight is an effective issue width. The load/store and independent FP throughput probes support keeping three loads, two stores and four FP operations per cycle. |
+| Two-cycle scalar FP arithmetic, four-cycle integer MADD, three-cycle scalar fused FP multiply-add, nine-cycle FP divide | Dependent FADD took 2.10 counted cycles. The integer scheduling loop has 64 dependent MADD instructions and eight dependent ADDs per trip. The corresponding FP loop has 64 dependent FMADD instructions and eight dependent FADDs. The two integer controls took 267–270 cycles/trip and the FP controls took 220. A dependent chain of 64 bounded FDIVs took 578 cycles. Related opcode variants use the same class timings. |
+| ROB 1,334, 839 in-flight FP destinations, 137 store slots, 48 waiting integer multiplies | On the local two-chain probe the 64-MUL gates took 242–246 cycles with 64–448 FP fillers and 243–249 with 256–640 NOPs. The model uses published measurements on the M5 Super core for the window with a mix of ordinary instructions, FP destinations, and stores. These are effective limits in Poros. In particular, its store slots account for pending store execution and cache admission. The limit of 48 multiplies gives 244 cycles with 64 FP fillers. |
+| 256 waiting FP operations | Round-3 gate probes (`window2`, 1,600 qualified Super-core intervals) block retirement with a 16-deep FDIV chain, then place N fillers before an independent 32-deep multiply chain. Scalar loads, integer adds, independent FADDs and NOPs stay at 156 cycles/trip through 256-384 fillers, so no smaller load, integer or rename limit applies there. A dependent FADD chain that waits on the gate rises from 156 at 128 links to 200, 256, 365 and 551 at 160, 192, 256 and 384; four-instruction load/load/FMADD units that wait on the gate stay near 157 through 256 instructions and reach 182 and 227 at 320 and 384. One shared capacity of 256 waiting FP operations (FP arithmetic, divides and FP store data) gives 199, 257, 343 and 514 for the chain and 154 and 196 for the units, and keeps the round-2 fan-out case of up to 192 FADDs waiting on one value flat; 240 and 272 fit almost as well, 192 and 288 clearly worse. It is an effective limit of the model, not a measured physical queue. |
+| 76 scalar stores waiting for data | A counted two-gate probe placed scalar stores between independent FP-divide and integer-multiply chains. For immediate-offset STR of W, X, S and D registers, a 77th delayed store blocked overlap. With 16 divides, 76 delayed FP64 stores added 12 cycles relative to the ready-data control and 77 added 98. Repeating one address and alternating FP64/GPR64 gave the same threshold. A ready store after 76 pending stores also stalled. The model admits these forms to a shared store-data queue and frees the slot when the source register is ready, after at least its dispatch cycle. Paired stores and address-only delays showed different thresholds. |
+| Eleven-cycle adjacent double store/load | The same-address double-add chain in `mem_fadd` took about 13 counted cycles/update. The independent distance sweep gave 13.00–13.08 cycles/update for the 64-way unrolled chain at four placements. The model charges 11 cycles from readiness of the load address and store data when consecutive ordinary scalar FP64 STR/LDR instructions transfer the same eight bytes and the store is still in flight. The dependent FADD adds two cycles. Different instruction spacing and register-addressing forms keep their existing timing. |
+| Store-to-load bypass by address operand and value history, six-cycle plain forward, 16-execution value run, 8,192-execution recovery | A same-address 64-bit increment took 1.67 counted cycles/update through one base register and 7.02 through a second register holding the same address; a 32-bit reload of a 64-bit store and register-offset forms also took 7.0. See [Store-to-load bypass on M5](#store-to-load-bypass-on-m5). |
+| Three-cycle FP multiply, seven-cycle integer divide that starts every two cycles | Measured independently on the M5 Super core. |
+| Three-cycle L1D hit, 12-cycle L2 hit | The single dependent pointer chain took 2.99–3.00 cycles/hop at 8–64 KiB and 11.43–12.42 at 256 KiB–1 MiB. The host reports a 128 KiB Super-core L1D and 16 MiB L2 per six Super cores. The chase slows within the nominal L2 at larger footprints. |
+
+### Store-to-load bypass on M5
+
+On the M5 Super core the short path from a GPR store to a later load of the
+same bytes depends on how the two instructions name the address, and on the
+values the load has been reading. The counted recurrence rows separate the
+first part. A 64-bit load, increment and store took 1.67 cycles/update
+through one base register, with displacement 0 or 8, and 7.02 when the store
+used a second register holding the same address. A 32-bit reload of a 64-bit
+store took 7.03, and the three register-offset forwarding rows 7.0. With a
+one-cycle ADD, a store that does not take the short path supplies a load six
+cycles after its data.
+
+Four native experiments establish the second part. Each holds the
+instructions, addresses and retired work fixed and verifies every output
+byte.
+
+| Experiment (Super-core counted cycles) | Result |
+| --- | --- |
+| Nussinov, n = 601, boundary stores removed, destination table preset | All destinations zero: 54–66 million cycles for every combination of source tables. Canonical destinations: 255 million with a select, 220 million with a register move, 162 million with a direct reload and store. No inner store: 49–52 million for every value setting. |
+| Same kernel, sources zero, destination pattern varied | 0, 1, −1 or a large constant: 65–67 million. Value changing by row: 75–80 million. By column: 199–203 million. 16- and 64-column bands: 175–186 and 139–149 million. |
+| Standalone running-maximum loop, 4,096 destinations, silent stores, one PC for every group | Constant value: 1.5–1.9 cycles/update at 128 or 256 updates per group. Changing value: each 2^20-update interval ran at either 2.4–2.7 or 6.45–7.2. After training with alternating values, a constant-value target stayed slow for about 8,000 to 11,500 further updates; training at another PC did not transfer. |
+| The same loop with three group starts (240 qualified intervals) | Starting each group with a store through the reload's own register did not help: with pseudorandom values and 256 updates, five of eight intervals took 7.2 cycles/update. With one fixed destination whose value rises by one per group, intervals reached 8.0 at 128 and 256 updates per group and took 4.2–4.8 at 16. |
+
+The reload is slow when it reads one value for a run of executions and
+then another. The address may change or stay, and a store through the same
+register may or may not come first. A load whose value changes at every
+execution is fast: `mem64_add` at 1.67 cycles/update, the `nuss_chg` replica
+at 1.18. So is one whose value never changes. The fourth experiment
+refuted an earlier form of this model, in which only a reload that was
+handed the value of a stale store through the same register lost the path.
+
+The M5 model keeps the one-cycle path for immediate-offset `LDR`/`STR` of W
+or X without writeback under two conditions. The store must have the load's
+base register, displacement and width; another store that supplies the load
+does so in six cycles from its data. And the load's PC must not have broken
+a run: each PC remembers the last value it read and for how many
+consecutive executions, and reading another value after 16 equal ones takes
+the path away from that PC for its next 8,192 executions. The six cycles
+come from the recurrence rows and the 8,192 from the recovery measurement.
+The run of 16 is the shortest run that the experiments show to be
+sufficient; shorter runs were not measured. The Nussinov application was
+used for none of the three.
+
+The application's original inputs then follow without further parameters.
+With n = 96 the kernel takes 3.0 cycles per inner iteration with the path and
+7.6 after losing it. For the six performance inputs the profile moves from
+2.2–3.1 simulated cycles per inner iteration to 6.9–7.0, against native
+medians of 6.9–7.5. Two further sizes, n = 537 and n = 733, were predicted
+by the earlier form of the model before they were measured, at 6.98 and 6.85
+cycles per iteration; the present form gives the same values, and the
+counted native medians are 6.88 at both. That capture ran at a counted 4.0
+GHz, so its user times are 15–17% above the prediction at the profile's
+4.59 GHz while its cycles agree within 1.4%.
+
+The model does not reproduce everything these experiments show.
+
+- The Super core has a second regime. Individual runs of the unchanged
+  application took 1.6–1.7 cycles per inner iteration (3 of 66 trials at
+  n = 473), and in the standalone loop whole intervals stayed near 2.2–2.7
+  cycles/update. A recovery of 32 executions gives 2.7 cycles per iteration
+  for n = 473, close to such runs. What selects the regime is unknown. Fast
+  runs were seen on a Super core that had just been woken. The profile
+  models the regime of the median trial.
+- Consecutive independent groups overlap more in the model than on the
+  core. The standalone loop is predicted at 3.5 and 4.9 cycles/update with
+  128 and 256 updates per group, against 6.45 and 7.2 measured in the slow
+  regime, and at 1.26 with 16 updates against 1.45–1.95. An ELF twin of the
+  column-pattern experiment takes 180 million modeled cycles against 255
+  million. In the application each group reads the previous destination, so
+  its groups cannot overlap.
+- The standalone loop selects between two copies of the reloaded register.
+  With one fixed destination the model fuses that compare and select and
+  gives 6.9–7.4 cycles/update where the slow intervals took 8.0.
+- Breaking a run is not charged a pipeline flush.
+- The fast path keeps its one-cycle latency. The M5 rows above read 1.1–1.7
+  cycles/update where the model gives 2.0.
+- Loads and stores of other forms keep the conventional timing of the M2
+  profile, including the 32-bit reload of a 64-bit store (9.0 modeled, 7.03
+  measured).
+- M-core ("Performance") runs of the application took 2.1–2.2 cycles per
+  inner iteration. The profile describes the Super core only.
+
+### Scalar double FADD wakeup on M5
+
+A carried double FADD takes 2.50 counted cycles in a one-add loop and
+2.06–2.13 cycles in loops with four to 64 consecutive dependent adds.
+Changing a branch to taken at the same next address adds about 0.27 cycles
+per add when placed after each add. Placing four NOPs between every pair
+costs 2.50 cycles per add, versus 2.07 when the same NOPs sit at the loop
+tail. Independent ready loads have a much smaller effect than NOPs.
+
+The M5 model approximates this with a fractional wakeup delay from a scalar
+double FADD producer to a scalar double FADD consumer. The numerator is
+the dynamic instruction distance, excluding loads and adding two equivalent
+slots per taken branch, capped at six slots. The denominator is the rename
+width. Uncharged fractions follow the critical operand through the dependency
+chain. The delay is disabled for a consumer at least one base FADD latency
+times the rename width away. This keeps the effect local when sustained
+front-end delivery already spaces out successive adds. The parameters are
+effective values from the measured shapes. The experiments leave the physical
+cause of the delay open.
+
+### Repeated fetch groups and indexed store data on M5
+
+A fetch group can repeatedly end at the same instruction and transfer back
+to its own first instruction. After six consecutive such transfers, changing
+the ending instruction or successor adds four cycles to the availability of
+the following fetch group. Rename can continue with previously fetched work.
+How much of the delay is visible depends on the model's two-group fetch
+buffer, whose depth has not been measured. A full branch misprediction
+takes its usual recovery latency and clears the repetition count. The effect
+of occasional mispredictions on hardware warm-up remains unmeasured.
+
+The threshold and delay were fitted on counted nested loops. In the measured
+shape, the first inner iteration shares a group with the outer reset and the
+last iteration exits. A row of length L gives L−2 self-transfers, so the first
+four-cycle model delay occurs at eight elements.
+
+| Elements per row | 6 | 7 | 8 | 12 | 16 | 24 | 32 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Measured Super-core cycles | 6.79 | 8.52 | 10.16 | 15.03 | 20.03 | 28.05 | 36.06 |
+| Model cycles | 6 | 7 | 12 | 16 | 20 | 28 | 36 |
+
+A flat control takes 16.03 cycles per 16 elements against 16.00 modeled.
+A Ferret-derived 16-element row takes 20.03 cycles against 16.00 previously
+and 20.00 with the delay. Multiplied by the actual 690 × 4,096 rows, the
+twin's shortfall predicts 11.39 million cycles against the independently
+measured 11.03-million-cycle shortfall in the original Ferret-1 search.
+Unrolling the twin gives 12.27 hardware cycles against 16.00 modeled.
+At lengths 32 and 48, changing the inner and outer backedges to share a
+target raises native cycles from 36.06 and 52.11 to 53.57 and 71.77.
+The model gives 36 and 67 for the nested shape, and approximately 36 and
+66 for the shared-target shape. A full predicted-direction miss already
+costs too much on the 48-element nested case.
+
+RMS log cycle error on the 136 finite-row probes changed from 0.2167 to
+0.1567 and on the 222 control-flow probes from 0.1713 to 0.1209 in the
+fetch-only experiment. Both sets contain shapes used to develop or fit the
+model. Ferret and x264 motivated the work. On the original whole-process
+inputs, the combined product at `2e1f6a0` matches the archived instruction
+count and complete output for both. Ferret-1 moves from 45,711,079 to
+56,977,775 simulated cycles (simulated/native time 0.7905 to 0.9854), and
+x264-1 from 34,281,528 to 41,673,645 (0.8102 to 0.9849).
+
+The store-data queue normally admits immediate-offset STR W/X/S/D. M5 also
+admits register-offset STR X/D to these same 76 slots. A two-gate experiment
+measured delayed-minus-ready cycles using the following forms.
+
+| Store form | Hardware at 76 / 77 stores | Model at 76 / 77 stores |
+| --- | ---: | ---: |
+| STR X, unscaled X index | 17 / 106 | 0 / 96 |
+| STR D, scaled X index | 13 / 101 | 0 / 93 |
+| STR D, extended W index (SXTW #3) | 13 / 102 | 0 / 93 |
+| Alternating immediate-offset and scaled-X-index STR D | 12 / 100 | 0 / 93 |
+
+The model extends these observations to other legal X/D register offsets,
+including scaled or W-extended STR X and unscaled STR D. Post-indexed
+STR D with a zero update also gave 13 / 100 in hardware and stays outside
+the modeled data queue. The separate late-index **load** control had a
+transition at 65. A register-offset store with a late index frees its slot
+when the data register becomes ready, following the existing immediate-offset
+late-base rule. Late-index stores were not measured.
+
+On the held-out Correlation-2 input, baseline and fetch-only both take
+31,853,946 simulated cycles. Indexed-store-only and the combined product
+both take 43,118,336 cycles. Simulated/native time rises from 0.9664 to
+1.3082. This size-dependent regression and the motivating-program results
+must be evaluated alongside the full application distribution.
+
+An unfused conditional flag branch waits for its NZCV producer and an integer
+pipe before it resolves. Fetch follows correct predictions speculatively.
+In a Super-core counter experiment with fixed pseudo-random branch directions,
+a branch checked a value either before or after a chain of twelve dependent
+integer multiplies. Attaching the branch to the chain increased the cost from
+14.89 to 33.14 cycles per trip with CMP, NOP and B.EQ, and from 14.28 to 32.72
+with CBZ. For each flag-branch variant, subtracting the simulated cycles at
+8,192 trips from those at 16,384 trips and dividing by the 8,192 additional
+trips gives 13.15 cycles per trip for the detached branch and 31.78 for the
+attached branch. Attaching the branch added 18.63 cycles per trip in the
+model and 18.25 on hardware. With a constant direction both native
+flag variants took 6.01 cycles. A fused compare and branch still resolve
+together.
+
+An L1 read-port experiment held the instruction stream and number of accesses
+fixed while changing the spacing of resident eight-byte words. It used
+zero-offset `LDR X` and `LDR D` instructions and set the base registers
+before the timed loop. Twelve scalar double streams cost 0.334 cycles per
+load at an eight-byte stride, 0.405 at 64 bytes, 0.554 at 128 bytes, 0.982
+at 256 bytes, and 0.334 at 72 bytes. Integer loads had similar timings. At a
+256-byte stride, two and twelve double streams cost 0.598 and 0.982 cycles
+per load on hardware, compared with 0.50 and 1.00 in the model.
+
+The profile groups naturally aligned eight-byte L1 reads by their address
+modulo 256 bytes. Reads issued in one cycle can share a line. A read to a
+different line in the same group consumes its attempted load-pipe slot and
+retries after the three-cycle L1 lookup. The rule requires a single access to
+data ready in L1 at issue and excludes forwarded loads, pairs and pre- or
+post-indexed writeback. The implementation covers immediate-offset `LDR` and
+`LDUR`, register-offset `LDR` and PC-relative literal `LDR`. The placement
+experiment isolates the address effect for immediate-offset `LDR`. Applying
+the same rule to the other encodings is an extrapolation. The bank wiring
+and replay delay have no independent measurement.
+
+An earlier suite of 13 load streams used immediate offsets. Moving a pair of
+loads from one line to lines 16 KiB apart raised native cycles per pair from
+0.667 to 1.181 and simulated cycles from 0.667 to 1.000. For three loads,
+native cycles per triple rose from 1.000 to 2.163 and simulated cycles from
+1.000 to 2.033. A GEMM-like stream with one fixed load and two advancing
+loads 16 KiB apart, plus a store, cost 5.0% more on hardware than the
+three-adjacent-line load and store control. The simulated increase was 1.6%.
+Across all 13 streams, RMS log error dropped from 0.267 at revision
+`da123935` to 0.050.
+
+Across 24 held-out compiled loops and ablations, RMS log error changed from
+0.107 at `da123935` to 0.106. The values below are cycles per inner iteration
+at the fixed placements used by these probes.
+
+| Kernel | Native M5 | Model at `da123935` | Model with both corrections |
+| --- | ---: | ---: | ---: |
+| GEMM | 1.151 | 1.019 | 1.124 |
+| SYRK | 1.166 | 1.019 | 1.124 |
+| Floyd-Warshall | 1.133 | 1.020 | 1.250 |
+
+The model now overshoots Floyd-Warshall. It also reverses the direction of
+three GEMM ablations. Removing the store, removing the two multiplies or
+storing a value computed before the loop reduced native cycles per iteration to 1.098,
+1.129 and 1.109, respectively. The model rose to 1.250, 1.258 and 1.250.
+Whether the model retries a load depends on its placement and on which other
+loads issue in the same cycle. These fixed-placement measurements leave the
+size of either effect in whole applications uncertain.
+
+The window, rename capacity, store count and arithmetic measurements above
+come from the [M5 microarchitecture measurements](https://github.com/useless-husband/m5-uarch).
+The 460-cycle DRAM latency is an effective estimate from dependent pointer
+chases on the M5 Max. The 128 and 256 MiB chases cost 484 and 490 cycles/hop,
+including translation. The model also charges up to 30 cycles for a page walk.
+
+Two alternating ascending store streams on this M5 Max slowed beyond L1.
+A native assembly probe kept the Streamcluster initialization arithmetic and
+varied the destination addresses. When writing 80 MiB, one contiguous stream
+took 1.20 cycles per two doubles written, and two streams with bases 4 KiB or
+8 KiB apart modulo a 16 KiB page took 6.0. Both rates were about 1.2 on
+L1-resident arrays. A third store to a third stream took about 2 cycles per
+three doubles in the large run. A direct bracket around the distance function
+on the unchanged Streamcluster input measured 1.14 cycles per element in
+distance computation and 6.20 elsewhere, principally initialization.
+
+The model admits one new 64-byte L1 allocation every 24 cycles when two
+alternating ascending store streams each advance for at least a line. This
+gives six cycles per two eight-byte stores when both streams miss. It is an
+effective bandwidth inferred from these measurements. The model omits the
+dependence on placement for nearly congruent arrays. In an offset sweep,
+some displacements of less than 128 bytes between the two arrays' page
+offsets sustained 1.4–3.1 cycles/trip, while displacements of 128–8,192
+bytes generally took 6.0. The write-stream probes use doubleword stores.
+
+A two-column read probe measured sensitivity to the relative address of two
+lines fetched from L2. With 426 active rows, a stride of 320 doubles in both
+columns, and congruent column bases modulo 512 bytes, M5 Max measured about
+6.2 cycles per read pair. Offsetting the second column by 64 bytes reduced
+this to 4.2. The starting model issued about two L1 misses per pair and
+predicted 4.1 cycles at both placements. A broader address sweep found
+similar differences at a stride of 384 doubles. A stride of 321 doubles
+kept the working lines in L1 and stayed near 1.5 cycles per pair across
+placements. The sum of each column was checked independently.
+
+The M5 profile preserves the shared fill bandwidth and schedules L2-hit
+demand read fills in eight line-address groups. Fills in one group must
+start at least three cycles apart. The group is the line number modulo
+eight. This is an effective timing model. The probes constrain the extra
+service cost and an address pattern, and leave the physical bank count
+and mapping undetermined. Demand writes and memory-side fills retain
+their existing timing. The model gives 6.08 and 4.09 cycles per pair in
+the two 320-double stride examples above. Seven standard memory controls
+retained their simulated cycles, and the eight-chain 1 MiB chase moved
+from 7.71% to 4.76% error. The unchanged SYR2K 426 × 320 application input
+moved from 76.61% to 20.43% error relative to its existing native reference.
+The 460 × 346 application control moved from 34.26% to 35.56%.
+
+Round-3 Super-core probes also measured effects this profile does not model. N independent ADD chains
+cost 1.00, 1.01, 1.06, 1.13, 1.20, 1.29, 1.35 and 1.40 cycles per link for N = 1 to 8, and FADD chains
+2.09 to 2.99; a single FADD, FSUB or FMADD chain already takes about 0.09 cycle more than its nominal
+latency. A one-cycle ADD chain whose every link is read by one to six other integer instructions takes
+1.03 to 1.67 cycles per link, while the same number of unrelated instructions costs at most 1.06. Tiny
+loops with seven to fourteen independent ADDs sustain about 6.7 to 7.3 integer operations per cycle.
+The JACOBI-1D and x264 SAD inner loops on L1-resident data took 1.153 and
+1.095 cycles per iteration on hardware. The model gives 1.019 for each.
+In the fixed-offset GEMM variant, the three loads have distinct residues
+modulo 256 (0, 64 and 128 relative to the buffer base). They trigger no
+read conflict with one another. This variant takes 1.148 cycles per iteration
+on hardware and 1.018 in the model. The issue model continues to omit much of
+the dependence on chain fan-out and on the order of mixed integer, FP, load
+and store operations.
+
+Parameters omitted here retain their M2 settings. The core and memory probes
+do not identify every stage, and assembly loop timing depends on placement,
+working set and the access pattern. For example, the L1-resident eleven-op
+integer maximum loop took 2.03 cycles/update in its constant-data control,
+while the application takes about seven cycles/inner update at its principal
+timing mode. In a Super-core follow-up on the 601 input, retaining the same
+stores but carrying their value in a register reduced median native cycles
+from 253 million to 56 million. Removing only the frequent reload of the
+floating-point accumulator likewise reduced TRMM at 288 × 384 from 216
+million to 44 million cycles, compared with 24 to 19 million at 232 × 309.
+The experiment implicates the memory-carried dependence. Its different costs
+across inputs limit the accuracy of a single forwarding latency.
 
 ## Apple M1 profile
 
@@ -1090,3 +1422,15 @@ This is a generic anti-aliasing
 model correction, not a reconstruction of Apple's predictor geometry. Outcomes
 outside the configured history do not participate. All mutable predictor and
 execution-unit state remains in component State and is serialization-tested.
+
+### Experimental M5 Max scalar floating-point reload model
+
+The M5 Max profile tracks a scalar double load through one FADD or FSUB and back to a store of the same bytes. An eligible feedback reload can receive the pending data with one cycle of forwarding latency when the store and the reload are at least nine dynamic instruction positions apart. Adjacent forwarding keeps its existing timing. The store and load still consume their ordinary instruction and scheduler resources. With general store-dependence prediction disabled, an eligible scalar load remembers the static store instruction only when its youngest overlapping store is an exact feedback producer. Otherwise the load forgets that prediction. A later instance can wait for the predicted store unless a newer ready store already supplies the full load.
+
+The model uses two observations from controlled native measurements. First, a store of the running sum can delay the next iteration even when the load and store have the same addresses across two program variants. Three Doitgen inputs ran faster when the addition consumed a register-carried sum while retaining the load and store. On Doitgen-2, precomputing the accumulator address or using an indexed operand gave about 22.3 million user cycles in both variants. Carrying the result in a register gave about 10.1 million in both. Second, the timing of that memory recurrence depends on other reads and on the preceding traffic. In a 56-update loop, changing the first input stride from one to 17 doubles preserved the low seven bits of corresponding addresses but raised paired execution time by 32% with a clean primer and 48% with a conflicting primer, for a second stride of 55 doubles. In a different control, alternating between two lines within an otherwise identical address multiset had a much smaller effect than expanding the footprint.
+
+The model tracks competing scalar reads between feedback reloads. Successive live reads from the same instruction can revisit an L1 set with different lines. If this recurs for the same accumulator and a read returns after ordinary L1-hit latency, the reload uses conventional forwarding until the competing read retires. A stable relative byte offset with equal address bit 6 can delay the side load until the newest overlapping scalar store's data is ready. The predictor uses the configured L1 geometry and two-bit confidence.
+
+The model counts partial-address matches for each static source load. A streak of 32 can begin a conservative forwarding window. Matches pooled from different instructions suppress fast forwarding only until the training observation retires. The longer window can also begin under sustained set pressure or overlapping refills. The alias check compares the low 14 address bits, and the refill history uses one slot per eight bytes in that 16 KiB span. This models an effective partial-address comparison independently of the guest VM's page size. Its 5,575,360 dynamic instruction positions approximate the measured recovery interval of 2,620 passes × 192 updates × 11.0833 instructions per update. This conversion depends on the probe's instruction mix. The window, indexing and confidence rules are empirical timing assumptions.
+
+At 421 × 559, exchanging the row strides of the streamed B input and accumulator gave native kernel times of 104.87 and 40.13 ms. The corresponding model times were 102.32 and 40.23 ms. Over the 15 measured TRMM sizes the predictor reproduced 12 of 14 adjacent directions, with median and worst diff/min of 11.95% and 46.81%. A separate register-carried control with B stride 576 takes 55.16 ms on hardware. The earlier experimental predictor took 140.23 ms, and this version takes 152.99 ms. The observed timings establish sensitivity to memory layout; the physical M5 Max forwarding and cache mechanisms remain unknown.

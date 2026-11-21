@@ -46,21 +46,21 @@ def selection(ident, base_declared=False):
 
 
 class DeclarationTests(unittest.TestCase):
-    def test_repository_declares_four_devices_and_grace_has_application_reference(self):
+    def test_repository_declares_four_devices_and_three_application_references(self):
         declaration = devices.load()
         self.assertEqual([d["id"] for d in declaration["devices"]], IDS)
         self.assertEqual(declaration["default"], devices.DEFAULT)
         self.assertEqual({d["id"]: devices.reference_status(d) for d in declaration["devices"]},
-                         {"m2": "measured", "m1": "unmeasured", "grace": "partial", "m5-max": "unmeasured"})
-        # Placeholders say whose parameters they carry rather than claiming their own.
+                         {"m2": "measured", "m1": "partial", "grace": "partial", "m5-max": "unmeasured"})
+        # Each current target declares its own parameters.
         self.assertEqual({d["id"]: d["parameter_source"] for d in declaration["devices"]},
-                         {"m2": "m2", "m1": "m1", "grace": "grace", "m5-max": "m2"})
+                         {"m2": "m2", "m1": "m1", "grace": "grace", "m5-max": "m5-max"})
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m2"), declaration), "Apple M2 model profile")
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m1"), declaration), "Apple M1 model profile")
         self.assertEqual(devices.parameter_text(devices.select(declaration, "grace"), declaration),
                          "NVIDIA Grace (Arm Neoverse V2) model profile")
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m5-max"), declaration),
-                         "Apple M2 model profile (placeholder; Apple M5 Max parameters not established)")
+                         "Apple M5 Max model profile")
 
     def test_every_device_reports_its_declared_profile_at_its_clock(self):
         declaration = devices.load()
@@ -86,7 +86,7 @@ class DeclarationTests(unittest.TestCase):
         self.assertIs(devices.at_profile_clock(case, None), case)
         # Grace differs from M2 in its documented core, cache and translation parameters only.
         self.assertEqual(devices.profile_path(devices.select(declaration, "grace")), "evaluation/model-profile-grace.json")
-        self.assertEqual(devices.profile_path(devices.select(declaration, "m5-max")), "evaluation/model-profile.json")
+        self.assertEqual(devices.profile_path(devices.select(declaration, "m5-max")), "evaluation/model-profile-m5-max.json")
         self.assertEqual(devices.profile_path(None), "evaluation/model-profile.json")
         grace = devices.load_profile(devices.select(declaration, "grace"))
         self.assertEqual({k for k in grace["configuration"] if grace["configuration"][k] != m2["configuration"].get(k)},
@@ -100,7 +100,7 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(devices.at_profile_clock(case, grace), dict(id="x", frequency_hz=3429000000))
 
     def test_declared_references_are_the_files_the_reports_bind(self):
-        expected = {"application": site.performance.PATH,
+        expected = {"application": "evaluation/usertime/apple-pcore/m2-reference.json",
                     **{name: suite.REFERENCE for name, suite in site.DIAGNOSTIC_SUITES.items()}}
         self.assertEqual(devices.select(devices.load(), "m2")["references"], expected)
         self.assertEqual(set(expected), set(devices.KINDS))
@@ -124,7 +124,7 @@ class DeclarationTests(unittest.TestCase):
                      lambda v: entry(v, "m1").update(hardware=" "),
                      lambda v: entry(v, "m1").update(id="M1"),
                      lambda v: entry(v, "m1").update(id="../m1"),
-                     lambda v: entry(v, "m1").update(parameter_source="m5-max"),  # carries M2's, has none of its own
+                     lambda v: (entry(v, "m1").update(parameter_source="m5-max"), entry(v, "m5-max").update(parameter_source="m2")),
                      lambda v: entry(v, "m1").update(parameter_source="m3"),
                      lambda v: entry(v, "m1")["references"].update(power="evaluation/power.json"),
                      lambda v: entry(v, "m1")["references"].update(application="../outside.json"),
@@ -322,7 +322,7 @@ class ReportFixture(unittest.TestCase):
         # These synthetic reports predate the external Grace acquisition. Keep
         # their original declaration explicit; current Grace coverage is tested
         # against the real imported reference in linux_reference_test.py.
-        declaration = devices.load()
+        declaration = fixtures.macho_device_declaration()
         devices.select(declaration, "grace")["references"] = {}
         return declaration
 
@@ -782,7 +782,7 @@ class CommitReportTests(ReportFixture):
     def setUpClass(cls):
         super().setUpClass()
         cls.declared = dict(schema=1, default="m2", devices=[
-            copy.deepcopy(devices.select(devices.load(), "m2")),
+            devices.select(fixtures.macho_device_declaration(), "m2"),
             dict(id="syn-b", hardware="Synthetic device B", parameter_source="m2", references=dict(application=SYNTHETIC_B)),
             dict(id="syn-c", hardware="Synthetic device C", parameter_source="m2", references={}),
             dict(id="syn-d", hardware="Synthetic device D", parameter_source="m2", references={})])

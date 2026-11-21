@@ -261,6 +261,38 @@ func TestStoreForwardLatencyIsOnePath(t *testing.T) {
 	}
 }
 
+func TestAdjacentFPForwardLatency(t *testing.T) {
+	delay := func(s *Spec) { s.AdjacentFPForwardLatency = 11 }
+	if got := storeThenLoad(t, strD0X1, ldrD2X1, 0x2000, 0, delay); got != 111 {
+		t.Fatalf("consecutive double store and load ready at %d, want 111", got)
+	}
+	if got := storeThenLoad(t, strX1X2, ldrD2X1, 0x2000, 0, delay); got != 108 {
+		t.Fatalf("integer store and double load ready at %d, want 108", got)
+	}
+	legacy := storeThenLoad(t, strD0X1, ldpD2D3X1, 0x2000, 0, func(*Spec) {})
+	if got := storeThenLoad(t, strD0X1, ldpD2D3X1, 0x2000, 0, delay); got != legacy {
+		t.Fatalf("paired load ready at %d, want previous timing %d", got, legacy)
+	}
+	p := specPipeline(t, []uint32{strD0X1, nop, ldrD2X1}, nil, delay)
+	p.comp.Resources.Emu.Regs.WriteX(1, 0x2000)
+	p.comp.State.FpReady[0] = 100
+	p.fetchAndProcess()
+	if got := p.comp.State.Rob[2]; p.comp.State.Err != "" || got != 108 {
+		t.Fatalf("double load after an intervening NOP ready at %d, want 108 (error %q)", got, p.comp.State.Err)
+	}
+
+	const ldrD2X2 = 0xfd400042 // LDR D2, [X2]
+	p = specPipeline(t, []uint32{strD0X1, ldrD2X2}, nil, delay)
+	p.comp.Resources.Emu.Regs.WriteX(1, 0x2000)
+	p.comp.Resources.Emu.Regs.WriteX(2, 0x2000)
+	p.comp.State.FpReady[0] = 100
+	p.comp.State.GprReady[2] = 110
+	p.fetchAndProcess()
+	if got := p.comp.State.Rob[1]; p.comp.State.Err != "" || got != 115 {
+		t.Fatalf("double load after producer completion ready at %d, want 115 (error %q)", got, p.comp.State.Err)
+	}
+}
+
 // A forwarded value is never ready before the load itself could issue.
 func TestStoreForwardWaitsForTheLoadAddress(t *testing.T) {
 	p := specPipeline(t, []uint32{strX1X2, ldrX3X4}, nil, func(s *Spec) { s.NumLDST, s.StoreForwardLatency = 2, 6 })
@@ -671,6 +703,7 @@ func TestInvalidLatencyConfigurationRejected(t *testing.T) {
 		"negative latency":             func(s *Spec) { s.Latencies.FPMultiply = -1 },
 		"early ending without a base":  func(s *Spec) { s.Latencies.DivideBitsPerCycle = 4 },
 		"negative dividers":            func(s *Spec) { s.NumIntDiv = -1 },
+		"negative adjacent FP forward": func(s *Spec) { s.AdjacentFPForwardLatency = -1 },
 		"negative store-forward":       func(s *Spec) { s.StoreForwardLatency = -1 },
 		"negative FP issue queue":      func(s *Spec) { s.FPIssueQueue = -1 },
 		"negative multiply queue":      func(s *Spec) { s.MultiplyIssueQueue = -1 },
@@ -736,5 +769,20 @@ func TestLatencyTestEncodings(t *testing.T) {
 		if got := decodeWord(t, word).Op; got != want {
 			t.Errorf("%#x decodes to %v, want %v", word, got, want)
 		}
+	}
+}
+
+func TestPipelinedIntegerDivide(t *testing.T) {
+	p := specPipeline(t, []uint32{udivX0X1X2}, nil, func(s *Spec) {
+		s.Latencies.DivideBase = 7
+		s.Latencies.DivideOccupancy = 2
+		s.NumIntDiv = 1
+	})
+	p.fetchAndProcess()
+	if p.comp.State.Rob[0] != 8 {
+		t.Fatalf("divide completes at %d, want 8", p.comp.State.Rob[0])
+	}
+	if !reflect.DeepEqual(p.comp.State.IntDividers[0], []UnitReservation{{1, 3}}) {
+		t.Fatalf("divide reservations %v", p.comp.State.IntDividers)
 	}
 }

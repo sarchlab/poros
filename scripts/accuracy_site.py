@@ -2415,7 +2415,7 @@ def detail_body(report, entry, preview=False, frontend=None, throughput_referenc
             completed_cases=len(report["cases"]), required_cases=len(report_manifest(report)["cases"]),
             active_cases=[], errors=[])
         body += live_progress(progress, totals)
-    native_reference = report.get("reference", {}).get("protocol") in (performance.NATIVE_PROTOCOL, performance.LINUX_PROTOCOL)
+    native_reference = report.get("reference", {}).get("protocol") in performance.NATIVE_PROTOCOLS
     cases = report.get("cases", [])
     benchmarks = [c for c in cases if not is_micro_case(c)]
     micros = [c for c in cases if is_micro_case(c)]
@@ -2483,7 +2483,17 @@ def detail_body(report, entry, preview=False, frontend=None, throughput_referenc
     body += (f'<details id="microbenchmark-table"><summary>Whole-program microbenchmark timing table · {len(micro_ids)} cases</summary>'
              + timing_table(micros, micro_ids, referenced) + '</details></section>')
     replacement = report.get("reference", {}).get("streamcluster_replacement")
-    if report.get("reference", {}).get("protocol") == performance.LINUX_PROTOCOL:
+    if report.get("reference", {}).get("protocol") == performance.PINNED_LINUX_PROTOCOL:
+        import pcore_reference
+        reference = report["reference"]
+        chip = pcore_reference.chip_for(reference["hardware"])
+        source_url = f"https://github.com/{REPO}/blob/{commit}/"
+        body += ('<section id="native-linux-provenance"><h2>Native Linux performance-core reference</h2><p>'
+                 + esc(reference["reference_scope"]) + '</p><p>' + esc(reference["core_identity"])
+                 + ' · 16 KiB pages · performance governor.</p><p><a href="' + source_url
+                 + pcore_reference.evidence_paths(chip)[1] + '">Raw Linux trials</a> · <a href="'
+                 + source_url + pcore_reference.evidence_paths(chip)[0] + '">Capture metadata</a></p></section>')
+    elif report.get("reference", {}).get("protocol") == performance.LINUX_PROTOCOL:
         reference = report["reference"]
         native = reference["native_environment"]
         body += ('<section id="native-linux-provenance"><h2>Native Linux reference</h2><p>'

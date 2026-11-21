@@ -23,15 +23,19 @@ const (
 // prefetch and disable the other timed mechanisms; every timed fill still
 // carries an arrival time.
 type CacheConfig struct {
-	L1Size      int // bytes
-	L1Ways      int // associativity
-	L1LineSize  int // bytes
-	L2Size      int // bytes
-	L2Ways      int // associativity
-	L2LineSize  int // bytes
-	L1Latency   int // cycles
-	L2Latency   int // cycles
-	DRAMLatency int // cycles
+	// Optional spacing between L2 demand-read fills of the same L1 line class.
+	// A zero count preserves the shared transport timing.
+	L1ReadFillBanks      int `json:",omitempty"`
+	L1ReadFillBankCycles int `json:",omitempty"`
+	L1Size               int // bytes
+	L1Ways               int // associativity
+	L1LineSize           int // bytes
+	L2Size               int // bytes
+	L2Ways               int // associativity
+	L2LineSize           int // bytes
+	L1Latency            int // cycles
+	L2Latency            int // cycles
+	DRAMLatency          int // cycles
 
 	// FillBytesPerCycle bounds the L2-to-L1 fill transport used by every timed
 	// L1 line fill (demand or adjacent-line prefetch). 0 means unlimited.
@@ -96,6 +100,9 @@ type CacheConfig struct {
 	// stores in flight. False accepts every store miss at once into a
 	// pending-line entry, as if every store stream were prefetched.
 	InterleavedStoreRunsWait bool `json:",omitempty"`
+	// AlternatingStoreLineCycles bounds the rate of new L1 allocations by
+	// two alternating contiguous store streams. Zero keeps normal admission.
+	AlternatingStoreLineCycles int `json:",omitempty"`
 }
 
 // DefaultCacheConfig returns a reasonable default configuration.
@@ -339,12 +346,20 @@ func (ch *fillChannel) deliver(earliestStart uint64, bytes int) uint64 {
 	if occ == 0 {
 		return earliestStart
 	}
-	start := earliestStart
+	start, pos := ch.available(earliestStart, occ)
+	return ch.book(start, occ, pos)
+}
+
+func (ch *fillChannel) available(start, occ uint64) (uint64, int) {
 	pos := sort.Search(len(ch.busy), func(i int) bool { return ch.busy[i].End > start })
 	for pos < len(ch.busy) && start+occ > ch.busy[pos].Start {
 		start = ch.busy[pos].End
 		pos++
 	}
+	return start, pos
+}
+
+func (ch *fillChannel) book(start, occ uint64, pos int) uint64 {
 	end := start + occ
 	if pos > 0 && ch.busy[pos-1].End == start {
 		ch.busy[pos-1].End = end
@@ -390,6 +405,7 @@ type Cache struct {
 	cfg                        CacheConfig
 	stats                      CacheStats
 	channel                    *fillChannel // L2 -> L1 fills
+	readFillBanks              []fillChannel
 	dram                       *fillChannel // memory side (SLC or DRAM) -> L2 fills
 	spill                      *fillChannel // clean L2 victims -> SLC
 	streams                    []stream
@@ -400,6 +416,7 @@ type Cache struct {
 	timingDone                 bool
 	shared                     *SharedL2
 	run                        storeRun // the followed run of contiguous stores
+	alternating                alternatingStores
 }
 
 // NewCache creates a cache hierarchy from the given configuration.
@@ -434,6 +451,16 @@ func newMemorySideCache(cfg CacheConfig) (*victimStore, *fillChannel) {
 }
 
 func (c *Cache) initTimed() {
+	banks, cycles := c.cfg.L1ReadFillBanks, c.cfg.L1ReadFillBankCycles
+	if banks < 0 || cycles < 0 || (banks == 0) != (cycles == 0) || (banks > 0 && c.cfg.FillBytesPerCycle <= 0) {
+		panic("mem: invalid read fill bank configuration")
+	}
+	if banks > 0 {
+		c.readFillBanks = make([]fillChannel, banks)
+	}
+	if c.cfg.AlternatingStoreLineCycles < 0 {
+		panic("mem: negative alternating store allocation interval")
+	}
 	if c.cfg.WriteBufferEntries < 0 {
 		panic("mem: negative write-buffer capacity")
 	}
@@ -515,6 +542,9 @@ func (c *Cache) Advance(cycle uint64) {
 	}
 	c.watermark = cycle
 	c.channel.prune(cycle)
+	for i := range c.readFillBanks {
+		c.readFillBanks[i].prune(cycle)
+	}
 	if c.tlb != nil {
 		c.tlb.prune(cycle)
 	}
@@ -570,6 +600,13 @@ func (c *Cache) Probe(addr uint64) HitLevel {
 		return HitSLC
 	}
 	return HitDRAM
+}
+
+// L1Ready reports whether the L1 has the addressed line's data at cycle.
+// It observes the current tag and its scheduled arrival without mutating the cache.
+func (c *Cache) L1Ready(addr, cycle uint64) bool {
+	line := c.l1.peek(addr)
+	return line != nil && line.readyAt <= cycle
 }
 
 // Prefetch silently brings addr into L1 (legacy instant next-line prefetch).
@@ -720,6 +757,8 @@ func (c *Cache) accessLine(addr uint64, size int, isWrite bool, now uint64) (Hit
 		// from the memory side; its L1 transfer still occupies the L2-to-L1
 		// transport.
 		ready = c.transferL1(l2Ready, now)
+	} else if !isWrite && len(c.readFillBanks) > 0 {
+		ready = c.fillL1Banked(addr, l2Ready, now)
 	} else {
 		ready = c.fillL1(l2Ready, now)
 	}
@@ -760,6 +799,30 @@ func (c *Cache) fillL1(l2Ready, now uint64) uint64 {
 		start = l2Ready
 	}
 	return c.transferL1(start+uint64(c.cfg.L2Latency), start)
+}
+
+// fillL1Banked combines the shared fill channel with an independent
+// reservation for the addressed line's group. Search both calendars so
+// out-of-dispatch-order requests can use any fitting earlier gap.
+func (c *Cache) fillL1Banked(addr, l2Ready, now uint64) uint64 {
+	start := max(l2Ready, now)
+	sharedCycles := c.channel.occupancy(c.cfg.L1LineSize)
+	earliest := start + uint64(c.cfg.L2Latency)
+	if earliest >= sharedCycles {
+		start = max(start, earliest-sharedCycles)
+	}
+	group := (addr / uint64(c.cfg.L1LineSize)) % uint64(len(c.readFillBanks))
+	bank := &c.readFillBanks[group]
+	bankCycles := uint64(c.cfg.L1ReadFillBankCycles)
+	for {
+		channelStart, channelPos := c.channel.available(start, sharedCycles)
+		bankStart, bankPos := bank.available(channelStart, bankCycles)
+		if bankStart == channelStart {
+			bank.book(bankStart, bankCycles, bankPos)
+			return c.channel.book(channelStart, sharedCycles, channelPos)
+		}
+		start = bankStart
+	}
 }
 
 // transferL1 books the L2-to-L1 transfer of one L1 line whose data can finish

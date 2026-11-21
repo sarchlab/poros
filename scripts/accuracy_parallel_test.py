@@ -146,7 +146,7 @@ class ParallelAccuracyTests(unittest.TestCase):
         # These synthetic source snapshots predate the Grace acquisition. They
         # exercise transport/device ownership without borrowing current native
         # data whose exact 64 KiB inputs are tested in linux_reference_test.py.
-        declaration = parallel.devices.load()
+        declaration = fixtures.macho_device_declaration()
         parallel.devices.select(declaration, "grace")["references"] = {}
         chosen = fixtures.device_selection(ident, HEAD, self.plan["head"]["files"], BASE if base_declared else None,
                                            declaration=declaration)
@@ -930,14 +930,16 @@ class ParallelAccuracyTests(unittest.TestCase):
 
         Only simulator execution is synthetic. Git commits, source hashes,
         reference, model declarations and the complete 140-point transport are
-        real. With `declared` both revisions carry the repository's device
-        declaration; without it the source predates devices."""
+        real. With `declared` both revisions carry the declaration for the
+        Mach-O application fixture; without it the source predates devices."""
         source = self.root / "memory-source"
         shutil.copytree(self.fixture.source, source)
-        for name in [*memory.INPUTS, memory.REFERENCE, models.PATH, *([parallel.devices.PATH] if declared else []),
+        for name in [*memory.INPUTS, memory.REFERENCE, models.PATH,
                      "pkg/loader/elf.go", "pkg/linuxuser/run.go", "cmd/poros/elf.go"]:
             target = source / name; target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(memory.ROOT / name, target)
+        if declared:
+            (source / parallel.devices.PATH).write_bytes(parallel.devices.encode(fixtures.macho_device_declaration()))
         def git(*args):
             return subprocess.check_output(['git', '-C', str(source), *args], stderr=subprocess.DEVNULL, text=True).strip()
         git('init'); git('config', 'user.name', 'Test'); git('config', 'user.email', 'test@example.org')

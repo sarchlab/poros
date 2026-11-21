@@ -5,8 +5,8 @@ Poros is an execution-driven AArch64 CPU simulator built on the [Akita](https://
 The [complete ELF workload contract](tests/benchmarks/README.md) defines inputs,
 outputs, provenance and correctness checks. The [user-time accuracy report](evaluation/usertime/README.md)
 contains all 44 workloads at six larger timing points each (264 cases), with
-separate preserved small correctness inputs and native macOS Mach-O hardware
-references with audited ELF-matched computation. Measurement coverage and model
+separate preserved small correctness inputs and native Linux hardware
+references for Apple M1, Apple M2 and NVIDIA Grace. Measurement coverage and model
 predictions do not establish hardware accuracy.
 
 ## Build and Run
@@ -62,13 +62,14 @@ own builder in `pkg/target` and supplies the out-of-order and in-order
 configuration, the cache hierarchy and the clock. An explicit `--frequency-hz`
 still overrides the clock.
 
-`m2`, `m1` and `grace` have parameters of their own, declared and sourced in
-[the model profiles](evaluation/model-profile.md). `m5-max` currently carries
-the M2 core, memory and frequency unchanged, so its cycle counts equal M2's
-and say nothing yet about that hardware. Every timing result states this:
+Each target has its own declared timing profile. The M5 Max configuration
+uses the measured Super-core clock, front end, floating-point timing and cache
+latencies. See [the model profiles](evaluation/model-profile.md) for the
+measurements and the parameters inherited from M2. Every timing result
+identifies the selected profile.
 
 ```json
-"target": {"name": "m5-max", "hardware": "Apple M5 Max", "parameter_source": "m2"}
+"target": {"name": "m5-max", "hardware": "Apple M5 Max", "parameter_source": "m5-max"}
 ```
 
 `parameter_source` names the target whose parameters were simulated. The

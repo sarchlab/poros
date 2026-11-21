@@ -149,8 +149,46 @@ func Grace() Target {
 // ran at was not observed.
 const GraceFrequency = 3_429_000_000 * timing.Hz
 
-// M5Max carries the M2 core, memory and clock until its own are established.
-func M5Max() Target { return M2().as("m5-max", "Apple M5 Max") }
+// M5Max selects the Apple M5 Max Super-core timing profile.
+//
+// Its front end follows the Super-core loop probes of evaluation/model-profile.md:
+// fetch groups of 16 instruction slots that end at a predicted taken branch
+// unless the target lies ahead in the group, a two-group fetch buffer (not
+// measured), 10 rename and retire slots, at most two conditional branches per
+// cycle and compare/branch fusion.
+func M5Max() Target {
+	t := M2().as("m5-max", "Apple M5 Max")
+	t.ParameterSource = "m5-max"
+	t.OoO.FetchWidth, t.OoO.RetireWidth = 10, 10
+	t.OoO.FetchGroupLimit, t.OoO.FetchLead = 16, 2
+	t.OoO.FetchRepeatMin, t.OoO.FetchRepeatExitDelay = 6, 4
+	t.OoO.ConditionalBranches = 2
+	t.OoO.CompareBranchFusion = true
+	t.OoO.FlagBranchDependency = true
+	t.OoO.L1ReadBankPeriod = 256
+	t.OoO.NumINT = 8
+	t.OoO.ROBCapacity, t.OoO.FpPhysLimit = 1334, 839
+	t.OoO.StoreBufferSize, t.OoO.NumIntDiv = 137, 1
+	t.OoO.MultiplyIssueQueue = 48
+	// 256 waiting FP operations best fit the waiting-chain and fan-out window
+	// probes (evaluation/model-profile.md); an effective, not physical, size.
+	t.OoO.FPIssueQueue = 256
+	t.OoO.AdjacentFPForwardLatency = 11
+	t.OoO.ScalarFPReloadPrediction = true
+	t.OoO.StoreDataQueue = 76
+	t.OoO.RegisterOffsetStoreData = true
+	t.OoO.BypassRecovery, t.OoO.BypassValueRun, t.OoO.PlainForwardLatency = 8192, 16, 6
+	t.OoO.Latencies = ooo.Latencies{
+		MultiplyAdd: 4, DivideBase: 7, DivideOccupancy: 2, FPArithmetic: 2,
+		FPMultiply: 3, FPMultiplyAdd: 3, FPDivide: 9,
+		FAddWakeupSpan: 6, FAddWakeupTaken: 2,
+	}
+	t.OoO.LoadLatency, t.Cache.L1Latency, t.Cache.L2Latency = 3, 3, 12
+	t.Cache.AlternatingStoreLineCycles = 24
+	t.Cache.L1ReadFillBanks, t.Cache.L1ReadFillBankCycles = 8, 3
+	t.Cache.DRAMLatency = 460
+	return t.WithFrequency(4_590_000_000 * timing.Hz)
+}
 
 // as names a configuration for another device. The parameter source is kept,
 // so the result says whose parameters it carries.

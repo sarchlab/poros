@@ -171,15 +171,27 @@ def compact_report(evidence):
     return report
 
 
+def macho_device_declaration():
+    """The reference layout used by synthetic whole-program fixtures."""
+    import devices
+    import performance_reference as performance
+    declaration = devices.load()
+    # These historical fixtures predate the separate M5 Max profile.
+    devices.select(declaration, "m5-max")["parameter_source"] = "m2"
+    devices.select(declaration, "m2")["references"]["application"] = performance.PATH
+    devices.select(declaration, "m1")["references"].pop("application", None)
+    return declaration
+
+
 def device_selection(ident, commit, files, base_commit=None, declaration=None):
     """A device bound to a declaration, as devices.resolve binds it.
 
-    The declaration is the repository's unless one is given, which lets a
-    fixture commit declare devices the current tip does not. Its hash joins
+    By default use the Mach-O fixture's reference layout. A caller may give
+    a declaration for a different fixture commit. Its hash joins
     `files`, the head's source inventory. With a base commit the base revision
     declares the same devices; without one it predates device selection."""
     import devices
-    declaration = devices.load() if declaration is None else devices.check(copy.deepcopy(declaration))
+    declaration = macho_device_declaration() if declaration is None else devices.check(copy.deepcopy(declaration))
     sha = hashlib.sha256(devices.encode(declaration)).hexdigest()
     files[devices.PATH] = sha
     def bound(revision):
