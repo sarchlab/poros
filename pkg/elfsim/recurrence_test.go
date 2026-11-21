@@ -16,6 +16,12 @@ import (
 // outer trips and returns the modelled cycles per reported update.
 func recurrenceCyclesPerUpdate(t *testing.T, image []byte, definition, name string) float64 {
 	t.Helper()
+	return recurrenceCyclesPerUpdateOn(t, "", image, definition, name)
+}
+
+// recurrenceCyclesPerUpdateOn does so for one modeled device.
+func recurrenceCyclesPerUpdateOn(t *testing.T, device string, image []byte, definition, name string) float64 {
+	t.Helper()
 	index, updates := 0, 0.0
 	for i, line := range strings.Split(strings.TrimSpace(definition), "\n") {
 		fields := strings.Split(strings.TrimSuffix(strings.TrimPrefix(line, "PROBE("), ")"), ", ")
@@ -33,7 +39,7 @@ func recurrenceCyclesPerUpdate(t *testing.T, image []byte, definition, name stri
 		if err != nil {
 			t.Fatal(err)
 		}
-		result, err := Run(context.Background(), process, Options{Limits: linuxuser.RunOptions{MaxInstructions: 4000000, MaxOutput: 64, Timeout: 30 * time.Second}})
+		result, err := Run(context.Background(), process, Options{Target: device, Limits: linuxuser.RunOptions{MaxInstructions: 4000000, MaxOutput: 64, Timeout: 30 * time.Second}})
 		if err != nil || result.ExitStatus == nil || *result.ExitStatus != 0 || result.Timing.Retired != result.Instructions {
 			t.Fatalf("%s at %s trips: %v %+v", name, trips, err, result.Result)
 		}

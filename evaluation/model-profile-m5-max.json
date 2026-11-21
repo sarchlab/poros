@@ -33,6 +33,7 @@
     "adjacent_fp_forward_latency": 11,
     "branch_penalty": 17,
     "branch_prediction": true,
+    "bypass_recovery": 8192,
     "compare_branch_fusion": true,
     "conditional_branches": 2,
     "fetch_group_limit": 16,
@@ -68,6 +69,7 @@
     "num_mshr_entries": 12,
     "num_select_fusion": 1,
     "num_store": 2,
+    "plain_forward_latency": 6,
     "predictor": {
       "bimodal_size": 4096,
       "btb_size": 2048,

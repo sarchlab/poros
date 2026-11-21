@@ -45,8 +45,80 @@ separate populations.
 | 256 waiting FP operations | Round-3 gate probes (`window2`, 1,600 qualified Super-core intervals) block retirement with a 16-deep FDIV chain, then place N fillers before an independent 32-deep multiply chain. Scalar loads, integer adds, independent FADDs and NOPs stay at 156 cycles/trip through 256-384 fillers, so no smaller load, integer or rename limit applies there. A dependent FADD chain that waits on the gate rises from 156 at 128 links to 200, 256, 365 and 551 at 160, 192, 256 and 384; four-instruction load/load/FMADD units that wait on the gate stay near 157 through 256 instructions and reach 182 and 227 at 320 and 384. One shared capacity of 256 waiting FP operations (FP arithmetic, divides and FP store data) gives 199, 257, 343 and 514 for the chain and 154 and 196 for the units, and keeps the round-2 fan-out case of up to 192 FADDs waiting on one value flat; 240 and 272 fit almost as well, 192 and 288 clearly worse. It is an effective limit of the model, not a measured physical queue. |
 | 76 scalar stores waiting for data | A counted two-gate probe placed scalar stores between independent FP-divide and integer-multiply chains. For immediate-offset STR of W, X, S and D registers, a 77th delayed store blocked overlap. With 16 divides, 76 delayed FP64 stores added 12 cycles relative to the ready-data control and 77 added 98. Repeating one address and alternating FP64/GPR64 gave the same threshold. A ready store after 76 pending stores also stalled. The model admits these forms to a shared store-data queue and frees the slot when the source register is ready, after at least its dispatch cycle. Paired stores and address-only delays showed different thresholds. |
 | Eleven-cycle adjacent double store/load | The same-address double-add chain in `mem_fadd` took about 13 counted cycles/update. The independent distance sweep gave 13.00–13.08 cycles/update for the 64-way unrolled chain at four placements. The model charges 11 cycles from readiness of the load address and store data when consecutive ordinary scalar FP64 STR/LDR instructions transfer the same eight bytes and the store is still in flight. The dependent FADD adds two cycles. Different instruction spacing and register-addressing forms keep their existing timing. |
+| Store-to-load bypass by address operand, six-cycle plain forward, 8,192-execution recovery | A same-address 64-bit increment took 1.67 counted cycles/update through one base register and 7.02 through a second register holding the same address; a 32-bit reload of a 64-bit store and register-offset forms also took 7.0. See [Store-to-load bypass on M5](#store-to-load-bypass-on-m5). |
 | Three-cycle FP multiply, seven-cycle integer divide that starts every two cycles | Measured independently on the M5 Super core. |
 | Three-cycle L1D hit, 12-cycle L2 hit | The single dependent pointer chain took 2.99–3.00 cycles/hop at 8–64 KiB and 11.43–12.42 at 256 KiB–1 MiB. The host reports a 128 KiB Super-core L1D and 16 MiB L2 per six Super cores. The chase slows within the nominal L2 at larger footprints. |
+
+### Store-to-load bypass on M5
+
+On the M5 Super core the short path from a GPR store to a later load of the
+same bytes depends on how the two instructions name the address, and on the
+values involved. The counted recurrence rows separate the first part. A
+64-bit load, increment and store took 1.67 cycles/update through one base
+register, with displacement 0 or 8, and 7.02 when the store used a second
+register holding the same address. A 32-bit reload of a 64-bit store took
+7.03, and the three register-offset forwarding rows 7.0. With a one-cycle
+ADD, a store that does not take the short path supplies a load six cycles
+after its data.
+
+Three native experiments on the Nussinov kernel and on a standalone loop
+establish the second part. Each holds the instructions, addresses and
+retired work fixed and verifies every output byte.
+
+| Experiment (Super-core counted cycles) | Result |
+| --- | --- |
+| Nussinov, n = 601, boundary stores removed, destination table preset | All destinations zero: 54–66 million cycles for every combination of source tables. Canonical destinations: 255 million with a select, 220 million with a register move, 162 million with a direct reload and store. No inner store: 49–52 million for every value setting. |
+| Same kernel, sources zero, destination pattern varied | 0, 1, −1 or a large constant: 65–67 million. Value changing by row: 75–80 million. By column: 199–203 million. 16- and 64-column bands: 175–186 and 139–149 million. |
+| Standalone running-maximum loop, 4,096 destinations, silent stores, one PC for every group | Constant value: 1.5–1.9 cycles/update at 128 or 256 updates per group. Changing value: each 2^20-update interval ran at either 2.4–2.7 or 6.45–7.2. After training with alternating values, a constant-value target stayed slow for about 8,000 to 11,500 further updates; training at another PC did not transfer. |
+
+The destination pointer of these loops is recomputed for every group, and
+the slow regime appears only when the first reload of a group reads a value
+that differs from the last value stored through that register. A loop that
+keeps one address in the register is fast whatever it stores: `mem64_add`
+changes the value at every update, and the `nuss_chg` replica, which restarts
+each row with a store through the same register, took 1.18 cycles per trip.
+
+The M5 model treats the one-cycle path as a prediction. A load is paired
+with the youngest in-flight store that has the same base register, immediate
+displacement and width (immediate-offset `LDR`/`STR` of W or X without
+writeback). The path serves the load only when that store is also the
+youngest store that wrote the load's bytes. Otherwise a store that supplies
+the load does so in six cycles from its data. When the paired store wrote
+other bytes, or an unpaired younger store supplies the load, the paired
+store's value stands in for the load's. An equal value goes unnoticed. A
+different value takes the path away from the load's PC for its next 8,192
+executions. The six cycles come from the recurrence rows and the 8,192 from
+the recovery measurement; the Nussinov application was not used for either.
+
+The application's original inputs then follow without further parameters.
+With n = 96 the kernel takes 3.0 cycles per inner iteration with the path and
+7.6 after losing it. For the six performance inputs the profile moves from
+2.2–3.1 simulated cycles per inner iteration to 6.9–7.0, against native
+medians of 6.9–7.5.
+
+The model does not reproduce everything these experiments show.
+
+- The Super core has a second regime. Individual runs of the unchanged
+  application took 1.6–1.7 cycles per inner iteration (3 of 66 trials at
+  n = 473), and in the standalone loop whole intervals paid only about 30
+  slow updates per group. A recovery of 32 executions gives 2.7 cycles per
+  iteration for n = 473, close to such runs. What selects the regime is
+  unknown. Fast runs were seen on a Super core that had just been woken.
+  The profile models the regime of the median trial.
+- Consecutive independent groups overlap in the model. The standalone loop
+  is predicted at 3.49 and 4.95 cycles/update with 128 and 256 updates per
+  group, against 6.45 and 7.2 measured in the slow regime, and at 1.26 with
+  16 updates against 1.85. An ELF twin of the column-pattern experiment
+  takes 180 million modeled cycles against 255 million. In the application
+  each group reads the previous destination, so its groups cannot overlap.
+- A wrong value is not charged a pipeline flush.
+- The fast path keeps its one-cycle latency. The M5 rows above read 1.1–1.7
+  cycles/update where the model gives 2.0.
+- Loads and stores of other forms keep the conventional timing of the M2
+  profile, including the 32-bit reload of a 64-bit store (9.0 modeled, 7.03
+  measured).
+- M-core ("Performance") runs of the application took 2.1–2.2 cycles per
+  inner iteration. The profile describes the Super core only.
 
 ### Scalar double FADD wakeup on M5
 

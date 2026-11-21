@@ -132,6 +132,13 @@ type Spec struct {
 	// RegisterOffsetStoreData includes 64-bit STR X/D with a register offset
 	// in that same store-data queue.
 	RegisterOffsetStoreData bool `json:"register_offset_store_data,omitempty"`
+	// BypassRecovery, when positive, makes the exact GPR store-to-load path a
+	// value-checked prediction by address operand; see bypass.go. It is the
+	// number of executions a load goes without the path after a wrong value.
+	// PlainForwardLatency is then the latency from a store's data to a load
+	// the path does not serve.
+	BypassRecovery      int `json:"bypass_recovery,omitempty"`
+	PlainForwardLatency int `json:"plain_forward_latency,omitempty"`
 }
 
 func DefaultSpec() Spec {
@@ -179,6 +186,7 @@ type State struct {
 	FrontendReady    uint64
 	Predictor        PredictorState
 	StoreDependence  StoreDependenceState
+	Bypass           BypassState `json:",omitzero"`
 	Cycles, InstDone uint64
 	Done             bool
 	Err              string
@@ -232,6 +240,10 @@ type storeBufferEntry struct {
 	// preserves the conventional forwarding path for those entries.
 	ReadyCycle          uint64
 	FastForwardEligible bool
+	// With Spec.BypassRecovery: the address operand of an eligible store and
+	// the value it wrote.
+	Operand addressOperand `json:",omitzero"`
+	Value   uint64         `json:",omitempty"`
 	// A qualifying FP store records the one dispatch position at which its
 	// consumer would be adjacent. Zero also covers older saved states.
 	NextFPReload uint64 `json:",omitempty"`
@@ -290,6 +302,9 @@ func (s *State) Initialize(c *Comp) {
 	}
 	if v.RegisterOffsetStoreData && v.StoreDataQueue == 0 {
 		panic("ooo: register-offset store data requires a store-data queue")
+	}
+	if v.BypassRecovery < 0 || (v.BypassRecovery > 0) != (v.PlainForwardLatency > 0) {
+		panic("ooo: bypass recovery and plain forward latency must be set together")
 	}
 	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.AdjacentFPForwardLatency < 0 || v.FPIssueQueue < 0 || v.MultiplyIssueQueue < 0 || v.StoreDataQueue < 0 {
 		panic("ooo: invalid latency configuration")
@@ -660,6 +675,9 @@ func (p *middleware) fetchAndProcess() {
 				if forwarding.forwarded && scalarReload {
 					forwarding = p.trainAndForwardFeedback(accesses[0], issueCycle, forwarding)
 				}
+				if p.comp.Spec.BypassRecovery > 0 {
+					forwarding = p.bypassLoad(inst, pc, accesses, issueCycle, forwarding)
+				}
 			}
 			issueCycle = forwarding.issueCycle
 			if p.comp.Spec.StoreDependencePrediction {
@@ -849,6 +867,11 @@ func (p *middleware) fetchAndProcess() {
 			if p.comp.Spec.AdjacentFPForwardLatency > 0 && len(accesses) == 1 && accesses[0].Size == 8 && scalarFPOffset(inst, arm64asm.STR) {
 				nextFPReload = p.comp.State.InstDone + uint64(p.comp.State.RobCount) + 1
 			}
+			var operand addressOperand
+			var value uint64
+			if p.comp.Spec.BypassRecovery > 0 && eligible && len(accesses) == 1 {
+				operand, value = namedAddress(inst), p.transferValue(inst, accesses[0].Size)
+			}
 			for _, acc := range accesses {
 				var feedback bool
 				var scalarStorePosition uint64
@@ -861,6 +884,8 @@ func (p *middleware) fetchAndProcess() {
 				entry := storeBufferEntry{
 					Feedback:            feedback,
 					ScalarStorePosition: scalarStorePosition,
+					Operand:             operand,
+					Value:               value,
 					NextFPReload:        nextFPReload,
 					PC:                  pc,
 					Addr:                acc.Addr,
