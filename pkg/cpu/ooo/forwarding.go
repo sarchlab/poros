@@ -57,6 +57,31 @@ func (p *middleware) forwardLoad(accesses []emu.MemAccess, issueCycle uint64, el
 	return result
 }
 
+// A direct transfer is an ordinary LDR or STR of a double-precision
+// register with immediate-offset addressing and no base writeback.
+func scalarFPOffset(inst arm64asm.Inst, op arm64asm.Op) bool {
+	if inst.Op != op {
+		return false
+	}
+	reg, ok := inst.Args[0].(arm64asm.Reg)
+	address, immediate := inst.Args[1].(arm64asm.MemImmediate)
+	return ok && reg >= arm64asm.D0 && reg <= arm64asm.D31 && immediate && address.Mode == arm64asm.AddrOffset
+}
+
+func (p *middleware) forwardAdjacentFP(inst arm64asm.Inst, accesses []emu.MemAccess, issue uint64) (loadForwarding, bool) {
+	latency := p.comp.Spec.AdjacentFPForwardLatency
+	if latency == 0 || len(accesses) != 1 || accesses[0].Size != 8 || !scalarFPOffset(inst, arm64asm.LDR) {
+		return loadForwarding{}, false
+	}
+	store := p.youngestOverlap(accesses[0])
+	position := p.comp.State.InstDone + uint64(p.comp.State.RobCount)
+	if store == nil || store.NextFPReload != position || position == 0 ||
+		store.Addr != accesses[0].Addr || store.Size != 8 || store.CompleteCycle <= issue {
+		return loadForwarding{}, false
+	}
+	return loadForwarding{issueCycle: issue, dataReady: store.ReadyCycle, latency: uint64(latency), forwarded: true}, true
+}
+
 // suppliedLoad is the single forwarding path of Spec.StoreForwardLatency. It
 // takes each access on its own: the youngest in-flight store that overlaps it
 // must hold all its bytes, or no store may overlap it and the cache supplies

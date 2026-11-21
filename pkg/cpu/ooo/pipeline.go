@@ -20,11 +20,15 @@ type HookCycles struct {
 
 // Spec contains immutable structural and timing parameters.
 type Spec struct {
-	Freq        timing.Freq `json:"freq"`
-	FetchWidth  int         `json:"fetch_width"`
-	RetireWidth int         `json:"retire_width"`
-	ROBCapacity int         `json:"rob_capacity"`
-	NumINT      int         `json:"num_int"`
+	// ScalarFPReloadPrediction models M5 scalar FP feedback and ordering under competing reads.
+	// With general store-dependence prediction off, an eligible load learns the
+	// static store PC only when the youngest overlapping store supplies exact feedback.
+	ScalarFPReloadPrediction bool        `json:"scalar_fp_reload_prediction,omitempty"`
+	Freq                     timing.Freq `json:"freq"`
+	FetchWidth               int         `json:"fetch_width"`
+	RetireWidth              int         `json:"retire_width"`
+	ROBCapacity              int         `json:"rob_capacity"`
+	NumINT                   int         `json:"num_int"`
 	// NumSelectFusion is the number of integer pipes that can execute a fused
 	// compare/select pair. They are the last NumINT pipes, a subset shared with
 	// ordinary integer work. Zero disables the fusion.
@@ -33,6 +37,9 @@ type Spec struct {
 	// NumFPDiv is the number of FP pipes eligible for scalar divide/sqrt.
 	// These are a subset of NumFP, so ordinary arithmetic shares their capacity.
 	NumFPDiv int `json:"num_fp_div"`
+	// L1ReadBankPeriod is the byte distance over which eight-byte L1 read
+	// groups repeat. Zero disables read-port conflicts.
+	L1ReadBankPeriod int `json:"l1_read_bank_period,omitempty"`
 	// NumLDST counts physical memory pipes. NumLoad and NumStore are eligible
 	// subsets, not extra pipes: the first NumLoad accept loads and the last
 	// NumStore accept stores, sharing the overlapping reservation calendars.
@@ -54,6 +61,37 @@ type Spec struct {
 	// FetchTakenBranches is how many correctly predicted taken branches one
 	// fetch group may continue across. Zero ends the group at every one.
 	FetchTakenBranches int `json:"fetch_taken_branches,omitempty"`
+	// FetchGroupLimit, when positive, separates fetch from rename: fetch
+	// delivers at most one group per cycle, a window of this many instruction
+	// slots from the group's first instruction, and FetchWidth counts rename
+	// slots, which may take instructions of several fetched groups in one
+	// cycle. A correctly predicted taken branch ends the group unless its
+	// target lies ahead inside the window; FetchTakenBranches is not used.
+	// Zero keeps one combined fetch/rename group of FetchWidth.
+	FetchGroupLimit int `json:"fetch_group_limit,omitempty"`
+	// FetchLead, with FetchGroupLimit, is how many fetched groups wait for
+	// rename: fetch delivers a group no earlier than the cycle after the group
+	// FetchLead+1 places before it began rename, so a stalled rename stage
+	// resumes with at most FetchLead+1 groups to take in one cycle.
+	FetchLead int `json:"fetch_lead,omitempty"`
+	// FetchRepeatMin counts consecutive correctly predicted groups that end at
+	// the same instruction and transfer back to their first instruction.
+	// FetchRepeatExitDelay delays the following fetch when such a group
+	// changes its ending or successor. Both zero disables repeat timing.
+	FetchRepeatMin       int `json:"fetch_repeat_min,omitempty"`
+	FetchRepeatExitDelay int `json:"fetch_repeat_exit_delay,omitempty"`
+	// ConditionalBranches, when positive, is how many conditional branches
+	// (B.cond, CBZ, CBNZ, TBZ, TBNZ) rename takes in one cycle.
+	ConditionalBranches int `json:"conditional_branches,omitempty"`
+	// CompareBranchFusion fuses, at most once per cycle, a flag-setting integer
+	// compare of a register with a register or an immediate and the B.cond
+	// immediately after it, or an ADD/SUB of an immediate and a CBZ/CBNZ of
+	// its result immediately after it. The pair shares a rename and retirement
+	// slot and issues once on two integer pipes.
+	CompareBranchFusion bool `json:"compare_branch_fusion,omitempty"`
+	// FlagBranchDependency makes an unfused B.cond wait for NZCV when it
+	// issues. Fetch can follow a correct prediction before the flags exist.
+	FlagBranchDependency bool `json:"flag_branch_dependency,omitempty"`
 	// StoreDependencePrediction makes a load that last overlapped an in-flight
 	// store wait for the youngest instance of that static store, even when this
 	// instance writes other bytes; see storedep.go.
@@ -77,12 +115,23 @@ type Spec struct {
 	// store that holds all its bytes has issued, whatever the instruction
 	// forms and the register loaded. Zero keeps the two paths of forwardLoad.
 	StoreForwardLatency int `json:"store_forward_latency,omitempty"`
+	// AdjacentFPForwardLatency times an 8-byte immediate-offset FP store and
+	// load of the same address in consecutive dispatch positions. It starts
+	// when the load address and the supplying store data are both ready.
+	// StoreForwardLatency, if enabled, retains precedence.
+	AdjacentFPForwardLatency int `json:"adjacent_fp_forward_latency,omitempty"`
 	// FPIssueQueue is the number of FP operations and FP store data that can
 	// wait between dispatch and issue; see issuequeue.go. Zero is unlimited.
 	FPIssueQueue int `json:"fp_issue_queue,omitempty"`
 	// MultiplyIssueQueue is the number of integer multiplies that can wait
 	// between dispatch and issue; see issuequeue.go. Zero is unlimited.
 	MultiplyIssueQueue int `json:"multiply_issue_queue,omitempty"`
+	// StoreDataQueue bounds immediate-offset scalar 32/64-bit stores waiting
+	// for their source register. The address and cache retain their own timing.
+	StoreDataQueue int `json:"store_data_queue,omitempty"`
+	// RegisterOffsetStoreData includes 64-bit STR X/D with a register offset
+	// in that same store-data queue.
+	RegisterOffsetStoreData bool `json:"register_offset_store_data,omitempty"`
 }
 
 func DefaultSpec() Spec {
@@ -112,8 +161,10 @@ type Comp = ticking.Component[Spec, State, Resources, Ports, Middlewares]
 
 // State owns mutable scheduling, queues, predictor tables, and counters.
 type State struct {
+	FPReload                     fpReloadState `json:",omitzero"`
 	Serializing                  bool
 	GprReady, FpReady            [32]uint64
+	FAddWakeup                   faddWakeupState `json:",omitzero"`
 	FlagsReady                   uint64
 	IntUnits, FpUnits, LdstUnits [][]UnitReservation
 	Rob                          []uint64
@@ -144,8 +195,32 @@ type State struct {
 	FpQueue []uint64
 	// With Spec.MultiplyIssueQueue: the same for its entries.
 	MultiplyQueue []uint64
+	// With Spec.StoreDataQueue: cycles when store data slots become free.
+	StoreDataQueue []uint64 `json:",omitempty"`
+	// With Spec.FetchGroupLimit: the cycle the current fetch group was
+	// fetched in, how many instructions it holds so far, and whether the next
+	// instruction starts another group.
+	FetchGroupCycle uint64 `json:",omitempty"`
+	FetchGroupStart uint64 `json:",omitempty"`
+	FetchGroupSize  int    `json:",omitempty"`
+	FetchGroupEnded bool   `json:",omitempty"`
+	// A run of correctly predicted self-transfers, saturated at FetchRepeatMin.
+	FetchRepeatStart uint64 `json:",omitempty"`
+	FetchRepeatEnd   uint64 `json:",omitempty"`
+	FetchRepeatCount int    `json:",omitempty"`
+	// The cycles in which the last FetchLead+1 groups began rename, by group
+	// number modulo FetchLead+1, and the number of groups fetched.
+	FetchGroupRenamed []uint64 `json:",omitempty"`
+	FetchGroups       uint64   `json:",omitempty"`
+	// With Spec.CompareBranchFusion: which ROB entries hold a branch fused
+	// with the compare before it.
+	RobFused []bool `json:",omitempty"`
+	// L1ReadIssues holds the aligned addresses served by L1 read ports at
+	// each still-relevant issue cycle. Only the banked profile populates it.
+	L1ReadIssues map[uint64][]uint64 `json:",omitempty"`
 }
 type storeBufferEntry struct {
+	Feedback           bool   `json:",omitempty"`
 	PC                 uint64 // static store, for dependence prediction
 	Addr               uint64
 	Size               int
@@ -157,6 +232,11 @@ type storeBufferEntry struct {
 	// preserves the conventional forwarding path for those entries.
 	ReadyCycle          uint64
 	FastForwardEligible bool
+	// A qualifying FP store records the one dispatch position at which its
+	// consumer would be adjacent. Zero also covers older saved states.
+	NextFPReload uint64 `json:",omitempty"`
+	// One-based dispatch position of a scalar FP store, for feedback timing.
+	ScalarStorePosition uint64 `json:",omitempty"`
 }
 type unitType int
 
@@ -184,13 +264,34 @@ func (s *State) Initialize(c *Comp) {
 	if v.FetchWidth < 1 || v.RetireWidth < 1 || v.ROBCapacity < 1 || v.NumINT < 1 || v.NumFP < 1 || v.NumFPDiv < 1 || v.NumFPDiv > v.NumFP || v.NumLDST < 1 || v.LoadLatency < 1 || v.StoreBufferSize < 1 || v.NumMSHREntries < 1 || v.BranchPenalty < 0 {
 		panic("ooo: invalid pipeline configuration")
 	}
-	if v.FetchTakenBranches < 0 {
-		panic("ooo: invalid fetch taken-branch count")
+	if v.FetchTakenBranches < 0 || v.FetchGroupLimit < 0 || v.FetchLead < 0 || v.ConditionalBranches < 0 {
+		panic("ooo: invalid fetch taken-branch count, group limit, lead or branch limit")
+	}
+	s.L1ReadIssues = nil
+	if v.L1ReadBankPeriod < 0 || v.L1ReadBankPeriod%8 != 0 {
+		panic("ooo: L1 read bank period must be a nonnegative multiple of eight bytes")
+	}
+	if v.FetchRepeatMin < 0 || v.FetchRepeatExitDelay < 0 ||
+		(v.FetchRepeatMin > 0) != (v.FetchRepeatExitDelay > 0) ||
+		(v.FetchRepeatMin > 0 && v.FetchGroupLimit == 0) {
+		panic("ooo: fetch repetition requires a group, positive threshold and exit delay")
+	}
+	s.FetchRepeatStart, s.FetchRepeatEnd, s.FetchRepeatCount = 0, 0, 0
+	s.FAddWakeup = faddWakeupState{}
+	if v.CompareBranchFusion {
+		s.RobFused = make([]bool, v.ROBCapacity)
+	}
+	if v.FetchGroupLimit > 0 {
+		s.FetchGroupRenamed = make([]uint64, v.FetchLead+1)
+		s.FetchGroupEnded = true
 	}
 	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
 		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
 	}
-	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.FPIssueQueue < 0 || v.MultiplyIssueQueue < 0 {
+	if v.RegisterOffsetStoreData && v.StoreDataQueue == 0 {
+		panic("ooo: register-offset store data requires a store-data queue")
+	}
+	if !v.Latencies.valid() || v.NumIntDiv < 0 || v.StoreForwardLatency < 0 || v.AdjacentFPForwardLatency < 0 || v.FPIssueQueue < 0 || v.MultiplyIssueQueue < 0 || v.StoreDataQueue < 0 {
 		panic("ooo: invalid latency configuration")
 	}
 	if v.NumIntDiv > 0 {
@@ -259,6 +360,9 @@ func (p *middleware) Handle(_ timing.Event) bool {
 	if len(p.comp.State.StoreDrainUntil) != p.comp.Spec.StoreBufferSize {
 		panic("ooo: missing or incompatible store-allocation state; pipeline-only checkpoint restore is unsupported")
 	}
+	if len(p.comp.State.L1ReadIssues) > 0 {
+		delete(p.comp.State.L1ReadIssues, p.comp.State.Cycles)
+	}
 	p.comp.State.Cycles++
 	p.pruneUnitReservations()
 	if p.comp.Resources.Cache != nil {
@@ -286,7 +390,12 @@ func (p *middleware) Handle(_ timing.Event) bool {
 // completeCycle <= currentCycle, up to RetireWidth per cycle.
 func (p *middleware) retire() {
 	retired := 0
-	for retired < p.comp.Spec.RetireWidth && p.comp.State.RobCount > 0 {
+	for p.comp.State.RobCount > 0 {
+		// A branch fused with its compare retires in the compare's slot.
+		fused := len(p.comp.State.RobFused) > 0 && p.comp.State.RobFused[p.comp.State.RobHead]
+		if !fused && retired >= p.comp.Spec.RetireWidth {
+			break
+		}
 		if p.comp.State.Rob[p.comp.State.RobHead] > p.comp.State.Cycles {
 			break // head entry not yet complete
 		}
@@ -294,7 +403,9 @@ func (p *middleware) retire() {
 		p.comp.State.InstDone++
 		p.comp.State.RobHead = (p.comp.State.RobHead + 1) % p.comp.Spec.ROBCapacity
 		p.comp.State.RobCount--
-		retired++
+		if !fused {
+			retired++
+		}
 	}
 }
 
@@ -317,10 +428,30 @@ func (p *middleware) fetchAndProcess() {
 
 	fetched := 0
 	takenLeft := p.comp.Spec.FetchTakenBranches
+	grouped := p.comp.Spec.FetchGroupLimit > 0
 	var pair fusedSelect
-	for fetched < p.comp.Spec.FetchWidth && p.comp.State.RobCount < p.comp.Spec.ROBCapacity && !p.comp.Resources.backend().Stopped() {
+	// The conditional branch completing a compare/branch pair, if any, and
+	// whether this cycle has fused such a pair already.
+	var branchPair fusedBranch
+	fusedThisCycle := false
+	conditionals := 0
+	for p.comp.State.RobCount < p.comp.Spec.ROBCapacity && !p.comp.Resources.backend().Stopped() {
 		// 1. Peek at instruction at emulator's current PC.
 		pc := p.comp.Resources.backend().CPURegisters().PC
+		fused := branchPair
+		branchFused := fused.pending && fused.pc == pc
+		branchPair.pending = false
+		if fetched >= p.comp.Spec.FetchWidth && !branchFused {
+			return
+		}
+		if grouped {
+			if p.comp.State.FetchGroupEnded {
+				p.startFetchGroup(pc)
+			}
+			if p.comp.State.FetchGroupCycle > p.comp.State.Cycles {
+				return // the next group is fetched in a later cycle
+			}
+		}
 		inst, gprs, fps, err := p.comp.Resources.peekSources(pc)
 		if err != nil {
 			if p.comp.Resources.processMode() {
@@ -351,6 +482,19 @@ func (p *middleware) fetchAndProcess() {
 			partner, compares = p.fusedPartner(inst, pc)
 		}
 		if compares && (fetched+2 > p.comp.Spec.FetchWidth || p.comp.State.RobCount+2 > p.comp.Spec.ROBCapacity) {
+			return
+		}
+		// A compare that fuses with the branch after it brings that branch
+		// into this cycle; the pair waits whole for room under the
+		// conditional-branch limit. Only a pair this cycle can deliver whole
+		// fuses, and only a producer's form reads the next instruction.
+		fuses := false
+		if p.comp.Spec.CompareBranchFusion && !fusedThisCycle && !branchFused && !compares && p.deliversBranchPair(inst, pc) {
+			next, err := p.comp.Resources.backend().Peek(pc + 4)
+			fuses = err == nil && fusesWithBranch(inst, next)
+		}
+		if limit := p.comp.Spec.ConditionalBranches; limit > 0 && conditionals >= limit &&
+			(fuses || (!branchFused && countsAsConditional(inst))) {
 			return
 		}
 
@@ -386,6 +530,14 @@ func (p *middleware) fetchAndProcess() {
 			if storeSlot < 0 || len(p.comp.State.StoreBuffer)+2 > p.forwardingCapacity() {
 				return
 			}
+			if p.comp.Spec.StoreDataQueue > 0 {
+				if ready, tracked := p.scalarStoreDataReady(inst); tracked {
+					if p.queueFull(&p.comp.State.StoreDataQueue, p.comp.Spec.StoreDataQueue) {
+						return
+					}
+					p.holdEntry(&p.comp.State.StoreDataQueue, ready)
+				}
+			}
 		}
 
 		// 2. Compute source operand readiness.
@@ -398,13 +550,21 @@ func (p *middleware) fetchAndProcess() {
 		// The addend of a fused multiply-add is its last FP source; a producer
 		// that forwards late lets the instruction issue before it is ready.
 		addend, slack := p.accumulateSlack(inst)
+		wakeup := &p.comp.State.FAddWakeup
+		wakeupEnabled := p.comp.Spec.Latencies.FAddWakeupSpan > 0
+		doubleAdd := wakeupEnabled && scalarFAdd64(inst)
+		var fraction uint64
 		for i, fp := range fps {
 			ready := p.comp.State.FpReady[fp]
 			if fp == addend && i == len(fps)-1 {
 				ready -= min(ready, slack)
 			}
-			if ready > srcReady {
-				srcReady = ready
+			var remainder uint64
+			if doubleAdd {
+				ready, remainder = p.faddOperandReady(wakeup, fp, ready)
+			}
+			if ready > srcReady || (ready == srcReady && remainder > fraction) {
+				srcReady, fraction = ready, remainder
 			}
 		}
 		// A fused pair issues when every register either half reads is ready.
@@ -415,7 +575,9 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		// Flags (NZCV) dependency.
-		if instinfo.UsesFlags(inst.Op) && p.comp.State.FlagsReady > srcReady {
+		readsFlags := instinfo.UsesFlags(inst.Op) ||
+			(p.comp.Spec.FlagBranchDependency && !branchFused && conditionalBranch(inst))
+		if readsFlags && p.comp.State.FlagsReady > srcReady {
 			srcReady = p.comp.State.FlagsReady
 		}
 
@@ -433,11 +595,16 @@ func (p *middleware) fetchAndProcess() {
 		// NOP is eliminated before execution, while retaining frontend, ROB
 		// and retirement accounting. Other HINT instructions are not assumed
 		// to have the same resource behavior.
-		usesUnit := inst.Op != arm64asm.NOP
+		usesUnit := inst.Op != arm64asm.NOP && !branchFused
 		if selects {
 			// The pair issued once, with its compare. The select reserves
 			// nothing and completes with the flags the pair produced.
 			issueCycle, usesUnit = pair.complete-1, false
+		}
+		if branchFused {
+			// The pair issued once, with its compare, which also reserved
+			// the branch's pipe: the branch resolves in that cycle.
+			issueCycle = fused.issue
 		}
 		if instinfo.IsLoad(inst.Op) {
 			// Forwarding eligibility depends on when a load could issue.
@@ -463,24 +630,47 @@ func (p *middleware) fetchAndProcess() {
 		// With StoreForwardLatency: stores supply accesses of the load, and the
 		// data of the last of them issues at storeData.
 		var storeSupplied bool
-		var storeData uint64
+		var storeData, conflictReturn uint64
 		// The accesses of a load that the cache supplies: every one of them,
 		// unless stores supply some.
 		var cached []emu.MemAccess
 		if instinfo.IsLoad(inst.Op) {
 			accesses := p.comp.Resources.backend().MemoryAccesses()
-			if p.comp.Spec.StoreDependencePrediction {
-				issueCycle = p.predictedStoreWait(pc, accesses, issueCycle)
+			scalarReload := p.comp.Spec.ScalarFPReloadPrediction && len(accesses) == 1 && accesses[0].Size == 8 && scalarFPAddress(inst, arm64asm.LDR)
+			if p.comp.Spec.ScalarFPReloadPrediction {
+				p.observeFPLoadLines(inst, accesses)
+			}
+			if scalarReload {
+				issueCycle, conflictReturn = p.partialReloadWait(pc, accesses[0], issueCycle)
+			}
+			if p.comp.Spec.StoreDependencePrediction || scalarReload {
+				// When the entire load comes from a newer ready store, its producer is known.
+				// The older predicted store cannot contribute bytes to that load.
+				if !scalarReload || !p.newerReadyProducer(pc, accesses[0], issueCycle) {
+					issueCycle = p.predictedStoreWait(pc, accesses, issueCycle)
+				}
 			}
 			if storeData, cached, storeSupplied = p.suppliedLoad(accesses); storeSupplied {
 				// A load that stores supply only in part reads the rest from the cache.
 				forwarding = loadForwarding{issueCycle: issueCycle, latency: uint64(p.comp.Spec.StoreForwardLatency), forwarded: len(cached) == 0}
+			} else if adjacent, ok := p.forwardAdjacentFP(inst, accesses, issueCycle); ok {
+				forwarding = adjacent
 			} else {
 				forwarding = p.forwardLoad(accesses, issueCycle, directGPRTransfer(inst))
+				if forwarding.forwarded && scalarReload {
+					forwarding = p.trainAndForwardFeedback(accesses[0], issueCycle, forwarding)
+				}
 			}
 			issueCycle = forwarding.issueCycle
 			if p.comp.Spec.StoreDependencePrediction {
 				p.trainStoreDependence(pc, accesses)
+			} else if scalarReload {
+				st := p.youngestOverlap(accesses[0])
+				if st != nil && st.Feedback && st.Addr == accesses[0].Addr && st.Size == 8 {
+					p.trainStoreDependence(pc, accesses)
+				} else {
+					delete(p.comp.State.StoreDependence.LoadStore, pc)
+				}
 			}
 		}
 
@@ -506,8 +696,15 @@ func (p *middleware) fetchAndProcess() {
 				mshr, issueCycle = p.acquireMSHR(issueCycle)
 			}
 		}
-		if usesUnit && (!indexedLoad || issueCycle != addressCycle) {
+		if fuses {
+			// A compare/branch pair issues once, on an integer pipe for each
+			// half: fusion saves the branch's rename and retire slots only.
+			issueCycle = p.reserveIssuePair(ut, issueCycle, occupancy)
+		} else if usesUnit && (!indexedLoad || issueCycle != addressCycle) {
 			issueCycle = p.reserveIssue(ut, issueCycle, occupancy)
+			if p.comp.Spec.L1ReadBankPeriod > 0 && ut == unitLoad && !forwarding.forwarded && !indexedLoad {
+				issueCycle = p.replayL1Read(inst, cached, issueCycle)
+			}
 		}
 		if queued {
 			p.holdEntry(&p.comp.State.FpQueue, issueCycle)
@@ -525,6 +722,13 @@ func (p *middleware) fetchAndProcess() {
 			latency = divide
 		} else {
 			latency, dataReady = p.instrLatencyWithPC(inst, pc, cached, issueCycle)
+			if p.comp.Spec.ScalarFPReloadPrediction && p.comp.Resources.Cache != nil && len(cached) == 1 && cached[0].Size == 8 &&
+				scalarFPAddress(inst, arm64asm.LDR) {
+				cfg := p.comp.Resources.Cache.Config()
+				late := dataReady > issueCycle+uint64(cfg.L1Latency)
+				p.comp.State.observeSourceSet(pc, cached[0].Addr, cfg.L1Size/(cfg.L1LineSize*cfg.L1Ways), cfg.L1LineSize, late)
+				p.comp.State.noteFPRefill(pc, cached[0].Addr, issueCycle, dataReady, late)
+			}
 			if extra := uint64(p.comp.Spec.Latencies.FPLoadExtra); ut == unitLoad && (fp >= 0 || fpSecond >= 0) {
 				// What the cache supplies reaches an FP register later.
 				latency += extra
@@ -533,7 +737,7 @@ func (p *middleware) fetchAndProcess() {
 				}
 			}
 		}
-		completeCycle := issueCycle + latency
+		completeCycle := max(issueCycle+latency, conflictReturn)
 		if !instinfo.IsStore(inst.Op) && dataReady > completeCycle {
 			completeCycle = dataReady
 		}
@@ -547,6 +751,10 @@ func (p *middleware) fetchAndProcess() {
 		}
 		if mshr >= 0 {
 			p.comp.State.MshrBusyUntil[mshr] = completeCycle
+		}
+		if branchFused {
+			// Both halves of the pair complete together.
+			completeCycle = fused.complete
 		}
 		if compares {
 			pair = fusedSelect{pc: pc + 4, complete: completeCycle, pending: true}
@@ -570,6 +778,20 @@ func (p *middleware) fetchAndProcess() {
 		}
 		if fp >= 0 {
 			p.comp.State.FpReady[fp] = completeCycle
+			if p.comp.Spec.ScalarFPReloadPrediction {
+				p.comp.State.FPReload.FeedbackFP[fp] = p.feedbackOrigins(inst)
+			}
+			if wakeupEnabled {
+				wakeup.Producers[fp] = faddProducer{}
+				if doubleAdd {
+					// A later dispatch or pipe reservation already hid any
+					// fractional delay inherited from this operand.
+					if issueCycle > srcReady {
+						fraction = 0
+					}
+					wakeup.Producers[fp] = faddProducer{Position: wakeup.Position, Fraction: fraction, Valid: true}
+				}
+			}
 			p.comp.State.FpLateForward[fp] = inst.Op == arm64asm.FMUL || inst.Op == arm64asm.FNMUL || fusedMultiplyAdd(inst.Op)
 		}
 		fpDests := 0
@@ -582,6 +804,12 @@ func (p *middleware) fetchAndProcess() {
 			}
 			if fp2 >= 0 {
 				p.comp.State.FpReady[fp2] = completeCycle
+				if p.comp.Spec.ScalarFPReloadPrediction {
+					p.comp.State.FPReload.FeedbackFP[fp2] = [2]feedbackOrigin{}
+				}
+				if wakeupEnabled {
+					wakeup.Producers[fp2] = faddProducer{}
+				}
 				p.comp.State.FpLateForward[fp2] = false
 				fpDests++
 			}
@@ -613,11 +841,27 @@ func (p *middleware) fetchAndProcess() {
 		// 8. For stores: add to store buffer.
 		if instinfo.IsStore(inst.Op) {
 			eligible := directGPRTransfer(inst)
-			if p.comp.Spec.StoreDependencePrediction {
+			if p.comp.Spec.StoreDependencePrediction || (p.comp.Spec.ScalarFPReloadPrediction && scalarFPAddress(inst, arm64asm.STR)) {
 				p.recordStoreInstance(pc, p.comp.Resources.backend().MemoryAccesses(), completeCycle)
 			}
-			for _, acc := range p.comp.Resources.backend().MemoryAccesses() {
+			accesses := p.comp.Resources.backend().MemoryAccesses()
+			var nextFPReload uint64
+			if p.comp.Spec.AdjacentFPForwardLatency > 0 && len(accesses) == 1 && accesses[0].Size == 8 && scalarFPOffset(inst, arm64asm.STR) {
+				nextFPReload = p.comp.State.InstDone + uint64(p.comp.State.RobCount) + 1
+			}
+			for _, acc := range accesses {
+				var feedback bool
+				var scalarStorePosition uint64
+				if p.comp.Spec.ScalarFPReloadPrediction && len(accesses) == 1 && acc.Size == 8 && scalarFPAddress(inst, arm64asm.STR) {
+					scalarStorePosition = p.comp.State.InstDone + uint64(p.comp.State.RobCount) + 1
+					for _, origin := range p.comp.State.FPReload.FeedbackFP[instinfo.ArgFP(inst.Args[0])] {
+						feedback = feedback || (origin.Valid && origin.Address == acc.Addr)
+					}
+				}
 				entry := storeBufferEntry{
+					Feedback:            feedback,
+					ScalarStorePosition: scalarStorePosition,
+					NextFPReload:        nextFPReload,
 					PC:                  pc,
 					Addr:                acc.Addr,
 					Size:                acc.Size,
@@ -634,9 +878,30 @@ func (p *middleware) fetchAndProcess() {
 		// 10. Add to ROB and track FP register usage.
 		p.comp.State.Rob[p.comp.State.RobTail] = completeCycle
 		p.comp.State.RobFPDests[p.comp.State.RobTail] = fpDests
+		if len(p.comp.State.RobFused) > 0 {
+			p.comp.State.RobFused[p.comp.State.RobTail] = branchFused
+		}
 		p.comp.State.FpInFlight += fpDests
 		p.comp.State.RobTail = (p.comp.State.RobTail + 1) % p.comp.Spec.ROBCapacity
 		p.comp.State.RobCount++
+
+		// A fused branch shares its compare's rename slot.
+		slot := 1
+		if branchFused {
+			slot = 0
+		}
+		if grouped {
+			if p.comp.State.FetchGroupSize == 0 {
+				// The group began rename now; it leaves the fetch buffer.
+				renamed := p.comp.State.FetchGroupRenamed
+				renamed[(p.comp.State.FetchGroups-1)%uint64(len(renamed))] = p.comp.State.Cycles
+			}
+			p.comp.State.FetchGroupSize++
+		}
+
+		if wakeupEnabled {
+			p.advanceFAddWakeup(wakeup, inst, branched)
+		}
 
 		// 11. Handle branch.
 		if instinfo.IsBranch(inst.Op) && p.comp.Spec.BranchPrediction {
@@ -658,7 +923,7 @@ func (p *middleware) fetchAndProcess() {
 				(predTaken && predTarget != actualTarget)
 
 			if mispredicted {
-				p.comp.State.FrontendReady = issueCycle + uint64(p.comp.Spec.BranchPenalty)
+				p.redirect(issueCycle + uint64(p.comp.Spec.BranchPenalty))
 				break
 			}
 			// Correct prediction, taken: BTB provides the target in the
@@ -666,21 +931,39 @@ func (p *middleware) fetchAndProcess() {
 			// (loop stream detector / micro-op cache eliminates the
 			// redirect bubble for well-predicted branches). The group ends
 			// here unless it may still continue at the target.
-			if actualTaken && takenLeft == 0 {
-				p.comp.State.FrontendReady = p.comp.State.Cycles + 1 // 0-cycle redirect
-				fetched++
-				break
-			}
-			if actualTaken {
-				takenLeft--
+			if !grouped {
+				if actualTaken && takenLeft == 0 {
+					p.comp.State.FrontendReady = p.comp.State.Cycles + 1 // 0-cycle redirect
+					fetched += slot
+					break
+				}
+				if actualTaken {
+					takenLeft--
+				}
 			}
 		} else if branched {
 			// Fallback for non-branch PC changes or nil predictor.
-			p.comp.State.FrontendReady = issueCycle + uint64(p.comp.Spec.BranchPenalty)
+			p.redirect(issueCycle + uint64(p.comp.Spec.BranchPenalty))
 			break
 		}
+		if grouped && !p.continuesFetchGroup(pc, p.comp.Resources.backend().CPURegisters().PC) {
+			// The next instruction is behind this one or beyond the window:
+			// fetch delivers it in a later group. Rename continues with
+			// whatever fetch has already delivered.
+			p.comp.State.FetchGroupEnded = true
+			if p.comp.Spec.FetchRepeatMin > 0 {
+				p.finishRepeatedGroup(pc, p.comp.Resources.backend().CPURegisters().PC)
+			}
+		}
 
-		fetched++
+		fetched += slot
+		if countsAsConditional(inst) {
+			conditionals++
+		}
+		if fuses {
+			branchPair = fusedBranch{pc: pc + 4, issue: issueCycle, complete: completeCycle, pending: true}
+			fusedThisCycle = true
+		}
 		if p.comp.Resources.processMode() && inst.Op == arm64asm.SVC {
 			p.comp.State.Serializing = true
 			return

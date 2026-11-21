@@ -81,6 +81,8 @@ func TestInvalidConfigurationRejectedAtInitialize(t *testing.T) {
 		"empty FP window":        func(s *Spec) { s.FpPhysLimit = 0 },
 		"unusable FP pair":       func(s *Spec) { s.FpPhysLimit = 1 },
 		"empty MSHRs":            func(s *Spec) { s.NumMSHREntries = 0 },
+		"negative bank span":     func(s *Spec) { s.L1ReadBankPeriod = -8 },
+		"unaligned bank span":    func(s *Spec) { s.L1ReadBankPeriod = 12 },
 		"invalid predictor":      func(s *Spec) { s.Predictor.TaggedHistLen = 0 },
 		"duplicate hooks":        func(s *Spec) { s.FuncHookCycles = []HookCycles{{1, 2}, {1, 3}} },
 	}

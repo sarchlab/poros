@@ -189,6 +189,8 @@ class DeviceProfileTests(unittest.TestCase):
         grace_path = "evaluation/model-profile-grace.json"
         m2, grace = compute.read(ROOT / models.PATH), compute.read(ROOT / grace_path)
         declaration = devices.load()
+        # Both revisions of this synthetic history predate M5 Max calibration.
+        devices.select(declaration, "m5-max")["parameter_source"] = "m2"
         placeholder = copy.deepcopy(declaration)
         devices.select(placeholder, "grace")["parameter_source"] = "m2"
         with tempfile.TemporaryDirectory() as folder:

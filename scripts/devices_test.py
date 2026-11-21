@@ -52,15 +52,15 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(declaration["default"], devices.DEFAULT)
         self.assertEqual({d["id"]: devices.reference_status(d) for d in declaration["devices"]},
                          {"m2": "measured", "m1": "partial", "grace": "partial", "m5-max": "unmeasured"})
-        # Placeholders say whose parameters they carry rather than claiming their own.
+        # Each current target declares its own parameters.
         self.assertEqual({d["id"]: d["parameter_source"] for d in declaration["devices"]},
-                         {"m2": "m2", "m1": "m1", "grace": "grace", "m5-max": "m2"})
+                         {"m2": "m2", "m1": "m1", "grace": "grace", "m5-max": "m5-max"})
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m2"), declaration), "Apple M2 model profile")
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m1"), declaration), "Apple M1 model profile")
         self.assertEqual(devices.parameter_text(devices.select(declaration, "grace"), declaration),
                          "NVIDIA Grace (Arm Neoverse V2) model profile")
         self.assertEqual(devices.parameter_text(devices.select(declaration, "m5-max"), declaration),
-                         "Apple M2 model profile (placeholder; Apple M5 Max parameters not established)")
+                         "Apple M5 Max model profile")
 
     def test_every_device_reports_its_declared_profile_at_its_clock(self):
         declaration = devices.load()
@@ -86,7 +86,7 @@ class DeclarationTests(unittest.TestCase):
         self.assertIs(devices.at_profile_clock(case, None), case)
         # Grace differs from M2 in its documented core, cache and translation parameters only.
         self.assertEqual(devices.profile_path(devices.select(declaration, "grace")), "evaluation/model-profile-grace.json")
-        self.assertEqual(devices.profile_path(devices.select(declaration, "m5-max")), "evaluation/model-profile.json")
+        self.assertEqual(devices.profile_path(devices.select(declaration, "m5-max")), "evaluation/model-profile-m5-max.json")
         self.assertEqual(devices.profile_path(None), "evaluation/model-profile.json")
         grace = devices.load_profile(devices.select(declaration, "grace"))
         self.assertEqual({k for k in grace["configuration"] if grace["configuration"][k] != m2["configuration"].get(k)},
@@ -124,7 +124,7 @@ class DeclarationTests(unittest.TestCase):
                      lambda v: entry(v, "m1").update(hardware=" "),
                      lambda v: entry(v, "m1").update(id="M1"),
                      lambda v: entry(v, "m1").update(id="../m1"),
-                     lambda v: entry(v, "m1").update(parameter_source="m5-max"),  # carries M2's, has none of its own
+                     lambda v: (entry(v, "m1").update(parameter_source="m5-max"), entry(v, "m5-max").update(parameter_source="m2")),
                      lambda v: entry(v, "m1").update(parameter_source="m3"),
                      lambda v: entry(v, "m1")["references"].update(power="evaluation/power.json"),
                      lambda v: entry(v, "m1")["references"].update(application="../outside.json"),

@@ -107,6 +107,41 @@ func (p *middleware) findUnit(ut unitType, earliest, occupancy uint64) (int, uin
 // reserveIssue commits the earliest eligible unit interval.
 func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64) uint64 {
 	unit, issue := p.findUnit(ut, earliest, occupancy)
+	p.book(ut, unit, issue, occupancy)
+	return issue
+}
+
+// reserveIssuePair commits the same interval on two units of a type, from the
+// earliest start at which two are free together, preferring the lowest-index
+// units as findUnit does.
+func (p *middleware) reserveIssuePair(ut unitType, earliest, occupancy uint64) uint64 {
+	units := p.units(ut)
+	if len(units) < 2 {
+		panic("ooo: an issue pair needs two execution units")
+	}
+	for {
+		first, second, next := -1, -1, ^uint64(0)
+		for i, list := range units {
+			if start := firstUnitGap(list, earliest, occupancy); start > earliest {
+				next = min(next, start)
+			} else if first < 0 {
+				first = i
+			} else {
+				second = i
+				break
+			}
+		}
+		if second >= 0 {
+			p.book(ut, first, earliest, occupancy)
+			p.book(ut, second, earliest, occupancy)
+			return earliest
+		}
+		earliest = next
+	}
+}
+
+// book reserves [issue, issue+occupancy) on one unit, keeping its list sorted.
+func (p *middleware) book(ut unitType, unit int, issue, occupancy uint64) {
 	units := p.units(ut)
 	list := units[unit]
 	reservation := UnitReservation{Start: issue, End: issue + occupancy}
@@ -119,7 +154,6 @@ func (p *middleware) reserveIssue(ut unitType, earliest, occupancy uint64) uint6
 		list[pos] = reservation
 	}
 	units[unit] = list
-	return issue
 }
 
 // Occupancy controls issue throughput; it is independent of result latency.

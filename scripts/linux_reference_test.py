@@ -306,7 +306,7 @@ class LinuxReferenceTests(unittest.TestCase):
                         publisher.verify_source(ROOT, bundle, report["head"]["commit"])
                     ancestor.assert_called_once_with(ROOT, self.summary["source_commit"], report["head"]["commit"])
 
-    def test_bundle_live_and_per_benchmark_curves_use_grace_data_and_label_m2_parameters(self):
+    def test_bundle_live_and_per_benchmark_curves_use_grace_data_and_label_grace_parameters(self):
         report = self.report()
         references = {"reference.json": (ROOT / linux.REFERENCE).read_bytes()}
         site.validate_compact_evidence(report, references)
@@ -325,9 +325,10 @@ class LinuxReferenceTests(unittest.TestCase):
             retained, _ = site.validate_bundle(root / "bundle", report["head"]["commit"])
             self.assertEqual(retained, report)
             page = (root / "bundle/index.html").read_text()
-            for text in ("NVIDIA Grace", "Apple M2 model profile (placeholder;", "Native Linux reference",
+            for text in ("NVIDIA Grace (Arm Neoverse V2) model profile", "Native Linux reference",
                          "64 KiB pages", "255 usable and 9 noisy", "raw captures", "Benchmark timing curves", "nussinov"):
                 self.assertIn(text, page)
+            self.assertNotIn("Apple M2 model profile (placeholder;", page)
             self.assertNotIn("native macOS thread CPU time", page)
 
 
