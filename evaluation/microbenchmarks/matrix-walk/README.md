@@ -16,6 +16,8 @@ fixed-core M1 and M2 Linux captures, an M5 Max macOS capture with
 user-initiated QoS, and a macOS M2 cross-check. macOS samples lack core
 attribution. The three-device report uses the fixed-core M2 data.
 
+The [expanded sweep](sweep/README.md) records 60 cases on each of three Apple devices.
+
 ## Run and report
 
 From the repository root with GCC 14.2.0 targeting AArch64 Linux:
