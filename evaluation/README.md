@@ -76,6 +76,9 @@ never hardware references. Unknown core identity/frequency and VM effects keep
 hardware accuracy unverified. Unusable points stay visible but are excluded from
 error summaries. Raw measurements are never rescaled or offset.
 
+The [matrix traversal diagnostic](microbenchmarks/matrix-walk/README.md)
+records warmed-kernel references and uses a standalone three-device report.
+
 ## Modeled devices
 
 `evaluation/devices.json` declares every device the simulator models: `m2`
