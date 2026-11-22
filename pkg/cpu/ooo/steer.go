@@ -5,10 +5,11 @@ import (
 	"golang.org/x/arch/arm64/arm64asm"
 )
 
-// Dispatch assigns an integer operation before its inputs are necessarily
-// ready. Each pipe has its own waiting work. Among equally short queues,
-// start with a rotating preferred pipe. The selected pipe still issues ready
-// younger work into gaps left by an older operation waiting for an operand.
+// When integer issue contains only known arithmetic results, select the
+// earliest available eligible pipe. A load-fed integer consumer waiting for
+// its data makes future issue slots uncertain at dispatch. Until that operand
+// arrives, steer by outstanding queue lengths and rotate the preferred pipe
+// on ties. Neither assignment changes an existing instruction's issue cycle.
 func (p *middleware) steerInteger(inst arm64asm.Inst, ready, occupancy uint64) uint64 {
 	units := p.comp.State.IntUnits
 	switch {
@@ -16,6 +17,17 @@ func (p *middleware) steerInteger(inst arm64asm.Inst, ready, occupancy uint64) u
 		units = units[:p.comp.Spec.NumBranchPipes]
 	case instinfo.SetsFlags(inst.Op):
 		units = units[:p.comp.Spec.NumFlagPipes]
+	}
+	if p.comp.State.LoadConsumerReady <= p.comp.State.Cycles {
+		best := 0
+		issue := firstUnitGap(units[0], ready, occupancy)
+		for i := 1; i < len(units) && issue > ready; i++ {
+			if at := firstUnitGap(units[i], ready, occupancy); at < issue {
+				best, issue = i, at
+			}
+		}
+		p.book(unitINT, best, issue, occupancy)
+		return issue
 	}
 	start := int(p.comp.State.IntegerDispatch % uint64(len(units)))
 	p.comp.State.IntegerDispatch++
@@ -29,4 +41,18 @@ func (p *middleware) steerInteger(inst arm64asm.Inst, ready, occupancy uint64) u
 	issue := firstUnitGap(units[best], ready, occupancy)
 	p.book(unitINT, best, issue, occupancy)
 	return issue
+}
+
+// Record the producer kind alongside architectural register renaming. Base
+// writeback is an address calculation, independent of the loaded value.
+func (s *State) setLoadProducer(reg int, loaded bool) {
+	if reg < 0 || reg >= 31 {
+		return
+	}
+	bit := uint32(1) << reg
+	if loaded {
+		s.LoadResults |= bit
+	} else {
+		s.LoadResults &^= bit
+	}
 }

@@ -1446,8 +1446,11 @@ The counters showed almost no branch misses at 32 or 64 elements per row and
 roughly one per row at 96 and above. The targets therefore use 64 outcomes of
 tagged branch history. The previous 32-outcome table missed the 64-trip exit.
 
-The model steers integer work at dispatch to the least occupied eligible
-pipe, rotating the initial pipe on each dispatch. Simple compares can pass
+While an integer consumer waits for an outstanding load result, the model
+steers integer work at dispatch to the least occupied eligible pipe, rotating
+the initial pipe on each dispatch. When the operands of all such consumers
+have arrived, register-only scheduling can select the earliest known issue
+slot on any eligible pipe. Simple compares can pass
 flags directly to an adjacent conditional branch. The three flag-capable and
 two branch-capable pipes are from measurements of Firestorm. The arbitration
 rule and its adoption for Avalanche are effective approximations. The counter

@@ -174,8 +174,11 @@ type Comp = ticking.Component[Spec, State, Resources, Ports, Middlewares]
 
 // State owns mutable scheduling, queues, predictor tables, and counters.
 type State struct {
-	// IntegerDispatch rotates the preferred pipe for equal queue lengths.
-	IntegerDispatch uint64 `json:",omitempty"`
+	// LoadResults marks GPRs whose current producer loads data. A consumed
+	// load result holds the dispatch steering mode through LoadConsumerReady.
+	LoadResults       uint32 `json:",omitempty"`
+	LoadConsumerReady uint64 `json:",omitempty"`
+	IntegerDispatch   uint64 `json:",omitempty"`
 	// An immediately following conditional branch can use the flags in
 	// the same cycle a simple integer compare issues.
 	FlagBypassPC uint64 `json:",omitempty"`
@@ -606,7 +609,7 @@ func (p *middleware) fetchAndProcess() {
 		readsFlags := instinfo.UsesFlags(inst.Op) ||
 			(p.comp.Spec.FlagBranchDependency && !branchFused && conditionalBranch(inst))
 		flagsReady := p.comp.State.FlagsReady
-		if p.comp.Spec.NumFlagPipes > 0 && p.comp.State.FlagBypassPC == pc && conditionalBranch(inst) && flagsReady > 0 {
+		if p.comp.Spec.NumFlagPipes > 0 && p.comp.State.FlagBypassPC != 0 && p.comp.State.FlagBypassPC == pc && conditionalBranch(inst) && flagsReady > 0 {
 			flagsReady--
 		}
 		if readsFlags && flagsReady > srcReady {
@@ -619,6 +622,13 @@ func (p *middleware) fetchAndProcess() {
 			ut = unitSelectFusion
 		}
 		dispatchCycle := p.comp.State.Cycles
+		if p.comp.Spec.NumFlagPipes > 0 && ut == unitINT {
+			for _, src := range gprs {
+				if p.comp.State.LoadResults&(uint32(1)<<src) != 0 && p.comp.State.GprReady[src] > dispatchCycle {
+					p.comp.State.LoadConsumerReady = max(p.comp.State.LoadConsumerReady, p.comp.State.GprReady[src])
+				}
+			}
+		}
 		issueCycle := dispatchCycle
 		if srcReady > issueCycle {
 			issueCycle = srcReady
@@ -812,6 +822,14 @@ func (p *middleware) fetchAndProcess() {
 		}
 
 		// 7. Update destination register readiness.
+		if p.comp.Spec.NumFlagPipes > 0 {
+			p.comp.State.setLoadProducer(gpr, ut == unitLoad)
+			second, _ := instinfo.DestRegs2(inst)
+			p.comp.State.setLoadProducer(second, ut == unitLoad)
+			if writesBase {
+				p.comp.State.setLoadProducer(base, false)
+			}
+		}
 		if gpr >= 0 && gpr < 31 {
 			p.comp.State.GprReady[gpr] = completeCycle
 		}
