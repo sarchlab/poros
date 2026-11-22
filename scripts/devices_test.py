@@ -69,9 +69,11 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(devices.profile_path(devices.select(declaration, "m1")), "evaluation/model-profile-m1.json")
         m1 = devices.load_profile(devices.select(declaration, "m1"))
         self.assertEqual({k for k in m1["cache_config"] if m1["cache_config"][k] != m2["cache_config"].get(k)},
-                         {"L2Latency", "InterleavedStoreRunsWait"})
+                         {"L2Latency", "L2Size", "L2Ways", "InterleavedStoreRunsWait"})
         self.assertEqual(set(m2["cache_config"]) - set(m1["cache_config"]), set())
         self.assertEqual(m1["cache_config"]["L2Latency"], 18)
+        self.assertEqual(m1["cache_config"]["L2Size"], 12_582_912)
+        self.assertEqual(m1["cache_config"]["L2Ways"], 12)
         self.assertEqual(m1["configuration"]["freq"], 3203500000)
         self.assertEqual(m1["configuration"]["store_buffer_size"], 140)
         self.assertEqual(m1["configuration"]["multiply_issue_queue"], 43)
@@ -91,12 +93,13 @@ class DeclarationTests(unittest.TestCase):
         grace = devices.load_profile(devices.select(declaration, "grace"))
         self.assertEqual({k for k in grace["configuration"] if grace["configuration"][k] != m2["configuration"].get(k)},
                          {"freq", "latencies", "num_int_div", "num_fp_div", "num_ldst", "store_forward_latency",
-                          "fp_issue_queue", "branch_penalty"})
-        self.assertEqual(set(m2["configuration"]) - set(grace["configuration"]), {"multiply_issue_queue"})
+                          "fp_issue_queue", "branch_penalty", "predictor"})
+        self.assertEqual(set(m2["configuration"]) - set(grace["configuration"]),
+                         {"multiply_issue_queue", "num_branch_pipes", "flag_branch_dependency", "num_flag_pipes"})
         self.assertEqual({k for k in grace["cache_config"] if grace["cache_config"][k] != m2["cache_config"].get(k)},
                          {"L1Size", "L1Ways", "L1Latency", "L2Size", "L2Ways", "L2LineSize", "SLCSize",
                           "PrefetchStrideBytes", "TLBPageBytes", "TLBWays"})
-        self.assertEqual(set(m2["cache_config"]) - set(grace["cache_config"]), set())
+        self.assertEqual(set(m2["cache_config"]) - set(grace["cache_config"]), {"L2RandomVictim", "L2ColorPageBytes"})
         self.assertEqual(devices.at_profile_clock(case, grace), dict(id="x", frequency_hz=3429000000))
 
     def test_declared_references_are_the_files_the_reports_bind(self):
