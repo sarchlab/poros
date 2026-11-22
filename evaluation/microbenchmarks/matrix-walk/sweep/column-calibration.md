@@ -128,7 +128,7 @@ streams. A native counter with a validated refill or writeback event
 would help distinguish allocation pressure, dirty eviction throughput,
 and address-dependent interference. Compare any candidate against the
 store-only, mixed, padded, 16 KiB-stride, and row-first controls.
-No simulator behavior is changed by this investigation.
+This investigation leaves the M1 and M2 models unchanged.
 
 ## M5 Max
 
@@ -175,4 +175,8 @@ from 6.13% to 20.16%.
 The 12 row controls change in predicted time by less than 0.001%.
 The full Go short test suite passes. An M1, M2, and Grace canary
 reproduces each original timing object. Application-suite effects
-require separate assessment.
+require separate assessment. In M5 Max application controls, ATAX-1,
+Nussinov-1, and TRMM-6 retain their exact simulated cycles. TRMM-5 changes
+from 10.55246 to 10.55282 ms, preserving the TRMM-5 to TRMM-6 jump.
+The candidate outputs and retired instructions match the retained
+whole-program receipts.
