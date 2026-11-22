@@ -994,6 +994,7 @@ LIVE_REFRESH = """<script>
     try { target = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null; } catch (_) {}
     graft(root, next, target && root.contains(target) ? target : null);
     root.dataset.liveState = next.dataset.liveState;
+    document.dispatchEvent(new Event('report-before-scroll'));
     const nodes = new Map([...root.querySelectorAll('*')].map(n => [key(n, root), n]));
     // Reopen every disclosure before scroll writes force layout. Replacing
     // long open tables with collapsed ones can temporarily clamp window scroll.
@@ -1024,13 +1025,16 @@ LIVE_REFRESH = """<script>
     }
     document.dispatchEvent(new Event('report-updated'));
   }
+  let lastSnapshot;
   async function refresh() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       const response = await fetch(location.href, {cache:'no-store', signal:controller.signal});
       if (!response.ok) throw new Error('Report unavailable');
-      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const html = await response.text();
+      if (html === lastSnapshot) return;
+      const doc = new DOMParser().parseFromString(html, 'text/html');
       const next = doc.getElementById('accuracy-report');
       // Only a complete document of this same report is taken: polling, or
       // finished (validated, or settled: nothing in it is still running).
@@ -1041,6 +1045,7 @@ LIVE_REFRESH = """<script>
         throw new Error('Invalid or different report');
       }
       apply(next);
+      lastSnapshot = html;
     } catch (_) {
       // Keep the last good view on transient HTTP, network or snapshot errors.
     } finally {

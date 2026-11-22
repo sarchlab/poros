@@ -149,7 +149,7 @@ def y_switch(scope, label):
     )
 
 
-def panel(factors, points, benchmark):
+def panel(factors, points, benchmark, chart_id):
     title = factor_label(factors) or benchmark["name"]
     dataset = {
         "xLabel": benchmark["scaling_factor"], "unit": benchmark["time_unit"],
@@ -161,7 +161,7 @@ def panel(factors, points, benchmark):
         ],
     }
     return (
-        f'<figure class="dashboard-chart" data-chart="{esc(json.dumps(dataset))}">'
+        f'<figure id="{chart_id}" class="dashboard-chart" data-chart="{esc(json.dumps(dataset))}">'
         f'<figcaption>{esc(title)}</figcaption>'
         '<div class="dashboard-chart-tools">'
         '<button class="dashboard-reset" type="button" data-reset-x disabled>Reset X</button>'
@@ -172,16 +172,17 @@ def panel(factors, points, benchmark):
     )
 
 
-def charts(benchmark, configs):
-    return '<div class="charts">' + "".join(panel(factors, points, benchmark)
-                                           for factors, points in configs) + '</div>'
+def charts(benchmark, configs, prefix):
+    figures = (panel(factors, points, benchmark, f"{prefix}-{index}")
+               for index, (factors, points) in enumerate(configs))
+    return '<div class="charts">' + "".join(figures) + '</div>'
 
 
-def card_charts(benchmark, panels):
+def card_charts(benchmark, panels, card_id):
     configs = [(json.loads(key), points) for key, points in panels.items()]
     panel_factors = benchmark.get("panel_factors")
     if panel_factors is None:
-        return charts(benchmark, configs)
+        return charts(benchmark, configs, f"{card_id}-plot")
     if not isinstance(panel_factors, list) or not all(isinstance(name, str) for name in panel_factors):
         raise ValueError("panel_factors must be a list of factor names")
 
@@ -192,7 +193,7 @@ def card_charts(benchmark, panels):
         key = json.dumps(selected, sort_keys=True)
         choices.setdefault(key, []).append((visible, points))
     if len(choices) == 1:
-        return charts(benchmark, configs)
+        return charts(benchmark, configs, f"{card_id}-plot")
 
     menu = []
     views = []
@@ -200,7 +201,8 @@ def card_charts(benchmark, panels):
         label = factor_label(json.loads(key)) or "Default"
         menu.append(f'<option value="{index}">{esc(label)}</option>')
         hidden = ' hidden' if index else ''
-        views.append(f'<div data-configuration="{index}"{hidden}>' + charts(benchmark, configs) + '</div>')
+        views.append(f'<div data-configuration="{index}"{hidden}>'
+                     + charts(benchmark, configs, f"{card_id}-plot-{index}") + '</div>')
     return ('<label class="dashboard-configuration">Configuration '
             '<select data-dashboard-configuration>' + "".join(menu) + '</select></label>'
             '<div class="dashboard-panels">' + "".join(views) + '</div>')
@@ -267,9 +269,10 @@ def render(data):
             content += f'<a href="#{view}-benchmark-{i}">{esc(benchmark["name"])}</a>'
         content += "</nav>"
         for i, (benchmark, panels) in enumerate(cards):
-            content += (f'<article class="dashboard-card" id="{view}-benchmark-{i}">'
+            card_id = f"{view}-benchmark-{i}"
+            content += (f'<article class="dashboard-card" id="{card_id}">'
                         f'<h3>{esc(benchmark["name"])} <span class="badge">{KINDS[benchmark["kind"]]}</span></h3>'
-                        + card_charts(benchmark, panels) + "</article>")
+                        + card_charts(benchmark, panels, card_id) + "</article>")
         content += "</section>"
     script = "<script>" + Path(__file__).with_suffix(".js").read_text(encoding="utf-8") + "</script>"
     content += "</div>"

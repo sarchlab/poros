@@ -193,9 +193,7 @@
   }
 
   function initializeCharts() {
-    // The inventory includes pending points, so each chart keeps its position
-    // when a later snapshot fills in a timing.
-    const previous = charts.map(figure => state.get(figure));
+    const previous = new Map(charts.map(figure => [figure.id, state.get(figure)]));
     charts = Array.from(document.querySelectorAll(".dashboard-chart"));
     globalChoices = document.querySelectorAll("[data-global-y]");
     for (const control of document.querySelectorAll("[data-dashboard-configuration]")) {
@@ -205,9 +203,10 @@
         applyConfiguration(control);
       }
     }
-    charts.forEach((figure, index) => {
-      figure.querySelector("svg").id = `dashboard-plot-${index}`;
-      const saved = previous[index];
+    charts.forEach(figure => {
+      figure.querySelector("svg").id = `${figure.id}-svg`;
+      const saved = previous.get(figure.id);
+      state.delete(figure);
       if (saved) {
         setScale(figure, saved.yScale);
         getState(figure).x = saved.x;
@@ -248,6 +247,6 @@
   }, { passive: false });
 
   addEventListener("hashchange", drawVisible);
-  document.addEventListener("report-updated", initializeCharts);
+  document.addEventListener("report-before-scroll", initializeCharts);
   initializeCharts();
 })();
