@@ -1469,4 +1469,5 @@ under pressure. The separate M2 read-pressure results above and M1 cache
 measurements both show departures from exact LRU. The model cannot reproduce
 an individual Linux allocation or Apple's dynamic policy.
 [Linux M1 device tree](https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/apple/t8103.dtsi)
+[Linux M2 device tree](https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/apple/t8112.dtsi)
 [M1 L2 measurements](https://www.usenix.org/conference/usenixsecurity23/presentation/yu-jiyong)

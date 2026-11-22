@@ -305,8 +305,9 @@ func (cl *cacheLevel) lookup(addr uint64) bool {
 	return cl.find(addr) != nil
 }
 
-// victim selects the first free slot, or the LRU occupied slot with first-way
-// tie breaking. Timed writeback and installation use this same selector.
+// victim selects the first free slot. When the set is full, it applies the
+// configured replacement policy. Exact LRU breaks ties by way order.
+// Timed writeback and installation select the same slot.
 func (cl *cacheLevel) victim(addr uint64) *cacheLine {
 	set := cl.sets[cl.setIndex(addr)]
 	var victim *cacheLine
@@ -325,7 +326,7 @@ func (cl *cacheLevel) victim(addr uint64) *cacheLine {
 }
 
 // installAt puts addr into this cache level with the given arrival cycle,
-// evicting the LRU line if needed, and returns the installed line.
+// replacing the selected victim if needed, and returns the installed line.
 func (cl *cacheLevel) installAt(addr uint64, readyAt uint64, prefetched bool) *cacheLine {
 	slot := cl.victim(addr)
 	cl.counter++

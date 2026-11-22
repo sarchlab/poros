@@ -29,9 +29,9 @@ type Spec struct {
 	RetireWidth              int         `json:"retire_width"`
 	ROBCapacity              int         `json:"rob_capacity"`
 	NumINT                   int         `json:"num_int"`
-	// Nonzero limits steer integer work to the least occupied eligible pipe
-	// at dispatch. Flags and branches use the first NumFlagPipes and
-	// NumBranchPipes of the integer pipes, respectively.
+	// Nonzero limits enable integer dispatch steering. Flags and branches
+	// use the first NumFlagPipes and NumBranchPipes of the integer pipes,
+	// respectively. See steerInteger for how the eligible pipe is selected.
 	NumFlagPipes   int `json:"num_flag_pipes,omitempty"`
 	NumBranchPipes int `json:"num_branch_pipes,omitempty"`
 	// NumSelectFusion is the number of integer pipes that can execute a fused
