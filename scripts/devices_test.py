@@ -69,9 +69,11 @@ class DeclarationTests(unittest.TestCase):
         self.assertEqual(devices.profile_path(devices.select(declaration, "m1")), "evaluation/model-profile-m1.json")
         m1 = devices.load_profile(devices.select(declaration, "m1"))
         self.assertEqual({k for k in m1["cache_config"] if m1["cache_config"][k] != m2["cache_config"].get(k)},
-                         {"L2Latency", "InterleavedStoreRunsWait"})
+                         {"L2Latency", "L2Size", "L2Ways", "InterleavedStoreRunsWait"})
         self.assertEqual(set(m2["cache_config"]) - set(m1["cache_config"]), set())
         self.assertEqual(m1["cache_config"]["L2Latency"], 18)
+        self.assertEqual(m1["cache_config"]["L2Size"], 12_582_912)
+        self.assertEqual(m1["cache_config"]["L2Ways"], 12)
         self.assertEqual(m1["configuration"]["freq"], 3203500000)
         self.assertEqual(m1["configuration"]["store_buffer_size"], 140)
         self.assertEqual(m1["configuration"]["multiply_issue_queue"], 43)
