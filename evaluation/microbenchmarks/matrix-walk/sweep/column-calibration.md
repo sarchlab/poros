@@ -49,17 +49,6 @@ unpadded 256×256, about 9.5 cycles per element on both chips versus 6.50
 on M1 and 7.14 on M2 in this model. That cycle-domain contrast comes from
 a separate capture and does not convert the historical wall times.
 
-## Next discriminating comparison
-
-Use otherwise identical native load-only, store-only, and
-load-dependent store loops at the same padded and unpadded shapes.
-Compare counted cycles and, where validated on that host, L1 refill and
-translation events. Simulation-side fill bandwidth, L2 hit latency,
-write-allocation pressure, and issue overlap can then be ablated one
-at a time. Preserve the padded controls and row-first cohort when
-evaluating any candidate. No timing-model change is proposed in this
-note.
-
 ## Native load/store isolation
 
 The two original Linux performance cores (CPU 4 on each host) ran the
@@ -107,3 +96,36 @@ and 126.75 µs. Neither experiment models the conditional slowdown
 satisfactorily. The next candidate should model contention or allocation
 limits under simultaneous conflicting accesses and check both pure
 stores and mixed traffic.
+
+## Full column cohort
+
+The original reference and workload inventory were reused. The #90 head
+`cfc19e5` ran 110 cases (98 remote and 12 local); the other ten use the
+existing `d61e492` receipts, whose simulator behavior is unchanged at
+`cfc19e5`. Six separately repeated column canaries agree exactly.
+All 240 low/high timing records were audited against the original
+guest digest, arguments, verification output, and retired instructions.
+
+| Target | Points below 5%, original → #90 | Median error, original → #90 | Worst remaining #90 error |
+| --- | ---: | ---: | ---: |
+| M1 | 4/60 → 14/60 | 32.72% → 11.76% | 166.56% (1023²) |
+| M2 | 4/60 → 14/60 | 32.19% → 9.75% | 241.14% (16 KiB row stride) |
+
+Padding only one operand at 512² reinforces the destination effect.
+With only the source padded, native / Poros times are 809.05 / 347.00 µs
+on M1 and 739.08 / 318.51 µs on M2. With only the destination padded, they
+are 208.89 / 199.27 µs on M1 and 188.08 / 183.02 µs on M2. The models
+underprice the layout that preserves the destination's conflicts.
+The 256² operand controls give smaller discrepancies, consistent with
+a mechanism that changes with the write reuse distance and concurrent
+read pressure.
+
+## Remaining mechanism to distinguish
+
+Hold the read layout and the dynamic instruction mix fixed, then vary
+destination alignment, destination reuse distance, and independent store
+streams. A native counter with a validated refill or writeback event
+would help distinguish allocation pressure, dirty eviction throughput,
+and address-dependent interference. Compare any candidate against the
+store-only, mixed, padded, 16 KiB-stride, and row-first controls.
+No simulator behavior is changed by this investigation.
