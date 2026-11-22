@@ -27,9 +27,15 @@ type CacheConfig struct {
 	// A zero count preserves the shared transport timing.
 	L1ReadFillBanks      int `json:",omitempty"`
 	L1ReadFillBankCycles int `json:",omitempty"`
-	L1Size               int // bytes
-	L1Ways               int // associativity
-	L1LineSize           int // bytes
+	// Optional address groups that share L1 demand read, write-allocate and
+	// dirty writeback service. The spacings are effective throughput limits.
+	L1MixedServiceBanks int `json:",omitempty"`
+	L1MixedReadCycles   int `json:",omitempty"`
+	L1MixedWriteCycles  int `json:",omitempty"`
+	L1MixedEvictCycles  int `json:",omitempty"`
+	L1Size              int // bytes
+	L1Ways              int // associativity
+	L1LineSize          int // bytes
 	// L2ColorPageBytes approximates physical indexing when guest virtual
 	// addresses are all that is available. Preserve page offsets and assign
 	// virtual pages deterministic colors. Zero uses the linear address.
@@ -441,6 +447,7 @@ type Cache struct {
 	stats                      CacheStats
 	channel                    *fillChannel // L2 -> L1 fills
 	readFillBanks              []fillChannel
+	l1MixedBanks               []fillChannel
 	dram                       *fillChannel // memory side (SLC or DRAM) -> L2 fills
 	spill                      *fillChannel // clean L2 victims -> SLC
 	streams                    []stream
@@ -514,6 +521,14 @@ func (c *Cache) initTimed() {
 		}
 	}
 	c.tlb = newTLB(c.cfg)
+	mixed := c.cfg.L1MixedServiceBanks
+	if mixed < 0 || (mixed > 0 && (c.cfg.FillBytesPerCycle <= 0 ||
+		c.cfg.L1MixedReadCycles <= 0 || c.cfg.L1MixedWriteCycles <= 0 || c.cfg.L1MixedEvictCycles <= 0)) {
+		panic("mem: invalid L1 mixed service configuration")
+	}
+	if mixed > 0 {
+		c.l1MixedBanks = make([]fillChannel, mixed)
+	}
 }
 
 // SharedL2 is an L2 cache that can be shared across multiple cores, together
@@ -579,6 +594,9 @@ func (c *Cache) Advance(cycle uint64) {
 	c.channel.prune(cycle)
 	for i := range c.readFillBanks {
 		c.readFillBanks[i].prune(cycle)
+	}
+	for i := range c.l1MixedBanks {
+		c.l1MixedBanks[i].prune(cycle)
 	}
 	if c.tlb != nil {
 		c.tlb.prune(cycle)
@@ -787,7 +805,14 @@ func (c *Cache) accessLine(addr uint64, size int, isWrite bool, now uint64) (Hit
 	}
 
 	var ready uint64
-	if level != HitL2 {
+	if level == HitL2 && len(c.l1MixedBanks) > 0 {
+		start := max(now, l2Ready)
+		spacing := c.cfg.L1MixedReadCycles
+		if isWrite {
+			spacing = c.cfg.L1MixedWriteCycles
+		}
+		ready = c.transferL1Mixed(addr, start+uint64(c.cfg.L2Latency), start, uint64(spacing), !isWrite)
+	} else if level != HitL2 {
 		// The demand fill delivers the critical line to L1 as the data arrives
 		// from the memory side; its L1 transfer still occupies the L2-to-L1
 		// transport.
@@ -857,6 +882,42 @@ func (c *Cache) fillL1Banked(addr, l2Ready, now uint64) uint64 {
 			return c.channel.book(channelStart, sharedCycles, channelPos)
 		}
 		start = bankStart
+	}
+}
+
+// transferL1Mixed reserves the bus and all applicable address-dependent
+// service groups for the same start cycle. Each calendar keeps reservations
+// in issue-time order, so every stage can use a suitable earlier gap.
+func (c *Cache) transferL1Mixed(addr, earliest, notBefore, spacing uint64, read bool) uint64 {
+	occupancy := c.channel.occupancy(c.cfg.L1LineSize)
+	start := notBefore
+	if earliest >= occupancy {
+		start = max(start, earliest-occupancy)
+	}
+	line := addr / uint64(c.cfg.L1LineSize)
+	group := &c.l1MixedBanks[line%uint64(len(c.l1MixedBanks))]
+	var readGroup *fillChannel
+	readSpacing := uint64(c.cfg.L1ReadFillBankCycles)
+	if read && len(c.readFillBanks) > 0 {
+		readGroup = &c.readFillBanks[line%uint64(len(c.readFillBanks))]
+	}
+	for {
+		busStart, busPos := c.channel.available(start, occupancy)
+		groupStart, groupPos := group.available(busStart, spacing)
+		if groupStart != busStart {
+			start = groupStart
+			continue
+		}
+		if readGroup != nil {
+			readStart, readPos := readGroup.available(busStart, readSpacing)
+			if readStart != busStart {
+				start = readStart
+				continue
+			}
+			readGroup.book(busStart, readSpacing, readPos)
+		}
+		group.book(busStart, spacing, groupPos)
+		return c.channel.book(busStart, occupancy, busPos)
 	}
 }
 

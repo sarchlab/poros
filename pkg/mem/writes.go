@@ -295,7 +295,16 @@ func (c *Cache) writebackL1(victim cacheLine, now uint64) uint64 {
 		line = c.l2.peek(addr)
 	}
 	start = max(start, line.readyAt)
-	admitted, end := reserveWriteback(c.l1Writebacks, c.channel, now, start, c.cfg.L1LineSize)
+	slot := earliestWritebackSlot(c.l1Writebacks)
+	admitted := max(now, c.l1Writebacks[slot])
+	start = max(admitted, start)
+	var end uint64
+	if len(c.l1MixedBanks) > 0 {
+		end = c.transferL1Mixed(addr, start, start, uint64(c.cfg.L1MixedEvictCycles), false)
+	} else {
+		end = c.channel.deliver(start, c.cfg.L1LineSize)
+	}
+	c.l1Writebacks[slot] = end
 	line.dirty = true
 	line.dirtyAt = max(line.dirtyAt, end)
 	line.readyAt = max(line.readyAt, end)
@@ -309,6 +318,14 @@ func (c *Cache) writebackL1(victim cacheLine, now uint64) uint64 {
 // bandwidth. Queue admission is separate from transport service. Dispatch-order
 // allocation deliberately does not reclaim a future booking for earlier work.
 func reserveWriteback(slots []uint64, channel *fillChannel, now, dataReady uint64, bytes int) (admitted, end uint64) {
+	slot := earliestWritebackSlot(slots)
+	admitted = max(now, slots[slot])
+	end = channel.deliver(max(admitted, dataReady), bytes)
+	slots[slot] = end
+	return
+}
+
+func earliestWritebackSlot(slots []uint64) int {
 	if len(slots) == 0 {
 		panic("mem: dirty eviction without a writeback stage")
 	}
@@ -318,8 +335,5 @@ func reserveWriteback(slots []uint64, channel *fillChannel, now, dataReady uint6
 			slot = i
 		}
 	}
-	admitted = max(now, slots[slot])
-	end = channel.deliver(max(admitted, dataReady), bytes)
-	slots[slot] = end
-	return
+	return slot
 }
