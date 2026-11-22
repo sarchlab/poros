@@ -29,6 +29,11 @@ type Spec struct {
 	RetireWidth              int         `json:"retire_width"`
 	ROBCapacity              int         `json:"rob_capacity"`
 	NumINT                   int         `json:"num_int"`
+	// Nonzero limits steer integer work to the least occupied eligible pipe
+	// at dispatch. Flags and branches use the first NumFlagPipes and
+	// NumBranchPipes of the integer pipes, respectively.
+	NumFlagPipes   int `json:"num_flag_pipes,omitempty"`
+	NumBranchPipes int `json:"num_branch_pipes,omitempty"`
 	// NumSelectFusion is the number of integer pipes that can execute a fused
 	// compare/select pair. They are the last NumINT pipes, a subset shared with
 	// ordinary integer work. Zero disables the fusion.
@@ -169,6 +174,12 @@ type Comp = ticking.Component[Spec, State, Resources, Ports, Middlewares]
 
 // State owns mutable scheduling, queues, predictor tables, and counters.
 type State struct {
+	// IntegerDispatch rotates the preferred pipe for equal queue lengths.
+	IntegerDispatch uint64 `json:",omitempty"`
+	// An immediately following conditional branch can use the flags in
+	// the same cycle a simple integer compare issues.
+	FlagBypassPC uint64 `json:",omitempty"`
+
 	FPReload                     fpReloadState `json:",omitzero"`
 	Serializing                  bool
 	GprReady, FpReady            [32]uint64
@@ -295,6 +306,9 @@ func (s *State) Initialize(c *Comp) {
 	if v.FetchGroupLimit > 0 {
 		s.FetchGroupRenamed = make([]uint64, v.FetchLead+1)
 		s.FetchGroupEnded = true
+	}
+	if v.NumFlagPipes < 0 || v.NumFlagPipes > v.NumINT || v.NumBranchPipes < 0 || v.NumBranchPipes > v.NumFlagPipes || (v.NumFlagPipes == 0) != (v.NumBranchPipes == 0) {
+		panic("ooo: branch and flag pipes must be nested subsets of the integer pipes")
 	}
 	if v.NumSelectFusion < 0 || v.NumSelectFusion > v.NumINT {
 		panic("ooo: compare/select fusion pipes must be a subset of the integer pipes")
@@ -591,8 +605,12 @@ func (p *middleware) fetchAndProcess() {
 		// Flags (NZCV) dependency.
 		readsFlags := instinfo.UsesFlags(inst.Op) ||
 			(p.comp.Spec.FlagBranchDependency && !branchFused && conditionalBranch(inst))
-		if readsFlags && p.comp.State.FlagsReady > srcReady {
-			srcReady = p.comp.State.FlagsReady
+		flagsReady := p.comp.State.FlagsReady
+		if p.comp.Spec.NumFlagPipes > 0 && p.comp.State.FlagBypassPC == pc && conditionalBranch(inst) && flagsReady > 0 {
+			flagsReady--
+		}
+		if readsFlags && flagsReady > srcReady {
+			srcReady = flagsReady
 		}
 
 		// 3. Classify instruction and find execution unit.
@@ -718,7 +736,11 @@ func (p *middleware) fetchAndProcess() {
 			// half: fusion saves the branch's rename and retire slots only.
 			issueCycle = p.reserveIssuePair(ut, issueCycle, occupancy)
 		} else if usesUnit && (!indexedLoad || issueCycle != addressCycle) {
-			issueCycle = p.reserveIssue(ut, issueCycle, occupancy)
+			if ut == unitINT && p.comp.Spec.NumFlagPipes > 0 {
+				issueCycle = p.steerInteger(inst, issueCycle, occupancy)
+			} else {
+				issueCycle = p.reserveIssue(ut, issueCycle, occupancy)
+			}
 			if p.comp.Spec.L1ReadBankPeriod > 0 && ut == unitLoad && !forwarding.forwarded && !indexedLoad {
 				issueCycle = p.replayL1Read(inst, cached, issueCycle)
 			}
@@ -894,6 +916,13 @@ func (p *middleware) fetchAndProcess() {
 				}
 
 				p.appendStoreRecord(entry)
+			}
+		}
+
+		if p.comp.Spec.NumFlagPipes > 0 {
+			p.comp.State.FlagBypassPC = 0
+			if instinfo.SetsFlags(inst.Op) && branchFusionProducer(inst) {
+				p.comp.State.FlagBypassPC = pc + 4
 			}
 		}
 

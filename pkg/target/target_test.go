@@ -40,15 +40,20 @@ func TestLookupNamesEveryTargetAndRejectsOthers(t *testing.T) {
 	}
 }
 
-func TestM2AddsItsMultiplyBoundToPackageDefaults(t *testing.T) {
+func TestM2AddsApplePipelineAndCachePolicy(t *testing.T) {
 	m2 := M2()
 	wantCore := ooo.DefaultSpec()
 	if wantCore.MultiplyIssueQueue != 0 {
 		t.Fatal("generic OoO configuration must allow unlimited waiting multiplies")
 	}
 	wantCore.MultiplyIssueQueue = 38
+	wantCore.NumFlagPipes, wantCore.NumBranchPipes = 3, 2
+	wantCore.FlagBranchDependency = true
+	wantCore.Predictor.TaggedHistLen = 64
+	wantCache := mem.DefaultCacheConfig()
+	wantCache.L2ColorPageBytes, wantCache.L2RandomVictim = 16<<10, true
 	if m2.ParameterSource != "m2" || !reflect.DeepEqual(m2.OoO, wantCore) ||
-		!reflect.DeepEqual(m2.InOrder, inorder.DefaultSpec()) || !reflect.DeepEqual(m2.Cache, mem.DefaultCacheConfig()) {
+		!reflect.DeepEqual(m2.InOrder, inorder.DefaultSpec()) || !reflect.DeepEqual(m2.Cache, wantCache) {
 		t.Fatalf("unexpected M2 configuration: %+v", m2)
 	}
 }
@@ -175,6 +180,10 @@ func TestM1DiffersFromM2OnlyInMeasuredParameters(t *testing.T) {
 	inorder := m1.InOrder
 	inorder.Freq = m2.InOrder.Freq
 	cache := m1.Cache
+	if cache.L2Size != 12<<20 || cache.L2Ways != 12 {
+		t.Fatal("M1 must use the 12 MiB performance cluster L2")
+	}
+	cache.L2Size, cache.L2Ways = m2.Cache.L2Size, m2.Cache.L2Ways
 	cache.L2Latency, cache.InterleavedStoreRunsWait = m2.Cache.L2Latency, false
 	if !reflect.DeepEqual(core, m2.OoO) || !reflect.DeepEqual(inorder, m2.InOrder) || !reflect.DeepEqual(cache, m2.Cache) {
 		t.Fatal("M1 differs from M2 in an undeclared parameter")
@@ -204,7 +213,12 @@ func TestGraceDiffersFromM2OnlyInDeclaredParameters(t *testing.T) {
 	if grace.OoO.MultiplyIssueQueue != 0 {
 		t.Fatal("Grace inherited an Apple multiply queue bound")
 	}
+	if grace.OoO.NumFlagPipes != 0 || grace.OoO.NumBranchPipes != 0 || grace.OoO.FlagBranchDependency || grace.OoO.Predictor.TaggedHistLen != 32 || grace.Cache.L2RandomVictim || grace.Cache.L2ColorPageBytes != 0 {
+		t.Fatal("Grace inherited Apple scheduling or cache geometry")
+	}
 	core := grace.OoO
+	core.NumFlagPipes, core.NumBranchPipes = m2.OoO.NumFlagPipes, m2.OoO.NumBranchPipes
+	core.FlagBranchDependency, core.Predictor = m2.OoO.FlagBranchDependency, m2.OoO.Predictor
 	core.MultiplyIssueQueue = m2.OoO.MultiplyIssueQueue
 	core.Freq, core.Latencies = m2.OoO.Freq, ooo.Latencies{}
 	core.NumIntDiv, core.NumFPDiv = 0, m2.OoO.NumFPDiv
@@ -213,6 +227,7 @@ func TestGraceDiffersFromM2OnlyInDeclaredParameters(t *testing.T) {
 	inorder := grace.InOrder
 	inorder.Freq = m2.InOrder.Freq
 	cache := grace.Cache
+	cache.L2ColorPageBytes, cache.L2RandomVictim = m2.Cache.L2ColorPageBytes, m2.Cache.L2RandomVictim
 	cache.L1Size, cache.L1Ways, cache.L1Latency = m2.Cache.L1Size, m2.Cache.L1Ways, m2.Cache.L1Latency
 	cache.L2Size, cache.L2Ways, cache.L2LineSize = m2.Cache.L2Size, m2.Cache.L2Ways, m2.Cache.L2LineSize
 	cache.SLCSize, cache.PrefetchStrideBytes = m2.Cache.SLCSize, 0
