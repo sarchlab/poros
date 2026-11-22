@@ -38,7 +38,7 @@
     const series = data.series.map((_, index) => data.points.map(row => {
       const value = row[index + 1];
       if (value === null || (log && value <= 0)) return null;
-      return { x: row[0], y: transform(value), value, label: row[3] };
+      return { x: row[0], y: transform(value), value, label: row[3], quality: index === 0 ? row[4] : "usable" };
     }));
     const values = [];
     const inRange = x => x >= x0 && x <= x1;
@@ -114,19 +114,25 @@
         }
         const x = px(point.x), y = py(point.y);
         const key = `${x},${y}`;
-        segment.push(key);
+        const excluded = point.quality !== "usable";
+        if (excluded) drawSegment();
+        else segment.push(key);
         if (!inRange(point.x)) continue;
-        const mark = markers.get(key) || { x, y, color, labels: [] };
-        mark.labels.push(`${name}: ${point.label} · ${format.format(point.value)} ${data.unit}`);
-        markers.set(key, mark);
+        const markerKey = excluded ? `${key},excluded` : key;
+        const mark = markers.get(markerKey) || { x, y, color, excluded, labels: [], keys: [] };
+        mark.keys.push(`${index}/${point.x}`);
+        const suffix = excluded ? ` · ${point.quality} reference (excluded from accuracy)` : "";
+        mark.labels.push(`${name}: ${point.label} · ${format.format(point.value)} ${data.unit}${suffix}`);
+        markers.set(markerKey, mark);
       }
       drawSegment();
     });
     for (const mark of markers.values()) {
       const tip = mark.labels.join("\n");
       svg.append(svgNode("circle", {
-        cx: mark.x, cy: mark.y, r: 3, fill: mark.color, tabindex: 0,
-        "data-tip": tip, "aria-label": tip, stroke: "transparent", "stroke-width": 4
+        cx: mark.x, cy: mark.y, r: 3, fill: mark.excluded ? "none" : mark.color, tabindex: 0,
+        "data-point-key": mark.keys.join("+"),
+        "data-tip": tip, "aria-label": tip, stroke: mark.excluded ? mark.color : "transparent", "stroke-width": mark.excluded ? 1.5 : 4
       }));
     }
   }

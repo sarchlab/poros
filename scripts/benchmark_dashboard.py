@@ -87,6 +87,8 @@ def group(data):
         seen.add(key)
         for field in ("name", "scaling_factor", "time_unit"):
             text(benchmark[field], field)
+        if benchmark["time_unit"] not in MILLISECONDS_PER_UNIT:
+            raise ValueError(f'Unsupported summary timing unit: {benchmark["time_unit"]}')
         for point in benchmark["points"]:
             device = text(point["device"], "Device")
             scale = number(point["scale"], "Scaling value")
@@ -119,8 +121,6 @@ def summary_points(cards, device_label):
                 if not native or not poros or point.get("reference_quality", "usable") != "usable":
                     continue
                 unit = benchmark["time_unit"]
-                if unit not in MILLISECONDS_PER_UNIT:
-                    raise ValueError(f"Unsupported summary timing unit: {unit}")
                 multiplier = MILLISECONDS_PER_UNIT[unit]
                 point_label = point.get("label") or f'{benchmark["scaling_factor"]} {scale:g}'
                 label = " · ".join(part for part in
@@ -156,7 +156,8 @@ def panel(factors, points, benchmark, chart_id):
         "series": MEASUREMENTS,
         "points": [
             [x, row.get("native"), row.get("poros"),
-             row.get("label") or f'{benchmark["scaling_factor"]} {x:g}']
+             row.get("label") or f'{benchmark["scaling_factor"]} {x:g}',
+             row.get("reference_quality", "usable")]
             for x, row in sorted(points.items())
         ],
     }
@@ -168,7 +169,7 @@ def panel(factors, points, benchmark, chart_id):
         + y_switch("chart", f"Y scale for {title}") + '</div>'
         f'<svg viewBox="0 0 440 290" role="group" aria-label="{esc(title)}"></svg>'
         '<p class="muted"><span style="color:#9a6a17">Hardware</span> · '
-        '<span style="color:#087e8b">Poros</span></p></figure>'
+        '<span style="color:#087e8b">Poros</span> · Open hardware markers excluded from accuracy summaries</p></figure>'
     )
 
 
@@ -271,7 +272,7 @@ def render(data):
         for i, (benchmark, panels) in enumerate(cards):
             card_id = f"{view}-benchmark-{i}"
             content += (f'<article class="dashboard-card" id="{card_id}">'
-                        f'<h3>{esc(benchmark["name"])} <span class="badge">{KINDS[benchmark["kind"]]}</span></h3>'
+                        f'<h3 id="{card_id}-title">{esc(benchmark["name"])} <span class="badge">{KINDS[benchmark["kind"]]}</span></h3>'
                         + card_charts(benchmark, panels, card_id) + "</article>")
         content += "</section>"
     script = "<script>" + Path(__file__).with_suffix(".js").read_text(encoding="utf-8") + "</script>"
