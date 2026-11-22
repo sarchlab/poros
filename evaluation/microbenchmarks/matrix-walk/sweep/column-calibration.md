@@ -59,3 +59,51 @@ write-allocation pressure, and issue overlap can then be ablated one
 at a time. Preserve the padded controls and row-first cohort when
 evaluating any candidate. No timing-model change is proposed in this
 note.
+
+## Native load/store isolation
+
+The two original Linux performance cores (CPU 4 on each host) ran the
+256² and 512² columns with both widths, in two passes with opposite
+variant order. Each entry is the median across ten warmed regions.
+All 320 regions passed the output check with equal PMU enabled and
+running times. The two variants that remove a memory operation replace
+the original instruction with a NOP (store removed) or a zero move
+(load removed), preserving the trip count and instruction count.
+The independent-store control keeps both addresses and memory operations
+and replaces the loaded add with an immediate move. The native and guest
+walk assembly match within each variant. The verified outputs account
+for the deliberate changes to stored values.
+
+Each cell is **hardware / Poros cycles per element**. The Poros runs
+use the same clean simulator revision as above.
+
+| Device | Square | Row width | Full loop | Load only | Store only | Independent store |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| M1 | 256 | 256 | 9.41 / 6.50 | 2.00 / 2.00 | 3.14 / 4.00 | 9.41 / 6.00 |
+| M1 | 256 | 272 | 1.56 / 1.80 | 1.45 / 1.48 | 1.19 / 1.32 | 1.29 / 1.37 |
+| M1 | 512 | 512 | 10.65 / 6.75 | 2.00 / 2.00 | 7.02 / 4.00 | 10.65 / 6.00 |
+| M1 | 512 | 528 | 1.56 / 1.79 | 1.46 / 1.48 | 1.18 / 1.33 | 1.24 / 1.34 |
+| M2 | 256 | 256 | 9.51 / 7.14 | 2.00 / 2.00 | 3.16 / 4.00 | 9.44 / 6.00 |
+| M2 | 256 | 272 | 1.62 / 1.84 | 1.47 / 1.49 | 1.33 / 1.31 | 1.33 / 1.37 |
+| M2 | 512 | 512 | 10.97 / 6.99 | 2.00 / 2.00 | 7.55 / 4.00 | 10.95 / 6.00 |
+| M2 | 512 | 528 | 1.62 / 1.83 | 1.48 / 1.48 | 1.26 / 1.33 | 1.32 / 1.34 |
+
+The load-only unpadded loops agree in cycles. Removing the dependency
+from the load to the store barely changes the native unpadded cost.
+At 256², the penalty appears primarily with both read and write traffic.
+At 512², the native store-only path also slows substantially, while the
+simulator stays at four cycles per element. This locates the discrepancy
+in write-allocation or writeback pressure and its interaction with
+demand refills. The experiment does not identify a physical queue,
+bank, or address comparison rule.
+
+In a simulator-only ablation at 256², halving the modeled L2-to-L1
+fill bandwidth from 32 to 16 bytes/cycle moves unpadded time from
+132.98 to 276.18 µs on M1 and 134.06 to 262.90 µs on M2. It also
+moves the padded controls from 36.75 to 45.05 µs and from 34.58 to
+42.43 µs, worsening those comparisons. Adding eight cycles to nominal
+L2 hit latency instead moves the unpadded simulations to 140.43 µs
+and 126.75 µs. Neither experiment models the conditional slowdown
+satisfactorily. The next candidate should model contention or allocation
+limits under simultaneous conflicting accesses and check both pure
+stores and mixed traffic.
