@@ -1434,3 +1434,60 @@ The model tracks competing scalar reads between feedback reloads. Successive liv
 The model counts partial-address matches for each static source load. A streak of 32 can begin a conservative forwarding window. Matches pooled from different instructions suppress fast forwarding only until the training observation retires. The longer window can also begin under sustained set pressure or overlapping refills. The alias check compares the low 14 address bits, and the refill history uses one slot per eight bytes in that 16 KiB span. This models an effective partial-address comparison independently of the guest VM's page size. Its 5,575,360 dynamic instruction positions approximate the measured recovery interval of 2,620 passes × 192 updates × 11.0833 instructions per update. This conversion depends on the probe's instruction mix. The window, indexing and confidence rules are empirical timing assumptions.
 
 At 421 × 559, exchanging the row strides of the streamed B input and accumulator gave native kernel times of 104.87 and 40.13 ms. The corresponding model times were 102.32 and 40.23 ms. Over the 15 measured TRMM sizes the predictor reproduced 12 of 14 adjacent directions, with median and worst diff/min of 11.95% and 46.81%. A separate register-carried control with B stride 576 takes 55.16 ms on hardware. The earlier experimental predictor took 140.23 ms, and this version takes 152.99 ms. The observed timings establish sensitivity to memory layout; the physical M5 Max forwarding and cache mechanisms remain unknown.
+
+### Apple M1 and M2 integer scheduling and L2 conflicts
+
+On both Linux performance cores a 4 × 1024 loop copying scalar words from
+an L1-hot 32 KiB footprint took about 1.41 and 1.47 counted user cycles per
+element. Removing the stores left both times nearly unchanged. Replacing
+the load-fed add with an add-immediate reading an invariant register reduced
+them to 1.19 and 1.32. Shorter inner loops also ran faster in cycles.
+The counters showed almost no branch misses at 32 or 64 elements per row and
+roughly one per row at 96 and above. The targets therefore use 64 outcomes of
+tagged branch history. The previous 32-outcome table missed the 64-trip exit.
+
+While an integer consumer waits for an outstanding load result, the model
+steers integer work at dispatch to the least occupied eligible pipe, rotating
+the initial pipe on each dispatch. When the operands of all such consumers
+have arrived, register-only scheduling can select the earliest known issue
+slot on any eligible pipe. Simple compares can pass
+flags directly to an adjacent conditional branch. The three flag-capable and
+two branch-capable pipes are from measurements of Firestorm. The arbitration
+rule and its adoption for Avalanche are effective approximations. The counter
+probes establish contention and sensitivity to operands. They do not observe
+which physical scheduler receives an operation.
+[Firestorm measurements](https://dougallj.github.io/applecpu/firestorm.html)
+
+The M1 performance cluster has 12 MiB of L2. The model uses 12 ways and keeps
+the M2 at 16 MiB and 16 ways. A deterministic mixing function assigns a color
+to each virtual page at L2 while preserving its 16-KiB offset. Separate tags
+retain the guest line identity. With all ways occupied, a reproducibly chosen
+way supplies the victim. Native physical page numbers and replacement state
+are absent from the workload inputs. These policies approximate the spread of
+L2 conflicts across physical pages and the partial survival of resident lines
+under pressure. The separate M2 read-pressure results above and M1 cache
+measurements both show departures from exact LRU. The model cannot reproduce
+an individual Linux allocation or Apple's dynamic policy.
+[Linux M1 device tree](https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/apple/t8103.dtsi)
+[Linux M2 device tree](https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/apple/t8112.dtsi)
+[M1 L2 measurements](https://www.usenix.org/conference/usenixsecurity23/presentation/yu-jiyong)
+
+### M5 Max mixed L1 service groups
+
+In a separate, warmed, verified M5 Max native sweep at a fixed 512 × 256
+logical shape, changing the physical row width from 256 to 384 to 512
+elements changed full column traversal from about 2.31 to 1.66 to
+4.54 ns per element. Width 511 or 513 took about 0.32 ns per element.
+At width 512, moving the destination by 64 bytes reduced the mixed
+loop to 2.33 ns per element and barely changed either isolated stream.
+These are user-initiated QoS macOS captures with core placement
+unverified. The original reference timings remain separate.
+
+The M5 Max profile retains its eight read-fill groups and adds 32
+effective address groups shared by L2-hit reads, write allocation, and
+dirty L1 writeback. The modeled spacing is three, seven, or nine cycles
+respectively. Each operation also reserves the existing line transport.
+A 1 KiB stride rotates through two mixed groups, a 1.5 KiB stride
+through four, and a 2 KiB stride through one. These are consequences of
+the model's line grouping. The measured contrasts motivate the grouping
+and mixed contention, but do not expose the physical bank geometry.

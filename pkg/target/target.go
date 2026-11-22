@@ -42,6 +42,15 @@ var builders = []func() Target{M2, M1, Grace, M5Max}
 // M2 is the calibrated Apple M2 performance-core configuration, including the effective
 // limit on integer multiplies waiting to issue from the counted capacity probe.
 func M2() Target {
+	t := baseM2()
+	t.OoO.NumFlagPipes, t.OoO.NumBranchPipes = 3, 2
+	t.OoO.FlagBranchDependency = true
+	t.OoO.Predictor.TaggedHistLen = 64
+	t.Cache.L2ColorPageBytes, t.Cache.L2RandomVictim = 16<<10, true
+	return t
+}
+
+func baseM2() Target {
 	core := ooo.DefaultSpec()
 	core.MultiplyIssueQueue = 38
 	return Target{
@@ -82,7 +91,7 @@ func M1() Target {
 	t.OoO.StoreDependencePrediction = true
 	t.OoO.StoreQueueInOrder = true
 	t.OoO.StoreBufferSize = 140
-	t.Cache.L2Latency = 18
+	t.Cache.L2Size, t.Cache.L2Ways, t.Cache.L2Latency = 12<<20, 12, 18
 	t.Cache.InterleavedStoreRunsWait = true
 	return t.WithFrequency(M1Frequency)
 }
@@ -124,7 +133,7 @@ const M1Frequency = 3_203_500_000 * timing.Hz
 // memory-side and DRAM latencies, both fill transports, the stream prefetcher
 // and the page-walk timing.
 func Grace() Target {
-	t := M2().as("grace", "NVIDIA Grace (Arm Neoverse V2)")
+	t := baseM2().as("grace", "NVIDIA Grace (Arm Neoverse V2)")
 	t.ParameterSource = "grace"
 	t.OoO.Latencies = ooo.Latencies{
 		Multiply: 2, DivideBase: 4, DivideBitsPerCycle: 4,
@@ -157,7 +166,7 @@ const GraceFrequency = 3_429_000_000 * timing.Hz
 // measured), 10 rename and retire slots, at most two conditional branches per
 // cycle and compare/branch fusion.
 func M5Max() Target {
-	t := M2().as("m5-max", "Apple M5 Max")
+	t := baseM2().as("m5-max", "Apple M5 Max")
 	t.ParameterSource = "m5-max"
 	t.OoO.FetchWidth, t.OoO.RetireWidth = 10, 10
 	t.OoO.FetchGroupLimit, t.OoO.FetchLead = 16, 2
@@ -186,6 +195,8 @@ func M5Max() Target {
 	t.OoO.LoadLatency, t.Cache.L1Latency, t.Cache.L2Latency = 3, 3, 12
 	t.Cache.AlternatingStoreLineCycles = 24
 	t.Cache.L1ReadFillBanks, t.Cache.L1ReadFillBankCycles = 8, 3
+	t.Cache.L1MixedServiceBanks = 32
+	t.Cache.L1MixedReadCycles, t.Cache.L1MixedWriteCycles, t.Cache.L1MixedEvictCycles = 3, 7, 9
 	t.Cache.DRAMLatency = 460
 	return t.WithFrequency(4_590_000_000 * timing.Hz)
 }

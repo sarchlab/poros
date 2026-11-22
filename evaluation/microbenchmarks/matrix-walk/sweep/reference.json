@@ -1,0 +1,2583 @@
+{
+  "schema": 1,
+  "benchmark": "matrix-walk-sweep",
+  "measured_on": "2026-11-21",
+  "protocol": {
+    "pairs_per_session": 21,
+    "sessions": 2,
+    "warmup_traversals": 1,
+    "timed_traversals": "min(128, max(1, floor(524288 / (rows * columns))))",
+    "clock": "raw monotonic wall time",
+    "order": "alternating row-first and column-first within each pair"
+  },
+  "devices": {
+    "m1": {
+      "machine": {
+        "chip": "Apple Mac mini (M1, 2020)",
+        "host": "marin-0",
+        "system": "Linux",
+        "kernel": "6.14.2-401.asahi.fc42.aarch64+16k",
+        "page_bytes": "16384",
+        "placement": "CPU 4",
+        "executable": "./native-linux",
+        "binary_sha256": "ae6b2733b38a8a03f298acb4108dae21549e60132f89b981c4489fca8f2400a0",
+        "host_compiler": "GCC 14.2.0",
+        "compiler": "aarch64-linux-musl-gcc (GCC) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
+      },
+      "cases": {
+        "n32": {
+          "row_us": 0.37955859375,
+          "column_us": 0.3798828125,
+          "ratio": 1.0,
+          "session_ratios": [
+            1.0,
+            1.0
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "735b1fdf2ee531be018bb03f2cd7961b6471b708ebd61f17cee2c20d1549ad46",
+            "a18509d8f025c254a10dde1203a40ee1f1a95c1bc40620b077d048475f88a664"
+          ]
+        },
+        "n64": {
+          "row_us": 1.69205859375,
+          "column_us": 1.69384765625,
+          "ratio": 1.0008661256432212,
+          "session_ratios": [
+            1.0007715122564194,
+            1.000960739030023
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "416c781368b8ac33d2147b0defdd76f658b5b084e3ce3b9d6ce12c6b45f8badf",
+            "bda1da291e5aaf08ba5cfe69c88c4cd75146020fa61720204fd3faf40c342744"
+          ]
+        },
+        "n96": {
+          "row_us": 4.0305,
+          "column_us": 4.056169642857143,
+          "ratio": 1.0,
+          "session_ratios": [
+            1.0,
+            1.0
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "81e13baba3d292780aed2ee72e7ba9285bba2d79b5bd5d983e19ff887efb3024",
+            "0cb38da3def62317bbcfeff9bca2505b7edf80fd08d1269e12b1a26313955ec6"
+          ]
+        },
+        "n112": {
+          "row_us": 5.739841463414634,
+          "column_us": 5.716975609756098,
+          "ratio": 0.9987506296555256,
+          "session_ratios": [
+            0.998772897852151,
+            0.9987283614589004
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "d26baf1e53a213c9c64aca6a6b5d66e08967b821f2f8925ebb900a97218afa48",
+            "a31e8f231725ae1df37e51ec020a987639c921cb6d3761d32bdebf37c72aaa32"
+          ]
+        },
+        "n127": {
+          "row_us": 7.251953125,
+          "column_us": 7.20378125,
+          "ratio": 0.9998256910405194,
+          "session_ratios": [
+            1.0028091309409324,
+            0.9974587759407542
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "a1c53e755f229e7fed8e1c1438aa11763a4a341537175eeed12536425e35e50c",
+            "6e6cc0ea446293a3dbd43a549fd7199f6be5ba8d2920a895f7ac68ac2222c890"
+          ]
+        },
+        "n128": {
+          "row_us": 7.3580625,
+          "column_us": 7.32096875,
+          "ratio": 0.995659185348317,
+          "session_ratios": [
+            0.9896031165271533,
+            1.0022994552582007
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "bee78b8db25e36f3ca5e5e7bc6c8c57bbf0051c3bc67f253a7127934aeb6191f",
+            "0662f7bce581820be9baa6d06628606e4a6bf8885b657b5ebde0df30a3bfc62a"
+          ]
+        },
+        "n129": {
+          "row_us": 7.770177419354839,
+          "column_us": 7.793693548387097,
+          "ratio": 1.0058988627660157,
+          "session_ratios": [
+            1.0070724637681159,
+            1.0057469036079698
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "22ee907330b06653f9b2b5b2ca85a811bffd48fbdda4ae53462165afe2bc6ae1",
+            "8920ebc9d4a66d9e109fd5e3e811fe68b335df2e3f67091b4636386eedfbfc3b"
+          ]
+        },
+        "n144": {
+          "row_us": 9.29416,
+          "column_us": 9.94834,
+          "ratio": 1.0745255918373207,
+          "session_ratios": [
+            1.076020625783919,
+            1.0740992964405618
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "33532ed9774e98a9d0415ff296d205be1c1a440e0d277b273d580f619068ba35",
+            "f5c8032e837677401f749a56da32c69f599a1bf07b4218eb13eff0bc75ff9ada"
+          ]
+        },
+        "n192": {
+          "row_us": 16.71575,
+          "column_us": 20.872,
+          "ratio": 1.2478777091974051,
+          "session_ratios": [
+            1.2478094077462432,
+            1.2481203007518797
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "81e7e4a6a43cba3df19e10cce6135dc8d6bf5465c75af239ef726ab90cdfba3a",
+            "1d37db96ebedbc8dc5a3dff3851e40fe25af5a0d0d3051d4e2d90a8d1078d2d5"
+          ]
+        },
+        "n240": {
+          "row_us": 27.476777777777777,
+          "column_us": 30.280055555555556,
+          "ratio": 1.102140569871871,
+          "session_ratios": [
+            1.1019361726218397,
+            1.1024719973787362
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "a2febf0e3ddb956090925402c77746b9fbb2afe01a25f16959a6e262d498720d",
+            "c27162a391a584802ac8c7975e7cbff9424b40a16c929e97201146d2ed3da7ac"
+          ]
+        },
+        "n255": {
+          "row_us": 30.8931875,
+          "column_us": 30.5989375,
+          "ratio": 0.9909759787642094,
+          "session_ratios": [
+            0.9917284701114488,
+            0.9903894790085989
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "b06cc5734e6cc2915b31f18c3e5ec6411eeda81a0c7abb01c5e43ce1e1980953",
+            "180eabeee36dde5568597bfbddbee343234a2080b1057ff741dba12805714bf2"
+          ]
+        },
+        "n256": {
+          "row_us": 30.513,
+          "column_us": 203.30725,
+          "ratio": 6.6592846307705225,
+          "session_ratios": [
+            6.660812100801777,
+            6.648817389952417
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "695d58357e32e69a56d4d09a2719265cdbcc26ef87816aa6d70878e6d27228d1",
+            "394a21fdab88fa735d322ee0b1f584692433090999e77fae591928490c48cc5c"
+          ]
+        },
+        "n257": {
+          "row_us": 30.098214285714285,
+          "column_us": 30.297571428571427,
+          "ratio": 1.0067256013038075,
+          "session_ratios": [
+            1.006326290411375,
+            1.0075276282502426
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "536d8e8e5740916e85132f9f78729084ddca313f19d26267c5a25ee94407d28f",
+            "f1dfa7e6f9d478813a4492df949f8a954a1585aa652fc66f57068d0f43214bc5"
+          ]
+        },
+        "n272": {
+          "row_us": 33.6845,
+          "column_us": 36.994,
+          "ratio": 1.1162182534943554,
+          "session_ratios": [
+            1.1156561844863733,
+            1.1164400827523862
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "077a2bfd5d65606ddb21897da2adeb48082b2678fac68ac518349836de8798f6",
+            "846d6c676c365d6efee845a242fe3933a93c95d9d49b6aa9d36f813e71f73057"
+          ]
+        },
+        "n384": {
+          "row_us": 66.23616666666666,
+          "column_us": 232.007,
+          "ratio": 3.504843905626605,
+          "session_ratios": [
+            3.51306614927545,
+            3.496111041009464
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "20995054cc6f3cc5bee26222e191d8209b8b9aadaa7673f478e01dc2ba6f6575",
+            "0c89ccebba9f63d4b3529635a5465d2e2acd3bc94f1b957b5e03494a91e07e49"
+          ]
+        },
+        "n496": {
+          "row_us": 114.1455,
+          "column_us": 128.08325,
+          "ratio": 1.1216605751670357,
+          "session_ratios": [
+            1.121597763385421,
+            1.12172338694865
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "bf83be013c1619739ddeed56da0191c2a69c57bea602d6a8e8ce62deed271b73",
+            "642c3962a0e9ae817b49988d22057996c2b50fec95e3dcccc54df5ad00625fca"
+          ]
+        },
+        "n511": {
+          "row_us": 117.875,
+          "column_us": 118.41675,
+          "ratio": 1.0066495702987441,
+          "session_ratios": [
+            1.0070078494482395,
+            1.0065574468085106
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "e9ccade4083b6f2bb71a29a281f9966f5baa134c45de59e6428060fd8c4e5c56",
+            "86a3993d7d15ac489fe6e4e8cb73acb75bade068c1cee102b001079f5ed6dfb0"
+          ]
+        },
+        "n512": {
+          "row_us": 118.02075,
+          "column_us": 902.44775,
+          "ratio": 7.668219629577296,
+          "session_ratios": [
+            7.648127118644068,
+            7.6891427266460575
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "7263d9ceb3ca2b3155a8b6829fb2b57de37e9eca15b1effc7f000892fc485a3c",
+            "19a9ddb127d5d4beb12151d5f081254feb3974e681f8bb353ffa4657a4a90ace"
+          ]
+        },
+        "n513": {
+          "row_us": 120.896,
+          "column_us": 125.0205,
+          "ratio": 1.0205704802888445,
+          "session_ratios": [
+            1.0203809620218993,
+            1.0211011122180667
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "eaf4afe00850bd4bf9febe42e11b65cceef10cac5923af11c0f2e82ec3cafe4f",
+            "97ab29f2287c793cb7031a96722b02f559a2720f1371987557e9dada54342c7b"
+          ]
+        },
+        "n528": {
+          "row_us": 126.6045,
+          "column_us": 142.0415,
+          "ratio": 1.122030679791928,
+          "session_ratios": [
+            1.1221175039302276,
+            1.1219139951604484
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "36c586cd8f83f0a587c38704bd8806ae9df8d4ef195ccfb549a9d3be3fcfcb3c",
+            "cc6ef0494034e8eb52cc19ae3cc68bf87fb217837166c5504902935368301ac6"
+          ]
+        },
+        "n768": {
+          "row_us": 268.3955,
+          "column_us": 1493.625,
+          "ratio": 5.613484731536142,
+          "session_ratios": [
+            5.605860704650725,
+            5.62824984088109
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "801a79fcbe3758906264636dbdda15201d809e794242f8f1c38cfddb3a3539c6",
+            "2388d4ff1aab608c2d7dc6be00f873d3efa79a13a42feb301ad5cf394054d954"
+          ]
+        },
+        "n1008": {
+          "row_us": 464.2085,
+          "column_us": 558.916,
+          "ratio": 1.2050882447848217,
+          "session_ratios": [
+            1.2060811263229787,
+            1.2026153846153846
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "984c2f73d704cd9584316f3cf5376d3b19ff9b7874d82af583039da97b68ad20",
+            "094ff9b5c3993b0962705d4f15bf8dc407f1551130f6cecaffdcb826374e794e"
+          ]
+        },
+        "n1023": {
+          "row_us": 469.146,
+          "column_us": 1265.8125,
+          "ratio": 2.7300488306297943,
+          "session_ratios": [
+            2.7352861404936264,
+            2.7254472929253395
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "3ac2f31d24bbd15addb8d876af1d09e20741e83472fc3f721f56e743f198903e",
+            "491e87d2add5f9d50aa8e9494bb93317ded383e8ceb72621e102a048f8fecbde"
+          ]
+        },
+        "n1024": {
+          "row_us": 466.9585,
+          "column_us": 5082.458,
+          "ratio": 10.907694531218048,
+          "session_ratios": [
+            10.901147309727717,
+            10.915861808797493
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "3619b0908918a46c71b000ff8b996f740d47854e19582c9599b43b7ce99a069d",
+            "f736139f9de3f5078324149ab76ec6ce88a9953e7ca79bd8c4a92ac8e26df227"
+          ]
+        },
+        "n1025": {
+          "row_us": 481.9375,
+          "column_us": 1448.0415,
+          "ratio": 3.0120771074089356,
+          "session_ratios": [
+            3.0155710977742074,
+            3.0085116529595983
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "7b4f76b161356af231aedb4bcff6d55171a7dd12b795ff7631dbc5ce4255a6d5",
+            "706153f7ed779b786b0a8e9d1d7f784105e933cfedbc4a79325ca915893ccdc6"
+          ]
+        },
+        "n1040": {
+          "row_us": 492.458,
+          "column_us": 600.438,
+          "ratio": 1.2330607704501937,
+          "session_ratios": [
+            1.2333033333543124,
+            1.2306703430003665
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "4532beb616ae7ecb2a6c3d2100d9ab6e0056187390005d01773134c19acc9460",
+            "19e8f7a0f4ed9ce7e2ac36c8d954e73cd0ee70f294e58f0e8d1af9769f5e5c2f"
+          ]
+        },
+        "n1536": {
+          "row_us": 1068.979,
+          "column_us": 9285.042,
+          "ratio": 8.705643776194165,
+          "session_ratios": [
+            8.663016219903962,
+            8.716145129732954
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "8d21ea0e63151218d718103e3f42864ef30a074776ca482720d3e47df7c86044",
+            "7e12728ca65c06144f8efa3b89519b65035345292323dd90e6d3da634e4863e4"
+          ]
+        },
+        "n2048": {
+          "row_us": 1893.854,
+          "column_us": 31500.6045,
+          "ratio": 16.634488901278708,
+          "session_ratios": [
+            16.658504389149233,
+            16.616400369734585
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "edea7edcd7af9d525d8620c91cd6e6a0031458ca5fb7751f3993e8026f456c47",
+            "1636b515c4e70c0adf5b9da9c80b07a999028e0a6cdcb8087ba9b3e073d18626"
+          ]
+        },
+        "n256-p1": {
+          "row_us": 30.885375,
+          "column_us": 30.979125,
+          "ratio": 1.0019584111924718,
+          "session_ratios": [
+            1.0013991990213986,
+            1.0026958978635212
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "a7c194401bbac88bbb2ec17787ddc96c3aa75883220d5cd65826a952bc8ac59d",
+            "219eb4481e6b95c7159978ad886d7d9058060c4e7ab131a7210f6d7401964acc"
+          ]
+        },
+        "n256-p4": {
+          "row_us": 30.0755,
+          "column_us": 30.1796875,
+          "ratio": 1.004894661859891,
+          "session_ratios": [
+            1.0027986053127347,
+            1.0064110612068022
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "ec8c8231cc8e38e6feef8b50cac270e86cc4abe0e34bf4c86dbe928121b07660",
+            "f148673a0324e121a723cc85815b92289df05420dff7be6024b4eba1abb0ba52"
+          ]
+        },
+        "n256-p8": {
+          "row_us": 29.86725,
+          "column_us": 31.1301875,
+          "ratio": 1.0414295557831867,
+          "session_ratios": [
+            1.0406858800254837,
+            1.0417715254009798
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "f572818b1d7e09c0d4b12b4cb2de492c7522921f75452255d47a1f064818a567",
+            "0c9fe4256b93e29e19e3a3b32ddf992eeb37e1a6923931a0390e0a55acc34097"
+          ]
+        },
+        "n256-p16": {
+          "row_us": 29.796875,
+          "column_us": 33.184875,
+          "ratio": 1.11103184673398,
+          "session_ratios": [
+            1.1110514165792236,
+            1.110855588941299
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "f634943b579105b718f80bfb9b9847cb60075cd9056736f9656cc166d48d7ed6",
+            "ebdd2027d5139a565192f79e94641befae463d836404561b40decac06d4ca089"
+          ]
+        },
+        "n256-p32": {
+          "row_us": 29.789125,
+          "column_us": 33.015625,
+          "ratio": 1.1080890493858866,
+          "session_ratios": [
+            1.1080797481636937,
+            1.1090287461568187
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "9e24fe8214b018866b865368aa69da43cdd8675b1c23848eb7522a2b84a3c56b",
+            "3ae63c12a7985f649e34a8225740f8a75737b8e88e1e6c0ccf35fdebf5147d7e"
+          ]
+        },
+        "n256-p64": {
+          "row_us": 30.203125,
+          "column_us": 39.35675,
+          "ratio": 1.3039210688047613,
+          "session_ratios": [
+            1.3043085675930512,
+            1.303312629399586
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "e38ab89cd7071da7107ea4b404f36b3e8e6a150458d48e8a70abc92225ddbd6b",
+            "1aa190027aa57a663e75bbaa2dcfa70dac4c25bfb1d9eec9217996243b22d22e"
+          ]
+        },
+        "n512-p1": {
+          "row_us": 118.09375,
+          "column_us": 119.94775,
+          "ratio": 1.0155319039489663,
+          "session_ratios": [
+            1.0165844362096348,
+            1.015352038115405
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "dfadb410c96eed6032cc6096992b3bbd7211b0a9a0e318d68ba18286b0eb16fb",
+            "192128da3620ee4d60449c589331e46d2f1b0f5e023fc115dd21362963e8ee51"
+          ]
+        },
+        "n512-p4": {
+          "row_us": 118.0835,
+          "column_us": 119.25,
+          "ratio": 1.0093555744228406,
+          "session_ratios": [
+            1.0093509793541557,
+            1.0093601694915255
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "9016807a92dcf9ab2d787e3b06003fd18d4a7b743b03b310935d75e73286b70c",
+            "43d4558ff530d3f0aaf4e28e2090638aabbb16208fd87e2894af623beeea785f"
+          ]
+        },
+        "n512-p8": {
+          "row_us": 118.10425,
+          "column_us": 125.09375,
+          "ratio": 1.0594925981417505,
+          "session_ratios": [
+            1.0589391212281631,
+            1.0602033898305085
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "244a2c9619e0a5a9e77c9d34176012a16c4ebec4bf2aca54c65952039b671a17",
+            "033d4b75b701e6e460db31f0120894210dc5c35d082e9f3dfac7d92a58de4fa0"
+          ]
+        },
+        "n512-p16": {
+          "row_us": 118.698,
+          "column_us": 132.1875,
+          "ratio": 1.1141096907070382,
+          "session_ratios": [
+            1.1139965178386992,
+            1.1143911439114391
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "a4c8b73798c1f89dacd1b70b169ad88eecec45cff8c7b9322b8033e2e1d74a27",
+            "5562326a9c4d47c142d0c543472fe4e18362a6c8463c637729bf99052372f03e"
+          ]
+        },
+        "n512-p32": {
+          "row_us": 118.35425,
+          "column_us": 132.76025,
+          "ratio": 1.1214887993802538,
+          "session_ratios": [
+            1.122201796090861,
+            1.1199875017417336
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "1f430828b6c8952e5280537987f7a7303523f5722a3d57744858db29da97b2f2",
+            "21c2864401d69d0d3ed4714126b9e0bd6c14eb385a55107c5c8c68d03e33bbae"
+          ]
+        },
+        "n512-p64": {
+          "row_us": 118.53125,
+          "column_us": 403.229,
+          "ratio": 3.3973363779882098,
+          "session_ratios": [
+            3.4009465648854964,
+            3.3959309972682203
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "47a3b4bd2f765e69b80a79c72b432bdb7e15fa2a09c26e70e8259fba297b7ac5",
+            "3184a99a2408486d2278d1d6420724745714fe6ee7419ad308fb8a50ada2c8cf"
+          ]
+        },
+        "n1024-p1": {
+          "row_us": 463.6875,
+          "column_us": 1407.5835,
+          "ratio": 3.033249918552028,
+          "session_ratios": [
+            3.03364058283864,
+            3.032329028372591
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "bcf16fae6fc471efcf693b8e9fac64ba23ab8f4a6288848b8597851e014c2e45",
+            "5b5b1560466adba8b1a1ea7e58c758ec833f4d11cfa9de4f24069645d90e4bb6"
+          ]
+        },
+        "n1024-p4": {
+          "row_us": 465.979,
+          "column_us": 1234.521,
+          "ratio": 2.6553838090881516,
+          "session_ratios": [
+            2.6559833246482545,
+            2.6553005305244395
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "0ec334af674a5a70fc2c37d032fdffec9b34cd3f23b8ea70d28b02a15b958588",
+            "b6ad331e4acc8dc77478ad2fbfd9ad3600cacc40dc7ef6d586b55934b1c1d326"
+          ]
+        },
+        "n1024-p8": {
+          "row_us": 467.146,
+          "column_us": 569.146,
+          "ratio": 1.2132230932978298,
+          "session_ratios": [
+            1.1976177585273415,
+            1.22742300405954
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "f1899120a08ac881c5f3d0f69d5fc44efed50cbc39b1fb817c95d0010595ff5e",
+            "a4804a20fcf7b2b8a8513e85c698a06a0168e25d76f09a5e57fda8cab116fc5a"
+          ]
+        },
+        "n1024-p16": {
+          "row_us": 472.625,
+          "column_us": 575.979,
+          "ratio": 1.2186632100125885,
+          "session_ratios": [
+            1.222252676659529,
+            1.2154109303830312
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "b49d9baacfcacdff4268ccda912d16c3efc22bb098e44619bb274da8b4a816ac",
+            "c2f0267ae7168918ffe5d260050db10b0bf9839a6ef2b19ddbfce183957efbae"
+          ]
+        },
+        "n1024-p32": {
+          "row_us": 476.1875,
+          "column_us": 1346.437,
+          "ratio": 2.8236893618601666,
+          "session_ratios": [
+            2.8162363928380225,
+            2.830195655067363
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "e589569a59d488b7bf349e1912abc77ae2a66a92b0c9cd3e2d407dc66af14432",
+            "2465d5552f67c801ae62bd3d47008fc647d283e8a9a155ddcf54700839495525"
+          ]
+        },
+        "n1024-p64": {
+          "row_us": 476.521,
+          "column_us": 1689.2085,
+          "ratio": 3.5605477549718967,
+          "session_ratios": [
+            3.556672659968271,
+            3.5609820485744454
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "7a8fc1d9e81649199bba4c287d23ec7d54fbb1abaef381842af77b6b69197e89",
+            "c8c462ed34118ed70ffe6d32946e8c0efb91b5a3b8d727cbf7dc7db92028fbb0"
+          ]
+        },
+        "stride-1023": {
+          "row_us": 60.52075,
+          "column_us": 154.250125,
+          "ratio": 2.549107498915611,
+          "session_ratios": [
+            2.5504397309881015,
+            2.546965523791433
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "9ab3ea35b8d18a7ff8845c9ea24044bdd051c92053277185403666a591ac2d04",
+            "38259ddaeef51825f37816407657323fcfefa26fe00a77730f76d0c0b057fca5"
+          ]
+        },
+        "stride-1024": {
+          "row_us": 60.6875,
+          "column_us": 631.54175,
+          "ratio": 10.547459330332465,
+          "session_ratios": [
+            10.546733475479744,
+            10.555741227023155
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "0d67997362070030da2e68cee82959767a8930b4d422d509fe278529134ea8f5",
+            "558621d778d5692947a1bb7accf8dacfbbcd478f5803d4d8a0e0c034efeac555"
+          ]
+        },
+        "stride-1025": {
+          "row_us": 60.484375,
+          "column_us": 173.04175,
+          "ratio": 2.8685337723294753,
+          "session_ratios": [
+            2.710390288422068,
+            2.8757935594223873
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "052c4849417373d65df0a5034aa77580dead8436e52c3cbe4d8d1d5add5f3844",
+            "a87fb0bf3c4e07c0a8ce873821f3964cc6d3e88af4c9de23847256e945d79ef2"
+          ]
+        },
+        "stride-4095": {
+          "row_us": 68.562625,
+          "column_us": 601.854125,
+          "ratio": 8.809290326599923,
+          "session_ratios": [
+            8.781048758049678,
+            8.828016643550624
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "77aa3023a64dd340c055e1c8982bc0fa59f52c4d2b265440815ca196b70d93ed",
+            "981341d291f5d1ff43cfd8e8c646cee518a96d579b9ae9e13748c24819893aa5"
+          ]
+        },
+        "stride-4096": {
+          "row_us": 84.349,
+          "column_us": 1040.442625,
+          "ratio": 12.356712490544515,
+          "session_ratios": [
+            12.31840414507772,
+            12.368858467626586
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "70b7b1173e70875db3ce1af6aff16a74d5f46d2646e0da2ad005b0b0873a8aa9",
+            "e07c3b92dbd01ed4f01bd93266a0c81f4a97edec76d076e4a926844c234c6ff1"
+          ]
+        },
+        "stride-4097": {
+          "row_us": 69.69275,
+          "column_us": 600.739625,
+          "ratio": 8.746330376444307,
+          "session_ratios": [
+            8.75861525665312,
+            8.734034489293158
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "4ad44216e667d5cf23f9d64dd07a4f2c4a037217d7ce5577d4231cb3d522cc63",
+            "40978fd004e7559f64cbfe456a9a1df38e4a9a598e73c3594d474b3e5e0062f7"
+          ]
+        },
+        "n256-a16": {
+          "row_us": 30.6354375,
+          "column_us": 72.362,
+          "ratio": 2.3631288831456976,
+          "session_ratios": [
+            2.3625836734693877,
+            2.363450740173558
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "408b1e06ebae82659031559dbe63f743e36d98b8fa2091bedd74105e59324dc7",
+            "d3b9a56f9fc2a239aaaa5e6ff9f53c45eca09c2fc72a0ced3aabc8513010b39a"
+          ]
+        },
+        "n256-b16": {
+          "row_us": 29.882875,
+          "column_us": 49.7864375,
+          "ratio": 1.664510014280884,
+          "session_ratios": [
+            1.6642429947496125,
+            1.6652028290587875
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "542752ba8d168f4ff6b1d5ab992d4a068e09f137abcbfbbf4cb8012aaef6f219",
+            "cf9b0aa9ab98ea35bb055405e9f714bf2bf1060d48f47bc42afacab15b2c1838"
+          ]
+        },
+        "n512-a16": {
+          "row_us": 118.0625,
+          "column_us": 809.052,
+          "ratio": 6.856965053684937,
+          "session_ratios": [
+            6.858098360655737,
+            6.8509243932280315
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "d5ab4ffdb92b0889fc6747dea17ca13d0d6279a2692300be839b49daac58b141",
+            "620e659b066907de4ff056abbe9aca1c0b6c4be3d77c44962f7a58788c4b0b37"
+          ]
+        },
+        "n512-b16": {
+          "row_us": 118.51025,
+          "column_us": 208.8855,
+          "ratio": 1.7633000385511473,
+          "session_ratios": [
+            1.7638484457161185,
+            1.763136507936508
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "86fe3b4fd1f5d5bfedf2827914d9afc470ab1a277e8ce4154e99ef5fc17a0dee",
+            "42cb565a3531c22b73d1ff437727b57fe73b946f5a71c7f3e98249bd96c07054"
+          ]
+        },
+        "n1024-b-offset-4": {
+          "row_us": 464.729,
+          "column_us": 5084.917,
+          "ratio": 10.91102943123335,
+          "session_ratios": [
+            10.922940441320897,
+            10.863296454537993
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "e412bdc78fe20e82243a8bf54dd99fe7d3c117eab89dc00b85f39d92df76e457",
+            "da86da63bdd0b3c34eb03a7cdc0fa7956dbaf2cb1b88906fe883498afc38a843"
+          ]
+        },
+        "n1024-b-offset-64": {
+          "row_us": 468.0415,
+          "column_us": 4169.438,
+          "ratio": 8.868070946217287,
+          "session_ratios": [
+            8.91055642225689,
+            8.823980104241516
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "5cf84dcbfb9d993ca7c6e89cd0ed4a11ae8944eed7b6bc5002eb2ac0922bbd0e",
+            "1980f6bf3878720d51b2b334286bd3730e6eeb4856f0018122b3b0deba1917f1"
+          ]
+        },
+        "n1024-b-offset-128": {
+          "row_us": 468.458,
+          "column_us": 3992.583,
+          "ratio": 8.531371842286717,
+          "session_ratios": [
+            8.511784888410864,
+            8.53477088948787
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "7453e1e40c572b5ac8dc72597c0e2315ae8dd9ccf1eee13fa13787ae64ad69cf",
+            "fbae22ba042451a5f5314b34c3cc4e474443ed63e229f56897c6024c7bddd1e6"
+          ]
+        },
+        "n1024-b-offset-4096": {
+          "row_us": 473.583,
+          "column_us": 5190.4375,
+          "ratio": 11.112203385895604,
+          "session_ratios": [
+            11.054464593575082,
+            11.138611186165901
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "93c44dc1cefa76dc7e8ea7c78493c4841cb20c0fcf1402f16ae2f291ebc18997",
+            "84677019fa792ad4809b0a8b18a1c717cc995765c791c4cee9bd1a7fc478cf0d"
+          ]
+        }
+      }
+    },
+    "m2": {
+      "machine": {
+        "chip": "Apple Mac mini (M2, 2023)",
+        "host": "marin-5",
+        "system": "Linux",
+        "kernel": "6.14.2-401.asahi.fc42.aarch64+16k",
+        "page_bytes": "16384",
+        "placement": "CPU 4",
+        "executable": "./native-linux",
+        "binary_sha256": "ae6b2733b38a8a03f298acb4108dae21549e60132f89b981c4489fca8f2400a0",
+        "host_compiler": "GCC 14.2.0",
+        "compiler": "aarch64-linux-musl-gcc (GCC) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n"
+      },
+      "cases": {
+        "n32": {
+          "row_us": 0.36165625,
+          "column_us": 0.36669921875,
+          "ratio": 1.0009096021755182,
+          "session_ratios": [
+            0.9999787987364047,
+            1.0018292011019283
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "e79c3d9d77b3ba1c2b68c4fc94e9dee479b94cf267f6f5119acd6acde4de2604",
+            "a86928e9342d8e9c37e3b3b8125ad29bfabfc27497ce5ef03b78006f09cb60e2"
+          ]
+        },
+        "n64": {
+          "row_us": 1.6399765625,
+          "column_us": 1.64469140625,
+          "ratio": 1.0023807374302485,
+          "session_ratios": [
+            1.0025761904761905,
+            1.0016427489652655
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "da266a88627a035b9d0421c0069f0ed14af6eb96e7dc08a9797d3666bcbfe48a",
+            "43deaa7d9e06df3c2613c2230acbbe884020c88bd734fb204a534a6f026354b3"
+          ]
+        },
+        "n96": {
+          "row_us": 4.107517857142857,
+          "column_us": 4.09375,
+          "ratio": 0.9968193172772477,
+          "session_ratios": [
+            0.99712242010078,
+            0.9954679297311638
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "5811a129f1e9905776b5379e4e634c344a5df28c5490fd2d8cf5d0ac3c0e5d88",
+            "7fb1645e3fd73d72654dc72d772db60c7c740749bb78e84278623437af3ec78c"
+          ]
+        },
+        "n112": {
+          "row_us": 5.4659512195121955,
+          "column_us": 5.453756097560976,
+          "ratio": 0.9993487110071696,
+          "session_ratios": [
+            0.999254629380175,
+            0.9998125351496594
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "6f65dc8ac92264a30535db97ced21ae7b6ee715631abd9e7a877ce3b7378e5db",
+            "f6cc8e0a449345557e0f37eee8abbc10d6f3cfb1c361f0f0bec5aa00f6413359"
+          ]
+        },
+        "n127": {
+          "row_us": 7.055984375,
+          "column_us": 7.046234375,
+          "ratio": 0.9979658398664085,
+          "session_ratios": [
+            0.9985271675480002,
+            0.9979649023241791
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "bd7435ad71a54ec5ab926260e1c1d2fe0f3bfaf1e52a9dac92202f8acd91072f",
+            "32ee68f4ea34738275e0bd1fba3440277d98a77d2d35a062e1332d3acca0dc36"
+          ]
+        },
+        "n128": {
+          "row_us": 7.22721875,
+          "column_us": 6.86978125,
+          "ratio": 0.9580848017936836,
+          "session_ratios": [
+            0.9560879430936456,
+            0.9597382945025081
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "b50c21e9d26606b9035569aca964e7738bfcd2dee6eb6e47037ba731277526db",
+            "87f426e5552dc3f34524cc0bc1a690f04c2fd6018994f7b43f374aa9af3da6df"
+          ]
+        },
+        "n129": {
+          "row_us": 7.186822580645161,
+          "column_us": 7.232548387096775,
+          "ratio": 1.0045746017226276,
+          "session_ratios": [
+            1.0069057866192548,
+            1.0035555555555555
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "4febca993ee0b7c1b1f11c086d517b44fae38356b949e0717a76368f9b4ed713",
+            "04afdd5316f3758b576573d8ecffd7b3086a4b4234dca29f9769083e070141ef"
+          ]
+        },
+        "n144": {
+          "row_us": 9.02498,
+          "column_us": 9.59166,
+          "ratio": 1.0609544649124791,
+          "session_ratios": [
+            1.0608258928571428,
+            1.063945391159329
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "0a2efb14b31cfda86d030d557b42be0f85da66fabcebba9843613064f50ad487",
+            "47d7e089c449e4949f667ef5c79df62468203c45f2af667a37c5827e544438b1"
+          ]
+        },
+        "n192": {
+          "row_us": 16.52978571428572,
+          "column_us": 19.651785714285715,
+          "ratio": 1.1864264544894023,
+          "session_ratios": [
+            1.1855726872246697,
+            1.1866687655823214
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "4c5560941cdcd778f34b11caca85633910fb45eb6e487a50828fadc4923ef173",
+            "742572a52ceb698db184a9025d67fc192124e08534ee023d13cf51a812791b44"
+          ]
+        },
+        "n240": {
+          "row_us": 26.034722222222218,
+          "column_us": 28.40972222222222,
+          "ratio": 1.0958503751982263,
+          "session_ratios": [
+            1.0912988824410657,
+            1.0986140724946696
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "861a4aeac7d3fadeb00cf3ef892969e4522a3d33c11915161b752dcc2f172705",
+            "e00b026359fa16dce61d897361de54958f5066d5225c12d08ec21eee3781a2a1"
+          ]
+        },
+        "n255": {
+          "row_us": 29.2760625,
+          "column_us": 29.0104375,
+          "ratio": 0.9926259885524826,
+          "session_ratios": [
+            0.9887125,
+            0.9959406779661016
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "0b7cc5165e60f17c0923ad6e1907b1aa73a8894340cddd0ec5b27d5d1d730899",
+            "e04d95ed12c264f6b22341778698493abefadf926cbdcde697718a24d12f9712"
+          ]
+        },
+        "n256": {
+          "row_us": 28.9479375,
+          "column_us": 187.8698125,
+          "ratio": 6.390596105716957,
+          "session_ratios": [
+            6.384967488401387,
+            6.406908901613743
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "051e49165737f798d45e948fb56e20306ec94c71847d36f43593ca5b9eda0a3f",
+            "05c1e7dc2fe46b2f5f161218debc4b4cddc1ac1b77c8b004b8a7a991f2810e3e"
+          ]
+        },
+        "n257": {
+          "row_us": 29.535642857142854,
+          "column_us": 29.074428571428573,
+          "ratio": 0.9880816775152432,
+          "session_ratios": [
+            0.9925069973565542,
+            0.9832101690635955
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "8d17350d6ceb524681e00279917531666b537e7633b1cd732c3c177e97df2e84",
+            "8bad488a5b66f6c8ac71a07ff0de81532256adf36972d42afbebcf91baad205d"
+          ]
+        },
+        "n272": {
+          "row_us": 32.997,
+          "column_us": 36.13692857142857,
+          "ratio": 1.0985360376490103,
+          "session_ratios": [
+            1.0977630912180145,
+            1.0993089840800059
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "718aafbdce3a004c6ad147741f874fdb1b0480f9dc433e49c87852083f7349a4",
+            "ee48ec4a563cead9c59200c6786e1aec2422ce527eb28e3e312666b92a0f560f"
+          ]
+        },
+        "n384": {
+          "row_us": 65.40983333333332,
+          "column_us": 212.09716666666668,
+          "ratio": 3.250672624668402,
+          "session_ratios": [
+            3.2497897435897434,
+            3.2562867737948085
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "5d7e614fcdbf5c86046170a57d213f5a7cb346fac03032c85c05caee2a1af483",
+            "370cc79d608e0b9685ecf6d33ed7b71270d3b0dfe4a06d33e736128453409399"
+          ]
+        },
+        "n496": {
+          "row_us": 110.302,
+          "column_us": 121.229,
+          "ratio": 1.1069970059244822,
+          "session_ratios": [
+            1.106859546979019,
+            1.1071344648699455
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "21cc67545aa28fce7737ce6fca9b28864fd0d2933a2f25edf244e3f864c77ffe",
+            "89fe36aca3d20d529ad862274ba73b01a87a8d55230dd5baaa95441db4b499b4"
+          ]
+        },
+        "n511": {
+          "row_us": 117.6665,
+          "column_us": 116.92725,
+          "ratio": 0.9912770047384728,
+          "session_ratios": [
+            0.9900568941472666,
+            0.9924755090809025
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "f3b779bb33f83d350c6b13157aa009258eee83209bd2e187187c8e3552140789",
+            "ff4a778b5628380a250bde2fef9dfc7e1f9412ec20559aaa0f39daba16624caf"
+          ]
+        },
+        "n512": {
+          "row_us": 113.03125,
+          "column_us": 860.427,
+          "ratio": 7.617451368666279,
+          "session_ratios": [
+            7.506357183266093,
+            7.64360824453953
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "53b4649bb50143651453cfccc363580158297d1f45251b0baa9c8d86964a670e",
+            "d93c8db81ea5b7092c2b88156887e2ad7f734744b29d74977273597f35fd8158"
+          ]
+        },
+        "n513": {
+          "row_us": 117.916,
+          "column_us": 118.896,
+          "ratio": 1.008994300406584,
+          "session_ratios": [
+            1.009154948157138,
+            1.0088336526560302
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "7da27686385d2f6ad4588ecf2142efec2336438b2b53e0cb5cdebda92548f585",
+            "1d7c32bbe02708a9717521cf3fc43b9ca1422715678bbce8070617cb82fa3ceb"
+          ]
+        },
+        "n528": {
+          "row_us": 124.708,
+          "column_us": 138.75,
+          "ratio": 1.112094355421878,
+          "session_ratios": [
+            1.1142284569138277,
+            1.1115966898675305
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "b324ac60cbcd874bf7b97f6cfaa5cbc29a34956a293e6b8ddf40b12e006fc80a",
+            "dcf5df2213206ecf7db57e8456d0a1fc9252480156c0012c8c92ce5ba7c5019b"
+          ]
+        },
+        "n768": {
+          "row_us": 255.604,
+          "column_us": 1069.8955,
+          "ratio": 4.263933817818996,
+          "session_ratios": [
+            4.2673956262425445,
+            4.260472009395448
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "1804b27aa50c50eab1ab5e162311c05b0e9f57c26b5ead93950b8e718b2f5f04",
+            "102adf4c678543931aa428893f98926c565e89e4ee4d2f189ee7bc5b303596ea"
+          ]
+        },
+        "n1008": {
+          "row_us": 441.229,
+          "column_us": 535.083,
+          "ratio": 1.2093165472737124,
+          "session_ratios": [
+            1.2006420545746388,
+            1.2107664561050893
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "4ac21867a08336e39f6f74d0624da49bc2bc9aff2001e919f30e73fae74c24f4",
+            "08f92978c7beca500ddc36b0e792e458eed9f3cab884365ae7334f5f5443ab26"
+          ]
+        },
+        "n1023": {
+          "row_us": 454.0625,
+          "column_us": 1214.8335,
+          "ratio": 2.748025786637535,
+          "session_ratios": [
+            2.7726679394809333,
+            2.7321959777826996
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "0a0ec3284d8295c051d8e59453b61eb56853c353d12f4135e5e0468e5ae4161e",
+            "e64f04f89b73e07300759dcf8afcaace8ddfd57d6549ca2d9bd5d379263e2f3b"
+          ]
+        },
+        "n1024": {
+          "row_us": 435.813,
+          "column_us": 4676.5835,
+          "ratio": 10.724351339500824,
+          "session_ratios": [
+            10.721535191037058,
+            10.727655883699475
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "4b5bbfe1461647953f0cc101df5800962bda75f60bfea424d44e93e7621f974c",
+            "3452e82c11435eec4b0afca5bcf3ef954114a99c57ddb29b7c80849fb5b498d8"
+          ]
+        },
+        "n1025": {
+          "row_us": 448.438,
+          "column_us": 1323.1045,
+          "ratio": 3.0222815730722865,
+          "session_ratios": [
+            3.004208222053062,
+            3.032276657060519
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "ae5d1dff20584eedba7a13a6ea895de5765c72b5f760848c2814aaae9b5cafb7",
+            "7230d6cede3dc749c38511e63faa0f2473f59d2177536f59a5dc74a820b42bec"
+          ]
+        },
+        "n1040": {
+          "row_us": 465.646,
+          "column_us": 552.8335,
+          "ratio": 1.214826507506137,
+          "session_ratios": [
+            1.2161599205404563,
+            1.2123546407293087
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "b66f2122e510dfc1c70c4c073857b59f3500b7c4f81f570fc74327110ec943f2",
+            "b0b53fc5ef450a936eb5ec320daf887d10b099850f8dfa11b7786dbf2bd72c86"
+          ]
+        },
+        "n1536": {
+          "row_us": 989.8545,
+          "column_us": 7935.3125,
+          "ratio": 8.038695753294295,
+          "session_ratios": [
+            8.040054452167684,
+            8.020321884200197
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "77843e97dc15829efd4962fbbe8bd8a012d1e0bcb27df257d06901dc9cc1c50b",
+            "d440a3c9e050be8ccea9799d3456988078672be31ca58f990f619532fcbf868f"
+          ]
+        },
+        "n2048": {
+          "row_us": 1769.6665,
+          "column_us": 32585.458,
+          "ratio": 18.434302601795437,
+          "session_ratios": [
+            18.502747371412333,
+            18.39536489670165
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "f992fa8169ab097d8ff9c830bb9256051da705b9c5b5779d679da1a2477cdeff",
+            "8b3651cc9536333ec66aa48f4412b77e8f8e8a510a5d0a22f6cf8c6ef14bfd0e"
+          ]
+        },
+        "n256-p1": {
+          "row_us": 29.4115,
+          "column_us": 28.96875,
+          "ratio": 0.9905132439405666,
+          "session_ratios": [
+            0.9912250922826362,
+            0.9883651987110633
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "44172339b5e4d0fc5ba36d0e6e7e3c0efb55d398939638c500d4eb7f90b26ff8",
+            "10d7024a38d46f3f6ee3597a8e4ed520005754838033abb60f1895c30db7b5d6"
+          ]
+        },
+        "n256-p4": {
+          "row_us": 29.7865,
+          "column_us": 29.4999375,
+          "ratio": 0.9874815486143484,
+          "session_ratios": [
+            0.9903917799083638,
+            0.9826906766955941
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "f6473ff22558ad2a7fe15c12142c53dc499c4d85973b83fa452e1246cc2974e2",
+            "e5fca93d676a4f7247f906f32413fd1ede9300e0678b341fc17229179467b312"
+          ]
+        },
+        "n256-p8": {
+          "row_us": 29.5625,
+          "column_us": 30.53125,
+          "ratio": 1.0300535523818046,
+          "session_ratios": [
+            1.0257223761794998,
+            1.0352825860271115
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "0d8d107352411329b9291a3acf7ceebe0d7ae635e4b9849830f1675d64c4e7dc",
+            "0e8ceec30af13db3c5fb24a1c8f5b6f0414971a6dd1eb11ab8a21dc21ec52d6c"
+          ]
+        },
+        "n256-p16": {
+          "row_us": 29.6275625,
+          "column_us": 32.73175,
+          "ratio": 1.1067928972957106,
+          "session_ratios": [
+            1.106832971800434,
+            1.1067528227909873
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "1511d8f8c46e1612fd919306b8d13c7eb1dda7c442b13101466d4057a5793a6a",
+            "746dbcbc36939fedb87ebc6c05d35c844953c8d044ed02ef580af320b126e105"
+          ]
+        },
+        "n256-p32": {
+          "row_us": 29.198,
+          "column_us": 32.3306875,
+          "ratio": 1.1038918551103967,
+          "session_ratios": [
+            1.1036941480977585,
+            1.1081719270475479
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "e36b5ef287e430b0fff495323c1e705ab389dbbb74c2291cd65e288bd4ff73c7",
+            "be1f44a5f0344604ed57c02c4ba66545c295709f826c85d4f0bf33e6adbf50f6"
+          ]
+        },
+        "n256-p64": {
+          "row_us": 29.1510625,
+          "column_us": 36.75,
+          "ratio": 1.2640791043360817,
+          "session_ratios": [
+            1.2643417331768558,
+            1.2638164754953076
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "1dd540b57be7655330a8724352436feab704eb0973ca4d2e0bfe72e97a7ec3ab",
+            "4e2a5d4445d28eb3b7aa64769db1467b078a6093fd37a5c9ed2ea90fc0c6ec08"
+          ]
+        },
+        "n512-p1": {
+          "row_us": 117.3125,
+          "column_us": 118.40625,
+          "ratio": 1.009040834489919,
+          "session_ratios": [
+            1.008664959329096,
+            1.0095769939911658
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "cf0d35c05063da16e9a15591a5395fa279ffa6bc0be40dbdb8a499de4a353f65",
+            "e7d037e7b00aed597fc548ef3b2b371f90db5b07cfbb36767e30272303ac4746"
+          ]
+        },
+        "n512-p4": {
+          "row_us": 117.18725,
+          "column_us": 117.91675,
+          "ratio": 1.0049727405596978,
+          "session_ratios": [
+            1.003865267807841,
+            1.0053446385627387
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "52f461f5b70e83155c0f0883a92c361cd644605ce930167a7841ed714432f283",
+            "9a2ed28497c78ca6cbe60733f27931f1927cad258b378562dfb05ab265a29819"
+          ]
+        },
+        "n512-p8": {
+          "row_us": 117.91675,
+          "column_us": 124.53125,
+          "ratio": 1.0476307628825894,
+          "session_ratios": [
+            1.0483155215851105,
+            1.0471250452870537
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "75d11083adce73e0a3bd9db4d183db12181d9270b1d79fa68d1f3eca9ee81833",
+            "4d0e98fdbc43ec7fa882d240b179af75a3385334f63bf7efa63ccbe497ab9c8f"
+          ]
+        },
+        "n512-p16": {
+          "row_us": 115.52075,
+          "column_us": 129.052,
+          "ratio": 1.1112958525242471,
+          "session_ratios": [
+            1.117821272768936,
+            1.1096316042287837
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "7b4719be3737ddb0e7600e0d50e342dd5078cc78287fc8b015ed6eeac379a3ca",
+            "69cc2222279faf058d04ff31560c8d7cabc41553356657b80fd5a7ddd26ea291"
+          ]
+        },
+        "n512-p32": {
+          "row_us": 113.15625,
+          "column_us": 125.20825,
+          "ratio": 1.1084264864684665,
+          "session_ratios": [
+            1.1083258411539876,
+            1.1085271317829457
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "48eb150ff7176768f693531ff10cbf8cdcd4aeb803ea27b7032ba54ee89c06d9",
+            "e8a71f3c3db1124b9bac88367a22bcee993e66ab9c1c3719ff136dd8b223be80"
+          ]
+        },
+        "n512-p64": {
+          "row_us": 112.9375,
+          "column_us": 373.97925,
+          "ratio": 3.3042498575458232,
+          "session_ratios": [
+            3.3066873999031623,
+            3.3011274697849564
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "1d1ff2003cdfc108a1af4ea3692008355e50e3a4039f3facfad2c502b34194ce",
+            "5e9940475b8c4302ee43971e5f5af3bd4bf296090bbe12d24158a0678d404a3d"
+          ]
+        },
+        "n1024-p1": {
+          "row_us": 449.5,
+          "column_us": 1316.708,
+          "ratio": 3.031264792082477,
+          "session_ratios": [
+            3.031073037428886,
+            3.036576722640417
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "ba07170330d2969de4a5f346115c0ccc054e87eb019222f1b79b18aff90229f3",
+            "f011af5f22118fe0de9db2d5b4769c38428682db279580228a28dd3d5c122499"
+          ]
+        },
+        "n1024-p4": {
+          "row_us": 452.958,
+          "column_us": 1183.437,
+          "ratio": 2.707667121303537,
+          "session_ratios": [
+            2.7088084797861525,
+            2.7070464558949534
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "6a9d123c7e5265a86cef3cb5b7e59b65f3a130c8e0b9e71c548ced50c5a1c3dd",
+            "26d9153e7d7e524fd37862ed15abe6b13299caaf65d6760d6c5fce348c16588d"
+          ]
+        },
+        "n1024-p8": {
+          "row_us": 455.1455,
+          "column_us": 524.417,
+          "ratio": 1.1502515747117155,
+          "session_ratios": [
+            1.146761232761547,
+            1.1505880993645292
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "138deafc696ebf36afd385d1fc58296c06cdc0ee3246b326f93fb6971f8f6f29",
+            "6140902369a17a7808492c5958e3dc408afef4e7042e50be4edd2748dde25562"
+          ]
+        },
+        "n1024-p16": {
+          "row_us": 460.562,
+          "column_us": 555.7915,
+          "ratio": 1.2053769091409294,
+          "session_ratios": [
+            1.1966913100341496,
+            1.207424640721031
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "0ee03a15da30c9ce829cfc11e4bd52f2ad7748806cc0ab0e94c45a8ac778aaab",
+            "ec6e24f5a0fda2503b8b8ddb444aa50d41a34dedf5cd63933491eb9c4f5e350d"
+          ]
+        },
+        "n1024-p32": {
+          "row_us": 467.25,
+          "column_us": 1217.4375,
+          "ratio": 2.6941836262277867,
+          "session_ratios": [
+            2.6272548739091417,
+            2.7606922047294282
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "7e961ba299c05b609917d96264310835f810797f21022815132ea809941d4bdc",
+            "15a37bc5c536df94c936c33c9c489926ab3b1c5415c2a582f13662ae07fd5645"
+          ]
+        },
+        "n1024-p64": {
+          "row_us": 464.833,
+          "column_us": 1530.3335,
+          "ratio": 3.432432940519185,
+          "session_ratios": [
+            3.4471384268395826,
+            3.409554935861684
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "df1451ea8e96852aceaa530c6c81e5d2ada7de47c744c35b56404c9897be07ad",
+            "9c6f4b5fc0adb25953a9a00e9a7e75b8b1158755a8a025e58a4c017a63053f78"
+          ]
+        },
+        "stride-1023": {
+          "row_us": 58.041625,
+          "column_us": 166.8645,
+          "ratio": 2.866392706537793,
+          "session_ratios": [
+            2.8581920903954803,
+            2.886076549865229
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "b7c7429e70ed6f08f141bf95d9a9a8bbd664954c00f3e73b0187ad77950c9383",
+            "3c6e8c7f77e409457e1920f8bb425d1f699a929aa008c59d8aa5c83d0c0934bd"
+          ]
+        },
+        "stride-1024": {
+          "row_us": 55.60425,
+          "column_us": 599.30725,
+          "ratio": 10.824426073750743,
+          "session_ratios": [
+            10.834509171537997,
+            10.79008209080248
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "6d4fb30d821611f5a7694f74ba9f38aa27ceb795b99f0926c5e49e35d8410699",
+            "2841a9e3d9dce9b93468ee3694bc67fc494ddc0e58588ebfdf5a5d55da5b0289"
+          ]
+        },
+        "stride-1025": {
+          "row_us": 58.713625,
+          "column_us": 181.374875,
+          "ratio": 3.088831741022969,
+          "session_ratios": [
+            3.104098395721925,
+            3.058765177865116
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "158b6fea2217563116f58dc08dcf61303d9b84b38e2e54df95a33838d5869622",
+            "31038904f489fd80704e54e9fefa1c7d1ea1c7fb69ff56ab0ae31fc2fdd107d3"
+          ]
+        },
+        "stride-4095": {
+          "row_us": 58.880375,
+          "column_us": 571.59375,
+          "ratio": 9.584016672712282,
+          "session_ratios": [
+            9.6531816078864,
+            9.54357986870897
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "ebede43e50024303851f6f29624e6cac990929edd839b81ab5bfb75f8d62e405",
+            "e3511f5cadfc6f83c0c7465947371af15bf8c6bb20329d79d65a926ccd3ba8b0"
+          ]
+        },
+        "stride-4096": {
+          "row_us": 65.349,
+          "column_us": 866.260375,
+          "ratio": 13.30156468695608,
+          "session_ratios": [
+            13.231746226295853,
+            13.319755027788698
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "8d9035aae8870e11ae1626d0f92bb6768173f7d34f19f8789d42dab86a629f5c",
+            "f733dfd7ce9b604857d0cf012848e5157bbfe70b43e24ef12e435d3a39398d29"
+          ]
+        },
+        "stride-4097": {
+          "row_us": 59.036375,
+          "column_us": 549.51575,
+          "ratio": 9.571030124782734,
+          "session_ratios": [
+            9.593265519939525,
+            9.553818043459174
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "d15f8d60bda6e176f5e09be62d1eef1c609938a3158183e929ce8f9938306b89",
+            "5577298aa1dee75d8bd65a180179757fa6ba20cd49b172981d1c824ab754a805"
+          ]
+        },
+        "n256-a16": {
+          "row_us": 29.026,
+          "column_us": 67.3671875,
+          "ratio": 2.320347074976775,
+          "session_ratios": [
+            2.3165641060900355,
+            2.3362764348161535
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "d58bd814718dd29825599ad0e91562de34e6491c2955b877b81779622b98da48",
+            "d05daa426edf0f17a0005f8d65fbcc2e526f1f3c5d8fb15b36d5ae54c19d02d2"
+          ]
+        },
+        "n256-b16": {
+          "row_us": 28.989625,
+          "column_us": 45.0495,
+          "ratio": 1.5612599275571846,
+          "session_ratios": [
+            1.5649676611816425,
+            1.5601191023060412
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "05a35b575a30d06b1878dbc57bbcccc6c5680e609b3ada68f97185509237d7a9",
+            "63d0efdf3756ce5bd89f40068ecf7cf9674981ea8b3626d9b217a7f419e11f67"
+          ]
+        },
+        "n512-a16": {
+          "row_us": 110.854,
+          "column_us": 739.08325,
+          "ratio": 6.787418952455762,
+          "session_ratios": [
+            6.774114606247251,
+            6.800723298664273
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "f17b2a210602552bb716a64c7dbb64e071da9b906c747981f3bedee54afdb141",
+            "ddb53e02f3a9fbd08d44d00d0435c30c2d284306be3cddc39999ca56bdfb531a"
+          ]
+        },
+        "n512-b16": {
+          "row_us": 115.51025,
+          "column_us": 188.08325,
+          "ratio": 1.6323623096679527,
+          "session_ratios": [
+            1.630629189189189,
+            1.6339662539049924
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "03bdf216fa65045136a34f2b5743f4ddb73434ccadd4af45887a48f618dbdb06",
+            "b075536f118a9484b56e8babb798cc824338bfc6272d3dec1edac20c59b93770"
+          ]
+        },
+        "n1024-b-offset-4": {
+          "row_us": 437.104,
+          "column_us": 4623.833,
+          "ratio": 10.597708252683061,
+          "session_ratios": [
+            10.573105273800113,
+            10.599018003273322
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "15a29335fcd1e5234816fc78539f0d907081ec55d5baad465e125e7094814700",
+            "02a31ff89bbbe2a8493b661199eebcbc2b246c5b47110c6eb0d50fe7ee491f42"
+          ]
+        },
+        "n1024-b-offset-64": {
+          "row_us": 438.896,
+          "column_us": 3725.854,
+          "ratio": 8.495153236858073,
+          "session_ratios": [
+            8.49719584271102,
+            8.493110631005123
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "6e86c97ef19f2e60aa43998def0ec7fa7e9ef3047e924a9f4f29623d82bf717a",
+            "51cdc4442b17c6f5443342effd36d4cdaa4b5fc1ff4a2e36ae2d8c805ce27aba"
+          ]
+        },
+        "n1024-b-offset-128": {
+          "row_us": 435.4585,
+          "column_us": 3653.9165,
+          "ratio": 8.392083922552631,
+          "session_ratios": [
+            8.396210163652023,
+            8.38711915015791
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "de5ada6e4679b22b2b3c9f0536d05080e19c1d8dfbbe5f990a27f458ccb33587",
+            "a17b619c821a11672d1d5bcaef784ed702cbdf9040e221c5f5ecc189c54861f8"
+          ]
+        },
+        "n1024-b-offset-4096": {
+          "row_us": 441.6465,
+          "column_us": 4794.4375,
+          "ratio": 10.973935554037036,
+          "session_ratios": [
+            10.825914281730558,
+            11.01551776481628
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "b29481721ebe56f40d77511467277c709b23e09a66f64b7710c918dcb94eacf2",
+            "42de006aa6c98fd72ed818b7ef01c2386f4050fb17b9d78f43227b364d30fa03"
+          ]
+        }
+      }
+    },
+    "m5-max": {
+      "machine": {
+        "chip": "Apple M5 Max",
+        "host": "JY0RHJW5Y0",
+        "system": "Darwin",
+        "kernel": "27.2.0",
+        "page_bytes": "16384",
+        "placement": "user-initiated QoS; unverified core",
+        "executable": "./native-darwin",
+        "binary_sha256": "bba9a9e14670008381de8c692dcaf59675a7440ea623b9342c40dbbc0ab5e826",
+        "host_compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.2.0\nThread model: posix\nInstalledDir: /Library/Developer/CommandLineTools/usr/bin\n",
+        "compiler": "Apple clang version 21.0.0 (clang-2100.4.1.1)\nTarget: arm64-apple-darwin27.2.0\nThread model: posix\nInstalledDir: /Library/Developer/CommandLineTools/usr/bin\n"
+      },
+      "cases": {
+        "n32": {
+          "row_us": 0.4236640625,
+          "column_us": 0.448890625,
+          "ratio": 1.0025121880890393,
+          "session_ratios": [
+            1.030961052385067,
+            1.0000299257840555
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "b3939211f91961d8663646ea57fa2e39fb9d7f000511506546cc8a6fe22c6c46",
+            "ba90bf26e62a356034faf70a18d9f3db795e43fafd0c8d4aa753f0560c497291"
+          ]
+        },
+        "n64": {
+          "row_us": 1.5763359375,
+          "column_us": 1.6407890625,
+          "ratio": 1.023930378937405,
+          "session_ratios": [
+            1.0428665188470068,
+            1.0
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "90ffc6e14050b85ddf0893e894d92e589042b5741fd03807b1bd18d1220846b2",
+            "2b7a3d2f74ebcc6cab60b95f2cdccf4114e0160ebba278dc2f36038703659f5e"
+          ]
+        },
+        "n96": {
+          "row_us": 4.069928571428571,
+          "column_us": 4.075151785714286,
+          "ratio": 1.0000037025792166,
+          "session_ratios": [
+            1.0474401010396381,
+            0.9999925948964026
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "a72f296bd6af7a5cec8fc90727d7ce5533f5d017bc9f792105b9cf9c015e873c",
+            "6e9cacddf06597171903a3d6100ffa59c601a32a57a725370fc0a82cde77a2f7"
+          ]
+        },
+        "n112": {
+          "row_us": 4.964426829268293,
+          "column_us": 5.012195121951219,
+          "ratio": 1.0000683482506103,
+          "session_ratios": [
+            1.0001366965012206,
+            1.0
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "d0cf2a391ed05b3992b4690daa3dd3752c2ac13bf5745fa8f6cbcb25e2e020ea",
+            "28677e8f998e4377157edf67cd1265a9dd88314957bd212c0a4f811fb89e10f2"
+          ]
+        },
+        "n127": {
+          "row_us": 5.893234375,
+          "column_us": 5.89453125,
+          "ratio": 1.0,
+          "session_ratios": [
+            0.9999957089280044,
+            1.0
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "043b2cb7e8ba883c5e862eade39591ed99563ecdcd4c111747acc3293129f6b0",
+            "4a6c4708cfb586da22aa4ad64c81ce51a8d53086e7463d138198abd590a9e6b9"
+          ]
+        },
+        "n128": {
+          "row_us": 5.799484375,
+          "column_us": 5.602859375,
+          "ratio": 1.008963861997339,
+          "session_ratios": [
+            1.0089709762532981,
+            1.008788922640898
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "93146a962aa237e0192ab9eeb3a188c5786b2dadddb0e62eb72818e1db8732ca",
+            "097c3a87bdd892dac5dff3c43d79b68731310af66fa67bdff02fcdab5908e6e2"
+          ]
+        },
+        "n129": {
+          "row_us": 5.688177419354839,
+          "column_us": 5.757387096774194,
+          "ratio": 1.0,
+          "session_ratios": [
+            1.00000478278961,
+            1.0
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "5df02fd52083b0e723ceb36bdb03f1cd185ad39a1135156486036d965f72edcc",
+            "ded1e5c10da6e4bbebb2f0ab0ce48452cb6297b2616954f1382c4488387a7a41"
+          ]
+        },
+        "n144": {
+          "row_us": 6.91834,
+          "column_us": 7.03914,
+          "ratio": 1.0647382089069917,
+          "session_ratios": [
+            1.0621823420920486,
+            1.0663796277511026
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "789b7aa7edbd05f7f522e31dda5e2d890ad58b4d974419beed04b38a631b1242",
+            "ef10c222feac9afa0abdcd2328e6d66bdad6994f5d30865c9d34b74680048ddc"
+          ]
+        },
+        "n192": {
+          "row_us": 11.177071428571427,
+          "column_us": 17.503,
+          "ratio": 1.5368825905683403,
+          "session_ratios": [
+            1.5221500295333728,
+            1.5483135033050046
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "8cda33ce240f0ebb34863ec2479e4b2547f5e93d11c10f690c9d346efd0b020f",
+            "939d14d0f36318790ea98c7451bdf443bf0b06331d7a18aaef313f500e57058c"
+          ]
+        },
+        "n240": {
+          "row_us": 17.32177777777778,
+          "column_us": 20.976833333333335,
+          "ratio": 1.2005690624049472,
+          "session_ratios": [
+            1.202848046309696,
+            1.1994510453812348
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "af0996f77bd875091e000d7bf45fede6cd5d8b02197d0b900d2bdbdb17871a26",
+            "182c3911a9bbd704e4e291ea5a023351d40163df22b07731951c26050f97358e"
+          ]
+        },
+        "n255": {
+          "row_us": 19.3125,
+          "column_us": 19.3671875,
+          "ratio": 1.00186886549522,
+          "session_ratios": [
+            1.0015670868820874,
+            1.0018691588785047
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "dc4b9f1801c664bc02e8ea3549a9eae3cf4b9e3481514014b096d1e31ea9a6e8",
+            "ff34ac56d5f0bb79fa2dea48d9a485145d65644bbc1c59af6e03a346069bd16c"
+          ]
+        },
+        "n256": {
+          "row_us": 16.9296875,
+          "column_us": 144.8620625,
+          "ratio": 8.573445773274091,
+          "session_ratios": [
+            8.561019943019943,
+            8.58587160352824
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "1e0bfcdfe18d170719d2b515db54a570d1242a4de5bc3d974f0f71a13b720230",
+            "8bd82d6de810144de83902b130a58d66add9f95fd60052ddf4d267fa39097e45"
+          ]
+        },
+        "n257": {
+          "row_us": 16.985142857142858,
+          "column_us": 17.095285714285716,
+          "ratio": 1.0063047197132886,
+          "session_ratios": [
+            1.0062985107259685,
+            1.0063051383931578
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "30c663255d06745a6064e327a3cff32c688d9ca3d242c53db9138e822975ad63",
+            "2ad4d19559cfe64657dd7f200c27d13cdf23f8dc1faf40fa7f64f26528a88385"
+          ]
+        },
+        "n272": {
+          "row_us": 18.96428571428572,
+          "column_us": 22.875071428571427,
+          "ratio": 1.2083275109059421,
+          "session_ratios": [
+            1.2073365982294217,
+            1.2083286713286714
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "cb8ec7a95891f36d157fba9368ac1d17cd10d101111b23e99925666229c59729",
+            "385225310ae9507ffc72b6535dd97ef59b59be666f877491fb8adf2d48d4d5af"
+          ]
+        },
+        "n384": {
+          "row_us": 35.18066666666667,
+          "column_us": 241.71533333333335,
+          "ratio": 6.868457372420458,
+          "session_ratios": [
+            6.875929650147985,
+            6.853652071005917
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "5bc42130b177b3f35a7c69c4762a89e2089a72b370e73f030bf6042fe4c88f84",
+            "5aa19f8169d0e4d6d7aa22bd90e676e7a8304bfcdf6737c820bebf4c590ca90e"
+          ]
+        },
+        "n496": {
+          "row_us": 59.9375,
+          "column_us": 74.75,
+          "ratio": 1.2451329841329841,
+          "session_ratios": [
+            1.2492836427417815,
+            1.243672942460816
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "84417e96e1ed64041a2ad335fab1c6d3d3a83e56f3848ffa65db26ed3e13f8b1",
+            "c65f51b73c76f9c56089796b36639a3621c4dbe5b7142c3a0ff748ecd8b52eb7"
+          ]
+        },
+        "n511": {
+          "row_us": 61.1875,
+          "column_us": 63.4165,
+          "ratio": 1.0361371385031284,
+          "session_ratios": [
+            1.038729343562438,
+            1.035294117647059
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "c7524fee6ed317c6f6fe0541d4ff8c783aa3fd348ec2289e71c78523de3c81f3",
+            "ad97a036df6c7c9388ddedf15b2da80f94ea9ca41b33b8784dd3ebf6238efe9f"
+          ]
+        },
+        "n512": {
+          "row_us": 61.271,
+          "column_us": 1108.1145,
+          "ratio": 18.062417223896976,
+          "session_ratios": [
+            18.076115271233636,
+            18.012682926829267
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "ab8cfc6629779e0911623b25bf952b4d092323542e4a09b0e538dc18a5189428",
+            "7bf325c9651fb33cb48b1bfb33f708247b941e6ba752beacbbca6b064ccefc0c"
+          ]
+        },
+        "n513": {
+          "row_us": 68.083,
+          "column_us": 74.5835,
+          "ratio": 1.1005528493508168,
+          "session_ratios": [
+            1.1020038986354777,
+            1.0995625850931317
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "3dc8f9ea9ffa1645fbb437598d1280ddd43851a1d96b22e5d335542a22a1c22f",
+            "8d506639fb287078823684d319ae79b909887967dffda68f4d3eb9607cc36fdb"
+          ]
+        },
+        "n528": {
+          "row_us": 70.541,
+          "column_us": 87.9585,
+          "ratio": 1.250420138089583,
+          "session_ratios": [
+            1.249661975293467,
+            1.2512351909897466
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "91603923bd4bf3f3917c35c2dc6c162675d82a9659d55b9cdd34a54020367e66",
+            "1b14e108d61011c73f21eef27c63ea51c9c971dee5a101991667bdd527356768"
+          ]
+        },
+        "n768": {
+          "row_us": 137.542,
+          "column_us": 2246.125,
+          "ratio": 16.2788620028547,
+          "session_ratios": [
+            16.239802935590212,
+            16.291605076711352
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "b44c772a74cdcf8ee23e36e5f16f43b67c97e23086fefe0f34c06231bbde8eae",
+            "b3d4aacbd281a95e274c641aa94837650ddb981d0bc98bb59d525fd031bce382"
+          ]
+        },
+        "n1008": {
+          "row_us": 244.417,
+          "column_us": 317.479,
+          "ratio": 1.331232144937775,
+          "session_ratios": [
+            1.3312744222277728,
+            1.3311898676477771
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "880f023529af1ff687df6af2e6b1a2e1b31b55a963418f8d39cf746921f77302",
+            "a118aa5d186ce9d249e9b3c54d3ca5b5ba320e2429f9e514c2760740bd4f601a"
+          ]
+        },
+        "n1023": {
+          "row_us": 243.25,
+          "column_us": 846.5205,
+          "ratio": 3.4738425892233717,
+          "session_ratios": [
+            3.4806413155190135,
+            3.4670309518805604
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "ccafbe3a5b6053f15badd0be83b9d7d06a19a95c499e68e48cb7f3c579129783",
+            "15e26e0301a4bcf8f804c680f8d7cbe42c8a02b0d2c50445f15874561b580e67"
+          ]
+        },
+        "n1024": {
+          "row_us": 242.959,
+          "column_us": 4836.8335,
+          "ratio": 19.884810877976896,
+          "session_ratios": [
+            19.87878525910191,
+            19.890997232198753
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "fcf4174f870f6073fa787a23aba6b7599eec6e6711d5793aadfea0bd383e5748",
+            "1104dd08912f096afb9e2fc9120e749b7f5aa58ad1782490e61f78b64bddee6a"
+          ]
+        },
+        "n1025": {
+          "row_us": 244.7295,
+          "column_us": 931.9375,
+          "ratio": 3.7984009150432936,
+          "session_ratios": [
+            3.7986833922492798,
+            3.7981184378373074
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "01a57219676ffc3b86602ec60ab18c022e1d8c58fb1b1fe6f05d05fd796c35d7",
+            "1d2b6336606be36a79061dd0057b52abd023e049347258a8eabf6df03dc3b185"
+          ]
+        },
+        "n1040": {
+          "row_us": 251.3955,
+          "column_us": 359.479,
+          "ratio": 1.427713105206744,
+          "session_ratios": [
+            1.428887936510366,
+            1.4273172746990441
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "7ecb46dbf29cf010e7f58cbbd0bd95f37a5801f84f253fe7b796714a5a34f1f4",
+            "2699edfb7b238684be36cee84a0f2c3f1396a492f34d62973da340f120c29460"
+          ]
+        },
+        "n1536": {
+          "row_us": 551.083,
+          "column_us": 10451.479,
+          "ratio": 18.944546076337232,
+          "session_ratios": [
+            18.99487242737148,
+            18.92386569179426
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "bf3b07710da167464ca9f47878d7bd689d3e5612401b7ca9bb4426a19e03270b",
+            "d28f7b8855f853718a3a6ac4c6f56480bd807026b2b7b36f5ea37a1cb98ae380"
+          ]
+        },
+        "n2048": {
+          "row_us": 988.8125,
+          "column_us": 29216.396,
+          "ratio": 29.498487128933036,
+          "session_ratios": [
+            29.524012118737758,
+            29.400379987333757
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "470045bc1a66e8ea8452ee3848598a3af08cfe6e012d91fa7eb689a9983bf92c",
+            "cee271c7c76cdb2736f08c31bd6a7ec250588db584e33e3cdff64bf9420631ac"
+          ]
+        },
+        "n256-p1": {
+          "row_us": 18.04425,
+          "column_us": 17.9114375,
+          "ratio": 1.0066730560073252,
+          "session_ratios": [
+            1.005158569338453,
+            1.0073976833976834
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "f549e6e200b32c7f04b89f9c612d53bf5e3c082dac44051c787c1eefb5765e7d",
+            "8af282b6589a31cbfb0beb3b17fcf39428d94d9686ab4b7436cfdf8f40b94930"
+          ]
+        },
+        "n256-p4": {
+          "row_us": 17.9010625,
+          "column_us": 18.26825,
+          "ratio": 1.0228586537513202,
+          "session_ratios": [
+            1.0223565494856137,
+            1.02315851229717
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "9a1e640b4dce1e32b540e06481510bad6d85abbfb27a8e837cc53af2fd3fc065",
+            "fb4ef40e1d1e91abb467ecbf4085d52d384e94c19a9fdd01c9444939d34f383d"
+          ]
+        },
+        "n256-p8": {
+          "row_us": 16.841125,
+          "column_us": 19.2813125,
+          "ratio": 1.1452253236547754,
+          "session_ratios": [
+            1.1452915995875095,
+            1.145159047722041
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "632a3a5e67ffa18acc659725bf65890eddfbc73aeb22887deefb5dec9b96aa69",
+            "28aa38e0fb65caf0476be3066a0ad3eded320b83910bb5e3857c18164345eabe"
+          ]
+        },
+        "n256-p16": {
+          "row_us": 16.2239375,
+          "column_us": 19.6249375,
+          "ratio": 1.2093436453497381,
+          "session_ratios": [
+            1.2098833895589753,
+            1.2084743541311704
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "0cc952b71895af04eb1d8e5ed05ee0e8731a00975d4aa53872ca83b8dd3f7fc1",
+            "920b2751725558988c5f9ec9fb7e6d2ae7d80b848de305b9929b492579241646"
+          ]
+        },
+        "n256-p32": {
+          "row_us": 16.203125,
+          "column_us": 19.6171875,
+          "ratio": 1.2090391203993613,
+          "session_ratios": [
+            1.2092031309009856,
+            1.2088751098977373
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "fea23839baf888c664078f9be72cbd5027fd401b88bbbff022cf41d4bc1babed",
+            "10ff38b624057235397a528cabbc35da52c7825d9017912103bb4f6387706c3d"
+          ]
+        },
+        "n256-p64": {
+          "row_us": 16.2265625,
+          "column_us": 28.08075,
+          "ratio": 1.7270606993070547,
+          "session_ratios": [
+            1.728403907790927,
+            1.7239121055226825
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "6e756b2f9573e4b195bc0a5d99c52b0def4b6f54cb01445b44f5084f15f8505a",
+            "b82695c88d4fa5e3dca6f67ef6dc1cb901518d63ae66a7211a1069b2278213ac"
+          ]
+        },
+        "n512-p1": {
+          "row_us": 61.2705,
+          "column_us": 67.40625,
+          "ratio": 1.0999534965594677,
+          "session_ratios": [
+            1.100377272207614,
+            1.098954635591353
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "520520ec6ed3ac8e0c8488cacb9e0027e659df1b803a698986165604a1a4cbd6",
+            "67c376489ee773c712efcb09c5f41f5222bcf82dfceab95e51d3ba291c9af753"
+          ]
+        },
+        "n512-p4": {
+          "row_us": 61.32275,
+          "column_us": 65.58325,
+          "ratio": 1.0690019521401979,
+          "session_ratios": [
+            1.0689826707441386,
+            1.069021233536257
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "76992807ce6c2f0870c074c7ed2abe694c399c967247d18d6bcf309676e692b7",
+            "b916781f04f6f755dbecff981983eb1b0f1292cba20033b2785255469dfc2516"
+          ]
+        },
+        "n512-p8": {
+          "row_us": 62.1875,
+          "column_us": 71.6045,
+          "ratio": 1.1679787381766407,
+          "session_ratios": [
+            1.1683096407762237,
+            1.167404334547355
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "343b5653bfb6afaf6f7baf432c02eb3f841215a51fb81decf99fe7d367894de5",
+            "9ef49c0d6dd83354eb2594ce208aa8e9a0257dd2ed6303a58060c751cb7c1dde"
+          ]
+        },
+        "n512-p16": {
+          "row_us": 61.375,
+          "column_us": 76.61475,
+          "ratio": 1.2475761651716288,
+          "session_ratios": [
+            1.2476236283892848,
+            1.2475388727711314
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "c6a3cb22f40d0d15337741292604ee49f7e7d7946afb6b72cc3d93b13122dc71",
+            "927492184fd3a681dcdf5442648f51c9fb58fbfaa31bde59fa00bc2f109e05ee"
+          ]
+        },
+        "n512-p32": {
+          "row_us": 61.62525,
+          "column_us": 87.073,
+          "ratio": 1.4139855141116509,
+          "session_ratios": [
+            1.4131468372331175,
+            1.4141705743288053
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "d5b5376211e209aed7ffe7571c8e5cd7d703d2d7cd789a9debe8c330d9dd5419",
+            "cc38dcdae34eae04d50e7e2274541f4e8a78359fd7f80e9c6e1b572ef9d288c0"
+          ]
+        },
+        "n512-p64": {
+          "row_us": 62.16675,
+          "column_us": 421.15625,
+          "ratio": 6.777082584874708,
+          "session_ratios": [
+            6.754172344689379,
+            6.785698690839109
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "2ce0a3414b9177e699cd4dd9b9c2e79ce73888b6c43b59ecc3e5167368094ec4",
+            "c7a8df1e263476883262779c31549b963ae32cc3966f2cefba1d17c7fcbf8a31"
+          ]
+        },
+        "n1024-p1": {
+          "row_us": 243.75,
+          "column_us": 928.9585,
+          "ratio": 3.8102444747760944,
+          "session_ratios": [
+            3.8175619614060743,
+            3.8020867457249556
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "70fe865eb0662e8a9a3a16d4dac9326b2cd71cb9ce469b938dbb941fd367a198",
+            "eba2d2db6955c06f38547ccda85c315d1dc3ee920485df87dc817a39ac9a946c"
+          ]
+        },
+        "n1024-p4": {
+          "row_us": 244.125,
+          "column_us": 823.562,
+          "ratio": 3.3689851635505867,
+          "session_ratios": [
+            3.366322970582454,
+            3.3795151505187184
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "dd5c43a64af90a967d3103a80cc4500eff438e807cd0fd2b0120c4b69787962a",
+            "63f39ba1473f37b34d2216ea754e15b4158880329ae3f368b8a1309cf594ea1e"
+          ]
+        },
+        "n1024-p8": {
+          "row_us": 243.563,
+          "column_us": 314.333,
+          "ratio": 1.2896975860369533,
+          "session_ratios": [
+            1.2891381738598429,
+            1.289848998459168
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "3a5b0f19e1c4f9c140e542f650b77cfdc268d837580bb7bef8a072339d2d7868",
+            "f9f5516811f018a91a980be3fc498bad5f99c8d63e742969daf7f4a44c36204f"
+          ]
+        },
+        "n1024-p16": {
+          "row_us": 255.292,
+          "column_us": 325.1455,
+          "ratio": 1.274787197278121,
+          "session_ratios": [
+            1.2706038575435188,
+            1.279881947860305
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "db3843e98f86e0bc2869b4d19eab538a0ec8c58f930bccd1ebdb64c75471ec37",
+            "c50c02f5b4cb2f0fc259285e521d7b1e970592176986dcf6034abf9263c63c80"
+          ]
+        },
+        "n1024-p32": {
+          "row_us": 254.688,
+          "column_us": 1160.667,
+          "ratio": 4.561517669647051,
+          "session_ratios": [
+            4.572906421453033,
+            4.55303378465962
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "d9f2cc33fec7da54ab7d63215f71e14be59b1c355eeba3250976aa8ba4491840",
+            "dbdc6974b8ea618e74f3ce95e9bd702c6649a1ff9bd984f4af9aeb96507ec227"
+          ]
+        },
+        "n1024-p64": {
+          "row_us": 253.542,
+          "column_us": 1724.208,
+          "ratio": 6.805676299021807,
+          "session_ratios": [
+            6.810231571616253,
+            6.7998865207986094
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "e99a35eff2b5cbf776359d427e42c72c04762366bc3821178e79d7220a379f5b",
+            "30c29384810bf46be7b57b2e0b085894a4ae9b1eb2232b2b0f92cc8dd7e83a84"
+          ]
+        },
+        "stride-1023": {
+          "row_us": 38.474,
+          "column_us": 109.020875,
+          "ratio": 2.9433844307464114,
+          "session_ratios": [
+            2.943339792737383,
+            2.9434290687554396
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "a8a4b4e08a0638a85ce791be76024de16ec103ac8906cad0c917737f042f838c",
+            "5c9a6e350127de1cd45008b9b32ebc9960ad2416a388f6ab9c6a1472013319bb"
+          ]
+        },
+        "stride-1024": {
+          "row_us": 35.218625,
+          "column_us": 614.697875,
+          "ratio": 17.233611930616966,
+          "session_ratios": [
+            17.868619473055254,
+            16.95702486357942
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "66e295c8fd471b2652e16f056283d377544a2cf76bf0786c2e2aadd8b99446a4",
+            "0710e175d462bc105d39042dc586d89f1848ce57f504e063645ddd73b2c9f75b"
+          ]
+        },
+        "stride-1025": {
+          "row_us": 35.1145,
+          "column_us": 118.8385,
+          "ratio": 3.3723992869875223,
+          "session_ratios": [
+            3.3775125115848006,
+            3.3713582887700535
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "7b602fe3e98833d55c10b261703dd9ffecbe7363b3e8092ca82774383232ac10",
+            "0b91f71f2f8f9e1f2136323c3472a34e47b2846a089bf2adf432e0f19ecb1c31"
+          ]
+        },
+        "stride-4095": {
+          "row_us": 38.427125,
+          "column_us": 436.203125,
+          "ratio": 11.366967465751898,
+          "session_ratios": [
+            11.363591340953224,
+            11.367243312301195
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "bdfab492aea51d08c338e14b7c695b5d1f6aeabdfdbc56e95626bf95373e4d4d",
+            "7b2b861dc4f232141e38480a28b8016d27f6aa44f73d1bb5a37039d5a8fc2a15"
+          ]
+        },
+        "stride-4096": {
+          "row_us": 45.661375,
+          "column_us": 1041.44275,
+          "ratio": 22.9009865774835,
+          "session_ratios": [
+            23.116471452317445,
+            22.246089049338146
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "9e40deac91ac8c10d561ba1b3cc74d55e6f02c368f100c60e48b00dd65cd4913",
+            "fdd6061cca7f7c0b896a2c896edb4296befa7249467df5a633bbcba354c2afc4"
+          ]
+        },
+        "stride-4097": {
+          "row_us": 41.072875,
+          "column_us": 433.33325,
+          "ratio": 10.577122291445598,
+          "session_ratios": [
+            10.581956044896039,
+            10.563931006721234
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "5373bac08b4aa61ac63b301093a8684ffaebd675f83c988b400c15dc91b5e2c8",
+            "be04bf774babcf9a9ee3401d3a464dc65e93b9a58ba8aa0d616d3ea83360c5dc"
+          ]
+        },
+        "n256-a16": {
+          "row_us": 16.203125,
+          "column_us": 90.9270625,
+          "ratio": 5.448616088421309,
+          "session_ratios": [
+            5.395965635942786,
+            5.484678546875845
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "c90be1cbcb3d3b0de3fa9e28be8ea529f146698dc5644b9446c077b70ebd3735",
+            "bbae46ccc1512d37576001863d623d5c0d2a0d174d190f8b32f97c30586f7527"
+          ]
+        },
+        "n256-b16": {
+          "row_us": 16.859375,
+          "column_us": 41.252625,
+          "ratio": 2.449187275487456,
+          "session_ratios": [
+            2.4491788693234477,
+            2.4496972034715525
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "956e04785d32d1b1dd8ba01aea230cc2cf5babc4b55fb947e6d012daa9accecd",
+            "32e64938c17975052ef66a0ed86157a74e55d64a8ffa8d166a640ea0256dcaa6"
+          ]
+        },
+        "n512-a16": {
+          "row_us": 61.521,
+          "column_us": 570.04175,
+          "ratio": 9.2531005407115,
+          "session_ratios": [
+            9.253327705993117,
+            9.252873375429884
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "43bd021513146d9112e6985cd8203b6dd04185a4d07497545ab9ff0771973052",
+            "67615c53b0fc4ec23605e9beaabada1dd5fc5038b35be2b03a2dff5dab5f7f39"
+          ]
+        },
+        "n512-b16": {
+          "row_us": 61.427,
+          "column_us": 181.8855,
+          "ratio": 2.9617248440265023,
+          "session_ratios": [
+            2.9618090452261305,
+            2.9616406428268736
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "b75ccee8cee4a3992fc6a63a7d8570ea14fdf81a1852bba9bb50faf308c0deac",
+            "a0372baa179a5081099584c6ab20d7fc0cd97e9d38c57e27fb876f73e22a92c7"
+          ]
+        },
+        "n1024-b-offset-4": {
+          "row_us": 248.125,
+          "column_us": 4842.9165,
+          "ratio": 19.504558516048004,
+          "session_ratios": [
+            19.495830024628855,
+            19.504750096612135
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "5732963ea15a509daf6c65b5a8be74c43d9690074a8791339362877490e29a1f",
+            "e23cb38e870ee3a72b4246906b83b6678c8240306ed39c7144bbd8e1c80311ab"
+          ]
+        },
+        "n1024-b-offset-64": {
+          "row_us": 247.8545,
+          "column_us": 3477.3545,
+          "ratio": 14.0219184475176,
+          "session_ratios": [
+            14.053057099545224,
+            14.009960006618481
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "4936eead3dae8327a948c3a23f9054cbb97ee7036f27426d5f5da928144c1a33",
+            "93b87be200aae45db0a1fb5dd0aff0e861c412214c784000b80744788621354a"
+          ]
+        },
+        "n1024-b-offset-128": {
+          "row_us": 248.479,
+          "column_us": 3928.7915,
+          "ratio": 15.8132283535085,
+          "session_ratios": [
+            15.813128731125486,
+            15.813327975891513
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "232ad6ded3d6ddc83cc1f7410961006f677ecb73042d55973094879930b96b03",
+            "00e6561b39e3e3b7b34e5e158578e8e3c2d1c1bdd3a612234ed2bba5852f6cd7"
+          ]
+        },
+        "n1024-b-offset-4096": {
+          "row_us": 248.5625,
+          "column_us": 4912.583,
+          "ratio": 19.76964469935588,
+          "session_ratios": [
+            19.742285020472416,
+            19.785004538577912
+          ],
+          "pairs": 42,
+          "csv_sha256": [
+            "35052dbf44aef9c12441b409b354f76a0089d771260d7d2cf9fb8dbf3c7ebc11",
+            "04072bcd50f3f3a35dce5edbfff5b89468076b8e73c3af7dc474d6199485fb16"
+          ]
+        }
+      }
+    }
+  }
+}

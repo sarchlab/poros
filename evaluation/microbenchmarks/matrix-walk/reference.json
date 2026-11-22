@@ -1,0 +1,350 @@
+{
+  "schema": 1,
+  "benchmark": "matrix-walk",
+  "source_issue": 89,
+  "collected_on": "2026-11-21",
+  "native_protocol": {
+    "scope": "warmed kernel wall time",
+    "warmup_traversals": 1,
+    "traversals_per_sample": 32,
+    "sessions": 2,
+    "pairs_per_session": 41,
+    "order": "alternating",
+    "validation": "every output checked after each timed batch"
+  },
+  "cases": [
+    {
+      "size": 32,
+      "row_width": 32
+    },
+    {
+      "size": 256,
+      "row_width": 256
+    },
+    {
+      "size": 256,
+      "row_width": 272
+    },
+    {
+      "size": 512,
+      "row_width": 512
+    }
+  ],
+  "references": [
+    {
+      "id": "m1-linux",
+      "target": "m1",
+      "hardware": "Apple M1",
+      "os": "Linux",
+      "placement": "marin-0, CPU 4, 16 KiB pages",
+      "compiler": "GCC 14.2.0",
+      "cases": [
+        {
+          "size": 32,
+          "row_width": 32,
+          "median_row_ns": 399.734375,
+          "median_column_ns": 399.75,
+          "paired_median_column_over_row": 1.0,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 1.0,
+              "csv_sha256": "f69f6393b6fd55a26616b877eea3fae9f710c26bbf1cd4139743031930586984"
+            },
+            {
+              "paired_median_column_over_row": 1.0000802697062128,
+              "csv_sha256": "f0247132b4507d86f3cab98ab4a977ea0b72baa5e78a5308b56edadc7f0282e0"
+            }
+          ]
+        },
+        {
+          "size": 256,
+          "row_width": 256,
+          "median_row_ns": 29233.734375,
+          "median_column_ns": 198630.21875,
+          "paired_median_column_over_row": 6.788180403025434,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 6.78499426590212,
+              "csv_sha256": "d160f5c77ffd862cb07d176f9b0849a92eb014769084ee6f0e34e874bebef4d9"
+            },
+            {
+              "paired_median_column_over_row": 6.789850052227553,
+              "csv_sha256": "d240f0dec96bc232df948f7d9763a5fe4a5786c64f65e784221f2b73247af85b"
+            }
+          ]
+        },
+        {
+          "size": 256,
+          "row_width": 272,
+          "median_row_ns": 29244.140625,
+          "median_column_ns": 32446.625,
+          "paired_median_column_over_row": 1.1080578490351587,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 1.1079881656804733,
+              "csv_sha256": "bb21ac55fbf1c072e6dbe52f99b4776906adc166772360e9955f32e2962be046"
+            },
+            {
+              "paired_median_column_over_row": 1.1081860773414078,
+              "csv_sha256": "f3dbdc4570a3072ce103eed47ca9d3aebbebd961431e1f12f4cbe23e925d22f0"
+            }
+          ]
+        },
+        {
+          "size": 512,
+          "row_width": 512,
+          "median_row_ns": 115856.125,
+          "median_column_ns": 881313.15625,
+          "paired_median_column_over_row": 7.6117364781035874,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 7.597610575502319,
+              "csv_sha256": "efd06bd6b1b79dad1af5d3d208c8a471e460a2929f5236da8c3ff3c1f9474f17"
+            },
+            {
+              "paired_median_column_over_row": 7.6182856969815935,
+              "csv_sha256": "90f8df2b4ec167236da7a11d974ab17d3e8267b60a9826ee5b885449c7b1a184"
+            }
+          ]
+        }
+      ],
+      "executable_sha256": "5ca7206a0adb85a5cd894ef06656555072efc6b476bbe017a2be57e4533c36a8"
+    },
+    {
+      "id": "m2-linux",
+      "target": "m2",
+      "hardware": "Apple M2",
+      "os": "Linux",
+      "placement": "marin-5, CPU 4, 16 KiB pages",
+      "compiler": "GCC 14.2.0",
+      "cases": [
+        {
+          "size": 32,
+          "row_width": 32,
+          "median_row_ns": 376.953125,
+          "median_column_ns": 375.0,
+          "paired_median_column_over_row": 0.9982779173450316,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 1.0,
+              "csv_sha256": "90c0259f2b055be05c091972b39f36935dcd7c864e6615416e27c73ee253240a"
+            },
+            {
+              "paired_median_column_over_row": 0.9965106382978723,
+              "csv_sha256": "7de615749ee96ba215de7d1c7410fbcfaf54ff5a6d5d5feaacbc0df964c8c0fe"
+            }
+          ]
+        },
+        {
+          "size": 256,
+          "row_width": 256,
+          "median_row_ns": 28401.6875,
+          "median_column_ns": 184589.84375,
+          "paired_median_column_over_row": 6.469787026917566,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 6.46618054310362,
+              "csv_sha256": "3b1cdaa2475aaa480f3dfc3474b05ee6dc9ca299c8b432c9205e51422b461385"
+            },
+            {
+              "paired_median_column_over_row": 6.471888197038882,
+              "csv_sha256": "1f5d6e4dab5475daeef590b2a6767e2c33c8122ce5ab41794e7e04eca2841241"
+            }
+          ]
+        },
+        {
+          "size": 256,
+          "row_width": 272,
+          "median_row_ns": 27358.078125,
+          "median_column_ns": 30239.59375,
+          "paired_median_column_over_row": 1.1057365034828035,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 1.1055145626186316,
+              "csv_sha256": "71e2f725a1c19970deffc7300ef0dfb0af0b61c534e1bb6bb798ed35bcbaef1e"
+            },
+            {
+              "paired_median_column_over_row": 1.1059368661619768,
+              "csv_sha256": "392c2d23344d0328852f9f63c53b47113e3c2ba07d85476a61433c7d62727e11"
+            }
+          ]
+        },
+        {
+          "size": 512,
+          "row_width": 512,
+          "median_row_ns": 113887.375,
+          "median_column_ns": 826569.0,
+          "paired_median_column_over_row": 7.248875678663037,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 7.247887614206224,
+              "csv_sha256": "4021f12622ccda9d60606cf397b2899da7584a968424925858956e4f3f098e53"
+            },
+            {
+              "paired_median_column_over_row": 7.254432578121333,
+              "csv_sha256": "c30dd0f2ab86974f44ace0270448006e493762709c17a0b833dad7bf557018f9"
+            }
+          ]
+        }
+      ],
+      "executable_sha256": "5ca7206a0adb85a5cd894ef06656555072efc6b476bbe017a2be57e4533c36a8"
+    },
+    {
+      "id": "m2-darwin",
+      "target": "m2",
+      "hardware": "Apple M2",
+      "os": "macOS",
+      "placement": "marin-2, user-initiated QoS, core not attributed",
+      "compiler": "Apple Clang",
+      "cases": [
+        {
+          "size": 32,
+          "row_width": 32,
+          "median_row_ns": 453.765625,
+          "median_column_ns": 453.140625,
+          "paired_median_column_over_row": 1.0,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 1.0,
+              "csv_sha256": "8cac47171a21e06a5f7d92ba15ed8f71a6e3647f510fb75f87291973792c5ffc"
+            },
+            {
+              "paired_median_column_over_row": 1.0,
+              "csv_sha256": "f69629fd43a22160c377028ac7181a30842a129db33f51d8bcf8dd2a3464e13e"
+            }
+          ]
+        },
+        {
+          "size": 256,
+          "row_width": 256,
+          "median_row_ns": 20815.09375,
+          "median_column_ns": 178516.28125,
+          "paired_median_column_over_row": 8.576172702538198,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 8.578525841007329,
+              "csv_sha256": "a18b6f67dad6557807743c3486004fc59c933adc2345c4251d179c40479e3ed0"
+            },
+            {
+              "paired_median_column_over_row": 8.575553635168138,
+              "csv_sha256": "ec4ba22f3a29763b000464e346728aab530e8a0518b19d3e3edd4027537361f4"
+            }
+          ]
+        },
+        {
+          "size": 256,
+          "row_width": 272,
+          "median_row_ns": 20859.375,
+          "median_column_ns": 24119.140625,
+          "paired_median_column_over_row": 1.1561168539325843,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 1.1559871936171742,
+              "csv_sha256": "11ff66e77be2f1fc617fa82ae753d134915e6508684615371afad5567faa87c4"
+            },
+            {
+              "paired_median_column_over_row": 1.1561797752808989,
+              "csv_sha256": "4e2efe60e7102166a1db9fef9423eff42aded38fa778bb8bf11edd2180b4e9fc"
+            }
+          ]
+        },
+        {
+          "size": 512,
+          "row_width": 512,
+          "median_row_ns": 79143.890625,
+          "median_column_ns": 823555.984375,
+          "paired_median_column_over_row": 10.405388346548786,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 10.425370758585453,
+              "csv_sha256": "9753ebaf90b58cc8244910e81f547d000b383110c69efa809e1a2210162b6b18"
+            },
+            {
+              "paired_median_column_over_row": 10.355582279199941,
+              "csv_sha256": "87587b0a4378fbf59e0cff8d8e7c82162b6578d6b3a681d45c041ace05aabf5b"
+            }
+          ]
+        }
+      ],
+      "executable_sha256": "6025a4e54adbc82efc7e9abcd914a59dbec530a42cf072926df52bfd0a7c4fba"
+    },
+    {
+      "id": "m5-max-darwin",
+      "target": "m5-max",
+      "hardware": "Apple M5 Max",
+      "os": "macOS",
+      "placement": "user-initiated QoS, core not attributed",
+      "compiler": "Apple Clang 21.0.0",
+      "cases": [
+        {
+          "size": 32,
+          "row_width": 32,
+          "median_row_ns": 485.03125,
+          "median_column_ns": 484.375,
+          "paired_median_column_over_row": 1.0,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 1.0,
+              "csv_sha256": "3ff30f77da14619a3fa9f72c6f0abc467923b5760f08f97554e69f8087e28ba7"
+            },
+            {
+              "paired_median_column_over_row": 1.0,
+              "csv_sha256": "5d83bb07e5513c2cdce1f0f3989ba24fd186db0dd369ba0a5b9c110a0097a113"
+            }
+          ]
+        },
+        {
+          "size": 256,
+          "row_width": 256,
+          "median_row_ns": 16170.59375,
+          "median_column_ns": 139730.484375,
+          "paired_median_column_over_row": 8.667142218606823,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 8.63181260565081,
+              "csv_sha256": "04cc1f968b7bf1da94f9819894934dd4d5189e06f479ddc1263df20d72cafb97"
+            },
+            {
+              "paired_median_column_over_row": 8.67189224694122,
+              "csv_sha256": "44a34beb199a394fc1a85af5221c43758419d60e5d985bd440464b74be5afae9"
+            }
+          ]
+        },
+        {
+          "size": 256,
+          "row_width": 272,
+          "median_row_ns": 16095.71875,
+          "median_column_ns": 19606.765625,
+          "paired_median_column_over_row": 1.2137927114974456,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 1.2138889747234411,
+              "csv_sha256": "08cdf5106fd7c95df2e780e6ed85502865b33ddef3c64d53896577c5ed0e6df6"
+            },
+            {
+              "paired_median_column_over_row": 1.2137775619232638,
+              "csv_sha256": "bcc97b390bb00787555dd62a1a025043f92d2e96731fc2e19a0ef85f2399cd00"
+            }
+          ]
+        },
+        {
+          "size": 512,
+          "row_width": 512,
+          "median_row_ns": 60762.375,
+          "median_column_ns": 1118507.15625,
+          "paired_median_column_over_row": 18.409505228756913,
+          "sessions": [
+            {
+              "paired_median_column_over_row": 18.413986685127544,
+              "csv_sha256": "69c63c4d29df9c941fe2477e62304792540d84612cb09f62d4a4d3382d5191a0"
+            },
+            {
+              "paired_median_column_over_row": 18.405157309617024,
+              "csv_sha256": "e68d54103348add13304b7e7fb987f079170454b152b22d0a56e6db95084eb79"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

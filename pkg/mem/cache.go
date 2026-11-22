@@ -27,15 +27,28 @@ type CacheConfig struct {
 	// A zero count preserves the shared transport timing.
 	L1ReadFillBanks      int `json:",omitempty"`
 	L1ReadFillBankCycles int `json:",omitempty"`
-	L1Size               int // bytes
-	L1Ways               int // associativity
-	L1LineSize           int // bytes
-	L2Size               int // bytes
-	L2Ways               int // associativity
-	L2LineSize           int // bytes
-	L1Latency            int // cycles
-	L2Latency            int // cycles
-	DRAMLatency          int // cycles
+	// Optional address groups that share L1 demand read, write-allocate and
+	// dirty writeback service. The spacings are effective throughput limits.
+	L1MixedServiceBanks int `json:",omitempty"`
+	L1MixedReadCycles   int `json:",omitempty"`
+	L1MixedWriteCycles  int `json:",omitempty"`
+	L1MixedEvictCycles  int `json:",omitempty"`
+	L1Size              int // bytes
+	L1Ways              int // associativity
+	L1LineSize          int // bytes
+	// L2ColorPageBytes approximates physical indexing when guest virtual
+	// addresses are all that is available. Preserve page offsets and assign
+	// virtual pages deterministic colors. Zero uses the linear address.
+	L2ColorPageBytes int `json:",omitempty"`
+	// L2RandomVictim selects a reproducible pseudorandom occupied way on
+	// replacement. A free way is always used first.
+	L2RandomVictim bool `json:",omitempty"`
+	L2Size         int  // bytes
+	L2Ways         int  // associativity
+	L2LineSize     int  // bytes
+	L1Latency      int  // cycles
+	L2Latency      int  // cycles
+	DRAMLatency    int  // cycles
 
 	// FillBytesPerCycle bounds the L2-to-L1 fill transport used by every timed
 	// L1 line fill (demand or adjacent-line prefetch). 0 means unlimited.
@@ -214,11 +227,13 @@ type cacheLine struct {
 }
 
 type cacheLevel struct {
-	sets     [][]cacheLine
-	numSets  int
-	ways     int
-	lineSize int
-	counter  uint64
+	colorPageBytes uint64
+	randomVictim   bool
+	sets           [][]cacheLine
+	numSets        int
+	ways           int
+	lineSize       int
+	counter        uint64
 }
 
 func newCacheLevel(totalSize, ways, lineSize int) *cacheLevel {
@@ -236,11 +251,33 @@ func newCacheLevel(totalSize, ways, lineSize int) *cacheLevel {
 }
 
 func (cl *cacheLevel) setIndex(addr uint64) int {
+	if page := cl.colorPageBytes; page != 0 {
+		addr = mixBits(addr/page)*page + addr%page
+	}
 	return int((addr / uint64(cl.lineSize)) % uint64(cl.numSets))
 }
 
 func (cl *cacheLevel) tag(addr uint64) uint64 {
 	return addr / uint64(cl.lineSize)
+}
+
+// This permutation (SplitMix64) needs no random state. Repeating a victim
+// query before installing the replacement selects the same writeback line.
+func mixBits(x uint64) uint64 {
+	x += 0x9e3779b97f4a7c15
+	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9
+	x = (x ^ (x >> 27)) * 0x94d049bb133111eb
+	return x ^ (x >> 31)
+}
+
+func newL2(cfg CacheConfig) *cacheLevel {
+	page := cfg.L2ColorPageBytes
+	if page < 0 || (page > 0 && (page < cfg.L2LineSize || page&(page-1) != 0 || page%cfg.L2LineSize != 0)) {
+		panic("mem: L2 coloring requires a power-of-two page containing whole lines")
+	}
+	l2 := newCacheLevel(cfg.L2Size, cfg.L2Ways, cfg.L2LineSize)
+	l2.colorPageBytes, l2.randomVictim = uint64(page), cfg.L2RandomVictim
+	return l2
 }
 
 // find returns the line holding addr and marks it most recently used.
@@ -274,8 +311,9 @@ func (cl *cacheLevel) lookup(addr uint64) bool {
 	return cl.find(addr) != nil
 }
 
-// victim selects the first free slot, or the LRU occupied slot with first-way
-// tie breaking. Timed writeback and installation use this same selector.
+// victim selects the first free slot. When the set is full, it applies the
+// configured replacement policy. Exact LRU breaks ties by way order.
+// Timed writeback and installation select the same slot.
 func (cl *cacheLevel) victim(addr uint64) *cacheLine {
 	set := cl.sets[cl.setIndex(addr)]
 	var victim *cacheLine
@@ -287,11 +325,14 @@ func (cl *cacheLevel) victim(addr uint64) *cacheLine {
 			victim = &set[i]
 		}
 	}
+	if cl.randomVictim {
+		return &set[mixBits(cl.counter^cl.tag(addr))%uint64(cl.ways)]
+	}
 	return victim
 }
 
 // installAt puts addr into this cache level with the given arrival cycle,
-// evicting the LRU line if needed, and returns the installed line.
+// replacing the selected victim if needed, and returns the installed line.
 func (cl *cacheLevel) installAt(addr uint64, readyAt uint64, prefetched bool) *cacheLine {
 	slot := cl.victim(addr)
 	cl.counter++
@@ -406,6 +447,7 @@ type Cache struct {
 	stats                      CacheStats
 	channel                    *fillChannel // L2 -> L1 fills
 	readFillBanks              []fillChannel
+	l1MixedBanks               []fillChannel
 	dram                       *fillChannel // memory side (SLC or DRAM) -> L2 fills
 	spill                      *fillChannel // clean L2 victims -> SLC
 	streams                    []stream
@@ -424,7 +466,7 @@ type Cache struct {
 func NewCache(cfg CacheConfig) *Cache {
 	c := &Cache{
 		l1:  newCacheLevel(cfg.L1Size, cfg.L1Ways, cfg.L1LineSize),
-		l2:  newCacheLevel(cfg.L2Size, cfg.L2Ways, cfg.L2LineSize),
+		l2:  newL2(cfg),
 		cfg: cfg,
 	}
 	c.slc, c.spill = newMemorySideCache(cfg)
@@ -479,6 +521,14 @@ func (c *Cache) initTimed() {
 		}
 	}
 	c.tlb = newTLB(c.cfg)
+	mixed := c.cfg.L1MixedServiceBanks
+	if mixed < 0 || (mixed > 0 && (c.cfg.FillBytesPerCycle <= 0 ||
+		c.cfg.L1MixedReadCycles <= 0 || c.cfg.L1MixedWriteCycles <= 0 || c.cfg.L1MixedEvictCycles <= 0)) {
+		panic("mem: invalid L1 mixed service configuration")
+	}
+	if mixed > 0 {
+		c.l1MixedBanks = make([]fillChannel, mixed)
+	}
 }
 
 // SharedL2 is an L2 cache that can be shared across multiple cores, together
@@ -500,7 +550,7 @@ func NewSharedL2(cfg CacheConfig) *SharedL2 {
 	if cfg.WriteBufferEntries < 0 {
 		panic("mem: negative write-buffer capacity")
 	}
-	s := &SharedL2{level: newCacheLevel(cfg.L2Size, cfg.L2Ways, cfg.L2LineSize), cfg: cfg, clients: make(map[*Cache]uint64), writebacks: make([]uint64, cfg.WriteBufferEntries)}
+	s := &SharedL2{level: newL2(cfg), cfg: cfg, clients: make(map[*Cache]uint64), writebacks: make([]uint64, cfg.WriteBufferEntries)}
 	s.slc, s.spill = newMemorySideCache(cfg)
 	if cfg.DRAMBytesPerCycle > 0 {
 		s.dram = &fillChannel{bytesPerCycle: uint64(cfg.DRAMBytesPerCycle)}
@@ -518,7 +568,7 @@ func NewPrivateL1WithSharedL2(cfg CacheConfig, shared *SharedL2) *Cache {
 	if shared.started {
 		panic("mem: cannot attach a cache after shared timing starts")
 	}
-	if cfg.L2Size != shared.cfg.L2Size || cfg.L2Ways != shared.cfg.L2Ways || cfg.L2LineSize != shared.cfg.L2LineSize || cfg.L2Latency != shared.cfg.L2Latency || cfg.DRAMLatency != shared.cfg.DRAMLatency || cfg.DRAMBytesPerCycle != shared.cfg.DRAMBytesPerCycle || cfg.WriteBufferEntries != shared.cfg.WriteBufferEntries ||
+	if cfg.L2ColorPageBytes != shared.cfg.L2ColorPageBytes || cfg.L2RandomVictim != shared.cfg.L2RandomVictim || cfg.L2Size != shared.cfg.L2Size || cfg.L2Ways != shared.cfg.L2Ways || cfg.L2LineSize != shared.cfg.L2LineSize || cfg.L2Latency != shared.cfg.L2Latency || cfg.DRAMLatency != shared.cfg.DRAMLatency || cfg.DRAMBytesPerCycle != shared.cfg.DRAMBytesPerCycle || cfg.WriteBufferEntries != shared.cfg.WriteBufferEntries ||
 		cfg.SLCSize != shared.cfg.SLCSize || cfg.SLCLatency != shared.cfg.SLCLatency {
 		panic("mem: inconsistent shared L2 timing configuration")
 	}
@@ -544,6 +594,9 @@ func (c *Cache) Advance(cycle uint64) {
 	c.channel.prune(cycle)
 	for i := range c.readFillBanks {
 		c.readFillBanks[i].prune(cycle)
+	}
+	for i := range c.l1MixedBanks {
+		c.l1MixedBanks[i].prune(cycle)
 	}
 	if c.tlb != nil {
 		c.tlb.prune(cycle)
@@ -752,7 +805,14 @@ func (c *Cache) accessLine(addr uint64, size int, isWrite bool, now uint64) (Hit
 	}
 
 	var ready uint64
-	if level != HitL2 {
+	if level == HitL2 && len(c.l1MixedBanks) > 0 {
+		start := max(now, l2Ready)
+		spacing := c.cfg.L1MixedReadCycles
+		if isWrite {
+			spacing = c.cfg.L1MixedWriteCycles
+		}
+		ready = c.transferL1Mixed(addr, start+uint64(c.cfg.L2Latency), start, uint64(spacing), !isWrite)
+	} else if level != HitL2 {
 		// The demand fill delivers the critical line to L1 as the data arrives
 		// from the memory side; its L1 transfer still occupies the L2-to-L1
 		// transport.
@@ -822,6 +882,42 @@ func (c *Cache) fillL1Banked(addr, l2Ready, now uint64) uint64 {
 			return c.channel.book(channelStart, sharedCycles, channelPos)
 		}
 		start = bankStart
+	}
+}
+
+// transferL1Mixed reserves the bus and all applicable address-dependent
+// service groups for the same start cycle. Each calendar keeps reservations
+// in issue-time order, so every stage can use a suitable earlier gap.
+func (c *Cache) transferL1Mixed(addr, earliest, notBefore, spacing uint64, read bool) uint64 {
+	occupancy := c.channel.occupancy(c.cfg.L1LineSize)
+	start := notBefore
+	if earliest >= occupancy {
+		start = max(start, earliest-occupancy)
+	}
+	line := addr / uint64(c.cfg.L1LineSize)
+	group := &c.l1MixedBanks[line%uint64(len(c.l1MixedBanks))]
+	var readGroup *fillChannel
+	readSpacing := uint64(c.cfg.L1ReadFillBankCycles)
+	if read && len(c.readFillBanks) > 0 {
+		readGroup = &c.readFillBanks[line%uint64(len(c.readFillBanks))]
+	}
+	for {
+		busStart, busPos := c.channel.available(start, occupancy)
+		groupStart, groupPos := group.available(busStart, spacing)
+		if groupStart != busStart {
+			start = groupStart
+			continue
+		}
+		if readGroup != nil {
+			readStart, readPos := readGroup.available(busStart, readSpacing)
+			if readStart != busStart {
+				start = readStart
+				continue
+			}
+			readGroup.book(busStart, readSpacing, readPos)
+		}
+		group.book(busStart, spacing, groupPos)
+		return c.channel.book(busStart, occupancy, busPos)
 	}
 }
 
