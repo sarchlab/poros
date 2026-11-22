@@ -76,6 +76,40 @@ never hardware references. Unknown core identity/frequency and VM effects keep
 hardware accuracy unverified. Unusable points stay visible but are excluded from
 error summaries. Raw measurements are never rescaled or offset.
 
+## JSON benchmark dashboard
+
+Run `python3 scripts/benchmark_dashboard.py benchmarks.json report.html` to
+render a standalone dashboard. The input contains a `benchmarks` array and
+may include a `title`, a `description`, and a `devices` mapping from device
+IDs to display names.
+
+Each benchmark supplies an `id`, `name`, `kind` (`full` or `microbenchmark`),
+`scaling_factor` (the x-axis label), `time_unit`, and a `points` array.
+A point supplies `device`, numeric `scale`, and `native` and `poros` times
+in the declared unit. Use `null` for a missing time. An optional `series`
+object gives auxiliary factors such as traversal order and padding.
+Points with the same device and factors share a chart, and an optional
+`label` appears on hover. A benchmark may declare `panel_factors` to keep
+those factors in separate charts and put other factors in one configuration
+menu. For example, `["Traversal"]` keeps two traversal charts when the
+reader switches padding. The dashboard displays the devices and benchmarks
+in the supplied points. Scroll over a plot to zoom around the pointer.
+Use Reset X to return to the full range. Each chart has its own
+Linear / Log switch, and the page-wide switch applies a scale to
+every chart. Logarithmic plots leave out zero and missing timings.
+The dashboard summarizes full benchmark and microbenchmark pairs together
+for each device and across devices. Times are converted to milliseconds
+(ns, µs, us, ms, or s). Points need two positive timings and are excluded
+if an optional `reference_quality` is supplied and is not `usable`.
+The whole-program accuracy bundle retains its own completeness and
+validation rules.
+
+For a live report, include a `progress` object with `identity` (a stable
+campaign identity), integer `completed` and `planned` counts, string arrays
+`active` and `failed`, and a boolean `terminal`. Publish the refreshed HTML
+at the same URL with identical identity and benchmark inventory. The live
+page updates in place and stops polling once the campaign is terminal.
+
 ## Modeled devices
 
 `evaluation/devices.json` declares every device the simulator models: `m2`
