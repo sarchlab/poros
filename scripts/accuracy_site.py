@@ -877,7 +877,8 @@ CSS = """
 """
 
 
-def page(title, content, script=""):
+def page(title, content, script="",
+         footer="Poros · Whole-program user CPU time · Reproducible evidence, unadjusted predictions."):
     return (
         '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'
         + esc(title)
@@ -885,7 +886,7 @@ def page(title, content, script=""):
         + CSS
         + "</style><main>"
         + content
-        + "<footer>Poros · Whole-program user CPU time · Reproducible evidence, unadjusted predictions.</footer></main>"
+        + "<footer>" + esc(footer) + "</footer></main>"
         + script
         + "</html>\n"
     )
@@ -993,6 +994,7 @@ LIVE_REFRESH = """<script>
     try { target = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null; } catch (_) {}
     graft(root, next, target && root.contains(target) ? target : null);
     root.dataset.liveState = next.dataset.liveState;
+    document.dispatchEvent(new Event('report-before-scroll'));
     const nodes = new Map([...root.querySelectorAll('*')].map(n => [key(n, root), n]));
     // Reopen every disclosure before scroll writes force layout. Replacing
     // long open tables with collapsed ones can temporarily clamp window scroll.
@@ -1023,13 +1025,16 @@ LIVE_REFRESH = """<script>
     }
     document.dispatchEvent(new Event('report-updated'));
   }
+  let lastSnapshot;
   async function refresh() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       const response = await fetch(location.href, {cache:'no-store', signal:controller.signal});
       if (!response.ok) throw new Error('Report unavailable');
-      const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const html = await response.text();
+      if (html === lastSnapshot) return;
+      const doc = new DOMParser().parseFromString(html, 'text/html');
       const next = doc.getElementById('accuracy-report');
       // Only a complete document of this same report is taken: polling, or
       // finished (validated, or settled: nothing in it is still running).
@@ -1040,6 +1045,7 @@ LIVE_REFRESH = """<script>
         throw new Error('Invalid or different report');
       }
       apply(next);
+      lastSnapshot = html;
     } catch (_) {
       // Keep the last good view on transient HTTP, network or snapshot errors.
     } finally {
@@ -1056,7 +1062,7 @@ LIVE_REFRESH = """<script>
 
 def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=None,
           ideal=False, note="", y_bands=(), y_ranges=(), x_domain=None, step_start=None,
-          percentile_guides=(), empty="No comparable points available."):
+          percentile_guides=(), empty="No comparable points available.", x_samples=None):
     """Plot the data domain; guide lines never contribute observations."""
     points = [(x, y) for _, values, _ in series for x, y, _ in values]
     if not points:
@@ -1105,8 +1111,23 @@ def chart(title, series, xlabel, ylabel, scatter=False, x_ticks=None, y_ticks=No
                 for x, y, _ in values:
                     line.extend(((previous, y), (x, y)))
                     previous = x
-            coords = " ".join(f"{px(x):.2f},{py(y):.2f}" for x, y in line)
-            body += f'<polyline fill="none" stroke="{color}" points="{coords}"/>'
+            lines = [line]
+            if x_samples is not None:
+                available = dict(line)
+                lines, contiguous = [], []
+                for x in x_samples:
+                    if x in available:
+                        contiguous.append((x, available[x]))
+                    elif contiguous:
+                        lines.append(contiguous)
+                        contiguous = []
+                if contiguous:
+                    lines.append(contiguous)
+            for segment in lines:
+                if x_samples is not None and len(segment) < 2:
+                    continue
+                coords = " ".join(f"{px(x):.2f},{py(y):.2f}" for x, y in segment)
+                body += f'<polyline fill="none" stroke="{color}" points="{coords}"/>'
         for x, y, label in values:
             # Identical base/head observations must both be readable on hover.
             marks.setdefault((x, y), []).append((color, name + ": " + label))
@@ -1243,6 +1264,11 @@ def overview_charts(cases, heading='<h2 id="overall">Overall benchmark accuracy<
     # All overview views and statistics use exactly the same qualified head cases.
     points = [(c["reference_user_seconds"] * 1000, c["head"]["predicted_user_seconds"] * 1000, c["id"])
               for c in cases if not is_micro_case(c) and qualified(c)]
+    return accuracy_charts(points, heading)
+
+
+def accuracy_charts(points, heading="", time_label="user time"):
+    """Draw the common accuracy summary for comparable timings in milliseconds."""
     ranks, scatter = [], []
     band_counts = [0] * len(ERROR_BANDS)
     for i, (ref, pred, name) in enumerate(sorted(points, key=lambda p: (p[1]/p[0], p[2])), 1):
@@ -1284,7 +1310,7 @@ def overview_charts(cases, heading='<h2 id="overall">Overall benchmark accuracy<
             f"Pearson correlation (r) = {pearson}</p>"
             f"<p class='muted'>{n} qualified cases. The percentage compares pairs with distinct measured times.</p>")
     comparison = chart("Qualified reference vs. prediction", [("head", scatter, "#087e8b")],
-                       "Reference user time (ms)", "Predicted user time (ms)", scatter=True, ideal=True, note=note)
+                       f"Reference {time_label} (ms)", f"Predicted {time_label} (ms)", scatter=True, ideal=True, note=note)
     return (heading + '<div class="charts">'
             + s_curve + absolute_error_cdf(points) + '</div><div class="charts" style="margin-top:16px">'
             + comparison + "</div>")
