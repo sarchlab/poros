@@ -1471,3 +1471,23 @@ an individual Linux allocation or Apple's dynamic policy.
 [Linux M1 device tree](https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/apple/t8103.dtsi)
 [Linux M2 device tree](https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/apple/t8112.dtsi)
 [M1 L2 measurements](https://www.usenix.org/conference/usenixsecurity23/presentation/yu-jiyong)
+
+### M5 Max mixed L1 service groups
+
+In a separate, warmed, verified M5 Max native sweep at a fixed 512 × 256
+logical shape, changing the physical row width from 256 to 384 to 512
+elements changed full column traversal from about 2.31 to 1.66 to
+4.54 ns per element. Width 511 or 513 took about 0.32 ns per element.
+At width 512, moving the destination by 64 bytes reduced the mixed
+loop to 2.33 ns per element and barely changed either isolated stream.
+These are user-initiated QoS macOS captures with core placement
+unverified. The original reference timings remain separate.
+
+The M5 Max profile retains its eight read-fill groups and adds 32
+effective address groups shared by L2-hit reads, write allocation, and
+dirty L1 writeback. The modeled spacing is three, seven, or nine cycles
+respectively. Each operation also reserves the existing line transport.
+A 1 KiB stride rotates through two mixed groups, a 1.5 KiB stride
+through four, and a 2 KiB stride through one. These are consequences of
+the model's line grouping. The measured contrasts motivate the grouping
+and mixed contention, but do not expose the physical bank geometry.

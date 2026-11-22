@@ -195,6 +195,8 @@ func M5Max() Target {
 	t.OoO.LoadLatency, t.Cache.L1Latency, t.Cache.L2Latency = 3, 3, 12
 	t.Cache.AlternatingStoreLineCycles = 24
 	t.Cache.L1ReadFillBanks, t.Cache.L1ReadFillBankCycles = 8, 3
+	t.Cache.L1MixedServiceBanks = 32
+	t.Cache.L1MixedReadCycles, t.Cache.L1MixedWriteCycles, t.Cache.L1MixedEvictCycles = 3, 7, 9
 	t.Cache.DRAMLatency = 460
 	return t.WithFrequency(4_590_000_000 * timing.Hz)
 }
