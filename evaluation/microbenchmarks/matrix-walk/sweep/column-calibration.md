@@ -129,3 +129,50 @@ would help distinguish allocation pressure, dirty eviction throughput,
 and address-dependent interference. Compare any candidate against the
 store-only, mixed, padded, 16 KiB-stride, and row-first controls.
 No simulator behavior is changed by this investigation.
+
+## M5 Max
+
+Two additional verified macOS region captures compare full, load-only,
+store-only, and independent-store loops. There are 504 observations
+across the fixed-shape ablations and 612 across the fixed-footprint stride
+sweep. Both use user-initiated QoS. No performance-core affinity or
+PMU attribution was established. These captures diagnose the mechanism;
+accuracy comparisons continue to use the original retained reference.
+
+For unpadded 512², median full, load-only, store-only and independent-store
+times are 4.52, 0.50, 2.02 and 4.82 ns per element. At the same logical
+512 × 256 shape, physical row widths of 256, 384 and 512 give 2.31,
+1.66 and 4.54 ns per element for the full loop. Moving only the
+destination by 64 bytes at width 512 lowers this to 2.33 ns per element,
+with little change in the isolated streams. These comparisons favor
+address-dependent shared service over a uniform fill-bandwidth reduction.
+
+The M5 Max candidate `d8da8cc` reserves shared demand-read,
+write-allocation and dirty-L1-writeback service by address group,
+in addition to the existing transfer channel and read-fill groups.
+The [model profile](../../../model-profile.md#m5-max-mixed-l1-service-groups)
+records the approximation and its effective spacings.
+
+The same archived ELF and retained reference were used to audit all 60
+M5 Max column cases and 12 row controls. The original and candidate
+matched guest outputs and retired instructions. All four Linux workers
+matched the macOS simulator's timing canary.
+
+| M5 Max comparison | Original | Candidate |
+| --- | ---: | ---: |
+| Column median diff/min error | 31.23% | 15.27% |
+| Column worst diff/min error | 386.27% | 264.49% |
+| Column points below 5% error | 11/60 | 15/60 |
+
+On unpadded 256², 512² and 1024², predicted times change from 107.09,
+428.34 and 1,713.36 µs to 142.66, 1,140.68 and 4,565.83 µs.
+Hardware takes 144.86, 1,108.11 and 4,836.83 µs. The 16 KiB stride
+improves from 386.27% to 82.60% error. The 1023² outlier stays at
+264.49%. Of the 60 column cases, 21 worsen by more than 0.01 percentage
+points. For example, the 512² destination-only padding case worsens
+from 6.13% to 20.16%.
+
+The 12 row controls change in predicted time by less than 0.001%.
+The full Go short test suite passes. An M1, M2, and Grace canary
+reproduces each original timing object. Application-suite effects
+require separate assessment.
