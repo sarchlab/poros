@@ -1,0 +1,18 @@
+{
+  "release": "v0.1.4",
+  "release_commit": "8d33aae0121174366727ce662f58c040fc8c0d79",
+  "simulation_commit": "39be841e29ab93fc731dbd01eae128bfe272a989",
+  "result_status": "partial",
+  "completed": 2216,
+  "planned": 2217,
+  "missing": [
+    {
+      "device": "m5-max",
+      "suite": "memory",
+      "case": "chase1-268435456",
+      "reason": "simulator time limit"
+    }
+  ],
+  "source_equivalence": "Only the device-profile test and dashboard code or documentation differ",
+  "matrix_walk": "312 separately measured paired observations"
+}

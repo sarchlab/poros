@@ -1,0 +1,119 @@
+{
+  "revision": "39be841e29ab93fc731dbd01eae128bfe272a989",
+  "planned": 2217,
+  "completed": 2216,
+  "running": 0,
+  "failed": 1,
+  "validated": false,
+  "terminal": true,
+  "devices": {
+    "m1": {
+      "qualified": 235,
+      "mean": 9.572321389796832,
+      "median": 5.2987099508783615,
+      "maximum": 46.517857555209964,
+      "below_50": 235,
+      "at_or_above_50": 0,
+      "pearson": "0.9955",
+      "kendall_tau_b": "0.8254",
+      "correct_pairs": "91.27% (25,094/27,495)",
+      "completed": 552,
+      "total": 552,
+      "same_points": {
+        "count": 235,
+        "old_mean": 9.655142118312304,
+        "new_mean": 9.572321389796832,
+        "old_median": 5.710928795579291,
+        "new_median": 5.2987099508783615,
+        "newly_below_08": 0,
+        "changed_cycles": 235,
+        "worsened": 73,
+        "improved": 105
+      }
+    },
+    "m2": {
+      "qualified": 236,
+      "mean": 15.030927455125328,
+      "median": 10.321644549426685,
+      "maximum": 56.393966187093504,
+      "below_50": 224,
+      "at_or_above_50": 12,
+      "pearson": "0.9879",
+      "kendall_tau_b": "0.7626",
+      "correct_pairs": "88.13% (24,439/27,730)",
+      "completed": 552,
+      "total": 552,
+      "same_points": {
+        "count": 236,
+        "old_mean": 14.952962870289882,
+        "new_mean": 15.030927455125328,
+        "old_median": 9.976891575108208,
+        "new_median": 10.321644549426685,
+        "newly_below_08": 0,
+        "changed_cycles": 236,
+        "worsened": 81,
+        "improved": 84
+      }
+    },
+    "grace": {
+      "qualified": 237,
+      "mean": 10.606877115205158,
+      "median": 7.873812599093834,
+      "maximum": 46.70767510979175,
+      "below_50": 237,
+      "at_or_above_50": 0,
+      "pearson": "0.9874",
+      "kendall_tau_b": "0.8447",
+      "correct_pairs": "92.23% (25,794/27,966)",
+      "completed": 552,
+      "total": 552,
+      "same_points": {
+        "count": 237,
+        "old_mean": 10.606877115205158,
+        "new_mean": 10.606877115205158,
+        "old_median": 7.873812599093834,
+        "new_median": 7.873812599093834,
+        "newly_below_08": 0,
+        "changed_cycles": 0,
+        "worsened": 0,
+        "improved": 0
+      }
+    },
+    "m5-max": {
+      "qualified": 241,
+      "mean": 14.461384713732043,
+      "median": 11.32815387085201,
+      "maximum": 55.616616843052974,
+      "below_50": 239,
+      "at_or_above_50": 2,
+      "pearson": "0.9986",
+      "kendall_tau_b": "0.8405",
+      "correct_pairs": "92.03% (26,614/28,920)",
+      "completed": 560,
+      "total": 561,
+      "same_points": {
+        "count": 241,
+        "old_mean": 14.481952873286717,
+        "new_mean": 14.461384713732043,
+        "old_median": 11.537259102233397,
+        "new_median": 11.32815387085201,
+        "newly_below_08": 0,
+        "changed_cycles": 152,
+        "worsened": 15,
+        "improved": 21
+      }
+    }
+  },
+  "pooled": {
+    "qualified": 949,
+    "mean": 12.429734455558354,
+    "median": 8.806217895858435,
+    "maximum": 56.393966187093504,
+    "below_50": 935,
+    "at_or_above_50": 14,
+    "pearson": "0.9808",
+    "kendall_tau_b": "0.8340",
+    "correct_pairs": "91.70% (412,481/449,818)"
+  },
+  "updated_at": 1795335181.483296
+}
