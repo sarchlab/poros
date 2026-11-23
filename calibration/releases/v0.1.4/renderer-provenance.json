@@ -18,5 +18,6 @@
   },
   "excluded_hardware_values": 35,
   "retained_detail": "details.html",
-  "previous_viewer": "legacy.html"
+  "previous_viewer": "legacy.html",
+  "display_time_unit": "ms"
 }
