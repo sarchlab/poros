@@ -1,0 +1,22 @@
+{
+  "repository": "sarchlab/calibration-report",
+  "version": "v0.1.0",
+  "commit": "110288883f418b1432d87df2d1f28401072eb69e",
+  "source_data": "benchmarks.json",
+  "campaign_provenance": "provenance.json",
+  "qualified_application_comparisons": {
+    "m1": 235,
+    "m2": 236,
+    "grace": 237,
+    "m5-max": 250
+  },
+  "qualified_microbenchmark_comparisons": {
+    "m1": 138,
+    "m2": 138,
+    "grace": 18,
+    "m5-max": 90
+  },
+  "excluded_hardware_values": 35,
+  "retained_detail": "details.html",
+  "previous_viewer": "legacy.html"
+}
